@@ -1,0 +1,32 @@
+[package]
+name = "sine_scope_client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# gRPC
+tonic = { version = "0.12", features = ["tls", "transport"] }
+prost = "0.13"
+prost-types = "0.13"
+
+# Async runtime
+tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "sync"] }
+
+# GUI
+
+# egui_plot ships as a module of egui in recent versions, but we use the crate for explicit versioning
+# For channels between async task and UI
+futures = "0.3"
+eframe = "0.32.2"
+egui = "0.32.2"
+egui_plot = "0.33.0"
+chrono = "0.4.41"
+rfd = "0.15.4"
+image = "0.25.8"
+rustfft = "6"
+async-stream = "0.3"
+futures-core = "0.3"
+screenshots = "0.8"
+
+[build-dependencies]
+tonic-build = "0.12"
