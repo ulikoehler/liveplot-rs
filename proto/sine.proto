@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package sine.v1;
+
+message SubscribeRequest {
+  // You could put options here later (e.g., frequency, fs). Left empty for now.
+}
+
+message Sample {
+  double value = 1;          // The sine value at this sample
+  int64  index = 2;          // Sample index n (0,1,2,...)
+  int64  timestamp_micros = 3; // Server timestamp when produced
+}
+
+service SineWave {
+  // Server-streaming: client calls once, server streams samples forever.
+  rpc Subscribe(SubscribeRequest) returns (stream Sample);
+}
