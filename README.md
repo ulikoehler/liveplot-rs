@@ -1,0 +1,2 @@
+# liveplot-rs
+Real-time/live plotting application in Rust, with real-time data sources
