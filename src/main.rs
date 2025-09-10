@@ -107,54 +107,6 @@ fn draw_line(img: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, color: Rgb
     }
 }
 
-fn draw_cross(img: &mut RgbaImage, x: i32, y: i32, size: i32, color: Rgba<u8>) {
-    for dx in -size..=size { draw_safe_pixel(img, x+dx, y, color); }
-    for dy in -size..=size { draw_safe_pixel(img, x, y+dy, color); }
-}
-
-fn draw_safe_pixel(img: &mut RgbaImage, x: i32, y: i32, color: Rgba<u8>) {
-    if x>=0 && x < img.width() as i32 && y>=0 && y < img.height() as i32 { img.put_pixel(x as u32, y as u32, color); }
-}
-
-fn save_scope_png(path: &Path, data: &[[f64;2]], sel1: Option<usize>, sel2: Option<usize>) -> Result<(), Box<dyn std::error::Error>> {
-    if data.len() < 2 { return Err("Not enough data to save".into()); }
-    let (mut min_x, mut max_x) = (f64::INFINITY, f64::NEG_INFINITY);
-    let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
-    for p in data { if p[0] < min_x { min_x = p[0]; } if p[0] > max_x { max_x = p[0]; } if p[1] < min_y { min_y = p[1]; } if p[1] > max_y { max_y = p[1]; } }
-    if !(min_x.is_finite() && max_x.is_finite() && min_y.is_finite() && max_y.is_finite()) { return Err("Invalid data range".into()); }
-    if max_x - min_x <= 0.0 || max_y - min_y <= 0.0 { return Err("Degenerate data range".into()); }
-
-    let width = 1600u32; let height = 900u32; let margin = 60u32;
-    let plot_w = (width - 2*margin) as f64; let plot_h = (height - 2*margin) as f64;
-    let mut img = RgbaImage::from_pixel(width, height, Rgba([15,15,20,255]));
-
-    // Axes box
-    let axis_color = Rgba([200,200,200,255]);
-    draw_line(&mut img, margin as i32, margin as i32, (width-margin) as i32, margin as i32, axis_color);
-    draw_line(&mut img, margin as i32, (height-margin) as i32, (width-margin) as i32, (height-margin) as i32, axis_color);
-    draw_line(&mut img, margin as i32, margin as i32, margin as i32, (height-margin) as i32, axis_color);
-    draw_line(&mut img, (width-margin) as i32, margin as i32, (width-margin) as i32, (height-margin) as i32, axis_color);
-
-    // Plot line
-    let line_color = Rgba([120,200,255,255]);
-    for w in 1..data.len() { // skip first point for segment prev->curr
-        let p0 = data[w-1]; let p1 = data[w];
-        let x0 = margin as f64 + (p0[0]-min_x)/(max_x-min_x)*plot_w;
-        let y0 = margin as f64 + (1.0 - (p0[1]-min_y)/(max_y-min_y))*plot_h;
-        let x1 = margin as f64 + (p1[0]-min_x)/(max_x-min_x)*plot_w;
-        let y1 = margin as f64 + (1.0 - (p1[1]-min_y)/(max_y-min_y))*plot_h;
-        draw_line(&mut img, x0.round() as i32, y0.round() as i32, x1.round() as i32, y1.round() as i32, line_color);
-    }
-
-    // Selected points crosses
-    let sel_colors = [Rgba([255,255,0,255]), Rgba([100,160,255,255])];
-    if let Some(i) = sel1 { if let Some(p) = data.get(i) { let x = margin as f64 + (p[0]-min_x)/(max_x-min_x)*plot_w; let y = margin as f64 + (1.0 - (p[1]-min_y)/(max_y-min_y))*plot_h; draw_cross(&mut img, x.round() as i32, y.round() as i32, 8, sel_colors[0]); }}
-    if let Some(i) = sel2 { if let Some(p) = data.get(i) { let x = margin as f64 + (p[0]-min_x)/(max_x-min_x)*plot_w; let y = margin as f64 + (1.0 - (p[1]-min_y)/(max_y-min_y))*plot_h; draw_cross(&mut img, x.round() as i32, y.round() as i32, 8, sel_colors[1]); }}
-
-    img.save(path)?;
-    Ok(())
-}
-
 // Sample struct matching gRPC Sample
 #[derive(Debug, Clone)]
 pub struct Sample {
