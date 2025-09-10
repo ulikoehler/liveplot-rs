@@ -1,10 +1,12 @@
+mod point_selection;
 use std::{collections::VecDeque, time::Duration};
 use eframe::{self, egui};
 use egui_plot::{Plot, Line, Legend, PlotPoints, Points, Text, PlotPoint};
 use egui::Color32;
 use chrono::Local;
 use std::sync::mpsc::Receiver;
-use std::path::Path;
+
+use point_selection::PointSelection;
 
 // For PNG export
 use image::{RgbaImage, Rgba};
@@ -32,6 +34,7 @@ fn compute_fft_if_possible(app: &ScopeApp) -> Option<Vec<[f64;2]>> {
     )
 }
 
+
 // Define ScopeApp struct
 pub struct ScopeApp {
     pub rx: Receiver<Sample>,
@@ -54,45 +57,15 @@ pub struct ScopeApp {
     pub fft_db: bool, // display magnitude in dB if true
     pub fft_fit_view: bool, // request to fit FFT plot bounds
     // Point selection (time-domain)
-    pub selected_idx1: Option<usize>,
-    pub selected_idx2: Option<usize>,
+    pub point_selection: PointSelection,
     pub request_window_shot: bool,
     pub last_viewport_capture: Option<Arc<egui::ColorImage>>, // retained screenshot
 }
 
-impl ScopeApp {
-    // Adjust selection indices after N elements were removed from the front of the live buffer.
-    // Rules:
-    //  * If a selected index < removed count -> that point left the buffer.
-    //  * If P1 removed and P2 still present -> promote P2 to P1, clear P2.
-    //  * If only P2 removed -> just clear P2.
-    //  * Remaining indices shift down by removed count.
-    fn adjust_selection_for_front_removal(&mut self, removed: usize) {
-        if removed == 0 { return; }
-        let mut p1 = self.selected_idx1;
-        let mut p2 = self.selected_idx2;
-
-        // Helper to shift or invalidate an index
-    let shift = |opt: &mut Option<usize>| {
-            if let Some(i) = *opt {
-                if i < removed { *opt = None; } else { *opt = Some(i - removed); }
-            }
-        };
-
-        shift(&mut p1);
-        shift(&mut p2);
-
-        // Promotion logic
-        if p1.is_none() && p2.is_some() {
-            p1 = p2;
-            p2 = None;
-        }
-        self.selected_idx1 = p1;
-        self.selected_idx2 = p2;
-    }
-}
+// ...existing code...
 
 // Simple line drawer (Bresenham) for RGBA image
+#[allow(dead_code)]
 fn draw_line(img: &mut RgbaImage, x0: i32, y0: i32, x1: i32, y1: i32, color: Rgba<u8>) {
     let (mut x0, mut y0, mut x1, mut y1) = (x0, y0, x1, y1);
     let steep = (y1 - y0).abs() > (x1 - x0).abs();
@@ -123,9 +96,9 @@ impl eframe::App for ScopeApp {
             let y = sample.value;
             self.buffer_live.push_back([t, y]);
             if self.buffer_live.len() > self.max_points {
-        self.buffer_live.pop_front();
-        // Adjust selections for single element removal from front (live only)
-        if !self.paused { self.adjust_selection_for_front_removal(1); }
+                self.buffer_live.pop_front();
+                // Adjust selections for single element removal from front (live only)
+                if !self.paused { self.point_selection.adjust_for_front_removal(1); }
             }
         }
 
@@ -133,16 +106,18 @@ impl eframe::App for ScopeApp {
         if self.last_prune.elapsed() > Duration::from_millis(200) {
             if let Some((&[t_latest, _], _)) = self.buffer_live.back().map(|x| (x, ())) {
                 let cutoff = t_latest - self.time_window;
-        let mut removed = 0usize;
+                let mut removed = 0usize;
                 while let Some(&[t, _]) = self.buffer_live.front() {
                     if t < cutoff {
                         self.buffer_live.pop_front();
-            removed += 1;
+                        removed += 1;
                     } else {
                         break;
                     }
                 }
-        if removed > 0 && !self.paused { self.adjust_selection_for_front_removal(removed); }
+                if removed > 0 && !self.paused {
+                    self.point_selection.adjust_for_front_removal(removed);
+                }
             }
             self.last_prune = std::time::Instant::now();
             // If we're paused we do NOT mutate the snapshot; it's a static view.
@@ -153,9 +128,8 @@ impl eframe::App for ScopeApp {
             if let Some(snapshot) = &self.buffer_snapshot { Box::new(snapshot.iter()) } else { Box::new(self.buffer_live.iter()) }
         } else { Box::new(self.buffer_live.iter()) };
     let data_points: Vec<[f64;2]> = display_iter.map(|&[t,y]| [t,y]).collect();
-        // Invalidate selections if indices out of range after pruning/live update
-        if let Some(i) = self.selected_idx1 { if i >= data_points.len() { self.selected_idx1 = None; } }
-        if let Some(i) = self.selected_idx2 { if i >= data_points.len() { self.selected_idx2 = None; } }
+    // Invalidate selections if indices out of range after pruning/live update
+    self.point_selection.invalidate_out_of_range(data_points.len());
     let plot_points: PlotPoints = data_points.clone().into();
     let line = Line::new("sine", plot_points);
 
@@ -189,8 +163,7 @@ impl eframe::App for ScopeApp {
                     }
                 }
                 if ui.button("Clear Selection").clicked() {
-                    self.selected_idx1 = None;
-                    self.selected_idx2 = None;
+                    self.point_selection.clear();
                 }
                 if ui.button("Save PNG").on_hover_text("Take an egui viewport screenshot").clicked() { self.request_window_shot = true; }
             });
@@ -277,8 +250,8 @@ impl eframe::App for ScopeApp {
                 });
             if self.reset_view { plot = plot.reset(); self.reset_view = false; }
             let data_points_ref = &data_points; // alias for closure capture
-            let selected1 = self.selected_idx1;
-            let selected2 = self.selected_idx2;
+            let selected1 = self.point_selection.selected_idx1;
+            let selected2 = self.point_selection.selected_idx2;
             // Determine base font size and compute marker font size (50% larger)
             let base_body = ctx.style().text_styles[&egui::TextStyle::Body].size;
             let marker_font_size = base_body * 1.5;
@@ -329,16 +302,7 @@ impl eframe::App for ScopeApp {
                             let d2 = dx*dx + dy*dy;
                             if d2 < best_d2 { best_d2 = d2; best_i = i; }
                         }
-                        match (self.selected_idx1, self.selected_idx2) {
-                            (None, _) => { self.selected_idx1 = Some(best_i); },
-                            (Some(i1), None) => {
-                                if best_i != i1 { self.selected_idx2 = Some(best_i); } else { self.selected_idx1 = None; }
-                            },
-                            (Some(_), Some(_)) => {
-                                self.selected_idx1 = Some(best_i);
-                                self.selected_idx2 = None;
-                            }
-                        }
+                        self.point_selection.handle_click(best_i);
                     }
                 }
             }
@@ -397,8 +361,7 @@ fn main() {
         fft_last_compute: std::time::Instant::now(),
         fft_db: false,
         fft_fit_view: false,
-        selected_idx1: None,
-        selected_idx2: None,
+        point_selection: PointSelection::default(),
         request_window_shot: false,
         last_viewport_capture: None,
     };
