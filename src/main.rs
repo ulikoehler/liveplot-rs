@@ -4,7 +4,6 @@ use egui_plot::{Plot, Line, Legend, PlotPoints, Points, Text, PlotPoint};
 use egui::Color32;
 use chrono::Local;
 use std::sync::mpsc::Receiver;
-use std::thread;
 use std::path::Path;
 
 // For PNG export
@@ -13,10 +12,9 @@ use egui::ViewportCommand;
 use std::sync::Arc;
 
 // gRPC client imports
-use tonic::Request;
-
 pub mod sine { pub mod v1 { tonic::include_proto!("sine.v1"); } }
-use sine::v1::{sine_wave_client::SineWaveClient, SubscribeRequest};
+
+mod grpc_client;
 use rustfft::{FftPlanner, num_complex::Complex};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -456,60 +454,29 @@ impl eframe::App for ScopeApp {
 // Add a main function to launch the app and start gRPC client in background
 fn main() {
     let (tx, rx) = std::sync::mpsc::channel();
-
-    // Spawn a background thread to run the async gRPC client
-    thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async move {
-            let mut client = match SineWaveClient::connect("http://127.0.0.1:50051").await {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Failed to connect to gRPC server: {e}");
-                    return;
-                }
-            };
-            let mut stream = match client.subscribe(Request::new(SubscribeRequest{})).await {
-                Ok(resp) => resp.into_inner(),
-                Err(e) => {
-                    eprintln!("Failed to subscribe: {e}");
-                    return;
-                }
-            };
-            while let Ok(Some(sample)) = stream.message().await {
-                let sample = Sample {
-                    index: sample.index as u64,
-                    value: sample.value,
-                    timestamp_micros: sample.timestamp_micros,
-                };
-                if tx.send(sample).is_err() {
-                    break;
-                }
-            }
-        });
-    });
+    grpc_client::spawn_grpc_client(tx);
 
     let app = ScopeApp {
         rx,
-    buffer_live: VecDeque::new(),
-    buffer_snapshot: None,
+        buffer_live: VecDeque::new(),
+        buffer_snapshot: None,
         max_points: 10_000,
         time_window: 10.0,
         last_prune: std::time::Instant::now(),
         reset_view: false,
         paused: false,
-    show_fft: false,
-    fft_size: 1024,
-    fft_window: FftWindow::Hann,
-    fft_overlap: 0.5,
-    last_fft: None,
-    fft_last_compute: std::time::Instant::now(),
-    fft_db: false,
-    fft_fit_view: false,
-    // save_png: false,
-    selected_idx1: None,
-    selected_idx2: None,
-    request_window_shot: false,
-    last_viewport_capture: None,
+        show_fft: false,
+        fft_size: 1024,
+        fft_window: FftWindow::Hann,
+        fft_overlap: 0.5,
+        last_fft: None,
+        fft_last_compute: std::time::Instant::now(),
+        fft_db: false,
+        fft_fit_view: false,
+        selected_idx1: None,
+        selected_idx2: None,
+        request_window_shot: false,
+        last_viewport_capture: None,
     };
     let mut native_options = eframe::NativeOptions::default();
     native_options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
