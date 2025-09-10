@@ -15,49 +15,21 @@ use std::sync::Arc;
 pub mod sine { pub mod v1 { tonic::include_proto!("sine.v1"); } }
 
 mod grpc_client;
-use rustfft::{FftPlanner, num_complex::Complex};
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum FftWindow { Rect, Hann, Hamming, Blackman }
-impl FftWindow {
-    pub const ALL: &'static [FftWindow] = &[FftWindow::Rect, FftWindow::Hann, FftWindow::Hamming, FftWindow::Blackman];
-    pub fn label(&self) -> &'static str { match self { FftWindow::Rect => "Rect", FftWindow::Hann => "Hann", FftWindow::Hamming => "Hamming", FftWindow::Blackman => "Blackman", } }
-    pub fn weight(&self, n: usize, len: usize) -> f64 { match self { FftWindow::Rect => 1.0, FftWindow::Hann => { 0.5 - 0.5*(2.0*std::f64::consts::PI*n as f64/(len as f64)).cos() }, FftWindow::Hamming => { 0.54 - 0.46*(2.0*std::f64::consts::PI*n as f64/(len as f64)).cos() }, FftWindow::Blackman => { 0.42 - 0.5*(2.0*std::f64::consts::PI*n as f64/(len as f64)).cos() + 0.08*(4.0*std::f64::consts::PI*n as f64/(len as f64)).cos() } } }
-}
+mod fft;
+
+
+pub use fft::FftWindow;
+
 
 fn compute_fft_if_possible(app: &ScopeApp) -> Option<Vec<[f64;2]>> {
-    // Select appropriate buffer (snapshot if paused, else live)
-    let buf = if app.paused { app.buffer_snapshot.as_ref()? } else { &app.buffer_live };
-    if buf.len() < app.fft_size { return None; }
-    let len = buf.len();
-    // Collect last fft_size samples into contiguous Vec
-    let slice: Vec<[f64;2]> = buf.iter().skip(len - app.fft_size).cloned().collect();
-    if slice.len() != app.fft_size { return None; }
-    let t0 = slice.first()?[0];
-    let t1 = slice.last()?[0];
-    if !(t1 > t0) { return None; }
-    let dt_est = (t1 - t0) / (app.fft_size as f64 - 1.0);
-    if dt_est <= 0.0 { return None; }
-    let sample_rate = 1.0 / dt_est;
-
-    // Prepare windowed complex buffer
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(app.fft_size);
-    let mut data: Vec<Complex<f64>> = slice.iter().enumerate().map(|(i, arr)| {
-        let w = app.fft_window.weight(i, app.fft_size);
-        Complex { re: arr[1] * w, im: 0.0 }
-    }).collect();
-    fft.process(&mut data);
-    // One-sided magnitude spectrum (exclude Nyquist if even length to keep consistent /2 sizing)
-    let half = app.fft_size / 2;
-    let scale = 2.0 / app.fft_size as f64; // simple amplitude preservation for one-sided
-    let mut out: Vec<[f64;2]> = Vec::with_capacity(half);
-    for (k, c) in data.iter().take(half).enumerate() {
-        let freq = k as f64 * sample_rate / app.fft_size as f64;
-        let mag = (c.re * c.re + c.im * c.im).sqrt() * scale;
-        out.push([freq, mag]);
-    }
-    Some(out)
+    fft::compute_fft(
+        &app.buffer_live,
+        app.paused,
+        &app.buffer_snapshot,
+        app.fft_size,
+        app.fft_window,
+    )
 }
 
 // Define ScopeApp struct
