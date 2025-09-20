@@ -142,6 +142,67 @@ impl WindowController {
     }
 }
 
+/// Information about the FFT bottom panel (shown + size in physical pixels)
+#[derive(Debug, Clone)]
+pub struct FftPanelInfo {
+    /// Whether the FFT panel is currently shown
+    pub shown: bool,
+    /// Current panel size in physical pixels (width, height)
+    pub current_size: Option<[f32; 2]>,
+    /// Requested size (if any) set via controller
+    pub requested_size: Option<[f32; 2]>,
+}
+
+/// Controller to get/set FFT panel visibility/size and subscribe to updates.
+#[derive(Clone)]
+pub struct FftController {
+    inner: Arc<Mutex<FftCtrlInner>>,
+}
+
+struct FftCtrlInner {
+    show: bool,
+    current_size: Option<[f32; 2]>,
+    request_set_size: Option<[f32; 2]>,
+    listeners: Vec<Sender<FftPanelInfo>>,
+}
+
+impl FftController {
+    /// Create a fresh controller.
+    pub fn new() -> Self {
+        Self { inner: Arc::new(Mutex::new(FftCtrlInner { show: false, current_size: None, request_set_size: None, listeners: Vec::new() })) }
+    }
+
+    /// Query whether the FFT panel is (last known) shown.
+    pub fn is_shown(&self) -> bool { self.inner.lock().unwrap().show }
+
+    /// Request that the FFT panel be shown/hidden. This records the request and
+    /// notifies subscribers; whether the runtime honors it depends on the UI.
+    pub fn set_shown(&self, show: bool) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.show = show;
+        let info = FftPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
+        inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+    }
+
+    /// Get last observed panel size in physical pixels (if known).
+    pub fn get_current_size(&self) -> Option<[f32;2]> { self.inner.lock().unwrap().current_size }
+
+    /// Request a panel size change (physical pixels). Recorded and will be
+    /// exposed to the UI which may choose to honor it.
+    pub fn request_set_size(&self, size_px: [f32;2]) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.request_set_size = Some(size_px);
+    }
+
+    /// Subscribe to FFT panel updates. Returned receiver receives `FftPanelInfo` whenever the UI publishes it.
+    pub fn subscribe(&self) -> Receiver<FftPanelInfo> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut inner = self.inner.lock().unwrap();
+        inner.listeners.push(tx);
+        rx
+    }
+}
+
 fn compute_fft_if_possible(app: &ScopeApp) -> Option<Vec<[f64;2]>> {
     fft::compute_fft(
         &app.buffer_live,
@@ -157,6 +218,8 @@ pub struct ScopeApp {
     pub rx: Receiver<Sample>,
     /// Optional controller to let external code get/set/listen to window info.
     pub window_controller: Option<WindowController>,
+    /// Optional controller to get/set/listen to FFT panel info (shown/size)
+    pub fft_controller: Option<FftController>,
     /// Live rolling buffer continuously filled with incoming samples.
     pub buffer_live: VecDeque<[f64; 2]>,
     /// Snapshot of `buffer_live` taken at the moment the user pauses. Displayed while paused.
@@ -187,6 +250,7 @@ impl ScopeApp {
         Self {
             rx,
             window_controller: None,
+            fft_controller: None,
             buffer_live: VecDeque::new(),
             buffer_snapshot: None,
             max_points: 10_000,
@@ -264,7 +328,16 @@ impl eframe::App for ScopeApp {
                 ui.add(egui::Slider::new(&mut self.time_window, 1.0..=60.0));
                 ui.label("Points cap:");
                 ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
-                if ui.button(if self.show_fft { "Hide FFT" } else { "Show FFT" }).clicked() { self.show_fft = !self.show_fft; }
+                if ui.button(if self.show_fft { "Hide FFT" } else { "Show FFT" }).clicked() {
+                    self.show_fft = !self.show_fft;
+                    if let Some(ctrl) = &self.fft_controller {
+                        // Broadcast change in visibility
+                        let mut inner = ctrl.inner.lock().unwrap();
+                        inner.show = self.show_fft;
+                        let info = FftPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
+                        inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+                    }
+                }
                 if ui.button(if self.paused { "Resume" } else { "Pause" }).clicked() {
                     if self.paused {
                         // Transition to running: discard snapshot
@@ -299,6 +372,16 @@ impl eframe::App for ScopeApp {
                 .min_height(120.0)
                 .default_height(300.0)
                 .show(ctx, |ui| {
+                    // Publish current panel size to fft_controller (in physical pixels)
+                    if let Some(ctrl) = &self.fft_controller {
+                        let size_pts = ui.available_size();
+                        let ppp = ctx.pixels_per_point();
+                        let size_px = [size_pts.x * ppp, size_pts.y * ppp];
+                        let mut inner = ctrl.inner.lock().unwrap();
+                        inner.current_size = Some(size_px);
+                        let info = FftPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
+                        inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+                    }
                     // FFT controls + plot
                     egui::CollapsingHeader::new("FFT Settings").default_open(true).show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -508,6 +591,26 @@ pub fn run_with_options(
     eframe::run_native(title, options, Box::new(|_cc| Ok(Box::new(ScopeApp::new(rx)))))
 }
 
+/// Run with optional controllers. `window_controller` and `fft_controller` may be
+/// attached to receive updates and send requests.
+pub fn run_with_options_and_controllers(
+    rx: Receiver<Sample>,
+    title: &str,
+    mut options: eframe::NativeOptions,
+    window_controller: Option<WindowController>,
+    fft_controller: Option<FftController>,
+) -> eframe::Result<()> {
+    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
+    eframe::run_native(title, options, Box::new(move |_cc| {
+        Ok(Box::new({
+            let mut app = ScopeApp::new(rx);
+            app.window_controller = window_controller.clone();
+            app.fft_controller = fft_controller.clone();
+            app
+        }))
+    }))
+}
+
 /// Configuration options for the live plot runtime (single- and multi-trace).
 #[derive(Debug, Clone, Copy)]
 pub struct LivePlotConfig {
@@ -555,6 +658,8 @@ pub struct ScopeAppMulti {
     pub last_prune: std::time::Instant,
     pub reset_view: bool,
     pub paused: bool,
+    /// Optional controller to get/set/listen to FFT panel info
+    pub fft_controller: Option<FftController>,
     // FFT related
     pub show_fft: bool,
     pub fft_size: usize,
@@ -583,6 +688,7 @@ impl ScopeAppMulti {
             fft_last_compute: std::time::Instant::now(),
             fft_db: false,
             fft_fit_view: false,
+            fft_controller: None,
             request_window_shot: false,
             last_viewport_capture: None,
         }
@@ -641,7 +747,15 @@ impl eframe::App for ScopeAppMulti {
                 ui.add(egui::Slider::new(&mut self.time_window, 1.0..=60.0));
                 ui.label("Points cap:");
                 ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
-                if ui.button(if self.show_fft { "Hide FFT" } else { "Show FFT" }).clicked() { self.show_fft = !self.show_fft; }
+                if ui.button(if self.show_fft { "Hide FFT" } else { "Show FFT" }).clicked() {
+                    self.show_fft = !self.show_fft;
+                    if let Some(ctrl) = &self.fft_controller {
+                        let mut inner = ctrl.inner.lock().unwrap();
+                        inner.show = self.show_fft;
+                        let info = FftPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
+                        inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+                    }
+                }
                 if ui.button(if self.paused { "Resume" } else { "Pause" }).clicked() {
                     if self.paused { // resume
                         self.paused = false;
@@ -666,6 +780,15 @@ impl eframe::App for ScopeAppMulti {
                 .min_height(120.0)
                 .default_height(300.0)
                 .show(ctx, |ui| {
+                    if let Some(ctrl) = &self.fft_controller {
+                        let size_pts = ui.available_size();
+                        let ppp = ctx.pixels_per_point();
+                        let size_px = [size_pts.x * ppp, size_pts.y * ppp];
+                        let mut inner = ctrl.inner.lock().unwrap();
+                        inner.current_size = Some(size_px);
+                        let info = FftPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
+                        inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+                    }
                     egui::CollapsingHeader::new("FFT Settings").default_open(true).show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("FFT size:");
@@ -856,6 +979,23 @@ pub fn run_multi_with_options(
 ) -> eframe::Result<()> {
     options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
     eframe::run_native(title, options, Box::new(|_cc| Ok(Box::new(ScopeAppMulti::new(rx)))))
+}
+
+/// Run multi-trace UI with optional controllers attached.
+pub fn run_multi_with_options_and_controllers(
+    rx: Receiver<MultiSample>,
+    title: &str,
+    mut options: eframe::NativeOptions,
+    fft_controller: Option<FftController>,
+) -> eframe::Result<()> {
+    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
+    eframe::run_native(title, options, Box::new(move |_cc| {
+        Ok(Box::new({
+            let mut app = ScopeAppMulti::new(rx);
+            app.fft_controller = fft_controller.clone();
+            app
+        }))
+    }))
 }
 
 /// Run the multi-trace plotting UI and start with FFT panel visible.
