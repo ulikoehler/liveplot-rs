@@ -85,7 +85,7 @@ impl eframe::App for ScopeApp {
             if self.buffer_live.len() > self.max_points {
                 self.buffer_live.pop_front();
                 // Adjust selections for single element removal from front (live only)
-                if !self.paused { self.point_selection.adjust_for_front_removal(1); }
+                // Selection stores absolute XY now; no index adjustment needed
             }
         }
 
@@ -104,7 +104,7 @@ impl eframe::App for ScopeApp {
                     }
                 }
                 if removed > 0 && !self.paused {
-                    self.point_selection.adjust_for_front_removal(removed);
+                    // Selection stores absolute XY now; no index adjustment needed
                 }
             }
             self.last_prune = std::time::Instant::now();
@@ -117,7 +117,7 @@ impl eframe::App for ScopeApp {
         } else { Box::new(self.buffer_live.iter()) };
     let data_points: Vec<[f64;2]> = display_iter.map(|&[t,y]| [t,y]).collect();
     // Invalidate selections if indices out of range after pruning/live update
-    self.point_selection.invalidate_out_of_range(data_points.len());
+    // Selection stores absolute XY now; nothing to invalidate by index
     let plot_points: PlotPoints = data_points.clone().into();
     let line = Line::new("sine", plot_points);
 
@@ -237,9 +237,8 @@ impl eframe::App for ScopeApp {
                     dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string()
                 });
             if self.reset_view { plot = plot.reset(); self.reset_view = false; }
-            let data_points_ref = &data_points; // alias for closure capture
-            let selected1 = self.point_selection.selected_idx1;
-            let selected2 = self.point_selection.selected_idx2;
+            let selected1 = self.point_selection.selected_p1;
+            let selected2 = self.point_selection.selected_p2;
             // Determine base font size and compute marker font size (50% larger)
             let base_body = ctx.style().text_styles[&egui::TextStyle::Body].size;
             let marker_font_size = base_body * 1.5;
@@ -248,32 +247,30 @@ impl eframe::App for ScopeApp {
                 plot_ui.line(line);
 
                 // Draw selected points if any
-                if let Some(i) = selected1 { if let Some(p) = data_points_ref.get(i) {
-                    plot_ui.points(Points::new("", vec![*p]).radius(5.0).color(Color32::YELLOW));
+                if let Some(p) = selected1 {
+                    plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::YELLOW));
                     let txt = format!("P1\nx={:.4}\ny={:.4}", p[0], p[1]);
                     let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::YELLOW);
                     plot_ui.text(Text::new("p1_lbl", PlotPoint::new(p[0], p[1]), rich));
-                }}
-                if let Some(i) = selected2 { if let Some(p) = data_points_ref.get(i) {
-                    plot_ui.points(Points::new("", vec![*p]).radius(5.0).color(Color32::LIGHT_BLUE));
+                }
+                if let Some(p) = selected2 {
+                    plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE));
                     let txt = format!("P2\nx={:.4}\ny={:.4}", p[0], p[1]);
                     let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::LIGHT_BLUE);
                     plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
-                }}
+                }
                 // If both selected, draw line and overlay with deltas & slope
-                if let (Some(i1), Some(i2)) = (selected1, selected2) {
-                    if let (Some(p1), Some(p2)) = (data_points_ref.get(i1), data_points_ref.get(i2)) {
-                        plot_ui.line(Line::new("delta", vec![*p1, *p2]).color(Color32::LIGHT_GREEN));
-                        let dx = p2[0] - p1[0];
-                        let dy = p2[1] - p1[1];
-                        let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
-                        let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
-                        let overlay = if slope.is_finite() {
-                            format!("Δx={:.4}\nΔy={:.4}\nslope={:.4}", dx, dy, slope)
-                        } else { format!("Δx=0\nΔy={:.4}\nslope=∞", dy) };
-                        let rich = egui::RichText::new(overlay).size(marker_font_size).color(Color32::LIGHT_GREEN);
-                        plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
-                    }
+                if let (Some(p1), Some(p2)) = (selected1, selected2) {
+                    plot_ui.line(Line::new("delta", vec![p1, p2]).color(Color32::LIGHT_GREEN));
+                    let dx = p2[0] - p1[0];
+                    let dy = p2[1] - p1[1];
+                    let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
+                    let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
+                    let overlay = if slope.is_finite() {
+                        format!("Δx={:.4}\nΔy={:.4}\nslope={:.4}", dx, dy, slope)
+                    } else { format!("Δx=0\nΔy={:.4}\nslope=∞", dy) };
+                    let rich = egui::RichText::new(overlay).size(marker_font_size).color(Color32::LIGHT_GREEN);
+                    plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
                 }
             });
             // Handle click for (de)selection after drawing so transformed points are available
@@ -290,7 +287,8 @@ impl eframe::App for ScopeApp {
                             let d2 = dx*dx + dy*dy;
                             if d2 < best_d2 { best_d2 = d2; best_i = i; }
                         }
-                        self.point_selection.handle_click(best_i);
+                        let p = data_points[best_i];
+                        self.point_selection.handle_click_point(p);
                     }
                 }
             }

@@ -283,7 +283,7 @@ impl eframe::App for ScopeApp {
             if self.buffer_live.len() > self.max_points {
                 self.buffer_live.pop_front();
                 // Adjust selections for single element removal from front (live only)
-                if !self.paused { self.point_selection.adjust_for_front_removal(1); }
+                // Selection stores absolute XY now; no index adjustment needed
             }
         }
 
@@ -303,7 +303,7 @@ impl eframe::App for ScopeApp {
                     }
                 }
                 if removed > 0 && !self.paused {
-                    self.point_selection.adjust_for_front_removal(removed);
+                    // Selection stores absolute XY now; no index adjustment needed
                 }
             }
             self.last_prune = std::time::Instant::now();
@@ -316,7 +316,7 @@ impl eframe::App for ScopeApp {
         } else { Box::new(self.buffer_live.iter()) };
         let data_points: Vec<[f64;2]> = display_iter.map(|&[t,y]| [t,y]).collect();
         // Invalidate selections if indices out of range after pruning/live update
-        self.point_selection.invalidate_out_of_range(data_points.len());
+    // Selection stores absolute XY now; nothing to invalidate by index
         let plot_points: PlotPoints = data_points.clone().into();
         let line = Line::new("sine", plot_points);
 
@@ -462,9 +462,8 @@ impl eframe::App for ScopeApp {
                 let t_min = t_latest - self.time_window;
                 plot = plot.include_x(t_min).include_x(t_latest);
             }
-            let data_points_ref = &data_points; // alias for closure capture
-            let selected1 = self.point_selection.selected_idx1;
-            let selected2 = self.point_selection.selected_idx2;
+            let selected1 = self.point_selection.selected_p1;
+            let selected2 = self.point_selection.selected_p2;
             // Determine base font size and compute marker font size (50% larger)
             let base_body = ctx.style().text_styles[&egui::TextStyle::Body].size;
             let marker_font_size = base_body * 1.5;
@@ -473,22 +472,21 @@ impl eframe::App for ScopeApp {
                 plot_ui.line(line);
 
                 // Draw selected points if any
-                if let Some(i) = selected1 { if let Some(p) = data_points_ref.get(i) {
-                    plot_ui.points(Points::new("", vec![*p]).radius(5.0).color(Color32::YELLOW));
+                if let Some(p) = selected1 {
+                    plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::YELLOW));
                     let txt = format!("P1\nx={:.4}\ny={:.4}", p[0], p[1]);
                     let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::YELLOW);
                     plot_ui.text(Text::new("p1_lbl", PlotPoint::new(p[0], p[1]), rich));
-                }}
-                if let Some(i) = selected2 { if let Some(p) = data_points_ref.get(i) {
-                    plot_ui.points(Points::new("", vec![*p]).radius(5.0).color(Color32::LIGHT_BLUE));
+                }
+                if let Some(p) = selected2 {
+                    plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE));
                     let txt = format!("P2\nx={:.4}\ny={:.4}", p[0], p[1]);
                     let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::LIGHT_BLUE);
                     plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
-                }}
+                }
                 // If both selected, draw line and overlay with deltas & slope
-                if let (Some(i1), Some(i2)) = (selected1, selected2) {
-                    if let (Some(p1), Some(p2)) = (data_points_ref.get(i1), data_points_ref.get(i2)) {
-                        plot_ui.line(Line::new("delta", vec![*p1, *p2]).color(Color32::LIGHT_GREEN));
+                if let (Some(p1), Some(p2)) = (selected1, selected2) {
+                        plot_ui.line(Line::new("delta", vec![p1, p2]).color(Color32::LIGHT_GREEN));
                         let dx = p2[0] - p1[0];
                         let dy = p2[1] - p1[1];
                         let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
@@ -498,7 +496,6 @@ impl eframe::App for ScopeApp {
                         } else { format!("Δx=0\nΔy={:.4}\nslope=∞", dy) };
                         let rich = egui::RichText::new(overlay).size(marker_font_size).color(Color32::LIGHT_GREEN);
                         plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
-                    }
                 }
             });
             // Handle click for (de)selection after drawing so transformed points are available
@@ -515,7 +512,8 @@ impl eframe::App for ScopeApp {
                             let d2 = dx*dx + dy*dy;
                             if d2 < best_d2 { best_d2 = d2; best_i = i; }
                         }
-                        self.point_selection.handle_click(best_i);
+                        let p = data_points[best_i];
+                        self.point_selection.handle_click_point(p);
                     }
                 }
             }
@@ -669,6 +667,14 @@ pub struct ScopeAppMulti {
     pub fft_fit_view: bool,
     pub request_window_shot: bool,
     pub last_viewport_capture: Option<Arc<egui::ColorImage>>,
+    // Point & slope selection (multi-trace)
+    /// Selected trace for point/slope selection. None => Free placement (no snapping).
+    pub selection_trace: Option<String>,
+    /// Index-based selection for the active trace (behaves like single-trace mode).
+    pub point_selection: PointSelection,
+    /// Free placement points used when `selection_trace` is None.
+    pub free_p1: Option<[f64;2]>,
+    pub free_p2: Option<[f64;2]>,
 }
 
 impl ScopeAppMulti {
@@ -691,6 +697,10 @@ impl ScopeAppMulti {
             fft_controller: None,
             request_window_shot: false,
             last_viewport_capture: None,
+            selection_trace: None,
+            point_selection: PointSelection::default(),
+            free_p1: None,
+            free_p2: None,
         }
     }
 
@@ -747,6 +757,26 @@ impl eframe::App for ScopeAppMulti {
                 ui.add(egui::Slider::new(&mut self.time_window, 1.0..=60.0));
                 ui.label("Points cap:");
                 ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
+                // Marker trace selection ("Free" or one trace)
+                let mut new_selection = self.selection_trace.clone();
+                egui::ComboBox::from_id_salt("marker_trace_select")
+                    .selected_text(match &new_selection { Some(s) => format!("Trace: {}", s), None => "Trace: Free".to_owned() })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut new_selection, None, "Free");
+                        for name in &self.trace_order { ui.selectable_value(&mut new_selection, Some(name.clone()), name); }
+                    });
+                if new_selection != self.selection_trace {
+                    self.selection_trace = new_selection;
+                    // Reset selections when switching mode/trace
+                    self.point_selection.clear();
+                    self.free_p1 = None;
+                    self.free_p2 = None;
+                }
+                if ui.button("Clear Selection").clicked() {
+                    self.point_selection.clear();
+                    self.free_p1 = None;
+                    self.free_p2 = None;
+                }
                 if ui.button(if self.show_fft { "Hide FFT" } else { "Show FFT" }).clicked() {
                     self.show_fft = !self.show_fft;
                     if let Some(ctrl) = &self.fft_controller {
@@ -894,6 +924,17 @@ impl eframe::App for ScopeAppMulti {
                 });
         }
 
+        // Prepare selection data for currently selected trace (if any)
+        let selected_trace_name = self.selection_trace.clone();
+        let sel_data_points: Option<Vec<[f64;2]>> = if let Some(name) = &selected_trace_name {
+            self.traces.get(name).map(|tr| {
+                let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if self.paused {
+                    if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
+                } else { Box::new(tr.live.iter()) };
+                iter.cloned().collect()
+            })
+        } else { None };
+
         // Plot all traces
         egui::CentralPanel::default().show(ctx, |ui| {
             let mut plot = Plot::new("scope_plot_multi")
@@ -924,7 +965,9 @@ impl eframe::App for ScopeAppMulti {
                 plot = plot.include_x(t_min).include_x(t_latest_overall);
             }
             if self.traces.len() > 1 { plot = plot.legend(Legend::default()); }
-            let _resp = plot.show(ui, |plot_ui| {
+            let base_body = ctx.style().text_styles[&egui::TextStyle::Body].size;
+            let marker_font_size = base_body * 1.5;
+            let plot_response = plot.show(ui, |plot_ui| {
                 for name in self.trace_order.clone().into_iter() {
                     if let Some(tr) = self.traces.get(&name) {
                         let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if self.paused {
@@ -937,7 +980,92 @@ impl eframe::App for ScopeAppMulti {
                         plot_ui.line(line);
                     }
                 }
+
+                // Draw selection markers/overlays
+                match (&selected_trace_name, &sel_data_points) {
+                    (Some(_name), Some(_data_points)) => {
+                        // XY-based selection already stores absolute coordinates
+                        if let Some(p) = self.point_selection.selected_p1 {
+                            plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::YELLOW));
+                            let txt = format!("P1\nx={:.4}\ny={:.4}", p[0], p[1]);
+                            let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::YELLOW);
+                            plot_ui.text(Text::new("p1_lbl", PlotPoint::new(p[0], p[1]), rich));
+                        }
+                        if let Some(p) = self.point_selection.selected_p2 {
+                            plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE));
+                            let txt = format!("P2\nx={:.4}\ny={:.4}", p[0], p[1]);
+                            let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::LIGHT_BLUE);
+                            plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
+                        }
+                        if let (Some(p1), Some(p2)) = (self.point_selection.selected_p1, self.point_selection.selected_p2) {
+                            plot_ui.line(Line::new("delta", vec![p1, p2]).color(Color32::LIGHT_GREEN));
+                            let dx = p2[0] - p1[0];
+                            let dy = p2[1] - p1[1];
+                            let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
+                            let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
+                            let overlay = if slope.is_finite() { format!("Δx={:.4}\nΔy={:.4}\nslope={:.4}", dx, dy, slope) } else { format!("Δx=0\nΔy={:.4}\nslope=∞", dy) };
+                            let rich = egui::RichText::new(overlay).size(marker_font_size).color(Color32::LIGHT_GREEN);
+                            plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
+                        }
+                    },
+                    _ => {
+                        // Free placement mode
+                        if let Some(p) = self.free_p1 {
+                            plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::YELLOW));
+                            let txt = format!("P1\nx={:.4}\ny={:.4}", p[0], p[1]);
+                            let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::YELLOW);
+                            plot_ui.text(Text::new("p1_lbl", PlotPoint::new(p[0], p[1]), rich));
+                        }
+                        if let Some(p) = self.free_p2 {
+                            plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE));
+                            let txt = format!("P2\nx={:.4}\ny={:.4}", p[0], p[1]);
+                            let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::LIGHT_BLUE);
+                            plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
+                        }
+                        if let (Some(p1), Some(p2)) = (self.free_p1, self.free_p2) {
+                            plot_ui.line(Line::new("delta", vec![p1, p2]).color(Color32::LIGHT_GREEN));
+                            let dx = p2[0] - p1[0];
+                            let dy = p2[1] - p1[1];
+                            let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
+                            let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
+                            let overlay = if slope.is_finite() { format!("Δx={:.4}\nΔy={:.4}\nslope={:.4}", dx, dy, slope) } else { format!("Δx=0\nΔy={:.4}\nslope=∞", dy) };
+                            let rich = egui::RichText::new(overlay).size(marker_font_size).color(Color32::LIGHT_GREEN);
+                            plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
+                        }
+                    }
+                }
             });
+            // Handle click for selection in multi mode
+            if plot_response.response.clicked() {
+                if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                    let transform = plot_response.transform;
+                    let plot_pos = transform.value_from_position(screen_pos);
+                    match (&selected_trace_name, &sel_data_points) {
+                        (Some(_), Some(data_points)) if !data_points.is_empty() => {
+                            // Find nearest point index in the selected trace
+                            let mut best_i = 0usize;
+                            let mut best_d2 = f64::INFINITY;
+                            for (i, p) in data_points.iter().enumerate() {
+                                let dx = p[0] - plot_pos.x;
+                                let dy = p[1] - plot_pos.y;
+                                let d2 = dx*dx + dy*dy;
+                                if d2 < best_d2 { best_d2 = d2; best_i = i; }
+                            }
+                            let p = data_points[best_i];
+                            self.point_selection.handle_click_point(p);
+                        },
+                        _ => {
+                            // Free placement: alternate between setting P1 and P2
+                            if self.free_p1.is_none() || (self.free_p1.is_some() && self.free_p2.is_some()) {
+                                self.free_p1 = Some([plot_pos.x, plot_pos.y]);
+                                self.free_p2 = None;
+                            } else {
+                                self.free_p2 = Some([plot_pos.x, plot_pos.y]);
+                            }
+                        }
+                    }
+                }
+            }
         });
 
         // Repaint
