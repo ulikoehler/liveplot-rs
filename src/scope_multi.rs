@@ -11,7 +11,7 @@ use egui::Color32;
 use egui_plot::{Line, Legend, Plot, PlotPoint, PlotPoints, Points, Text};
 use image::{Rgba, RgbaImage};
 
-use crate::controllers::{FftController, FftPanelInfo, WindowController, WindowInfo};
+use crate::controllers::{FftController, FftPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FftDataRequest, FftRawData};
 use crate::fft;
 pub use crate::fft::FftWindow;
 use crate::point_selection::PointSelection;
@@ -42,6 +42,8 @@ pub struct ScopeAppMulti {
     pub window_controller: Option<WindowController>,
     /// Optional controller to get/set/listen to FFT panel info
     pub fft_controller: Option<FftController>,
+    /// Optional controller for high-level UI actions (pause/resume/screenshot)
+    pub ui_action_controller: Option<UiActionController>,
     // FFT related
     pub show_fft: bool,
     pub fft_size: usize,
@@ -79,6 +81,7 @@ impl ScopeAppMulti {
             fft_fit_view: false,
             window_controller: None,
             fft_controller: None,
+            ui_action_controller: None,
             request_window_shot: false,
             last_viewport_capture: None,
             selection_trace: None,
@@ -172,6 +175,21 @@ impl eframe::App for ScopeAppMulti {
                 if ui.button("Reset View").clicked() { self.reset_view = true; }
                 if ui.button("Clear").clicked() { for tr in self.traces.values_mut() { tr.live.clear(); if let Some(s) = &mut tr.snap { s.clear(); } } }
                 if ui.button("Save PNG").on_hover_text("Take an egui viewport screenshot").clicked() { self.request_window_shot = true; }
+                if ui.button("Save raw data").on_hover_text("Export all traces as CSV or Parquet").clicked() {
+                    // Prompt for format; simple dialog via file extension choice.
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("CSV", &["csv"]) 
+                        .add_filter("Parquet", &["parquet"]) 
+                        .set_file_name("liveplot_export.csv")
+                        .save_file() {
+                        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                            let fmt = if ext.eq_ignore_ascii_case("parquet") { RawExportFormat::Parquet } else { RawExportFormat::Csv };
+                            if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces) {
+                                eprintln!("Failed to save raw data: {e}");
+                            }
+                        }
+                    }
+                }
             });
         });
 
@@ -394,6 +412,59 @@ impl eframe::App for ScopeAppMulti {
         // Repaint
         ctx.request_repaint_after(Duration::from_millis(16));
 
+        // Apply any external UI action requests (pause/resume/screenshot)
+        if let Some(ctrl) = &self.ui_action_controller {
+            let mut inner = ctrl.inner.lock().unwrap();
+            if let Some(want_pause) = inner.request_pause.take() {
+                if want_pause && !self.paused {
+                    for tr in self.traces.values_mut() { tr.snap = Some(tr.live.clone()); }
+                    self.paused = true;
+                } else if !want_pause && self.paused {
+                    self.paused = false;
+                    for tr in self.traces.values_mut() { tr.snap = None; }
+                }
+            }
+            if inner.request_screenshot {
+                inner.request_screenshot = false;
+                self.request_window_shot = true;
+            }
+            if let Some(path) = inner.request_screenshot_to.take() {
+                // Request a screenshot, then save to given path when event arrives
+                self.request_window_shot = true;
+                drop(inner);
+                // Poll for the next screenshot event shortly after
+                // We hook into the same event processing below; saving to explicit path is handled there.
+                // Store target path for one-shot save by temporarily stashing in last_viewport_capture path via env.
+                std::env::set_var("LIVEPLOT_SAVE_SCREENSHOT_TO", path);
+                inner = ctrl.inner.lock().unwrap();
+            }
+            if let Some(fmt) = inner.request_save_raw.take() {
+                drop(inner); // avoid holding the lock during file dialog/IO
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("CSV", &["csv"]).add_filter("Parquet", &["parquet"]).save_file() {
+                    if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces) { eprintln!("Failed to save raw data: {e}"); }
+                }
+                inner = ctrl.inner.lock().unwrap();
+            }
+            if let Some((fmt, path)) = inner.request_save_raw_to.take() {
+                drop(inner);
+                if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces) { eprintln!("Failed to save raw data: {e}"); }
+                inner = ctrl.inner.lock().unwrap();
+            }
+            if let Some(req) = inner.fft_request.take() {
+                // Gather the requested trace's time-domain data and notify listeners
+                let name_opt = match req { FftDataRequest::CurrentTrace => self.selection_trace.clone(), FftDataRequest::NamedTrace(s) => Some(s), };
+                if let Some(name) = name_opt {
+                    if let Some(tr) = self.traces.get(&name) {
+                        let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if self.paused { if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
+                        let data: Vec<[f64;2]> = iter.cloned().collect();
+                        let msg = FftRawData { trace: name.clone(), data };
+                        inner.fft_listeners.retain(|s| s.send(msg.clone()).is_ok());
+                    }
+                }
+            }
+        }
+
         // Window controller: publish current window info and record any pending requests.
         if let Some(ctrl) = &self.window_controller {
             let rect = ctx.input(|i| i.screen_rect);
@@ -411,8 +482,10 @@ impl eframe::App for ScopeAppMulti {
             i.events.iter().rev().find_map(|e| if let egui::Event::Screenshot { image, .. } = e { Some(image.clone()) } else { None })
         }) {
             self.last_viewport_capture = Some(image_arc.clone());
-            let default_name = format!("viewport_{:.0}.png", chrono::Local::now().timestamp_millis());
-            if let Some(path) = rfd::FileDialog::new().set_file_name(&default_name).save_file() {
+            // Save to explicit path if requested via env hook; else prompt user
+            if let Ok(path_str) = std::env::var("LIVEPLOT_SAVE_SCREENSHOT_TO") {
+                std::env::remove_var("LIVEPLOT_SAVE_SCREENSHOT_TO");
+                let path = std::path::PathBuf::from(path_str);
                 let egui::ColorImage { size: [w, h], pixels, .. } = &*image_arc;
                 let mut out = RgbaImage::new(*w as u32, *h as u32);
                 for y in 0..*h { for x in 0..*w {
@@ -420,9 +493,60 @@ impl eframe::App for ScopeAppMulti {
                     out.put_pixel(x as u32, y as u32, Rgba([p.r(), p.g(), p.b(), p.a()]));
                 }}
                 if let Err(e) = out.save(&path) { eprintln!("Failed to save viewport screenshot: {e}"); } else { eprintln!("Saved viewport screenshot to {:?}", path); }
+            } else {
+                let default_name = format!("viewport_{:.0}.png", chrono::Local::now().timestamp_millis());
+                if let Some(path) = rfd::FileDialog::new().set_file_name(&default_name).save_file() {
+                    let egui::ColorImage { size: [w, h], pixels, .. } = &*image_arc;
+                    let mut out = RgbaImage::new(*w as u32, *h as u32);
+                    for y in 0..*h { for x in 0..*w {
+                        let p = pixels[y * *w + x];
+                        out.put_pixel(x as u32, y as u32, Rgba([p.r(), p.g(), p.b(), p.a()]));
+                    }}
+                    if let Err(e) = out.save(&path) { eprintln!("Failed to save viewport screenshot: {e}"); } else { eprintln!("Saved viewport screenshot to {:?}", path); }
+                }
             }
         }
     }
+}
+
+/// Save all traces to path in the chosen format. If paused and snapshots exist, export snapshots; otherwise export live buffers.
+fn save_raw_data_to_path(
+    fmt: RawExportFormat,
+    path: &std::path::Path,
+    paused: bool,
+    traces: &std::collections::HashMap<String, TraceState>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match fmt {
+        RawExportFormat::Csv => save_as_csv(path, paused, traces),
+        RawExportFormat::Parquet => save_as_parquet(path, paused, traces),
+    }
+}
+
+fn save_as_csv(
+    path: &std::path::Path,
+    paused: bool,
+    traces: &std::collections::HashMap<String, TraceState>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path)?;
+    // Write header: timestamp_seconds,value,trace
+    writeln!(f, "timestamp_seconds,value,trace")?;
+    for (name, tr) in traces.iter() {
+        let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if paused { if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
+        for p in iter { writeln!(f, "{:.9},{}{}{}", p[0], p[1], ",", name)?; }
+    }
+    Ok(())
+}
+
+fn save_as_parquet(
+    path: &std::path::Path,
+    paused: bool,
+    traces: &std::collections::HashMap<String, TraceState>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Minimal, dependency-free parquet is non-trivial; fall back to CSV if parquet not supported.
+    // For now, write CSV with .parquet extension with a warning.
+    eprintln!("Parquet export not implemented yet; writing CSV instead.");
+    save_as_csv(path, paused, traces)
 }
 
 /// Run the multi-trace plotting UI with default window title and size.
@@ -445,6 +569,7 @@ pub fn run_multi_with_options_and_controllers(
     mut options: eframe::NativeOptions,
     window_controller: Option<WindowController>,
     fft_controller: Option<FftController>,
+    ui_action_controller: Option<UiActionController>,
 ) -> eframe::Result<()> {
     options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
     eframe::run_native(title, options, Box::new(move |_cc| {
@@ -452,6 +577,7 @@ pub fn run_multi_with_options_and_controllers(
             let mut app = ScopeAppMulti::new(rx);
             app.window_controller = window_controller.clone();
             app.fft_controller = fft_controller.clone();
+            app.ui_action_controller = ui_action_controller.clone();
             app
         }))
     }))

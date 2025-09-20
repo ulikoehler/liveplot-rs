@@ -23,7 +23,7 @@ pub mod scope_multi;
 // Public re-exports for a compact external API
 pub use fft::FftWindow;
 pub use config::{LivePlotConfig, XDateFormat};
-pub use controllers::{FftController, FftPanelInfo, WindowController, WindowInfo};
+pub use controllers::{FftController, FftPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FftRawData, FftDataRequest};
 pub use sink::{channel_multi, MultiPlotSink, MultiSample};
 pub use scope_multi::{run_multi, run_multi_with_config, run_multi_with_options, run_multi_with_options_and_controllers, ScopeAppMulti};
 

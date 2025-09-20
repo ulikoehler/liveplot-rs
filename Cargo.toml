@@ -52,6 +52,10 @@ required-features = ["grpc"]
 name = "sine"
 path = "examples/sine.rs"
 
+[[example]]
+name = "sine_cosine_delayed_snapshot"
+path = "examples/sine_cosine_delayed_snapshot.rs"
+
 [[bin]]
 name = "liveplot-rs"
 path = "src/main.rs"

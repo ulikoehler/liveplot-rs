@@ -82,6 +82,113 @@ pub struct FftController {
     pub(crate) inner: Arc<Mutex<FftCtrlInner>>, // crate-visible for UI
 }
 
+/// Controller for high-level UI actions like pause/resume and saving a PNG.
+///
+/// External code can request pausing/resuming the live stream display and trigger
+/// a screenshot (equivalent to the UI's "Save PNG" button). The screenshot request
+/// behaves like the UI: it will open a save dialog for the user.
+#[derive(Clone)]
+pub struct UiActionController {
+    pub(crate) inner: Arc<Mutex<UiActionInner>>, // crate-visible for UI
+}
+
+pub(crate) struct UiActionInner {
+    pub(crate) request_pause: Option<bool>,
+    pub(crate) request_screenshot: bool,
+    pub(crate) request_save_raw: Option<RawExportFormat>,
+    pub(crate) fft_request: Option<FftDataRequest>,
+    pub(crate) fft_listeners: Vec<Sender<FftRawData>>,
+    pub(crate) request_screenshot_to: Option<std::path::PathBuf>,
+    pub(crate) request_save_raw_to: Option<(RawExportFormat, std::path::PathBuf)>,
+}
+
+impl UiActionController {
+    /// Create a fresh UI action controller.
+    pub fn new() -> Self {
+        Self { inner: Arc::new(Mutex::new(UiActionInner {
+            request_pause: None,
+            request_screenshot: false,
+            request_screenshot_to: None,
+            request_save_raw: None,
+            request_save_raw_to: None,
+            fft_request: None,
+            fft_listeners: Vec::new(),
+        })) }
+    }
+
+    /// Request the UI to pause (freeze) the time-domain display.
+    pub fn pause(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.request_pause = Some(true);
+    }
+
+    /// Request the UI to resume live updates.
+    pub fn resume(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.request_pause = Some(false);
+    }
+
+    /// Request the UI to take a screenshot and prompt to save as PNG.
+    pub fn request_save_png(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.request_screenshot = true;
+    }
+
+    /// Request the UI to save a PNG screenshot to the exact provided path (non-interactive).
+    pub fn request_save_png_to_path<P: Into<std::path::PathBuf>>(&self, path: P) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.request_screenshot_to = Some(path.into());
+    }
+
+    /// Request saving raw time-domain data; the UI will prompt for a filename.
+    pub fn request_save_raw(&self, fmt: RawExportFormat) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.request_save_raw = Some(fmt);
+    }
+
+    /// Request saving raw data directly to the given path (non-interactive).
+    pub fn request_save_raw_to_path<P: Into<std::path::PathBuf>>(&self, fmt: RawExportFormat, path: P) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.request_save_raw_to = Some((fmt, path.into()));
+    }
+
+    /// Subscribe to receive the current raw FFT input data (time-domain) for a trace.
+    pub fn subscribe_fft_data(&self) -> std::sync::mpsc::Receiver<FftRawData> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut inner = self.inner.lock().unwrap();
+        inner.fft_listeners.push(tx);
+        rx
+    }
+
+    /// Request FFT input data for the currently selected trace (if any).
+    pub fn request_fft_data_current(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.fft_request = Some(FftDataRequest::CurrentTrace);
+    }
+
+    /// Request FFT input data for a specific named trace.
+    pub fn request_fft_data_for<S: Into<String>>(&self, name: S) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.fft_request = Some(FftDataRequest::NamedTrace(name.into()));
+    }
+}
+
+/// Raw export format for saving captured data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RawExportFormat { Csv, Parquet }
+
+/// Request for FFT raw input data.
+#[derive(Debug, Clone)]
+pub enum FftDataRequest { CurrentTrace, NamedTrace(String) }
+
+/// Raw FFT input time-domain data for a single trace.
+#[derive(Debug, Clone)]
+pub struct FftRawData {
+    pub trace: String,
+    /// Time-domain points [t_seconds, value]
+    pub data: Vec<[f64;2]>,
+}
+
 pub(crate) struct FftCtrlInner {
     pub(crate) show: bool,
     pub(crate) current_size: Option<[f32; 2]>,
