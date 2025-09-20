@@ -1,0 +1,43 @@
+//! Configuration types shared across the live plot UIs.
+
+use chrono::Local;
+
+/// Formatting options for the x-value (time) shown in point labels.
+#[derive(Debug, Clone, Copy)]
+pub enum XDateFormat {
+    /// Local time with date, ISO8601-like: YYYY-MM-DD HH:MM:SS
+    Iso8601WithDate,
+    /// Local time, time-of-day only: HH:MM:SS
+    Iso8601Time,
+}
+
+impl Default for XDateFormat { fn default() -> Self { XDateFormat::Iso8601Time } }
+
+impl XDateFormat {
+    /// Format an `x` value (seconds since UNIX epoch as f64) according to the selected format.
+    pub fn format_value(&self, x_seconds: f64) -> String {
+        let secs = x_seconds as i64;
+        let nsecs = ((x_seconds - secs as f64) * 1e9) as u32;
+        let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
+            .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+        match self {
+            XDateFormat::Iso8601WithDate => dt_utc.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(),
+            XDateFormat::Iso8601Time => dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string(),
+        }
+    }
+}
+
+/// Configuration options for the live plot runtime (single- and multi-trace).
+#[derive(Debug, Clone, Copy)]
+pub struct LivePlotConfig {
+    /// Rolling time window in seconds that is kept in memory and shown on X axis.
+    pub time_window_secs: f64,
+    /// Maximum number of points retained per trace (cap to limit memory/CPU).
+    pub max_points: usize,
+    /// Format used for x-values in point labels.
+    pub x_date_format: XDateFormat,
+}
+
+impl Default for LivePlotConfig {
+    fn default() -> Self { Self { time_window_secs: 10.0, max_points: 10_000, x_date_format: XDateFormat::default() } }
+}

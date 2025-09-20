@@ -27,6 +27,6 @@ fn main() -> eframe::Result<()> {
         }
     });
 
-    // Run the UI until closed (default: FFT hidden)
+    // Run the UI until closed (default: FFT hidden). Uses the unified multi-trace engine.
     run_multi(rx)
 }

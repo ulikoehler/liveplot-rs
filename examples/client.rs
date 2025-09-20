@@ -1,8 +1,8 @@
 use tonic::Request;
 use std::sync::mpsc;
 
-// Import the library
-use liveplot_rs::{Sample, run};
+// Import the library (multi-trace only)
+use liveplot_rs::{MultiSample, run_multi};
 
 // Include the generated proto just for the example
 pub mod sine { pub mod v1 { tonic::include_proto!("sine.v1"); } }
@@ -10,13 +10,13 @@ use sine::v1::{sine_wave_client::SineWaveClient, SubscribeRequest};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Channel to hand samples into the plotter
-    let (tx, rx) = mpsc::channel::<Sample>();
+    // Channel to hand samples into the plotter (multi-trace)
+    let (tx, rx) = mpsc::channel::<MultiSample>();
 
     // Spawn the UI on a separate thread because eframe runs a native event loop
     let ui_handle = std::thread::spawn(move || {
-        // Run the UI until the window is closed
-        if let Err(e) = run(rx) {
+        // Run the UI until the window is closed (single trace labeled "signal")
+        if let Err(e) = run_multi(rx) {
             eprintln!("UI error: {e}");
         }
     });
@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = client.subscribe(Request::new(SubscribeRequest{})).await?.into_inner();
 
     while let Some(sample) = stream.message().await? {
-        let s = Sample { index: sample.index as u64, value: sample.value, timestamp_micros: sample.timestamp_micros };
+        let s = MultiSample { index: sample.index as u64, value: sample.value, timestamp_micros: sample.timestamp_micros, trace: "signal".to_string() };
         // Stop sending if the receiver is gone
         if tx.send(s).is_err() { break; }
     }

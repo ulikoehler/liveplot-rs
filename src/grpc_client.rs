@@ -2,9 +2,9 @@
 use tonic::Request;
 use std::sync::mpsc::Sender;
 use crate::sine::v1::{sine_wave_client::SineWaveClient, SubscribeRequest};
-use crate::Sample;
+use crate::MultiSample;
 
-pub fn spawn_grpc_client(tx: Sender<Sample>) {
+pub fn spawn_grpc_client(tx: Sender<MultiSample>) {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async move {
@@ -23,10 +23,11 @@ pub fn spawn_grpc_client(tx: Sender<Sample>) {
                 }
             };
             while let Ok(Some(sample)) = stream.message().await {
-                let sample = Sample {
+                let sample = MultiSample {
                     index: sample.index as u64,
                     value: sample.value,
                     timestamp_micros: sample.timestamp_micros,
+                    trace: "signal".to_string(),
                 };
                 if tx.send(sample).is_err() {
                     break;

@@ -1,9 +1,9 @@
-use liveplot_rs::{channel, run};
+use liveplot_rs::{channel_multi, run_multi};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
-    // Create plot channel
-    let (sink, rx) = channel();
+    // Create multi-trace plot channel (we use a single trace labeled "signal")
+    let (sink, rx) = channel_multi();
 
     // Producer: 1 kHz sample rate, 3 Hz sine
     std::thread::spawn(move || {
@@ -19,12 +19,12 @@ fn main() -> eframe::Result<()> {
                 .map(|d| d.as_micros() as i64)
                 .unwrap_or(0);
             // Ignore error if the UI closed (receiver dropped)
-            let _ = sink.send_value(n, val, now_us);
+            let _ = sink.send_value(n, val, now_us, "signal");
             n = n.wrapping_add(1);
             std::thread::sleep(dt);
         }
     });
 
     // Run the UI until closed
-    run(rx)
+    run_multi(rx)
 }

@@ -7,41 +7,32 @@ Live plotting library for timestamped data streams using egui/eframe.
 This crate provides a reusable plotting UI you can feed with a stream of `(timestamp, value)` samples.
 gRPC input is provided as an example of how to use the library, not as a built-in dependency.
 
-## Library usage (single trace)
+## Library usage
 
-Add `liveplot-rs` as a dependency, send your samples through a standard `std::sync::mpsc::Receiver<Sample>`, and call `liveplot_rs::run(rx)`.
+This crate now uses a unified multi-trace UI for all use-cases. For a single signal, just pick a default trace name like `"signal"`.
 
 ```rust
-use std::sync::mpsc;
-use liveplot_rs::{Sample, run};
+use liveplot_rs::{channel_multi, run_multi};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
-	let (tx, rx) = mpsc::channel();
-	// In your producer thread/task, send Sample { index, value, timestamp_micros }
-	std::thread::spawn(move || {
-		// ... produce data and tx.send(sample).ok();
-	});
-	run(rx)
+    let (sink, rx) = channel_multi();
+
+    std::thread::spawn(move || {
+        let mut n: u64 = 0;
+        let dt = Duration::from_millis(1);
+        loop {
+            let now_us = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64;
+            let value = (2.0 * std::f64::consts::PI * 3.0 * (n as f64 / 1000.0)).sin();
+            let _ = sink.send_value(n, value, now_us, "signal");
+            n = n.wrapping_add(1);
+            std::thread::sleep(dt);
+        }
+    });
+
+    run_multi(rx)
 }
 ```
-
-	## Multiple traces
-
-	You can stream multiple traces distinguished by a trace name. Create a multi-trace channel with `channel_multi()` and run the UI with `run_multi(rx)`.
-
-	```rust
-	use liveplot_rs::{channel_multi, run_multi};
-
-	fn main() -> eframe::Result<()> {
-		let (sink, rx) = channel_multi();
-		std::thread::spawn(move || {
-			// produce data for different traces, e.g., "sine" and "cosine"
-			// sink.send_value(index, value, timestamp_micros, "sine").ok();
-			// sink.send_value(index, value, timestamp_micros, "cosine").ok();
-		});
-		run_multi(rx)
-	}
-	```
 
 ## gRPC example
 
