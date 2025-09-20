@@ -1,0 +1,30 @@
+use liveplot_rs::{channel, run};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+fn main() -> eframe::Result<()> {
+    // Create plot channel
+    let (sink, rx) = channel();
+
+    // Producer: 1 kHz sample rate, 3 Hz sine
+    std::thread::spawn(move || {
+        const FS_HZ: f64 = 1000.0; // 1 kHz sampling rate
+        const F_HZ: f64 = 3.0; // 3 Hz sine wave
+        let dt = Duration::from_millis(1);
+        let mut n: u64 = 0;
+        loop {
+            let t = n as f64 / FS_HZ;
+            let val = (2.0 * std::f64::consts::PI * F_HZ * t).sin();
+            let now_us = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_micros() as i64)
+                .unwrap_or(0);
+            // Ignore error if the UI closed (receiver dropped)
+            let _ = sink.send_value(n, val, now_us);
+            n = n.wrapping_add(1);
+            std::thread::sleep(dt);
+        }
+    });
+
+    // Run the UI until closed
+    run(rx)
+}

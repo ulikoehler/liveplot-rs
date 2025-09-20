@@ -1,22 +1,26 @@
 [package]
-name = "sine_scope_client"
+name = "liveplot-rs"
 version = "0.1.0"
 edition = "2021"
+autobins = false
+
+[lib]
+name = "liveplot_rs"
+path = "src/lib.rs"
+
+[features]
+default = []
+# Enable building gRPC examples and proto codegen
+grpc = [
+	"dep:tokio",
+	"dep:tonic",
+	"dep:prost",
+	"dep:prost-types",
+	"dep:async-stream",
+	"dep:futures-core",
+]
 
 [dependencies]
-# gRPC
-tonic = { version = "0.12", features = ["tls", "transport"] }
-prost = "0.13"
-prost-types = "0.13"
-
-# Async runtime
-tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "sync"] }
-
-# GUI
-
-# egui_plot ships as a module of egui in recent versions, but we use the crate for explicit versioning
-# For channels between async task and UI
-futures = "0.3"
 eframe = "0.32.2"
 egui = "0.32.2"
 egui_plot = "0.33.0"
@@ -24,9 +28,31 @@ chrono = "0.4.41"
 rfd = "0.15.4"
 image = "0.25.8"
 rustfft = "6"
-async-stream = "0.3"
-futures-core = "0.3"
-screenshots = "0.8"
+tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "sync"], optional = true }
+tonic = { version = "0.12", features = ["tls", "transport"], optional = true }
+prost = { version = "0.13", optional = true }
+prost-types = { version = "0.13", optional = true }
+async-stream = { version = "0.3", optional = true }
+futures-core = { version = "0.3", optional = true }
 
 [build-dependencies]
 tonic-build = "0.12"
+
+[[example]]
+name = "client"
+path = "examples/client.rs"
+required-features = ["grpc"]
+
+[[example]]
+name = "grpc-server"
+path = "examples/grpc-server.rs"
+required-features = ["grpc"]
+
+[[example]]
+name = "sine"
+path = "examples/sine.rs"
+
+[[bin]]
+name = "liveplot-rs"
+path = "src/main.rs"
+required-features = ["grpc"]
