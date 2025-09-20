@@ -92,7 +92,8 @@ impl eframe::App for ScopeApp {
         // Periodically prune to keep only the most recent time window
         if self.last_prune.elapsed() > Duration::from_millis(200) {
             if let Some((&[t_latest, _], _)) = self.buffer_live.back().map(|x| (x, ())) {
-                let cutoff = t_latest - self.time_window;
+                // Keep a 15% buffer before pruning to avoid abrupt visual gaps
+                let cutoff = t_latest - self.time_window * 1.15;
                 let mut removed = 0usize;
                 while let Some(&[t, _]) = self.buffer_live.front() {
                     if t < cutoff {
