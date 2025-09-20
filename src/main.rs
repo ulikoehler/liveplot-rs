@@ -249,13 +249,23 @@ impl eframe::App for ScopeApp {
                 // Draw selected points if any
                 if let Some(p) = selected1 {
                     plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::YELLOW));
-                    let txt = format!("P1\nx={:.4}\ny={:.4}", p[0], p[1]);
+                    let txt = format!("P1\nx={}\ny={:.4}", {
+                        let secs = p[0] as i64; let nsecs = ((p[0] - secs as f64) * 1e9) as u32;
+                        let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
+                            .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+                        dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string()
+                    }, p[1]);
                     let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::YELLOW);
                     plot_ui.text(Text::new("p1_lbl", PlotPoint::new(p[0], p[1]), rich));
                 }
                 if let Some(p) = selected2 {
                     plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE));
-                    let txt = format!("P2\nx={:.4}\ny={:.4}", p[0], p[1]);
+                    let txt = format!("P2\nx={}\ny={:.4}", {
+                        let secs = p[0] as i64; let nsecs = ((p[0] - secs as f64) * 1e9) as u32;
+                        let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
+                            .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+                        dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string()
+                    }, p[1]);
                     let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::LIGHT_BLUE);
                     plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
                 }
