@@ -226,7 +226,9 @@ impl eframe::App for ScopeApp {
         // Periodically prune to keep only the most recent time window
         if self.last_prune.elapsed() > Duration::from_millis(200) {
             if let Some((&[t_latest, _], _)) = self.buffer_live.back().map(|x| (x, ())) {
-                let cutoff = t_latest - self.time_window;
+                // Keep a small headroom to avoid visual artifacts when trimming:
+                // only remove data older than 115% of the configured time window.
+                let cutoff = t_latest - self.time_window * 1.15;
                 let mut removed = 0usize;
                 while let Some(&[t, _]) = self.buffer_live.front() {
                     if t < cutoff {
@@ -371,6 +373,12 @@ impl eframe::App for ScopeApp {
                     dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string()
                 });
             if self.reset_view { plot = plot.reset(); self.reset_view = false; }
+            // Always constrain X axis to the configured time window relative to latest timestamp
+            if let Some(last) = data_points.last() {
+                let t_latest = last[0];
+                let t_min = t_latest - self.time_window;
+                plot = plot.include_x(t_min).include_x(t_latest);
+            }
             let data_points_ref = &data_points; // alias for closure capture
             let selected1 = self.point_selection.selected_idx1;
             let selected2 = self.point_selection.selected_idx2;
@@ -500,6 +508,33 @@ pub fn run_with_options(
     eframe::run_native(title, options, Box::new(|_cc| Ok(Box::new(ScopeApp::new(rx)))))
 }
 
+/// Configuration options for the live plot runtime (single- and multi-trace).
+#[derive(Debug, Clone, Copy)]
+pub struct LivePlotConfig {
+    /// Rolling time window in seconds that is kept in memory and shown on X axis.
+    pub time_window_secs: f64,
+    /// Maximum number of points retained per trace (cap to limit memory/CPU).
+    pub max_points: usize,
+}
+
+impl Default for LivePlotConfig {
+    fn default() -> Self { Self { time_window_secs: 10.0, max_points: 10_000 } }
+}
+
+/// Run the plotting UI with a custom configuration (time window and point cap).
+pub fn run_with_config(rx: Receiver<Sample>, cfg: LivePlotConfig) -> eframe::Result<()> {
+    let mut options = eframe::NativeOptions::default();
+    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
+    eframe::run_native("LivePlot", options, Box::new(|_cc| {
+        Ok(Box::new({
+            let mut app = ScopeApp::new(rx);
+            app.time_window = cfg.time_window_secs;
+            app.max_points = cfg.max_points;
+            app
+        }))
+    }))
+}
+
 // ============================== Multi-trace app ===============================
 
 struct TraceState {
@@ -589,7 +624,8 @@ impl eframe::App for ScopeAppMulti {
         if self.last_prune.elapsed() > Duration::from_millis(200) {
             for (_k, tr) in self.traces.iter_mut() {
                 if let Some((&[t_latest, _], _)) = tr.live.back().map(|x| (x, ())) {
-                    let cutoff = t_latest - self.time_window;
+                    // Keep a 15% headroom to avoid visible trimming artifacts in the UI.
+                    let cutoff = t_latest - self.time_window * 1.15;
                     while let Some(&[t, _]) = tr.live.front() { if t < cutoff { tr.live.pop_front(); } else { break; } }
                 }
             }
@@ -748,6 +784,22 @@ impl eframe::App for ScopeAppMulti {
                     dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string()
                 });
             if self.reset_view { plot = plot.reset(); self.reset_view = false; }
+            // Constrain X axis to the configured rolling time window across all traces
+            let mut t_latest_overall = f64::NEG_INFINITY;
+            for name in self.trace_order.clone().into_iter() {
+                if let Some(tr) = self.traces.get(&name) {
+                    let last_t = if self.paused {
+                        tr.snap.as_ref().and_then(|s| s.back()).map(|p| p[0])
+                    } else {
+                        tr.live.back().map(|p| p[0])
+                    };
+                    if let Some(t) = last_t { if t > t_latest_overall { t_latest_overall = t; } }
+                }
+            }
+            if t_latest_overall.is_finite() {
+                let t_min = t_latest_overall - self.time_window;
+                plot = plot.include_x(t_min).include_x(t_latest_overall);
+            }
             if self.traces.len() > 1 { plot = plot.legend(Legend::default()); }
             let _resp = plot.show(ui, |plot_ui| {
                 for name in self.trace_order.clone().into_iter() {
@@ -815,6 +867,21 @@ pub fn run_multi_fft(rx: Receiver<MultiSample>) -> eframe::Result<()> {
         Ok(Box::new({
             let mut app = ScopeAppMulti::new(rx);
             app.show_fft = true;
+            app
+        }))
+    }))
+}
+
+/// Run the multi-trace plotting UI with a custom configuration (time window and point cap).
+pub fn run_multi_with_config(rx: Receiver<MultiSample>, cfg: LivePlotConfig) -> eframe::Result<()> {
+    let title = "LivePlot (multi)";
+    let mut options = eframe::NativeOptions::default();
+    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
+    eframe::run_native(title, options, Box::new(|_cc| {
+        Ok(Box::new({
+            let mut app = ScopeAppMulti::new(rx);
+            app.time_window = cfg.time_window_secs;
+            app.max_points = cfg.max_points;
             app
         }))
     }))
