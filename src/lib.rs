@@ -19,6 +19,7 @@ pub mod sink;
 pub mod controllers;
 pub mod config;
 pub mod scope_multi;
+pub mod export;
 
 // Public re-exports for a compact external API
 pub use fft::FftWindow;

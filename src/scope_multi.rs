@@ -15,6 +15,7 @@ use crate::controllers::{FftController, FftPanelInfo, WindowController, WindowIn
 use crate::fft;
 pub use crate::fft::FftWindow;
 use crate::point_selection::PointSelection;
+use crate::export;
 use crate::sink::MultiSample;
 use crate::config::XDateFormat;
 
@@ -184,7 +185,7 @@ impl eframe::App for ScopeAppMulti {
                         .save_file() {
                         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                             let fmt = if ext.eq_ignore_ascii_case("parquet") { RawExportFormat::Parquet } else { RawExportFormat::Csv };
-                            if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces) {
+                            if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces, &self.trace_order) {
                                 eprintln!("Failed to save raw data: {e}");
                             }
                         }
@@ -442,13 +443,13 @@ impl eframe::App for ScopeAppMulti {
                 drop(inner); // avoid holding the lock during file dialog/IO
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("CSV", &["csv"]).add_filter("Parquet", &["parquet"]).save_file() {
-                    if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces) { eprintln!("Failed to save raw data: {e}"); }
+                    if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces, &self.trace_order) { eprintln!("Failed to save raw data: {e}"); }
                 }
                 inner = ctrl.inner.lock().unwrap();
             }
             if let Some((fmt, path)) = inner.request_save_raw_to.take() {
                 drop(inner);
-                if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces) { eprintln!("Failed to save raw data: {e}"); }
+                if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces, &self.trace_order) { eprintln!("Failed to save raw data: {e}"); }
                 inner = ctrl.inner.lock().unwrap();
             }
             if let Some(req) = inner.fft_request.take() {
@@ -515,10 +516,11 @@ fn save_raw_data_to_path(
     path: &std::path::Path,
     paused: bool,
     traces: &std::collections::HashMap<String, TraceState>,
+    trace_order: &Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match fmt {
-        RawExportFormat::Csv => save_as_csv(path, paused, traces),
-        RawExportFormat::Parquet => save_as_parquet(path, paused, traces),
+        RawExportFormat::Csv => save_as_csv(path, paused, traces, trace_order),
+        RawExportFormat::Parquet => save_as_parquet(path, paused, traces, trace_order),
     }
 }
 
@@ -526,15 +528,19 @@ fn save_as_csv(
     path: &std::path::Path,
     paused: bool,
     traces: &std::collections::HashMap<String, TraceState>,
+    trace_order: &Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::Write;
-    let mut f = std::fs::File::create(path)?;
-    // Write header: timestamp_seconds,value,trace
-    writeln!(f, "timestamp_seconds,value,trace")?;
-    for (name, tr) in traces.iter() {
-        let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if paused { if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
-        for p in iter { writeln!(f, "{:.9},{}{}{}", p[0], p[1], ",", name)?; }
+    // Build series map of the currently exported buffers (paused => snapshot if present)
+    let mut series: HashMap<String, Vec<[f64;2]>> = HashMap::new();
+    for name in trace_order.iter() {
+        if let Some(tr) = traces.get(name) {
+            let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if paused { if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
+            let vec: Vec<[f64;2]> = iter.cloned().collect();
+            series.insert(name.clone(), vec);
+        }
     }
+    // Tolerance fixed to 1e-9 seconds
+    export::write_csv_aligned_path(path, trace_order, &series, 1e-9)?;
     Ok(())
 }
 
@@ -542,11 +548,12 @@ fn save_as_parquet(
     path: &std::path::Path,
     paused: bool,
     traces: &std::collections::HashMap<String, TraceState>,
+    trace_order: &Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Minimal, dependency-free parquet is non-trivial; fall back to CSV if parquet not supported.
     // For now, write CSV with .parquet extension with a warning.
     eprintln!("Parquet export not implemented yet; writing CSV instead.");
-    save_as_csv(path, paused, traces)
+    save_as_csv(path, paused, traces, trace_order)
 }
 
 /// Run the multi-trace plotting UI with default window title and size.
