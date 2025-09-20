@@ -8,6 +8,7 @@ use egui_plot::{Plot, Line, Legend, PlotPoints, Points, Text, PlotPoint};
 use egui::Color32;
 use chrono::Local;
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 
 pub use fft::FftWindow;
 use point_selection::PointSelection;
@@ -15,7 +16,6 @@ use point_selection::PointSelection;
 // For PNG export
 use image::{RgbaImage, Rgba};
 use egui::ViewportCommand;
-use std::sync::Arc;
 
 /// A single input sample with timestamp and value.
 #[derive(Debug, Clone)]
@@ -55,6 +55,60 @@ pub fn channel() -> (PlotSink, Receiver<Sample>) {
     (PlotSink { tx }, rx)
 }
 
+/// Current window information (physical pixels)
+#[derive(Debug, Clone)]
+pub struct WindowInfo {
+    pub current_size: Option<[f32; 2]>,
+    pub requested_size: Option<[f32; 2]>,
+    pub requested_pos: Option<[f32; 2]>,
+}
+
+/// Controller to get/set window info and subscribe to updates.
+#[derive(Clone)]
+pub struct WindowController {
+    inner: Arc<Mutex<WindowCtrlInner>>,
+}
+
+struct WindowCtrlInner {
+    current_size: Option<[f32; 2]>,
+    request_set_size: Option<[f32; 2]>,
+    request_set_pos: Option<[f32; 2]>,
+    listeners: Vec<Sender<WindowInfo>>,
+}
+
+impl WindowController {
+    /// Create a fresh controller.
+    pub fn new() -> Self {
+        Self { inner: Arc::new(Mutex::new(WindowCtrlInner { current_size: None, request_set_size: None, request_set_pos: None, listeners: Vec::new() })) }
+    }
+
+    /// Get the last observed window size in physical pixels (if known).
+    pub fn get_current_size(&self) -> Option<[f32;2]> {
+        self.inner.lock().unwrap().current_size
+    }
+
+    /// Request a window size change (physical pixels). The request is recorded and
+    /// will be broadcast to listeners; whether the runtime honors it depends on the backend.
+    pub fn request_set_size(&self, size_px: [f32;2]) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.request_set_size = Some(size_px);
+    }
+
+    /// Request a window position change (physical pixels). Recorded and broadcast to listeners.
+    pub fn request_set_pos(&self, pos_px: [f32;2]) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.request_set_pos = Some(pos_px);
+    }
+
+    /// Subscribe to window info updates. Returned receiver receives `WindowInfo` whenever the UI publishes it.
+    pub fn subscribe(&self) -> Receiver<WindowInfo> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut inner = self.inner.lock().unwrap();
+        inner.listeners.push(tx);
+        rx
+    }
+}
+
 fn compute_fft_if_possible(app: &ScopeApp) -> Option<Vec<[f64;2]>> {
     fft::compute_fft(
         &app.buffer_live,
@@ -68,6 +122,8 @@ fn compute_fft_if_possible(app: &ScopeApp) -> Option<Vec<[f64;2]>> {
 /// Egui application implementing the plotting UI for a stream of `Sample`s.
 pub struct ScopeApp {
     pub rx: Receiver<Sample>,
+    /// Optional controller to let external code get/set/listen to window info.
+    pub window_controller: Option<WindowController>,
     /// Live rolling buffer continuously filled with incoming samples.
     pub buffer_live: VecDeque<[f64; 2]>,
     /// Snapshot of `buffer_live` taken at the moment the user pauses. Displayed while paused.
@@ -97,6 +153,7 @@ impl ScopeApp {
     pub fn new(rx: Receiver<Sample>) -> Self {
         Self {
             rx,
+            window_controller: None,
             buffer_live: VecDeque::new(),
             buffer_snapshot: None,
             max_points: 10_000,
@@ -120,7 +177,7 @@ impl ScopeApp {
 }
 
 impl eframe::App for ScopeApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // Always ingest new samples into the live buffer (even while paused) so data isn't lost.
         while let Ok(sample) = self.rx.try_recv() {
             let t = sample.timestamp_micros as f64 * 1e-6;
@@ -342,6 +399,30 @@ impl eframe::App for ScopeApp {
 
         // Continuously repaint so it feels real-time
         ctx.request_repaint_after(Duration::from_millis(16));
+
+        // Window controller: publish current window info and record any pending requests.
+        if let Some(ctrl) = &self.window_controller {
+            // Obtain screen rect and pixels per point from egui context
+            let rect = ctx.input(|i| i.screen_rect);
+            let ppp = ctx.pixels_per_point();
+            let mut inner = ctrl.inner.lock().unwrap();
+            // Update current size (in physical pixels)
+            let size_pts = rect.size();
+            inner.current_size = Some([size_pts.x * ppp, size_pts.y * ppp]);
+
+            // We do NOT attempt to change the native window here because that's
+            // backend/platform dependent and eframe does not expose a portable API.
+            // Instead, requested set size/pos are recorded in `request_set_*` and
+            // exposed to subscribers via the broadcast below.
+
+            // Broadcast current info to listeners (non-blocking)
+            let info = WindowInfo {
+                current_size: inner.current_size,
+                requested_size: inner.request_set_size,
+                requested_pos: inner.request_set_pos,
+            };
+            inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+        }
 
         // Perform deferred window screenshot (after UI drawn)
         if self.request_window_shot {
