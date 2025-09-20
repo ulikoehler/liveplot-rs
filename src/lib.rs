@@ -2,7 +2,7 @@ mod point_selection;
 mod fft;
 mod line_draw;
 
-use std::{collections::VecDeque, time::Duration};
+use std::{collections::{VecDeque, HashMap}, time::Duration};
 use eframe::{self, egui};
 use egui_plot::{Plot, Line, Legend, PlotPoints, Points, Text, PlotPoint};
 use egui::Color32;
@@ -53,6 +53,39 @@ impl PlotSink {
 pub fn channel() -> (PlotSink, Receiver<Sample>) {
     let (tx, rx) = std::sync::mpsc::channel();
     (PlotSink { tx }, rx)
+}
+
+/// Multi-trace input sample with an associated trace label.
+#[derive(Debug, Clone)]
+pub struct MultiSample {
+    pub index: u64,
+    pub value: f64,
+    /// Timestamp in microseconds since UNIX epoch
+    pub timestamp_micros: i64,
+    /// Name of the trace this sample belongs to
+    pub trace: String,
+}
+
+/// Convenience sender for feeding `MultiSample`s into the multi-trace plotter.
+#[derive(Clone)]
+pub struct MultiPlotSink {
+    tx: Sender<MultiSample>,
+}
+
+impl MultiPlotSink {
+    pub fn send(&self, sample: MultiSample) -> Result<(), std::sync::mpsc::SendError<MultiSample>> {
+        self.tx.send(sample)
+    }
+    pub fn send_value<S: Into<String>>(&self, index: u64, value: f64, timestamp_micros: i64, trace: S) -> Result<(), std::sync::mpsc::SendError<MultiSample>> {
+        let s = MultiSample { index, value, timestamp_micros, trace: trace.into() };
+        self.send(s)
+    }
+}
+
+/// Create a new channel pair for multi-trace plotting: `(MultiPlotSink, Receiver<MultiSample>)`.
+pub fn channel_multi() -> (MultiPlotSink, Receiver<MultiSample>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    (MultiPlotSink { tx }, rx)
 }
 
 /// Current window information (physical pixels)
@@ -177,7 +210,7 @@ impl ScopeApp {
 }
 
 impl eframe::App for ScopeApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Always ingest new samples into the live buffer (even while paused) so data isn't lost.
         while let Ok(sample) = self.rx.try_recv() {
             let t = sample.timestamp_micros as f64 * 1e-6;
@@ -465,4 +498,182 @@ pub fn run_with_options(
 ) -> eframe::Result<()> {
     options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
     eframe::run_native(title, options, Box::new(|_cc| Ok(Box::new(ScopeApp::new(rx)))))
+}
+
+// ============================== Multi-trace app ===============================
+
+struct TraceState {
+    name: String,
+    color: Color32,
+    live: VecDeque<[f64;2]>,
+    snap: Option<VecDeque<[f64;2]>>,
+}
+
+pub struct ScopeAppMulti {
+    pub rx: Receiver<MultiSample>,
+    traces: HashMap<String, TraceState>,
+    pub trace_order: Vec<String>,
+    pub max_points: usize,
+    pub time_window: f64,
+    pub last_prune: std::time::Instant,
+    pub reset_view: bool,
+    pub paused: bool,
+    pub request_window_shot: bool,
+    pub last_viewport_capture: Option<Arc<egui::ColorImage>>,
+}
+
+impl ScopeAppMulti {
+    pub fn new(rx: Receiver<MultiSample>) -> Self {
+        Self {
+            rx,
+            traces: HashMap::new(),
+            trace_order: Vec::new(),
+            max_points: 10_000,
+            time_window: 10.0,
+            last_prune: std::time::Instant::now(),
+            reset_view: false,
+            paused: false,
+            request_window_shot: false,
+            last_viewport_capture: None,
+        }
+    }
+
+    fn alloc_color(index: usize) -> Color32 {
+        // Simple distinct color palette
+        const PALETTE: [Color32; 10] = [
+            Color32::LIGHT_BLUE,
+            Color32::LIGHT_RED,
+            Color32::LIGHT_GREEN,
+            Color32::GOLD,
+            Color32::from_rgb(0xAA, 0x55, 0xFF), // purple
+            Color32::from_rgb(0xFF, 0xAA, 0x00), // orange
+            Color32::from_rgb(0x00, 0xDD, 0xDD), // cyan
+            Color32::from_rgb(0xDD, 0x00, 0xDD), // magenta
+            Color32::from_rgb(0x66, 0xCC, 0x66), // green2
+            Color32::from_rgb(0xCC, 0x66, 0x66), // red2
+        ];
+        PALETTE[index % PALETTE.len()]
+    }
+}
+
+impl eframe::App for ScopeAppMulti {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Ingest new multi samples
+        while let Ok(s) = self.rx.try_recv() {
+            let entry = self.traces.entry(s.trace.clone()).or_insert_with(|| {
+                let idx = self.trace_order.len();
+                self.trace_order.push(s.trace.clone());
+                TraceState { name: s.trace.clone(), color: Self::alloc_color(idx), live: VecDeque::new(), snap: None }
+            });
+            let t = s.timestamp_micros as f64 * 1e-6;
+            entry.live.push_back([t, s.value]);
+            if entry.live.len() > self.max_points { entry.live.pop_front(); }
+        }
+
+        // Prune per-trace based on rolling time window
+        if self.last_prune.elapsed() > Duration::from_millis(200) {
+            for (_k, tr) in self.traces.iter_mut() {
+                if let Some((&[t_latest, _], _)) = tr.live.back().map(|x| (x, ())) {
+                    let cutoff = t_latest - self.time_window;
+                    while let Some(&[t, _]) = tr.live.front() { if t < cutoff { tr.live.pop_front(); } else { break; } }
+                }
+            }
+            self.last_prune = std::time::Instant::now();
+        }
+
+        // Controls
+        egui::TopBottomPanel::top("controls_multi").show(ctx, |ui| {
+            ui.heading("LivePlot (multi)");
+            ui.label("Left mouse: pan  |  Right drag: zoom box");
+            ui.horizontal(|ui| {
+                ui.label("Time window (s):");
+                ui.add(egui::Slider::new(&mut self.time_window, 1.0..=60.0));
+                ui.label("Points cap:");
+                ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
+                if ui.button(if self.paused { "Resume" } else { "Pause" }).clicked() {
+                    if self.paused { // resume
+                        self.paused = false;
+                        for tr in self.traces.values_mut() { tr.snap = None; }
+                    } else { // pause and snapshot
+                        for tr in self.traces.values_mut() { tr.snap = Some(tr.live.clone()); }
+                        self.paused = true;
+                    }
+                }
+                if ui.button("Reset View").clicked() { self.reset_view = true; }
+                if ui.button("Clear").clicked() {
+                    for tr in self.traces.values_mut() { tr.live.clear(); if let Some(s) = &mut tr.snap { s.clear(); } }
+                }
+                if ui.button("Save PNG").on_hover_text("Take an egui viewport screenshot").clicked() { self.request_window_shot = true; }
+            });
+        });
+
+        // Plot all traces
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let mut plot = Plot::new("scope_plot_multi")
+                .allow_scroll(false)
+                .allow_zoom(true)
+                .allow_boxed_zoom(true)
+                .x_axis_formatter(|x, _range| {
+                    let val = x.value; let secs = val as i64; let nsecs = ((val - secs as f64) * 1e9) as u32;
+                    let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
+                        .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+                    dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string()
+                });
+            if self.reset_view { plot = plot.reset(); self.reset_view = false; }
+            if self.traces.len() > 1 { plot = plot.legend(Legend::default()); }
+            let _resp = plot.show(ui, |plot_ui| {
+                for name in self.trace_order.clone().into_iter() {
+                    if let Some(tr) = self.traces.get(&name) {
+                        let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if self.paused {
+                            if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
+                        } else { Box::new(tr.live.iter()) };
+                        let pts: PlotPoints = iter.cloned().collect();
+                        let mut line = Line::new(&tr.name, pts).color(tr.color);
+                        // Ensure legend only shows when multiple traces
+                        if self.traces.len() > 1 { line = line.name(&tr.name); }
+                        plot_ui.line(line);
+                    }
+                }
+            });
+        });
+
+        // Repaint
+        ctx.request_repaint_after(Duration::from_millis(16));
+
+        // Screenshot request
+        if self.request_window_shot {
+            self.request_window_shot = false;
+            ctx.send_viewport_cmd(ViewportCommand::Screenshot(Default::default()));
+        }
+        if let Some(image_arc) = ctx.input(|i| {
+            i.events.iter().rev().find_map(|e| if let egui::Event::Screenshot { image, .. } = e { Some(image.clone()) } else { None })
+        }) {
+            self.last_viewport_capture = Some(image_arc.clone());
+            let default_name = format!("viewport_{:.0}.png", chrono::Local::now().timestamp_millis());
+            if let Some(path) = rfd::FileDialog::new().set_file_name(&default_name).save_file() {
+                let egui::ColorImage { size: [w, h], pixels, .. } = &*image_arc;
+                let mut out = RgbaImage::new(*w as u32, *h as u32);
+                for y in 0..*h { for x in 0..*w {
+                    let p = pixels[y * *w + x];
+                    out.put_pixel(x as u32, y as u32, Rgba([p.r(), p.g(), p.b(), p.a()]));
+                }}
+                if let Err(e) = out.save(&path) { eprintln!("Failed to save viewport screenshot: {e}"); } else { eprintln!("Saved viewport screenshot to {:?}", path); }
+            }
+        }
+    }
+}
+
+/// Run the multi-trace plotting UI with default window title and size.
+pub fn run_multi(rx: Receiver<MultiSample>) -> eframe::Result<()> {
+    run_multi_with_options(rx, "LivePlot (multi)", eframe::NativeOptions::default())
+}
+
+/// Run the multi-trace plotting UI with custom window title and options.
+pub fn run_multi_with_options(
+    rx: Receiver<MultiSample>,
+    title: &str,
+    mut options: eframe::NativeOptions,
+) -> eframe::Result<()> {
+    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
+    eframe::run_native(title, options, Box::new(|_cc| Ok(Box::new(ScopeAppMulti::new(rx)))))
 }

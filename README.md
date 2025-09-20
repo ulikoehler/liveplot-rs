@@ -7,7 +7,7 @@ Live plotting library for timestamped data streams using egui/eframe.
 This crate provides a reusable plotting UI you can feed with a stream of `(timestamp, value)` samples.
 gRPC input is provided as an example of how to use the library, not as a built-in dependency.
 
-## Library usage
+## Library usage (single trace)
 
 Add `liveplot-rs` as a dependency, send your samples through a standard `std::sync::mpsc::Receiver<Sample>`, and call `liveplot_rs::run(rx)`.
 
@@ -24,6 +24,24 @@ fn main() -> eframe::Result<()> {
 	run(rx)
 }
 ```
+
+	## Multiple traces
+
+	You can stream multiple traces distinguished by a trace name. Create a multi-trace channel with `channel_multi()` and run the UI with `run_multi(rx)`.
+
+	```rust
+	use liveplot_rs::{channel_multi, run_multi};
+
+	fn main() -> eframe::Result<()> {
+		let (sink, rx) = channel_multi();
+		std::thread::spawn(move || {
+			// produce data for different traces, e.g., "sine" and "cosine"
+			// sink.send_value(index, value, timestamp_micros, "sine").ok();
+			// sink.send_value(index, value, timestamp_micros, "cosine").ok();
+		});
+		run_multi(rx)
+	}
+	```
 
 ## gRPC example
 
@@ -54,3 +72,13 @@ cargo run --example sine
 ```
 
 This will open the plotting UI and stream a synthetic sine signal into it.
+
+## Built-in synthetic example: `sine_cosine`
+
+An example that produces both sine and cosine traces and displays them together with a legend.
+
+Run it with:
+
+```bash
+cargo run --example sine_cosine
+```
