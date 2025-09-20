@@ -1126,20 +1126,6 @@ pub fn run_multi_with_options_and_controllers(
     }))
 }
 
-/// Run the multi-trace plotting UI and start with FFT panel visible.
-pub fn run_multi_fft(rx: Receiver<MultiSample>) -> eframe::Result<()> {
-    let title = "LivePlot (multi)";
-    let mut options = eframe::NativeOptions::default();
-    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
-    eframe::run_native(title, options, Box::new(|_cc| {
-        Ok(Box::new({
-            let mut app = ScopeAppMulti::new(rx);
-            app.show_fft = true;
-            app
-        }))
-    }))
-}
-
 /// Run the multi-trace plotting UI with a custom configuration (time window and point cap).
 pub fn run_multi_with_config(rx: Receiver<MultiSample>, cfg: LivePlotConfig) -> eframe::Result<()> {
     let title = "LivePlot (multi)";
