@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::Path;
+#[cfg(feature = "parquet")]
+use std::sync::Arc;
 
 /// A single aligned row: timestamp in seconds and one value per trace (None if missing).
 pub type AlignedRow = (f64, Vec<Option<f64>>);
@@ -93,6 +95,88 @@ pub fn write_csv_aligned_path(
     let rows = align_series(trace_order, series, tol);
     let mut f = std::fs::File::create(path)?;
     write_aligned_rows_csv(&mut f, trace_order, &rows)
+}
+
+/// Convenience: align series by tolerance and write to a Parquet file at `path` (feature-gated).
+///
+/// Schema: `timestamp_seconds: Float64` + one nullable `Float64` column per trace in `trace_order`.
+#[cfg(feature = "parquet")]
+pub fn write_parquet_aligned_path(
+    path: &Path,
+    trace_order: &[String],
+    series: &HashMap<String, Vec<[f64; 2]>>,
+    tol: f64,
+) -> io::Result<()> {
+    use arrow_array::{ArrayRef, Float64Array, RecordBatch};
+    use arrow_array::builder::Float64Builder;
+    use arrow_schema::{DataType, Field, Schema};
+    use parquet::arrow::arrow_writer::ArrowWriter;
+    use parquet::file::properties::WriterProperties;
+
+    let rows = align_series(trace_order, series, tol);
+
+    // Build Arrow schema
+    let mut fields: Vec<Field> = Vec::with_capacity(1 + trace_order.len());
+    fields.push(Field::new("timestamp_seconds", DataType::Float64, false));
+    for name in trace_order.iter() {
+        fields.push(Field::new(name, DataType::Float64, true));
+    }
+    let schema = Arc::new(Schema::new(fields));
+
+    // Build column arrays
+    let mut ts_builder = Float64Builder::with_capacity(rows.len());
+    let mut value_builders: Vec<Float64Builder> = trace_order
+        .iter()
+        .map(|_| Float64Builder::with_capacity(rows.len()))
+        .collect();
+
+    for (t, vals) in rows.iter() {
+        ts_builder.append_value(*t);
+        for (i, v) in vals.iter().enumerate() {
+            if let Some(y) = v {
+                value_builders[i].append_value(*y);
+            } else {
+                value_builders[i].append_null();
+            }
+        }
+    }
+
+    let mut arrays: Vec<ArrayRef> = Vec::with_capacity(1 + value_builders.len());
+    arrays.push(Arc::new(ts_builder.finish()));
+    for mut b in value_builders.into_iter() {
+        let arr: Float64Array = b.finish();
+        arrays.push(Arc::new(arr));
+    }
+
+    let batch = RecordBatch::try_new(schema.clone(), arrays)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+    // Write Parquet
+    let file = std::fs::File::create(path)?;
+    let props = WriterProperties::builder().build();
+    let mut writer = ArrowWriter::try_new(file, schema, Some(props))
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    writer
+        .write(&batch)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    writer
+        .close()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    Ok(())
+}
+
+/// Stub if the `parquet` feature is disabled.
+#[cfg(not(feature = "parquet"))]
+pub fn write_parquet_aligned_path(
+    _path: &Path,
+    _trace_order: &[String],
+    _series: &HashMap<String, Vec<[f64; 2]>>,
+    _tol: f64,
+) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "Parquet export not available: build with feature `parquet`",
+    ))
 }
 
 #[cfg(test)]

@@ -176,18 +176,32 @@ impl eframe::App for ScopeAppMulti {
                 if ui.button("Reset View").clicked() { self.reset_view = true; }
                 if ui.button("Clear").clicked() { for tr in self.traces.values_mut() { tr.live.clear(); if let Some(s) = &mut tr.snap { s.clear(); } } }
                 if ui.button("Save PNG").on_hover_text("Take an egui viewport screenshot").clicked() { self.request_window_shot = true; }
-                if ui.button("Save raw data").on_hover_text("Export all traces as CSV or Parquet").clicked() {
+                let hover_text: &str = {
+                    #[cfg(feature = "parquet")]
+                    { "Export all traces as CSV or Parquet" }
+                    #[cfg(not(feature = "parquet"))]
+                    { "Export all traces as CSV" }
+                };
+                if ui.button("Save raw data").on_hover_text(hover_text).clicked() {
                     // Prompt for format; simple dialog via file extension choice.
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("CSV", &["csv"]) 
-                        .add_filter("Parquet", &["parquet"]) 
+                    let mut dlg = rfd::FileDialog::new();
+                    dlg = dlg.add_filter("CSV", &["csv"]);
+                    #[cfg(feature = "parquet")]
+                    { dlg = dlg.add_filter("Parquet", &["parquet"]); }
+                    if let Some(path) = dlg
                         .set_file_name("liveplot_export.csv")
                         .save_file() {
-                        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                            let fmt = if ext.eq_ignore_ascii_case("parquet") { RawExportFormat::Parquet } else { RawExportFormat::Csv };
-                            if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces, &self.trace_order) {
-                                eprintln!("Failed to save raw data: {e}");
+                        let fmt = {
+                            #[cfg(feature = "parquet")]
+                            {
+                                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                                if ext.eq_ignore_ascii_case("parquet") { RawExportFormat::Parquet } else { RawExportFormat::Csv }
                             }
+                            #[cfg(not(feature = "parquet"))]
+                            { RawExportFormat::Csv }
+                        };
+                        if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces, &self.trace_order) {
+                            eprintln!("Failed to save raw data: {e}");
                         }
                     }
                 }
@@ -441,8 +455,11 @@ impl eframe::App for ScopeAppMulti {
             }
             if let Some(fmt) = inner.request_save_raw.take() {
                 drop(inner); // avoid holding the lock during file dialog/IO
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("CSV", &["csv"]).add_filter("Parquet", &["parquet"]).save_file() {
+                let mut dlg = rfd::FileDialog::new();
+                dlg = dlg.add_filter("CSV", &["csv"]);
+                #[cfg(feature = "parquet")]
+                { dlg = dlg.add_filter("Parquet", &["parquet"]); }
+                if let Some(path) = dlg.save_file() {
                     if let Err(e) = save_raw_data_to_path(fmt, &path, self.paused, &self.traces, &self.trace_order) { eprintln!("Failed to save raw data: {e}"); }
                 }
                 inner = ctrl.inner.lock().unwrap();
@@ -550,10 +567,25 @@ fn save_as_parquet(
     traces: &std::collections::HashMap<String, TraceState>,
     trace_order: &Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Minimal, dependency-free parquet is non-trivial; fall back to CSV if parquet not supported.
-    // For now, write CSV with .parquet extension with a warning.
-    eprintln!("Parquet export not implemented yet; writing CSV instead.");
-    save_as_csv(path, paused, traces, trace_order)
+    #[cfg(feature = "parquet")]
+    {
+        // Build series map of the currently exported buffers (paused => snapshot if present)
+        let mut series: HashMap<String, Vec<[f64;2]>> = HashMap::new();
+        for name in trace_order.iter() {
+            if let Some(tr) = traces.get(name) {
+                let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if paused { if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
+                let vec: Vec<[f64;2]> = iter.cloned().collect();
+                series.insert(name.clone(), vec);
+            }
+        }
+        export::write_parquet_aligned_path(path, trace_order, &series, 1e-9)?;
+        return Ok(());
+    }
+    #[cfg(not(feature = "parquet"))]
+    {
+        let _ = (path, paused, traces, trace_order);
+        Err("Parquet export not available: build with feature `parquet`".into())
+    }
 }
 
 /// Run the multi-trace plotting UI with default window title and size.

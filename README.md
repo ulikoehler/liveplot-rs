@@ -73,3 +73,33 @@ Run it with:
 ```bash
 cargo run --example sine_cosine
 ```
+
+## Optional Parquet export
+
+This crate supports exporting aligned multi-trace data to Apache Parquet via Apache Arrow, but Parquet support is optional and feature-gated to avoid pulling large dependencies by default.
+
+To enable Parquet export, build with the `parquet` feature:
+
+```bash
+cargo build --features parquet
+cargo run --features parquet --example sine
+```
+
+When enabled the UI's "Save raw data" dialog will offer both `CSV` and `Parquet` and `.parquet` files will contain an Arrow-compatible schema with the following columns:
+
+- `timestamp_seconds: Float64` (non-null) — aligned timestamp in seconds
+- `<trace_name>: Float64` (nullable) — one column per trace in the export order; missing values are recorded as NULL
+
+If you build without the `parquet` feature the UI will only offer CSV export and attempting to export Parquet programmatically will return an error explaining the feature is not enabled.
+
+Python example to read the resulting Parquet file into a Pandas DataFrame:
+
+```python
+import pandas as pd
+
+df = pd.read_parquet("snapshot.parquet")
+df.set_index("timestamp_seconds", inplace=True)
+df.plot()
+```
+
+Note that if the timestamps of the different traces are not aligned, the resulting Parquet file may contain missing values.

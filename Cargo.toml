@@ -19,6 +19,12 @@ grpc = [
 	"dep:async-stream",
 	"dep:futures-core",
 ]
+# Optional Parquet export support via Apache Arrow
+parquet = [
+    "dep:arrow-array",
+    "dep:arrow-schema",
+    "dep:parquet",
+]
 
 [dependencies]
 eframe = "0.32.2"
@@ -34,6 +40,9 @@ prost = { version = "0.13", optional = true }
 prost-types = { version = "0.13", optional = true }
 async-stream = { version = "0.3", optional = true }
 futures-core = { version = "0.3", optional = true }
+arrow-array = { version = "52", optional = true }
+arrow-schema = { version = "52", optional = true }
+parquet = { version = "52", optional = true, features = ["arrow"] }
 
 [build-dependencies]
 tonic-build = "0.12"
@@ -55,6 +64,7 @@ path = "examples/sine.rs"
 [[example]]
 name = "sine_cosine_delayed_snapshot"
 path = "examples/sine_cosine_delayed_snapshot.rs"
+required-features = ["parquet"]
 
 [[bin]]
 name = "liveplot-rs"
