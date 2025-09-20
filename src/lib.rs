@@ -686,9 +686,6 @@ pub struct ScopeAppMulti {
     pub selection_trace: Option<String>,
     /// Index-based selection for the active trace (behaves like single-trace mode).
     pub point_selection: PointSelection,
-    /// Free placement points used when `selection_trace` is None.
-    pub free_p1: Option<[f64;2]>,
-    pub free_p2: Option<[f64;2]>,
     /// Formatting of X values in point labels
     pub x_date_format: XDateFormat,
 }
@@ -715,8 +712,6 @@ impl ScopeAppMulti {
             last_viewport_capture: None,
             selection_trace: None,
             point_selection: PointSelection::default(),
-            free_p1: None,
-            free_p2: None,
             x_date_format: XDateFormat::default(),
         }
     }
@@ -743,11 +738,16 @@ impl eframe::App for ScopeAppMulti {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Ingest new multi samples
         while let Ok(s) = self.rx.try_recv() {
+            let is_new = !self.traces.contains_key(&s.trace);
             let entry = self.traces.entry(s.trace.clone()).or_insert_with(|| {
                 let idx = self.trace_order.len();
                 self.trace_order.push(s.trace.clone());
                 TraceState { name: s.trace.clone(), color: Self::alloc_color(idx), live: VecDeque::new(), snap: None, last_fft: None }
             });
+            if is_new && self.selection_trace.is_none() {
+                // Default mode: first curve that arrives
+                self.selection_trace = Some(s.trace.clone());
+            }
             let t = s.timestamp_micros as f64 * 1e-6;
             entry.live.push_back([t, s.value]);
             if entry.live.len() > self.max_points { entry.live.pop_front(); }
@@ -783,16 +783,11 @@ impl eframe::App for ScopeAppMulti {
                         for name in &self.trace_order { ui.selectable_value(&mut new_selection, Some(name.clone()), name); }
                     });
                 if new_selection != self.selection_trace {
+                    // Just switch mode/trace; selected points are shared across modes.
                     self.selection_trace = new_selection;
-                    // Reset selections when switching mode/trace
-                    self.point_selection.clear();
-                    self.free_p1 = None;
-                    self.free_p2 = None;
                 }
                 if ui.button("Clear Selection").clicked() {
                     self.point_selection.clear();
-                    self.free_p1 = None;
-                    self.free_p2 = None;
                 }
                 if ui.button(if self.show_fft { "Hide FFT" } else { "Show FFT" }).clicked() {
                     self.show_fft = !self.show_fft;
@@ -997,59 +992,28 @@ impl eframe::App for ScopeAppMulti {
                         plot_ui.line(line);
                     }
                 }
-
-                // Draw selection markers/overlays
-                match (&selected_trace_name, &sel_data_points) {
-                    (Some(_name), Some(_data_points)) => {
-                        // XY-based selection already stores absolute coordinates
-                        if let Some(p) = self.point_selection.selected_p1 {
-                            plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::YELLOW));
-                            let txt = format!("P1\nx={}\ny={:.4}", self.x_date_format.format_value(p[0]), p[1]);
-                            let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::YELLOW);
-                            plot_ui.text(Text::new("p1_lbl", PlotPoint::new(p[0], p[1]), rich));
-                        }
-                        if let Some(p) = self.point_selection.selected_p2 {
-                            plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE));
-                            let txt = format!("P2\nx={}\ny={:.4}", self.x_date_format.format_value(p[0]), p[1]);
-                            let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::LIGHT_BLUE);
-                            plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
-                        }
-                        if let (Some(p1), Some(p2)) = (self.point_selection.selected_p1, self.point_selection.selected_p2) {
-                            plot_ui.line(Line::new("delta", vec![p1, p2]).color(Color32::LIGHT_GREEN));
-                            let dx = p2[0] - p1[0];
-                            let dy = p2[1] - p1[1];
-                            let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
-                            let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
-                            let overlay = if slope.is_finite() { format!("Δx={:.4}\nΔy={:.4}\nslope={:.4}", dx, dy, slope) } else { format!("Δx=0\nΔy={:.4}\nslope=∞", dy) };
-                            let rich = egui::RichText::new(overlay).size(marker_font_size).color(Color32::LIGHT_GREEN);
-                            plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
-                        }
-                    },
-                    _ => {
-                        // Free placement mode
-                        if let Some(p) = self.free_p1 {
-                            plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::YELLOW));
-                            let txt = format!("P1\nx={}\ny={:.4}", self.x_date_format.format_value(p[0]), p[1]);
-                            let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::YELLOW);
-                            plot_ui.text(Text::new("p1_lbl", PlotPoint::new(p[0], p[1]), rich));
-                        }
-                        if let Some(p) = self.free_p2 {
-                            plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE));
-                            let txt = format!("P2\nx={}\ny={:.4}", self.x_date_format.format_value(p[0]), p[1]);
-                            let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::LIGHT_BLUE);
-                            plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
-                        }
-                        if let (Some(p1), Some(p2)) = (self.free_p1, self.free_p2) {
-                            plot_ui.line(Line::new("delta", vec![p1, p2]).color(Color32::LIGHT_GREEN));
-                            let dx = p2[0] - p1[0];
-                            let dy = p2[1] - p1[1];
-                            let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
-                            let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
-                            let overlay = if slope.is_finite() { format!("Δx={:.4}\nΔy={:.4}\nslope={:.4}", dx, dy, slope) } else { format!("Δx=0\nΔy={:.4}\nslope=∞", dy) };
-                            let rich = egui::RichText::new(overlay).size(marker_font_size).color(Color32::LIGHT_GREEN);
-                            plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
-                        }
-                    }
+                // Draw shared selection markers/overlays (same in all modes)
+                if let Some(p) = self.point_selection.selected_p1 {
+                    plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::YELLOW));
+                    let txt = format!("P1\nx={}\ny={:.4}", self.x_date_format.format_value(p[0]), p[1]);
+                    let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::YELLOW);
+                    plot_ui.text(Text::new("p1_lbl", PlotPoint::new(p[0], p[1]), rich));
+                }
+                if let Some(p) = self.point_selection.selected_p2 {
+                    plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE));
+                    let txt = format!("P2\nx={}\ny={:.4}", self.x_date_format.format_value(p[0]), p[1]);
+                    let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::LIGHT_BLUE);
+                    plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
+                }
+                if let (Some(p1), Some(p2)) = (self.point_selection.selected_p1, self.point_selection.selected_p2) {
+                    plot_ui.line(Line::new("delta", vec![p1, p2]).color(Color32::LIGHT_GREEN));
+                    let dx = p2[0] - p1[0];
+                    let dy = p2[1] - p1[1];
+                    let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
+                    let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
+                    let overlay = if slope.is_finite() { format!("Δx={:.4}\nΔy={:.4}\nslope={:.4}", dx, dy, slope) } else { format!("Δx=0\nΔy={:.4}\nslope=∞", dy) };
+                    let rich = egui::RichText::new(overlay).size(marker_font_size).color(Color32::LIGHT_GREEN);
+                    plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
                 }
             });
             // Handle click for selection in multi mode
@@ -1072,13 +1036,8 @@ impl eframe::App for ScopeAppMulti {
                             self.point_selection.handle_click_point(p);
                         },
                         _ => {
-                            // Free placement: alternate between setting P1 and P2
-                            if self.free_p1.is_none() || (self.free_p1.is_some() && self.free_p2.is_some()) {
-                                self.free_p1 = Some([plot_pos.x, plot_pos.y]);
-                                self.free_p2 = None;
-                            } else {
-                                self.free_p2 = Some([plot_pos.x, plot_pos.y]);
-                            }
+                            // Free placement: place absolute coordinates directly into shared selection
+                            self.point_selection.handle_click_point([plot_pos.x, plot_pos.y]);
                         }
                     }
                 }
