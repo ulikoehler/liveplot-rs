@@ -507,6 +507,8 @@ struct TraceState {
     color: Color32,
     live: VecDeque<[f64;2]>,
     snap: Option<VecDeque<[f64;2]>>,
+    // Cached last computed FFT (frequency, magnitude)
+    last_fft: Option<Vec<[f64;2]>>,
 }
 
 pub struct ScopeAppMulti {
@@ -518,6 +520,13 @@ pub struct ScopeAppMulti {
     pub last_prune: std::time::Instant,
     pub reset_view: bool,
     pub paused: bool,
+    // FFT related
+    pub show_fft: bool,
+    pub fft_size: usize,
+    pub fft_window: FftWindow,
+    pub fft_last_compute: std::time::Instant,
+    pub fft_db: bool,
+    pub fft_fit_view: bool,
     pub request_window_shot: bool,
     pub last_viewport_capture: Option<Arc<egui::ColorImage>>,
 }
@@ -533,6 +542,12 @@ impl ScopeAppMulti {
             last_prune: std::time::Instant::now(),
             reset_view: false,
             paused: false,
+            show_fft: false,
+            fft_size: 1024,
+            fft_window: FftWindow::Hann,
+            fft_last_compute: std::time::Instant::now(),
+            fft_db: false,
+            fft_fit_view: false,
             request_window_shot: false,
             last_viewport_capture: None,
         }
@@ -563,7 +578,7 @@ impl eframe::App for ScopeAppMulti {
             let entry = self.traces.entry(s.trace.clone()).or_insert_with(|| {
                 let idx = self.trace_order.len();
                 self.trace_order.push(s.trace.clone());
-                TraceState { name: s.trace.clone(), color: Self::alloc_color(idx), live: VecDeque::new(), snap: None }
+                TraceState { name: s.trace.clone(), color: Self::alloc_color(idx), live: VecDeque::new(), snap: None, last_fft: None }
             });
             let t = s.timestamp_micros as f64 * 1e-6;
             entry.live.push_back([t, s.value]);
@@ -590,6 +605,7 @@ impl eframe::App for ScopeAppMulti {
                 ui.add(egui::Slider::new(&mut self.time_window, 1.0..=60.0));
                 ui.label("Points cap:");
                 ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
+                if ui.button(if self.show_fft { "Hide FFT" } else { "Show FFT" }).clicked() { self.show_fft = !self.show_fft; }
                 if ui.button(if self.paused { "Resume" } else { "Pause" }).clicked() {
                     if self.paused { // resume
                         self.paused = false;
@@ -606,6 +622,118 @@ impl eframe::App for ScopeAppMulti {
                 if ui.button("Save PNG").on_hover_text("Take an egui viewport screenshot").clicked() { self.request_window_shot = true; }
             });
         });
+
+        // FFT bottom panel for multi-traces
+        if self.show_fft {
+            egui::TopBottomPanel::bottom("fft_panel_multi")
+                .resizable(true)
+                .min_height(120.0)
+                .default_height(300.0)
+                .show(ctx, |ui| {
+                    egui::CollapsingHeader::new("FFT Settings").default_open(true).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("FFT size:");
+                            let mut size_log2 = (self.fft_size as f32).log2() as u32;
+                            let mut changed = false;
+                            let resp = egui::Slider::new(&mut size_log2, 8..=15).text("2^N");
+                            if ui.add(resp).changed() { changed = true; }
+                            if changed { self.fft_size = 1usize << size_log2; }
+                            ui.separator();
+                            ui.label("Window:");
+                            egui::ComboBox::from_id_salt("fft_window_multi")
+                                .selected_text(self.fft_window.label())
+                                .show_ui(ui, |ui| {
+                                    for w in FftWindow::ALL { ui.selectable_value(&mut self.fft_window, *w, w.label()); }
+                                });
+                            ui.separator();
+                            if ui.button(if self.fft_db { "Linear" } else { "dB" }).on_hover_text("Toggle FFT magnitude scale").clicked() { self.fft_db = !self.fft_db; }
+                            ui.separator();
+                            if ui.button("Fit into view").on_hover_text("Auto scale FFT axes").clicked() { self.fft_fit_view = true; }
+                        });
+                    });
+
+                    // Compute all FFTs (throttled)
+                    if self.fft_last_compute.elapsed() > Duration::from_millis(100) {
+                        for name in self.trace_order.clone().into_iter() {
+                            if let Some(tr) = self.traces.get_mut(&name) {
+                                tr.last_fft = fft::compute_fft(
+                                    &tr.live,
+                                    self.paused,
+                                    &tr.snap,
+                                    self.fft_size,
+                                    self.fft_window,
+                                );
+                            }
+                        }
+                        self.fft_last_compute = std::time::Instant::now();
+                    }
+
+                    // Determine overall bounds for optional fit
+                    let mut any_spec = false;
+                    let mut min_x = f64::INFINITY;
+                    let mut max_x = f64::NEG_INFINITY;
+                    let mut min_y = f64::INFINITY;
+                    let mut max_y = f64::NEG_INFINITY;
+                    for name in self.trace_order.clone().into_iter() {
+                        if let Some(tr) = self.traces.get(&name) {
+                            if let Some(spec) = &tr.last_fft {
+                                any_spec = true;
+                                if self.fft_db {
+                                    for p in spec.iter() {
+                                        let y = 20.0 * p[1].max(1e-12).log10();
+                                        if p[0] < min_x { min_x = p[0]; }
+                                        if p[0] > max_x { max_x = p[0]; }
+                                        if y < min_y { min_y = y; }
+                                        if y > max_y { max_y = y; }
+                                    }
+                                } else {
+                                    for p in spec.iter() {
+                                        if p[0] < min_x { min_x = p[0]; }
+                                        if p[0] > max_x { max_x = p[0]; }
+                                        if p[1] < min_y { min_y = p[1]; }
+                                        if p[1] > max_y { max_y = p[1]; }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Build plot and optionally include bounds
+                    let mut plot = Plot::new("fft_plot_multi")
+                        .legend(Legend::default())
+                        .allow_zoom(true)
+                        .allow_scroll(false)
+                        .allow_boxed_zoom(true)
+                        .y_axis_label(if self.fft_db { "Magnitude (dB)" } else { "Magnitude" })
+                        .x_axis_label("Hz");
+                    if self.fft_fit_view {
+                        if min_x.is_finite() { plot = plot.include_x(min_x).include_x(max_x); }
+                        if min_y.is_finite() { plot = plot.include_y(min_y).include_y(max_y); }
+                        self.fft_fit_view = false; // consume request
+                    }
+
+                    let _ = plot.show(ui, |plot_ui| {
+                        for name in self.trace_order.clone().into_iter() {
+                            if let Some(tr) = self.traces.get(&name) {
+                                if let Some(spec) = &tr.last_fft {
+                                    let pts: PlotPoints = if self.fft_db {
+                                        spec.iter().map(|p| {
+                                            let mag = p[1].max(1e-12);
+                                            let y = 20.0 * mag.log10();
+                                            [p[0], y]
+                                        }).collect()
+                                    } else {
+                                        spec.iter().map(|p| [p[0], p[1]]).collect()
+                                    };
+                                    let line = Line::new(&tr.name, pts).color(tr.color);
+                                    plot_ui.line(line);
+                                }
+                            }
+                        }
+                    });
+                    if !any_spec { ui.label("FFT: not enough data yet"); }
+                });
+        }
 
         // Plot all traces
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -676,4 +804,18 @@ pub fn run_multi_with_options(
 ) -> eframe::Result<()> {
     options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
     eframe::run_native(title, options, Box::new(|_cc| Ok(Box::new(ScopeAppMulti::new(rx)))))
+}
+
+/// Run the multi-trace plotting UI and start with FFT panel visible.
+pub fn run_multi_fft(rx: Receiver<MultiSample>) -> eframe::Result<()> {
+    let title = "LivePlot (multi)";
+    let mut options = eframe::NativeOptions::default();
+    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
+    eframe::run_native(title, options, Box::new(|_cc| {
+        Ok(Box::new({
+            let mut app = ScopeAppMulti::new(rx);
+            app.show_fft = true;
+            app
+        }))
+    }))
 }

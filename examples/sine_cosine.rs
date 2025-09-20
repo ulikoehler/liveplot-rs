@@ -1,4 +1,4 @@
-use liveplot_rs::{channel_multi, run_multi};
+use liveplot_rs::{channel_multi, run_multi_fft};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
@@ -28,5 +28,5 @@ fn main() -> eframe::Result<()> {
     });
 
     // Run the UI until closed
-    run_multi(rx)
+    run_multi_fft(rx)
 }
