@@ -11,9 +11,16 @@ use egui::Color32;
 use egui_plot::{Line, Legend, Plot, PlotPoint, PlotPoints, Points, Text};
 use image::{Rgba, RgbaImage};
 
-use crate::controllers::{FftController, FftPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FftDataRequest, FftRawData};
+use crate::controllers::{FftController, WindowController, WindowInfo, UiActionController, RawExportFormat, FftDataRequest, FftRawData};
+#[cfg(feature = "fft")]
+use crate::controllers::FftPanelInfo;
+#[cfg(feature = "fft")]
 use crate::fft;
+#[cfg(feature = "fft")]
 pub use crate::fft::FftWindow;
+#[cfg(not(feature = "fft"))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FftWindow { Rect, Hann, Hamming, Blackman }
 use crate::point_selection::PointSelection;
 use crate::export;
 use crate::sink::MultiSample;
@@ -155,6 +162,7 @@ impl eframe::App for ScopeAppMulti {
                     });
                 if new_selection != self.selection_trace { self.selection_trace = new_selection; }
                 if ui.button("Clear Selection").clicked() { self.point_selection.clear(); }
+                #[cfg(feature = "fft")]
                 if ui.button(if self.show_fft { "Hide FFT" } else { "Show FFT" }).clicked() {
                     self.show_fft = !self.show_fft;
                     if let Some(ctrl) = &self.fft_controller {
@@ -163,6 +171,10 @@ impl eframe::App for ScopeAppMulti {
                         let info = FftPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
                         inner.listeners.retain(|s| s.send(info.clone()).is_ok());
                     }
+                }
+                #[cfg(not(feature = "fft"))]
+                {
+                    let _ = (FftWindow::Rect,);
                 }
                 if ui.button(if self.paused { "Resume" } else { "Pause" }).clicked() {
                     if self.paused { // resume
@@ -209,6 +221,7 @@ impl eframe::App for ScopeAppMulti {
         });
 
         // FFT bottom panel for multi-traces
+        #[cfg(feature = "fft")]
         if self.show_fft {
             egui::TopBottomPanel::bottom("fft_panel_multi")
                 .resizable(true)
@@ -321,6 +334,10 @@ impl eframe::App for ScopeAppMulti {
                     });
                     if !any_spec { ui.label("FFT: not enough data yet"); }
                 });
+        }
+        #[cfg(not(feature = "fft"))]
+        {
+            let _ = ctx; // suppress unused warnings
         }
 
         // Prepare selection data for currently selected trace (if any)

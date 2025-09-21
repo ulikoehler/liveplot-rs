@@ -12,6 +12,7 @@
 //! - `scope_multi`: multi-trace UI and run helpers
 
 mod point_selection;
+#[cfg(feature = "fft")]
 mod fft;
 mod line_draw;
 
@@ -22,6 +23,7 @@ pub mod scope_multi;
 pub mod export;
 
 // Public re-exports for a compact external API
+#[cfg(feature = "fft")]
 pub use fft::FftWindow;
 pub use config::{LivePlotConfig, XDateFormat};
 pub use controllers::{FftController, FftPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FftRawData, FftDataRequest};

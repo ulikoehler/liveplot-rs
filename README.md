@@ -16,11 +16,11 @@ Add `liveplot-rs` to your project's `Cargo.toml` dependencies. The crate is publ
 liveplot-rs = "0.1"
 ```
 
-If you want to enable optional features such as `parquet` (for Parquet export) or `grpc` (for examples using gRPC streaming), enable them in the dependency:
+If you want to enable optional features such as `fft` (FFT computation and panel), `parquet` (for Parquet export) or `grpc` (for examples using gRPC streaming), enable them in the dependency:
 
 ```toml
 [dependencies]
-liveplot-rs = { version = "0.1", features = ["parquet", "grpc"] }
+liveplot-rs = { version = "0.1", features = ["fft", "parquet", "grpc"] }
 ```
 
 You can also use the Git repository directly if you want the latest code from the master branch:
@@ -42,6 +42,16 @@ If you enabled the `grpc` feature, build or run with `--features grpc`:
 cargo run --example grpc-server --features grpc
 cargo run --example sine --features grpc
 ```
+
+### Optional FFT feature
+
+FFT computation and the bottom FFT panel are feature-gated to avoid pulling `rustfft` by default. To enable the FFT UI and functionality, build with the `fft` feature:
+
+```bash
+cargo run --example sine --features fft
+```
+
+When the `fft` feature is disabled (default), the UI won’t show the “Show FFT” button and no FFT code is compiled. Enabling `fft` compiles the spectrum calculation and reveals the FFT panel and settings in the UI.
 
 ## Library usage
 

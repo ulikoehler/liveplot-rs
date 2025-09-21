@@ -23,6 +23,10 @@ grpc = [
 	"dep:async-stream",
 	"dep:futures-core",
 ]
+# Optional FFT support (UI & computation)
+fft = [
+    "dep:rustfft",
+]
 # Optional Parquet export support via Apache Arrow
 parquet = [
     "dep:arrow-array",
@@ -37,7 +41,7 @@ egui_plot = "0.33.0"
 chrono = "0.4.41"
 rfd = "0.15.4"
 image = "0.25.8"
-rustfft = "6"
+rustfft = { version = "6", optional = true }
 tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "sync"], optional = true }
 tonic = { version = "0.12", features = ["tls", "transport"], optional = true }
 prost = { version = "0.13", optional = true }
