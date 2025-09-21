@@ -3,6 +3,10 @@ name = "liveplot-rs"
 version = "0.1.0"
 edition = "2021"
 autobins = false
+license = "Apache-2.0"
+homepage = "https://github.com/ulikoehler/liveplot-rs"
+repository = "https://github.com/ulikoehler/liveplot-rs"
+description = "Realtime interactive plotting library Rust using egui/eframe, with optional gRPC and Parquet export support."
 
 [lib]
 name = "liveplot_rs"
