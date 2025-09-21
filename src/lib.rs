@@ -21,7 +21,8 @@ mod thresholds;
 pub mod sink;
 pub mod controllers;
 pub mod config;
-pub mod scope_multi;
+#[path = "scope_multi/mod.rs"]
+pub mod scope_multi_mod;
 pub mod export;
 
 // Public re-exports for a compact external API
@@ -30,7 +31,7 @@ pub use fft::FftWindow;
 pub use config::{LivePlotConfig, XDateFormat};
 pub use controllers::{FftController, FftPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FftRawData, FftDataRequest};
 pub use sink::{channel_multi, MultiPlotSink, MultiSample};
-pub use scope_multi::{run_liveplot, ScopeAppMulti};
+pub use scope_multi_mod::{run_liveplot, ScopeAppMulti};
 pub use math::{MathTraceDef, MathKind, FilterKind, TraceRef};
 pub use thresholds::{ThresholdDef, ThresholdKind, ThresholdEvent, ThresholdController};
 
