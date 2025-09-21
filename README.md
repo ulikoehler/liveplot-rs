@@ -1,6 +1,7 @@
 # liveplot
+https://img.shields.io/crates/v/:crate
 
-Live plotting library for timestamped data streams using egui/eframe, written in [Rust](https://www.rust-lang.org/).
+![Crates.io Version](https://img.shields.io/crates/v/liveplot)
 
 ![LivePlot screenshot](docs/liveplot%20screenshot.png)
 
