@@ -25,6 +25,7 @@ use crate::point_selection::PointSelection;
 use crate::export;
 use crate::sink::MultiSample;
 use crate::config::XDateFormat;
+use crate::math::{MathTraceDef, MathRuntimeState, compute_math_trace, MathKind, FilterKind, TraceRef, MinMaxMode};
 
 /// Internal per-trace state (live buffer, optional snapshot, color, cached FFT).
 struct TraceState {
@@ -34,6 +35,8 @@ struct TraceState {
     snap: Option<VecDeque<[f64;2]>>,
     // Cached last computed FFT (frequency, magnitude)
     last_fft: Option<Vec<[f64;2]>>,
+    // Whether this trace is a derived math trace
+    is_math: bool,
 }
 
 /// Egui app that displays multiple traces and supports point selection and FFT.
@@ -68,6 +71,32 @@ pub struct ScopeAppMulti {
     pub point_selection: PointSelection,
     /// Formatting of X values in point labels
     pub x_date_format: XDateFormat,
+    // Math traces
+    pub math_defs: Vec<MathTraceDef>,
+    math_states: HashMap<String, MathRuntimeState>,
+    show_math_dialog: bool,
+    math_builder: MathBuilderState,
+}
+
+#[derive(Debug, Clone)]
+struct MathBuilderState {
+    name: String,
+    kind_idx: usize,
+    add_inputs: Vec<(usize, f64)>,
+    mul_a_idx: usize,
+    mul_b_idx: usize,
+    single_idx: usize, // for differentiate/integrate/filter/minmax
+    integ_y0: f64,
+    filter_which: usize, // 0 LP,1 HP,2 BP
+    filter_f1: f64,
+    filter_f2: f64,
+    minmax_decay: f64,
+}
+
+impl Default for MathBuilderState {
+    fn default() -> Self {
+        Self { name: String::new(), kind_idx: 0, add_inputs: vec![(0, 1.0), (0, 1.0)], mul_a_idx: 0, mul_b_idx: 0, single_idx: 0, integ_y0: 0.0, filter_which: 0, filter_f1: 1.0, filter_f2: 10.0, minmax_decay: 0.0 }
+    }
 }
 
 impl ScopeAppMulti {
@@ -95,6 +124,64 @@ impl ScopeAppMulti {
             selection_trace: None,
             point_selection: PointSelection::default(),
             x_date_format: XDateFormat::default(),
+            math_defs: Vec::new(),
+            math_states: HashMap::new(),
+            show_math_dialog: false,
+            math_builder: MathBuilderState::default(),
+        }
+    }
+
+    fn add_math_trace_internal(&mut self, def: MathTraceDef) {
+        if self.traces.contains_key(&def.name) { return; }
+        let idx = self.trace_order.len();
+        self.trace_order.push(def.name.clone());
+        let color = Self::alloc_color(idx);
+        self.traces.insert(def.name.clone(), TraceState { name: def.name.clone(), color, live: VecDeque::new(), snap: None, last_fft: None, is_math: true });
+        self.math_states.entry(def.name.clone()).or_insert_with(MathRuntimeState::new);
+        self.math_defs.push(def);
+    }
+
+    fn remove_math_trace_internal(&mut self, name: &str) {
+        self.math_defs.retain(|d| d.name != name);
+        self.math_states.remove(name);
+        self.traces.remove(name);
+        self.trace_order.retain(|n| n != name);
+    }
+
+    /// Public API: add a math trace definition (creates a new virtual trace that auto-updates).
+    pub fn add_math_trace(&mut self, def: MathTraceDef) { self.add_math_trace_internal(def); }
+
+    /// Public API: remove a previously added math trace by name.
+    pub fn remove_math_trace(&mut self, name: &str) { self.remove_math_trace_internal(name); }
+
+    /// Public API: list current math trace definitions.
+    pub fn math_traces(&self) -> &[MathTraceDef] { &self.math_defs }
+
+    fn recompute_math_traces(&mut self) {
+        if self.math_defs.is_empty() { return; }
+        // Build sources from existing traces (prefer snapshot when paused)
+        let mut sources: HashMap<String, Vec<[f64;2]>> = HashMap::new();
+        for (name, tr) in &self.traces {
+            let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if self.paused { if let Some(s) = &tr.snap { Box::new(s.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
+            sources.insert(name.clone(), iter.cloned().collect());
+        }
+        // Compute each math def in insertion order; allow math-of-math using updated sources.
+        for def in &self.math_defs.clone() {
+            let st = self.math_states.entry(def.name.clone()).or_insert_with(MathRuntimeState::new);
+            let pts = compute_math_trace(def, &sources, st);
+            sources.insert(def.name.clone(), pts.clone());
+            // Update backing trace buffers
+            if let Some(tr) = self.traces.get_mut(&def.name) {
+                tr.live = pts.iter().copied().collect();
+                if self.paused { tr.snap = Some(tr.live.clone()); } else { tr.snap = None; }
+            } else {
+                // Create if missing (def might have been added but no entry created)
+                let idx = self.trace_order.len();
+                self.trace_order.push(def.name.clone());
+                let mut dq: VecDeque<[f64;2]> = VecDeque::new();
+                dq.extend(pts.iter().copied());
+                self.traces.insert(def.name.clone(), TraceState { name: def.name.clone(), color: Self::alloc_color(idx), live: dq.clone(), snap: if self.paused { Some(dq.clone()) } else { None }, last_fft: None, is_math: true });
+            }
         }
     }
 
@@ -124,7 +211,7 @@ impl eframe::App for ScopeAppMulti {
             let entry = self.traces.entry(s.trace.clone()).or_insert_with(|| {
                 let idx = self.trace_order.len();
                 self.trace_order.push(s.trace.clone());
-                TraceState { name: s.trace.clone(), color: Self::alloc_color(idx), live: VecDeque::new(), snap: None, last_fft: None }
+                TraceState { name: s.trace.clone(), color: Self::alloc_color(idx), live: VecDeque::new(), snap: None, last_fft: None, is_math: false }
             });
             if is_new && self.selection_trace.is_none() { self.selection_trace = Some(s.trace.clone()); }
             let t = s.timestamp_micros as f64 * 1e-6;
@@ -142,6 +229,9 @@ impl eframe::App for ScopeAppMulti {
             }
             self.last_prune = std::time::Instant::now();
         }
+
+        // Recompute math traces from current sources
+        self.recompute_math_traces();
 
         // Controls
         egui::TopBottomPanel::top("controls_multi").show(ctx, |ui| {
@@ -188,6 +278,7 @@ impl eframe::App for ScopeAppMulti {
                 if ui.button("Reset View").clicked() { self.reset_view = true; }
                 if ui.button("Clear").clicked() { for tr in self.traces.values_mut() { tr.live.clear(); if let Some(s) = &mut tr.snap { s.clear(); } } }
                 if ui.button("Save PNG").on_hover_text("Take an egui viewport screenshot").clicked() { self.request_window_shot = true; }
+                if ui.button("Math…").on_hover_text("Create and manage math traces").clicked() { self.show_math_dialog = true; }
                 let hover_text: &str = {
                     #[cfg(feature = "parquet")]
                     { "Export all traces as CSV or Parquet" }
@@ -219,6 +310,101 @@ impl eframe::App for ScopeAppMulti {
                 }
             });
         });
+
+        // Math dialog
+        if self.show_math_dialog {
+            let mut show_flag = self.show_math_dialog;
+            egui::Window::new("Math traces").open(&mut show_flag).show(ctx, |ui| {
+                ui.label("Create virtual traces from existing ones.");
+                ui.separator();
+                // Existing math traces list with remove button
+                for def in self.math_defs.clone().iter() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{}: {:?}", def.name, def.kind));
+                        if ui.button("Remove").clicked() {
+                            self.remove_math_trace_internal(&def.name);
+                        }
+                    });
+                }
+                ui.separator();
+                ui.collapsing("Add new", |ui| {
+                    // Persistent builder state
+                    let kinds = ["Add/Subtract", "Multiply", "Divide", "Differentiate", "Integrate", "Filter", "Min", "Max"];
+                    egui::ComboBox::from_label("Operation").selected_text(kinds[self.math_builder.kind_idx]).show_ui(ui, |ui| {
+                        for (i, k) in kinds.iter().enumerate() { ui.selectable_value(&mut self.math_builder.kind_idx, i, *k); }
+                    });
+                    ui.horizontal(|ui| { ui.label("Name"); ui.text_edit_singleline(&mut self.math_builder.name); });
+                    let trace_names: Vec<String> = self.trace_order.clone();
+                    match self.math_builder.kind_idx {
+                        0 => { // Add/Sub
+                            // allow editing up to N inputs with gains
+                            for (idx, (sel, gain)) in self.math_builder.add_inputs.iter_mut().enumerate() {
+                                ui.horizontal(|ui| {
+                                    egui::ComboBox::from_id_salt(format!("add_sel_{}", idx))
+                                        .selected_text(trace_names.get(*sel).cloned().unwrap_or_default())
+                                        .show_ui(ui, |ui| { for (i, n) in trace_names.iter().enumerate() { ui.selectable_value(sel, i, n); } });
+                                    ui.label("gain"); ui.add(egui::DragValue::new(gain).speed(0.1));
+                                });
+                            }
+                            ui.horizontal(|ui| {
+                                if ui.button("Add input").clicked() { self.math_builder.add_inputs.push((0, 1.0)); }
+                                if ui.button("Remove input").clicked() { if self.math_builder.add_inputs.len() > 1 { self.math_builder.add_inputs.pop(); } }
+                            });
+                            if ui.button("Add trace").clicked() {
+                                let inputs = self.math_builder.add_inputs.iter().filter_map(|(i, g)| trace_names.get(*i).cloned().map(|n| (TraceRef(n), *g))).collect();
+                                if !self.math_builder.name.is_empty() { self.add_math_trace_internal(MathTraceDef { name: self.math_builder.name.clone(), color_hint: None, kind: MathKind::Add { inputs } }); self.math_builder = MathBuilderState::default(); }
+                            }
+                        }
+                        1 | 2 => { // Multiply/Divide
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_label("A").selected_text(trace_names.get(self.math_builder.mul_a_idx).cloned().unwrap_or_default()).show_ui(ui, |ui| { for (i, n) in trace_names.iter().enumerate() { ui.selectable_value(&mut self.math_builder.mul_a_idx, i, n); } });
+                                egui::ComboBox::from_label("B").selected_text(trace_names.get(self.math_builder.mul_b_idx).cloned().unwrap_or_default()).show_ui(ui, |ui| { for (i, n) in trace_names.iter().enumerate() { ui.selectable_value(&mut self.math_builder.mul_b_idx, i, n); } });
+                            });
+                            if ui.button("Add trace").clicked() {
+                                if let (Some(a), Some(b)) = (trace_names.get(self.math_builder.mul_a_idx), trace_names.get(self.math_builder.mul_b_idx)) {
+                                    let kind = if self.math_builder.kind_idx == 1 { MathKind::Multiply { a: TraceRef(a.clone()), b: TraceRef(b.clone()) } } else { MathKind::Divide { a: TraceRef(a.clone()), b: TraceRef(b.clone()) } };
+                                    if !self.math_builder.name.is_empty() { self.add_math_trace_internal(MathTraceDef { name: self.math_builder.name.clone(), color_hint: None, kind }); self.math_builder = MathBuilderState::default(); }
+                                }
+                            }
+                        }
+                        3 => { // Differentiate
+                            egui::ComboBox::from_label("Input").selected_text(trace_names.get(self.math_builder.single_idx).cloned().unwrap_or_default()).show_ui(ui, |ui| { for (i, n) in trace_names.iter().enumerate() { ui.selectable_value(&mut self.math_builder.single_idx, i, n); } });
+                            if ui.button("Add trace").clicked() {
+                                if let Some(nm) = trace_names.get(self.math_builder.single_idx) { if !self.math_builder.name.is_empty() { self.add_math_trace_internal(MathTraceDef { name: self.math_builder.name.clone(), color_hint: None, kind: MathKind::Differentiate { input: TraceRef(nm.clone()) } }); self.math_builder = MathBuilderState::default(); } }
+                            }
+                        }
+                        4 => { // Integrate
+                            egui::ComboBox::from_label("Input").selected_text(trace_names.get(self.math_builder.single_idx).cloned().unwrap_or_default()).show_ui(ui, |ui| { for (i, n) in trace_names.iter().enumerate() { ui.selectable_value(&mut self.math_builder.single_idx, i, n); } });
+                            ui.horizontal(|ui| { ui.label("y0"); ui.add(egui::DragValue::new(&mut self.math_builder.integ_y0).speed(0.1)); });
+                            if ui.button("Add trace").clicked() {
+                                if let Some(nm) = trace_names.get(self.math_builder.single_idx) { if !self.math_builder.name.is_empty() { self.add_math_trace_internal(MathTraceDef { name: self.math_builder.name.clone(), color_hint: None, kind: MathKind::Integrate { input: TraceRef(nm.clone()), y0: self.math_builder.integ_y0 } }); self.math_builder = MathBuilderState::default(); } }
+                            }
+                        }
+                        5 => { // Filter
+                            egui::ComboBox::from_label("Input").selected_text(trace_names.get(self.math_builder.single_idx).cloned().unwrap_or_default()).show_ui(ui, |ui| { for (i, n) in trace_names.iter().enumerate() { ui.selectable_value(&mut self.math_builder.single_idx, i, n); } });
+                            let fk = ["Lowpass", "Highpass", "Bandpass"];
+                            egui::ComboBox::from_label("Filter").selected_text(fk[self.math_builder.filter_which]).show_ui(ui, |ui| { for (i, n) in fk.iter().enumerate() { ui.selectable_value(&mut self.math_builder.filter_which, i, *n); } });
+                            match self.math_builder.filter_which { 0 => { ui.horizontal(|ui| { ui.label("Cutoff Hz"); ui.add(egui::DragValue::new(&mut self.math_builder.filter_f1).speed(0.1)); }); }, 1 => { ui.horizontal(|ui| { ui.label("Cutoff Hz"); ui.add(egui::DragValue::new(&mut self.math_builder.filter_f1).speed(0.1)); }); }, _ => { ui.horizontal(|ui| { ui.label("Low cut Hz"); ui.add(egui::DragValue::new(&mut self.math_builder.filter_f1).speed(0.1)); }); ui.horizontal(|ui| { ui.label("High cut Hz"); ui.add(egui::DragValue::new(&mut self.math_builder.filter_f2).speed(0.1)); }); } }
+                            if ui.button("Add trace").clicked() {
+                                if let Some(nm) = trace_names.get(self.math_builder.single_idx) { if !self.math_builder.name.is_empty() {
+                                    let kind = match self.math_builder.filter_which { 0 => MathKind::Filter { input: TraceRef(nm.clone()), kind: FilterKind::Lowpass { cutoff_hz: self.math_builder.filter_f1 } }, 1 => MathKind::Filter { input: TraceRef(nm.clone()), kind: FilterKind::Highpass { cutoff_hz: self.math_builder.filter_f1 } }, _ => MathKind::Filter { input: TraceRef(nm.clone()), kind: FilterKind::Bandpass { low_cut_hz: self.math_builder.filter_f1, high_cut_hz: self.math_builder.filter_f2 } } };
+                                    self.add_math_trace_internal(MathTraceDef { name: self.math_builder.name.clone(), color_hint: None, kind }); self.math_builder = MathBuilderState::default();
+                                } }
+                            }
+                        }
+                        6 | 7 => { // Min/Max
+                            egui::ComboBox::from_label("Input").selected_text(trace_names.get(self.math_builder.single_idx).cloned().unwrap_or_default()).show_ui(ui, |ui| { for (i, n) in trace_names.iter().enumerate() { ui.selectable_value(&mut self.math_builder.single_idx, i, n); } });
+                            ui.horizontal(|ui| { ui.label("Decay (1/s, 0=none)"); ui.add(egui::DragValue::new(&mut self.math_builder.minmax_decay).speed(0.1)); });
+                            if ui.button("Add trace").clicked() {
+                                if let Some(nm) = trace_names.get(self.math_builder.single_idx) { if !self.math_builder.name.is_empty() { let mode = if self.math_builder.kind_idx == 6 { MinMaxMode::Min } else { MinMaxMode::Max }; let decay_opt = if self.math_builder.minmax_decay > 0.0 { Some(self.math_builder.minmax_decay) } else { None }; self.add_math_trace_internal(MathTraceDef { name: self.math_builder.name.clone(), color_hint: None, kind: MathKind::MinMax { input: TraceRef(nm.clone()), decay_per_sec: decay_opt, mode } }); self.math_builder = MathBuilderState::default(); } }
+                            }
+                        }
+                        _ => {}
+                    }
+                });
+            });
+            self.show_math_dialog = show_flag;
+        }
 
         // FFT bottom panel for multi-traces
         #[cfg(feature = "fft")]
@@ -351,7 +537,7 @@ impl eframe::App for ScopeAppMulti {
             })
         } else { None };
 
-        // Plot all traces
+    // Plot all traces
         egui::CentralPanel::default().show(ctx, |ui| {
             let mut plot = Plot::new("scope_plot_multi")
                 .allow_scroll(false)

@@ -58,6 +58,28 @@ Choose a specific trace for point snapping, or use the free mode to place marker
 
 Pan with the left mouse, use box-zoom with right drag, and reset the view from the toolbar. A small on-screen hint summarizes the available interactions.
 
+#### Math (virtual) traces
+
+Create derived traces from existing ones (oscilloscope-style Math). Click the `Math…` button to open a dialog that lets you define and manage math traces. Supported operations:
+
+- Add/Subtract N traces with individual gains
+- Multiply or Divide two traces
+- Differentiate one trace numerically
+- Integrate one trace numerically (with configurable initial value)
+- Filter one trace: Lowpass, Highpass, or Bandpass (first-order) with configurable cutoff(s)
+- Track Min or Max of a trace (optionally with exponential decay)
+
+Math traces auto-update as input traces change and behave like normal traces (legend, export, selection, FFT, etc.).
+
+Programmatic API is also available if you build your own UI around the library. For example:
+
+```rust
+use liveplot::{MathTraceDef, MathKind, FilterKind, TraceRef, ScopeAppMulti};
+// assuming you have a ScopeAppMulti `app`
+let def = MathTraceDef { name: "sum".into(), color_hint: None, kind: MathKind::Add { inputs: vec![(TraceRef("a".into()), 1.0), (TraceRef("b".into()), -1.0)] } };
+// app.add_math_trace(def);
+```
+
 ## Install
 
 First, since this is a [Rust](https://www.rust-lang.org/) crate, you need to have Rust installed. If you don't have it yet, I recommend installing the latest version from [rustup.rs](https://rustup.rs/). I do not recommend using the outdated Rust from your Linux distribution's package manager.

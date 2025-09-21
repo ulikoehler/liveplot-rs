@@ -2482,6 +2482,7 @@ dependencies = [
  "prost-types",
  "rfd",
  "rustfft",
+ "serde",
  "tokio",
  "tonic",
  "tonic-build",
