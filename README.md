@@ -207,6 +207,70 @@ Run it with:
 cargo run --example sine_cosine
 ```
 
+## Live CSV tail example: `csv_tail`
+
+This example demonstrates monitoring a CSV file that is continuously appended by an external process (for example, a data logger or the provided Python script) and plotting the values as they appear. It polls the file every 20 ms, reads any newly appended complete lines, and streams them into the UI.
+
+Companion writer (Python, ~1 kHz): `examples/csv_writer.py`.
+
+### CSV format
+
+The CSV can optionally start with a header line to name the traces:
+
+```
+index,timestamp_micros,<trace1>,<trace2>,...
+```
+
+Data lines must contain at least three columns:
+
+```
+<u64_index>,<i64_timestamp_micros>,<f64_value_for_trace1>[,<f64_value_for_trace2>...]
+```
+
+- Empty lines and incomplete lines are ignored.
+- If the timestamp cannot be parsed, the current time is used.
+- Non-numeric value cells for a column are skipped for that sample.
+- If there is no header, columns after the timestamp are auto-named `col1`, `col2`, ...
+
+### Running the demo
+
+In terminal 1, start the 1 kHz CSV writer (creates the file and writes a header if missing):
+
+```bash
+python3 examples/csv_writer.py live_data.csv
+```
+
+In terminal 2, run the tailing UI (defaults to `live_data.csv` and starts at end of file like `tail -f`):
+
+```bash
+cargo run --example csv_tail
+```
+
+Options:
+
+- Start from the beginning (read existing content first):
+
+```bash
+cargo run --example csv_tail -- --from-start
+```
+
+- Specify a different path:
+
+```bash
+cargo run --example csv_tail -- /path/to/other.csv
+```
+
+### How it works
+
+The example opens or waits for the CSV file, then in a background thread it:
+
+- Polls the file every 20 ms to detect appended bytes.
+- Reads new bytes and accumulates into a buffer until newline-delimited lines are complete.
+- Parses complete lines only and sends one `MultiSample` per numeric column after the timestamp.
+- Detects file truncation/rotation by comparing the current length with the last read position and reopens if needed.
+
+This is useful for integrating `liveplot` into pipelines where data is produced by an external process with minimal coupling.
+
 ## Optional Parquet export
 
 This crate supports exporting aligned multi-trace data to Apache Parquet via Apache Arrow, but Parquet support is optional and feature-gated to avoid pulling large dependencies by default.
