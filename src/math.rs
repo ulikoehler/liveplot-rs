@@ -28,6 +28,12 @@ pub enum FilterKind {
     Highpass { cutoff_hz: f64 },
     /// Simple bandpass using cascaded 1st order HP and LP
     Bandpass { low_cut_hz: f64, high_cut_hz: f64 },
+    /// Biquad lowpass with cutoff and Q
+    BiquadLowpass { cutoff_hz: f64, q: f64 },
+    /// Biquad highpass with cutoff and Q
+    BiquadHighpass { cutoff_hz: f64, q: f64 },
+    /// Biquad bandpass (constant skirt gain, peak gain = Q)
+    BiquadBandpass { center_hz: f64, q: f64 },
     /// Raw custom biquad coefficients (advanced)
     Custom { params: BiquadParams },
 }
@@ -48,8 +54,8 @@ pub enum MathKind {
     /// IIR filter on one trace
     Filter { input: TraceRef, kind: FilterKind },
     /// Track min/max with optional exponential decay (per second)
-        /// Track min or max with optional exponential decay (per second)
-        MinMax { input: TraceRef, decay_per_sec: Option<f64>, mode: MinMaxMode },
+    /// Track min or max with optional exponential decay (per second)
+    MinMax { input: TraceRef, decay_per_sec: Option<f64>, mode: MinMaxMode },
 }
 
 /// Fully-defined math trace configuration.
@@ -71,10 +77,13 @@ pub struct MathRuntimeState {
     pub x1b: f64, pub x2b: f64, pub y1b: f64, pub y2b: f64,
     // For min/max
     pub min_val: f64, pub max_val: f64, pub last_decay_t: Option<f64>,
+    // Previous input sample (for incremental processing)
+    pub prev_in_t: Option<f64>,
+    pub prev_in_v: f64,
 }
 
 impl MathRuntimeState {
-    pub fn new() -> Self { Self { last_t: None, accum: 0.0, x1: 0.0, x2: 0.0, y1: 0.0, y2: 0.0, x1b: 0.0, x2b: 0.0, y1b: 0.0, y2b: 0.0, min_val: f64::INFINITY, max_val: f64::NEG_INFINITY, last_decay_t: None } }
+    pub fn new() -> Self { Self { last_t: None, accum: 0.0, x1: 0.0, x2: 0.0, y1: 0.0, y2: 0.0, x1b: 0.0, x2b: 0.0, y1b: 0.0, y2b: 0.0, min_val: f64::INFINITY, max_val: f64::NEG_INFINITY, last_decay_t: None, prev_in_t: None, prev_in_v: 0.0 } }
 }
 
 /// Compute a math trace given source traces. Each source trace is provided as a slice of
@@ -83,124 +92,174 @@ impl MathRuntimeState {
 pub fn compute_math_trace(
     def: &MathTraceDef,
     sources: &std::collections::HashMap<String, Vec<[f64; 2]>>,
+    prev_output: Option<&[[f64; 2]]>,
+    prune_before: Option<f64>,
     state: &mut MathRuntimeState,
 ) -> Vec<[f64; 2]> {
     use MathKind::*;
+    
+    // Helper: prune an existing output by time cutoff
+    let mut out: Vec<[f64; 2]> = if let Some(prev) = prev_output {
+        if let Some(cut) = prune_before { prev.iter().copied().filter(|p| p[0] >= cut).collect() } else { prev.to_vec() }
+    } else { Vec::new() };
 
-    // Build time grid = union of all involved inputs' timestamps
-    let mut grid: Vec<f64> = match &def.kind {
-        Add { inputs } => union_times(inputs.iter().map(|(r, _)| r), sources),
-        Multiply { a, b } | Divide { a, b } => union_times([a, b].into_iter(), sources),
-        Differentiate { input } | Integrate { input, .. } | Filter { input, .. } | MinMax { input, .. } => union_times([input].into_iter(), sources),
-    };
-    grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    grid.dedup_by(|a, b| (*a - *b).abs() < 1e-15);
-
-    // Value getter with last-sample hold
-    let mut caches: std::collections::HashMap<String, (usize, f64)> = Default::default();
-    let mut get_val = |name: &str, t: f64| -> Option<f64> {
-        let data = sources.get(name)?;
-        let (idx, last) = caches.entry(name.to_string()).or_insert((0, f64::NAN));
-        // advance while next time <= t
-        while *idx + 1 < data.len() && data[*idx + 1][0] <= t { *idx += 1; }
-        *last = data[*idx][1];
-        Some(*last)
-    };
-
-    let mut out = Vec::with_capacity(grid.len());
+    // For stateless ops we recompute fully on the union grid; for stateful (filter/integrate/minmax)
+    // we process incrementally using state's last processed input sample.
     match &def.kind {
         Add { inputs } => {
+            // Build union grid across inputs
+            let mut grid: Vec<f64> = union_times(inputs.iter().map(|(r, _)| r), sources);
+            grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            grid.dedup_by(|a, b| (*a - *b).abs() < 1e-15);
+            // Value getter with last-sample hold
+            let mut caches: std::collections::HashMap<String, (usize, f64)> = Default::default();
+            let mut get_val = |name: &str, t: f64| -> Option<f64> {
+                let data = sources.get(name)?;
+                let (idx, last) = caches.entry(name.to_string()).or_insert((0, f64::NAN));
+                while *idx + 1 < data.len() && data[*idx + 1][0] <= t { *idx += 1; }
+                *last = data[*idx][1];
+                Some(*last)
+            };
+            out.clear();
             for &t in &grid {
                 let mut sum = 0.0; let mut any = false;
                 for (r, k) in inputs {
                     if let Some(v) = get_val(&r.0, t) { sum += k * v; any = true; }
                 }
-                if any { out.push([t, sum]); }
+                if any { if let Some(cut) = prune_before { if t < cut { continue; } } out.push([t, sum]); }
             }
         }
         Multiply { a, b } => {
-            for &t in &grid { if let (Some(va), Some(vb)) = (get_val(&a.0, t), get_val(&b.0, t)) { out.push([t, va * vb]); } }
+            let mut grid: Vec<f64> = union_times([a, b].into_iter(), sources);
+            grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            grid.dedup_by(|x, y| (*x - *y).abs() < 1e-15);
+            let mut caches: std::collections::HashMap<String, (usize, f64)> = Default::default();
+            let mut get_val = |name: &str, t: f64| -> Option<f64> {
+                let data = sources.get(name)?;
+                let (idx, last) = caches.entry(name.to_string()).or_insert((0, f64::NAN));
+                while *idx + 1 < data.len() && data[*idx + 1][0] <= t { *idx += 1; }
+                *last = data[*idx][1];
+                Some(*last)
+            };
+            out.clear();
+            for &t in &grid { if let Some(cut) = prune_before { if t < cut { continue; } }
+                if let (Some(va), Some(vb)) = (get_val(&a.0, t), get_val(&b.0, t)) { out.push([t, va * vb]); }
+            }
         }
         Divide { a, b } => {
-            for &t in &grid { if let (Some(va), Some(vb)) = (get_val(&a.0, t), get_val(&b.0, t)) { if vb.abs() > 1e-12 { out.push([t, va / vb]); } } }
+            let mut grid: Vec<f64> = union_times([a, b].into_iter(), sources);
+            grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            grid.dedup_by(|x, y| (*x - *y).abs() < 1e-15);
+            let mut caches: std::collections::HashMap<String, (usize, f64)> = Default::default();
+            let mut get_val = |name: &str, t: f64| -> Option<f64> {
+                let data = sources.get(name)?;
+                let (idx, last) = caches.entry(name.to_string()).or_insert((0, f64::NAN));
+                while *idx + 1 < data.len() && data[*idx + 1][0] <= t { *idx += 1; }
+                *last = data[*idx][1];
+                Some(*last)
+            };
+            out.clear();
+            for &t in &grid { if let Some(cut) = prune_before { if t < cut { continue; } }
+                if let (Some(va), Some(vb)) = (get_val(&a.0, t), get_val(&b.0, t)) { if vb.abs() > 1e-12 { out.push([t, va / vb]); } }
+            }
         }
         Differentiate { input } => {
+            let data = match sources.get(&input.0) { Some(v) => v, None => return out };
+            out.clear();
             let mut prev: Option<(f64, f64)> = None;
-            for &t in &grid {
-                if let Some(v) = get_val(&input.0, t) {
-                    if let Some((t0, v0)) = prev { let dt = t - t0; if dt > 0.0 { out.push([t, (v - v0) / dt]); } }
-                    prev = Some((t, v));
-                }
+            for &p in data.iter() {
+                let t = p[0]; let v = p[1];
+                if let Some(cut) = prune_before { if t < cut { prev = Some((t, v)); continue; } }
+                if let Some((t0, v0)) = prev { let dt = t - t0; if dt > 0.0 { out.push([t, (v - v0) / dt]); } }
+                prev = Some((t, v));
             }
         }
         Integrate { input, y0 } => {
-            let mut accum = if state.last_t.is_none() { *y0 } else { state.accum };
-            let mut prev_t = state.last_t;
-            let mut prev_v: Option<f64> = None;
-            for &t in &grid {
-                if let Some(v) = get_val(&input.0, t) {
-                    if let (Some(t0), Some(v0)) = (prev_t, prev_v) { let dt = t - t0; if dt > 0.0 { accum += 0.5 * (v + v0) * dt; } }
-                    prev_t = Some(t); prev_v = Some(v); out.push([t, accum]);
-                }
+            let data = match sources.get(&input.0) { Some(v) => v, None => return out };
+            let mut accum = if state.prev_in_t.is_none() { *y0 } else { state.accum };
+            let mut prev_t = state.prev_in_t;
+            let mut prev_v = if state.prev_in_t.is_none() { None } else { Some(state.prev_in_v) };
+            // start by keeping existing out (already pruned above)
+            let mut start_idx = 0usize;
+            if let Some(t0) = state.prev_in_t {
+                // find first new sample strictly after t0
+                start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
+                    Ok(mut i) => { while i < data.len() && data[i][0] <= t0 { i += 1; } i },
+                    Err(i) => i,
+                };
             }
-            state.accum = accum; state.last_t = prev_t;
+            for p in data.iter().skip(start_idx) {
+                let t = p[0]; let v = p[1];
+                if let Some(cut) = prune_before { if t < cut { continue; } }
+                if let (Some(t0), Some(v0)) = (prev_t, prev_v) { let dt = t - t0; if dt > 0.0 { accum += 0.5 * (v + v0) * dt; } }
+                prev_t = Some(t); prev_v = Some(v); out.push([t, accum]);
+            }
+            state.accum = accum; state.last_t = prev_t; state.prev_in_t = prev_t; state.prev_in_v = prev_v.unwrap_or(state.prev_in_v);
         }
         Filter { input, kind } => {
-            let mut x1 = state.x1; let mut x2 = state.x2; let mut y1 = state.y1; let mut y2 = state.y2; let mut last_t = state.last_t;
+            let data = match sources.get(&input.0) { Some(v) => v, None => return out };
+            let mut x1 = state.x1; let mut x2 = state.x2; let mut y1 = state.y1; let mut y2 = state.y2; let mut last_t = state.prev_in_t;
             let mut x1b = state.x1b; let mut x2b = state.x2b; let mut y1b = state.y1b; let mut y2b = state.y2b;
-            for (i, &t) in grid.iter().enumerate() {
-                if let Some(x) = get_val(&input.0, t) {
-                    // get dt from previous grid sample of this input
-                    let dt = if let Some(t0) = last_t { (t - t0).max(1e-9) } else if i > 0 { (t - grid[i-1]).max(1e-9) } else { 1e-3 };
-                    let y = match kind {
-                        FilterKind::Lowpass { cutoff_hz } => {
-                            let p = first_order_lowpass(*cutoff_hz, dt); biquad_step(p, x, x1, x2, y1, y2)
-                        }
-                        FilterKind::Highpass { cutoff_hz } => {
-                            let p = first_order_highpass(*cutoff_hz, dt); biquad_step(p, x, x1, x2, y1, y2)
-                        }
-                        FilterKind::Bandpass { low_cut_hz, high_cut_hz } => {
-                            // cascade: HP -> LP
-                            let p1 = first_order_highpass(*low_cut_hz, dt);
-                            let z1 = biquad_step(p1, x, x1, x2, y1, y2);
-                            let p2 = first_order_lowpass(*high_cut_hz, dt);
-                            biquad_step(p2, z1, x1b, x2b, y1b, y2b)
-                        }
-                        FilterKind::Custom { params } => { biquad_step(*params, x, x1, x2, y1, y2) }
-                    };
-                    // shift state(s)
-                    match kind {
-                        FilterKind::Bandpass { .. } => {
-                            // primary section tracks HP output z1 in y1/y2; need z1 value, approximate using previous primary output? Better recompute z1
-                            let z1_prev = y1; // y1 holds last z1 from previous iteration
-                            // update primary (HP) with current sample
-                            let p1 = if let FilterKind::Bandpass { low_cut_hz, .. } = kind { first_order_highpass(*low_cut_hz, dt) } else { first_order_highpass(1.0, dt) };
-                            let z1 = biquad_step(p1, x, x1, x2, y1, y2);
-                            x2 = x1; x1 = x; y2 = y1; y1 = z1;
-                            // update secondary (LP) with z1
-                            x2b = x1b; x1b = z1_prev; y2b = y1b; y1b = y;
-                        }
-                        _ => { x2 = x1; x1 = x; y2 = y1; y1 = y; }
-                    }
-                    last_t = Some(t);
-                    out.push([t, y]);
-                }
+            let mut start_idx = 0usize;
+            if let Some(t0) = state.prev_in_t {
+                start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
+                    Ok(mut i) => { while i < data.len() && data[i][0] <= t0 { i += 1; } i },
+                    Err(i) => i,
+                };
             }
-            state.x1 = x1; state.x2 = x2; state.y1 = y1; state.y2 = y2; state.last_t = last_t;
+            for p in data.iter().skip(start_idx) {
+                let t = p[0]; let x = p[1];
+                if let Some(cut) = prune_before { if t < cut { continue; } }
+                let dt = if let Some(t0) = last_t { (t - t0).max(1e-9) } else { 1e-3 };
+                let y = match kind {
+                    FilterKind::Lowpass { cutoff_hz } => { let p = first_order_lowpass(*cutoff_hz, dt); biquad_step(p, x, x1, x2, y1, y2) }
+                    FilterKind::Highpass { cutoff_hz } => { let p = first_order_highpass(*cutoff_hz, dt); biquad_step(p, x, x1, x2, y1, y2) }
+                    FilterKind::Bandpass { low_cut_hz, high_cut_hz } => {
+                        let p1 = first_order_highpass(*low_cut_hz, dt); let z1 = biquad_step(p1, x, x1, x2, y1, y2);
+                        let p2 = first_order_lowpass(*high_cut_hz, dt); biquad_step(p2, z1, x1b, x2b, y1b, y2b)
+                    }
+                    FilterKind::BiquadLowpass { cutoff_hz, q } => { let p = biquad_lowpass(*cutoff_hz, *q, dt); biquad_step(p, x, x1, x2, y1, y2) }
+                    FilterKind::BiquadHighpass { cutoff_hz, q } => { let p = biquad_highpass(*cutoff_hz, *q, dt); biquad_step(p, x, x1, x2, y1, y2) }
+                    FilterKind::BiquadBandpass { center_hz, q } => { let p = biquad_bandpass(*center_hz, *q, dt); biquad_step(p, x, x1, x2, y1, y2) }
+                    FilterKind::Custom { params } => { biquad_step(*params, x, x1, x2, y1, y2) }
+                };
+                match kind {
+                    FilterKind::Bandpass { .. } => {
+                        // update primary section state using x->z1
+                        let p1 = if let FilterKind::Bandpass { low_cut_hz, .. } = kind { first_order_highpass(*low_cut_hz, dt) } else { first_order_highpass(1.0, dt) };
+                        let z1 = biquad_step(p1, x, x1, x2, y1, y2);
+                        x2 = x1; x1 = x; y2 = y1; y1 = z1;
+                        x2b = x1b; x1b = z1; y2b = y1b; y1b = y;
+                    }
+                    _ => { x2 = x1; x1 = x; y2 = y1; y1 = y; }
+                }
+                last_t = Some(t);
+                out.push([t, y]);
+            }
+            state.x1 = x1; state.x2 = x2; state.y1 = y1; state.y2 = y2; state.last_t = last_t; state.prev_in_t = last_t; state.prev_in_v = if let Some(i) = data.last() { i[1] } else { state.prev_in_v };
             state.x1b = x1b; state.x2b = x2b; state.y1b = y1b; state.y2b = y2b;
         }
         MinMax { input, decay_per_sec, mode } => {
+            let data = match sources.get(&input.0) { Some(v) => v, None => return out };
             let mut min_v = state.min_val; let mut max_v = state.max_val; let mut last_decay_t = state.last_decay_t;
-            for &t in &grid {
-                if let Some(v) = get_val(&input.0, t) {
-                    if let Some(decay) = decay_per_sec { if let Some(t0) = last_decay_t { let dt = (t - t0).max(0.0); if dt > 0.0 { let k = (-decay * dt).exp(); min_v = min_v.min(v) * k + v * (1.0 - k); max_v = max_v.max(v) * k + v * (1.0 - k); } } }
-                    if min_v.is_infinite() { min_v = v; } if max_v.is_infinite() { max_v = v; }
-                    min_v = min_v.min(v); max_v = max_v.max(v); last_decay_t = Some(t);
-                    let y = match mode { MinMaxMode::Min => min_v, MinMaxMode::Max => max_v };
-                    out.push([t, y]);
-                }
+            let mut start_idx = 0usize;
+            if let Some(t0) = state.prev_in_t {
+                start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
+                    Ok(mut i) => { while i < data.len() && data[i][0] <= t0 { i += 1; } i },
+                    Err(i) => i,
+                };
             }
-            state.min_val = min_v; state.max_val = max_v; state.last_decay_t = last_decay_t;
+            for p in data.iter().skip(start_idx) {
+                let t = p[0]; let v = p[1];
+                if let Some(cut) = prune_before { if t < cut { continue; } }
+                if let Some(decay) = decay_per_sec { if let Some(t0) = last_decay_t { let dt = (t - t0).max(0.0); if dt > 0.0 { let k = (-decay * dt).exp(); min_v = min_v.min(v) * k + v * (1.0 - k); max_v = max_v.max(v) * k + v * (1.0 - k); } } }
+                if min_v.is_infinite() { min_v = v; }
+                if max_v.is_infinite() { max_v = v; }
+                min_v = min_v.min(v); max_v = max_v.max(v); last_decay_t = Some(t);
+                let y = match mode { MinMaxMode::Min => min_v, MinMaxMode::Max => max_v };
+                out.push([t, y]);
+            }
+            state.min_val = min_v; state.max_val = max_v; state.last_decay_t = last_decay_t; state.prev_in_t = data.last().map(|p| p[0]); state.prev_in_v = data.last().map(|p| p[1]).unwrap_or(state.prev_in_v);
         }
     }
     out
@@ -234,22 +293,64 @@ fn first_order_highpass(fc: f64, dt: f64) -> BiquadParams {
 }
 
 #[inline]
-fn bandpass_first_order(fl: f64, fh: f64, dt: f64) -> BiquadParams {
-    // naive cascade: HP then LP -> approximate as single section by multiplying transfer functions
-    // For simplicity, we apply HP then LP in sequence in the main loop by reusing biquad_step twice.
-    // But to keep state compact, we approximate with LP of HP(x).
-    // We'll implement as two steps at runtime: first HP, then LP using temporary state.
-    let _ = (fl, fh, dt); // parameters used in main loop
-    BiquadParams { b: [1.0, 0.0, 0.0], a: [1.0, 0.0, 0.0] }
-}
-
-#[inline]
 fn biquad_step(p: BiquadParams, x0: f64, x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
     let a0 = if p.a[0].abs() < 1e-15 { 1.0 } else { p.a[0] };
     let b0 = p.b[0] / a0; let b1 = p.b[1] / a0; let b2 = p.b[2] / a0;
     let a1 = p.a[1] / a0; let a2 = p.a[2] / a0;
     let y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
     y0
+}
+
+// RBJ audio EQ cookbook biquad coefficients (dt -> fs)
+#[inline]
+fn biquad_lowpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
+    let fs = (1.0 / dt).max(1.0);
+    let w0 = 2.0 * std::f64::consts::PI * (fc.max(1e-9) / fs);
+    let cosw0 = w0.cos();
+    let sinw0 = w0.sin();
+    let q = q.max(1e-6);
+    let alpha = sinw0 / (2.0 * q);
+    let b0 = (1.0 - cosw0) * 0.5;
+    let b1 = 1.0 - cosw0;
+    let b2 = (1.0 - cosw0) * 0.5;
+    let a0 = 1.0 + alpha;
+    let a1 = -2.0 * cosw0;
+    let a2 = 1.0 - alpha;
+    BiquadParams { b: [b0, b1, b2], a: [a0, a1, a2] }
+}
+
+#[inline]
+fn biquad_highpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
+    let fs = (1.0 / dt).max(1.0);
+    let w0 = 2.0 * std::f64::consts::PI * (fc.max(1e-9) / fs);
+    let cosw0 = w0.cos();
+    let sinw0 = w0.sin();
+    let q = q.max(1e-6);
+    let alpha = sinw0 / (2.0 * q);
+    let b0 = (1.0 + cosw0) * 0.5;
+    let b1 = -(1.0 + cosw0);
+    let b2 = (1.0 + cosw0) * 0.5;
+    let a0 = 1.0 + alpha;
+    let a1 = -2.0 * cosw0;
+    let a2 = 1.0 - alpha;
+    BiquadParams { b: [b0, b1, b2], a: [a0, a1, a2] }
+}
+
+#[inline]
+fn biquad_bandpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
+    let fs = (1.0 / dt).max(1.0);
+    let w0 = 2.0 * std::f64::consts::PI * (fc.max(1e-9) / fs);
+    let cosw0 = w0.cos();
+    let sinw0 = w0.sin();
+    let q = q.max(1e-6);
+    let alpha = sinw0 / (2.0 * q);
+    let b0 = alpha;
+    let b1 = 0.0;
+    let b2 = -alpha;
+    let a0 = 1.0 + alpha;
+    let a1 = -2.0 * cosw0;
+    let a2 = 1.0 - alpha;
+    BiquadParams { b: [b0, b1, b2], a: [a0, a1, a2] }
 }
 
 /// Output mode for Min/Max tracker
