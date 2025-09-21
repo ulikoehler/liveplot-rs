@@ -16,7 +16,7 @@
 //
 //   cargo run --example sine_cosine_delayed_snapshot
 //
-use liveplot::{channel_multi, run_multi_with_options_and_controllers, UiActionController, RawExportFormat};
+use liveplot::{channel_multi, run_liveplot, UiActionController, RawExportFormat, LivePlotConfig};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
@@ -60,12 +60,9 @@ fn main() -> eframe::Result<()> {
         });
     }
 
-    run_multi_with_options_and_controllers(
-        rx,
-        "LivePlot (delayed snapshot)",
-        eframe::NativeOptions::default(),
-        None,
-        None,
-        Some(ui_ctrl),
-    )
+    let mut cfg = LivePlotConfig::default();
+    cfg.title = Some("LivePlot (delayed snapshot)".into());
+    cfg.native_options = Some(eframe::NativeOptions::default());
+    cfg.ui_action_controller = Some(ui_ctrl);
+    run_liveplot(rx, cfg)
 }

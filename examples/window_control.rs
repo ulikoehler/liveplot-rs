@@ -1,4 +1,4 @@
-use liveplot::{channel_multi, run_multi_with_options_and_controllers, WindowController};
+use liveplot::{channel_multi, run_liveplot, WindowController, LivePlotConfig};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
@@ -62,7 +62,9 @@ fn main() -> eframe::Result<()> {
     });
 
     // Run with default options but attach our window controller
-    let title = "LivePlot (window control demo)";
-    let opts = eframe::NativeOptions::default();
-    run_multi_with_options_and_controllers(rx, title, opts, Some(window_ctrl), None, None)
+    let mut cfg = LivePlotConfig::default();
+    cfg.title = Some("LivePlot (window control demo)".into());
+    cfg.native_options = Some(eframe::NativeOptions::default());
+    cfg.window_controller = Some(window_ctrl);
+    run_liveplot(rx, cfg)
 }

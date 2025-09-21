@@ -1,4 +1,4 @@
-use liveplot::{channel_multi, run_multi};
+use liveplot::{channel_multi, run_liveplot, LivePlotConfig};
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
@@ -130,7 +130,7 @@ fn main() -> eframe::Result<()> {
         }
     });
 
-    run_multi(rx)
+    run_liveplot(rx, LivePlotConfig::default())
 }
 
 fn process_line(line: &str, trace_names: &mut Option<Vec<String>>, sink: &liveplot::sink::MultiPlotSink) {

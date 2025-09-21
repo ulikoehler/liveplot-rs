@@ -2,7 +2,7 @@ use tonic::Request;
 use std::sync::mpsc;
 
 // Import the library (multi-trace only)
-use liveplot::{MultiSample, run_multi};
+use liveplot::{MultiSample, run_liveplot, LivePlotConfig};
 
 // Include the generated proto just for the example
 pub mod sine { pub mod v1 { tonic::include_proto!("sine.v1"); } }
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Spawn the UI on a separate thread because eframe runs a native event loop
     let ui_handle = std::thread::spawn(move || {
         // Run the UI until the window is closed (single trace labeled "signal")
-        if let Err(e) = run_multi(rx) {
+    if let Err(e) = run_liveplot(rx, LivePlotConfig::default()) {
             eprintln!("UI error: {e}");
         }
     });

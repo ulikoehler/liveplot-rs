@@ -1,5 +1,7 @@
 //! Configuration types shared across the live plot UIs.
 
+use crate::controllers::{FftController, UiActionController, WindowController};
+use crate::thresholds::ThresholdController;
 use chrono::Local;
 
 /// Formatting options for the x-value (time) shown in point labels.
@@ -11,7 +13,11 @@ pub enum XDateFormat {
     Iso8601Time,
 }
 
-impl Default for XDateFormat { fn default() -> Self { XDateFormat::Iso8601Time } }
+impl Default for XDateFormat {
+    fn default() -> Self {
+        XDateFormat::Iso8601Time
+    }
+}
 
 impl XDateFormat {
     /// Format an `x` value (seconds since UNIX epoch as f64) according to the selected format.
@@ -21,14 +27,16 @@ impl XDateFormat {
         let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
             .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
         match self {
-            XDateFormat::Iso8601WithDate => dt_utc.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string(),
+            XDateFormat::Iso8601WithDate => dt_utc
+                .with_timezone(&Local)
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string(),
             XDateFormat::Iso8601Time => dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string(),
         }
     }
 }
 
 /// Configuration options for the live plot runtime (single- and multi-trace).
-#[derive(Debug, Clone, Copy)]
 pub struct LivePlotConfig {
     /// Rolling time window in seconds that is kept in memory and shown on X axis.
     pub time_window_secs: f64,
@@ -36,8 +44,29 @@ pub struct LivePlotConfig {
     pub max_points: usize,
     /// Format used for x-values in point labels.
     pub x_date_format: XDateFormat,
+    /// Optional window title. Defaults to "LivePlot (multi)".
+    pub title: Option<String>,
+    /// Optional eframe/native window options. If not provided, sensible defaults are used.
+    pub native_options: Option<eframe::NativeOptions>,
+    /// Optional controllers to attach.
+    pub window_controller: Option<WindowController>,
+    pub fft_controller: Option<FftController>,
+    pub ui_action_controller: Option<UiActionController>,
+    pub threshold_controller: Option<ThresholdController>,
 }
 
 impl Default for LivePlotConfig {
-    fn default() -> Self { Self { time_window_secs: 10.0, max_points: 10_000, x_date_format: XDateFormat::default() } }
+    fn default() -> Self {
+        Self {
+            time_window_secs: 10.0,
+            max_points: 10_000,
+            x_date_format: XDateFormat::default(),
+            title: None,
+            native_options: None,
+            window_controller: None,
+            fft_controller: None,
+            ui_action_controller: None,
+            threshold_controller: None,
+        }
+    }
 }

@@ -1146,64 +1146,23 @@ fn save_as_parquet(
 }
 
 /// Run the multi-trace plotting UI with default window title and size.
-pub fn run_multi(rx: Receiver<MultiSample>) -> eframe::Result<()> { run_multi_with_options(rx, "LivePlot (multi)", eframe::NativeOptions::default()) }
-
-/// Run the multi-trace plotting UI with custom window title and options.
-pub fn run_multi_with_options(
-    rx: Receiver<MultiSample>,
-    title: &str,
-    mut options: eframe::NativeOptions,
-) -> eframe::Result<()> {
+/// Unified entry point to run the LivePlot multi-trace UI.
+pub fn run_liveplot(rx: Receiver<MultiSample>, cfg: crate::config::LivePlotConfig) -> eframe::Result<()> {
+    let mut options = cfg.native_options.unwrap_or_else(eframe::NativeOptions::default);
     options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
-    eframe::run_native(title, options, Box::new(|_cc| Ok(Box::new(ScopeAppMulti::new(rx)))))
-}
-
-/// Run multi-trace UI with optional controllers attached.
-pub fn run_multi_with_options_and_controllers(
-    rx: Receiver<MultiSample>,
-    title: &str,
-    mut options: eframe::NativeOptions,
-    window_controller: Option<WindowController>,
-    fft_controller: Option<FftController>,
-    ui_action_controller: Option<UiActionController>,
-) -> eframe::Result<()> {
-    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
-    eframe::run_native(title, options, Box::new(move |_cc| {
+    let title = cfg.title.clone().unwrap_or_else(|| "LivePlot (multi)".to_string());
+    eframe::run_native(&title, options, Box::new(move |_cc| {
         Ok(Box::new({
             let mut app = ScopeAppMulti::new(rx);
-            app.window_controller = window_controller.clone();
-            app.fft_controller = fft_controller.clone();
-            app.ui_action_controller = ui_action_controller.clone();
-            app
-        }))
-    }))
-}
-
-/// Run the multi-trace plotting UI with a custom configuration (time window and point cap).
-pub fn run_multi_with_config(rx: Receiver<MultiSample>, cfg: crate::config::LivePlotConfig) -> eframe::Result<()> {
-    let title = "LivePlot (multi)";
-    let mut options = eframe::NativeOptions::default();
-    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
-    eframe::run_native(title, options, Box::new(|_cc| {
-        Ok(Box::new({
-            let mut app = ScopeAppMulti::new(rx);
+            // Set config-derived values
             app.time_window = cfg.time_window_secs;
             app.max_points = cfg.max_points;
             app.x_date_format = cfg.x_date_format;
-            app
-        }))
-    }))
-}
-
-/// Run the multi-trace plotting UI with a ThresholdController attached.
-pub fn run_multi_with_thresholds(rx: Receiver<MultiSample>, ctrl: ThresholdController) -> eframe::Result<()> {
-    let title = "LivePlot (multi)";
-    let mut options = eframe::NativeOptions::default();
-    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
-    eframe::run_native(title, options, Box::new(|_cc| {
-        Ok(Box::new({
-            let mut app = ScopeAppMulti::new(rx);
-            app.threshold_controller = Some(ctrl.clone());
+            // Attach optional controllers
+            app.window_controller = cfg.window_controller.clone();
+            app.fft_controller = cfg.fft_controller.clone();
+            app.ui_action_controller = cfg.ui_action_controller.clone();
+            app.threshold_controller = cfg.threshold_controller.clone();
             app
         }))
     }))

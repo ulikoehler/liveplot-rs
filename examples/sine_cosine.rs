@@ -1,4 +1,4 @@
-use liveplot::{channel_multi, run_multi};
+use liveplot::{channel_multi, run_liveplot, LivePlotConfig};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
@@ -28,5 +28,5 @@ fn main() -> eframe::Result<()> {
     });
 
     // Run the UI until closed (default: FFT hidden). Uses the unified multi-trace engine.
-    run_multi(rx)
+    run_liveplot(rx, LivePlotConfig::default())
 }

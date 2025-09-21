@@ -1,4 +1,4 @@
-use liveplot::{channel_multi, run_multi_with_thresholds, ThresholdController, ThresholdDef, ThresholdKind, TraceRef};
+use liveplot::{channel_multi, run_liveplot, ThresholdController, ThresholdDef, ThresholdKind, TraceRef, LivePlotConfig};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
@@ -49,6 +49,10 @@ fn main() -> eframe::Result<()> {
         max_events: 100,
     });
 
-    // Run the UI with the controller attached (crate helper)
-    run_multi_with_thresholds(rx, thr_ctrl)
+    // Run the UI with the controller attached via config
+    let mut cfg = LivePlotConfig::default();
+    cfg.title = Some("LivePlot (thresholds)".into());
+    cfg.native_options = Some(eframe::NativeOptions::default());
+    cfg.threshold_controller = Some(thr_ctrl);
+    run_liveplot(rx, cfg)
 }
