@@ -1,6 +1,6 @@
 # liveplot
 
-Live plotting library for timestamped data streams using egui/eframe.
+Live plotting library for timestamped data streams using egui/eframe, written in [Rust](https://www.rust-lang.org/).
 
 ![LivePlot screenshot](docs/liveplot%20screenshot.png)
 
@@ -60,7 +60,7 @@ Pan with the left mouse, use box-zoom with right drag, and reset the view from t
 
 ## Install
 
-First, since this is a `Rust` crate, you need to have Rust installed. If you don't have it yet, I recommend installing the latest version from [rustup.rs](https://rustup.rs/). I do not recommend using the outdated Rust from your Linux distribution's package manager.
+First, since this is a [Rust](https://www.rust-lang.org/) crate, you need to have Rust installed. If you don't have it yet, I recommend installing the latest version from [rustup.rs](https://rustup.rs/). I do not recommend using the outdated Rust from your Linux distribution's package manager.
 
 Add `liveplot` to your project's `Cargo.toml` dependencies. The crate is published on crates.io as `liveplot` and depends on `eframe`/`egui` for the UI. A minimal example dependency entry:
 
