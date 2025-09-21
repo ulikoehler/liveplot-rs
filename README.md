@@ -7,6 +7,42 @@ Live plotting library for timestamped data streams using egui/eframe.
 This crate provides a reusable plotting UI you can feed with a stream of `(timestamp, value)` samples.
 gRPC input is provided as an example of how to use the library, not as a built-in dependency.
 
+## Install
+
+Add `liveplot-rs` to your project's `Cargo.toml` dependencies. The crate is published on crates.io as `liveplot-rs` and depends on `eframe`/`egui` for the UI. A minimal example dependency entry:
+
+```toml
+[dependencies]
+liveplot-rs = "0.1"
+```
+
+If you want to enable optional features such as `parquet` (for Parquet export) or `grpc` (for examples using gRPC streaming), enable them in the dependency:
+
+```toml
+[dependencies]
+liveplot-rs = { version = "0.1", features = ["parquet", "grpc"] }
+```
+
+You can also use the Git repository directly if you want the latest code from the master branch:
+
+```toml
+[dependencies]
+liveplot-rs = { git = "https://github.com/ulikoehler/liveplot-rs", branch = "master" }
+```
+
+Run the included examples from the repository with `cargo run --example <name>` (run this in the crate root). For example:
+
+```bash
+cargo run --example sine
+```
+
+If you enabled the `grpc` feature, build or run with `--features grpc`:
+
+```bash
+cargo run --example grpc-server --features grpc
+cargo run --example sine --features grpc
+```
+
 ## Library usage
 
 This crate now uses a unified multi-trace UI for all use-cases. For a single signal, just pick a default trace name like `"signal"`.
@@ -34,6 +70,16 @@ fn main() -> eframe::Result<()> {
 }
 ```
 
+## Simple example
+
+A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as `examples/sine.rs`.
+
+Run it with:
+
+```bash
+cargo run --example sine
+
+
 ## gRPC example
 
 To try streaming data via gRPC, enable the `grpc` feature and run the example server and client:
@@ -47,7 +93,7 @@ cargo run --example grpc-server --features grpc
 Start the client UI:
 
 ```bash
-cargo run --example client --features grpc
+cargo run --example sine --features grpc
 ```
 
 The examples use the proto in `proto/sine.proto` and are only compiled when the `grpc` feature is enabled.
