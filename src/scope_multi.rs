@@ -87,6 +87,15 @@ pub struct ScopeAppMulti {
     thr_builder: ThresholdBuilderState,
     thr_editing: Option<String>,
     thr_error: Option<String>,
+    // Threshold events (global)
+    /// Total number of threshold exceed events observed since app start (never capped).
+    pub threshold_total_count: u64,
+    /// Global rolling log of recent threshold events (for the UI table).
+    threshold_event_log: VecDeque<ThresholdEvent>,
+    /// Maximum number of events to keep in the global UI log (prevents unbounded memory growth).
+    threshold_event_log_cap: usize,
+    /// Optional filter for the events table (None = all thresholds, Some(name) = only that threshold).
+    threshold_events_filter: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -221,6 +230,10 @@ impl ScopeAppMulti {
             thr_builder: ThresholdBuilderState::default(),
             thr_editing: None,
             thr_error: None,
+            threshold_total_count: 0,
+            threshold_event_log: VecDeque::new(),
+            threshold_event_log_cap: 10_000,
+            threshold_events_filter: None,
         }
     }
 
@@ -325,6 +338,10 @@ impl ScopeAppMulti {
                     if dur >= def.min_duration_s {
                         let evt = ThresholdEvent { threshold: def.name.clone(), trace: def.target.0.clone(), start_t: state.start_t, end_t, duration: dur, area: state.accum_area };
                         state.push_event_capped(evt.clone(), def.max_events);
+                        // Update global counters/log (never capped counter)
+                        self.threshold_total_count = self.threshold_total_count.saturating_add(1);
+                        self.threshold_event_log.push_back(evt.clone());
+                        while self.threshold_event_log.len() > self.threshold_event_log_cap { self.threshold_event_log.pop_front(); }
                         if let Some(ctrl) = &self.threshold_controller {
                             let mut inner = ctrl.inner.lock().unwrap();
                             inner.listeners.retain(|s| s.send(evt.clone()).is_ok());
@@ -514,7 +531,12 @@ impl eframe::App for ScopeAppMulti {
                 if ui.button("Clear").clicked() { for tr in self.traces.values_mut() { tr.live.clear(); if let Some(s) = &mut tr.snap { s.clear(); } } }
                 if ui.button("Save PNG").on_hover_text("Take an egui viewport screenshot").clicked() { self.request_window_shot = true; }
                 if ui.button("Math…").on_hover_text("Create and manage math traces").clicked() { self.show_math_dialog = true; }
-                if ui.button("Thresholds…").on_hover_text("Create and manage threshold detectors").clicked() { self.show_thresholds_dialog = true; }
+                {
+                    let thr_btn_label = if self.threshold_total_count > 0 {
+                        format!("Thresholds… ({})", self.threshold_total_count)
+                    } else { "Thresholds…".to_string() };
+                    if ui.button(thr_btn_label).on_hover_text("Create and manage threshold detectors").clicked() { self.show_thresholds_dialog = true; }
+                }
                 let hover_text: &str = {
                     #[cfg(feature = "parquet")]
                     { "Export all traces as CSV or Parquet" }
@@ -859,6 +881,62 @@ impl eframe::App for ScopeAppMulti {
                     }
                     if is_editing { if ui.button("Cancel").clicked() { self.thr_editing = None; self.thr_builder = ThresholdBuilderState::default(); self.thr_error = None; } }
                 });
+
+                ui.separator();
+                ui.heading("Threshold events");
+                ui.horizontal(|ui| {
+                    ui.label("Filter:");
+                    // Build list of names from current thresholds and from the log
+                    let mut names: Vec<String> = self.threshold_defs.iter().map(|d| d.name.clone()).collect();
+                    for e in self.threshold_event_log.iter() { if !names.iter().any(|n| n == &e.threshold) { names.push(e.threshold.clone()); } }
+                    names.sort(); names.dedup();
+                    let mut sel = self.threshold_events_filter.clone();
+                    egui::ComboBox::from_id_salt("thr_events_filter")
+                        .selected_text(match &sel { Some(s) => format!("{}", s), None => "All".to_string() })
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(sel.is_none(), "All").clicked() { sel = None; }
+                            for n in &names { if ui.selectable_label(sel.as_ref() == Some(n), n).clicked() { sel = Some(n.clone()); } }
+                        });
+                    if sel != self.threshold_events_filter { self.threshold_events_filter = sel; }
+                    if ui.button("Export to CSV").clicked() {
+                        // Collect filtered events (newest first as shown)
+                        let mut evts: Vec<&ThresholdEvent> = self.threshold_event_log.iter().rev()
+                            .filter(|e| self.threshold_events_filter.as_ref().map_or(true, |f| &e.threshold == f))
+                            .collect();
+                        if !evts.is_empty() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("threshold_events.csv")
+                                .add_filter("CSV", &["csv"]).save_file() {
+                                if let Err(e) = save_threshold_events_csv(&path, &evts) { eprintln!("Failed to export events CSV: {e}"); }
+                            }
+                        }
+                    }
+                });
+                // Table header
+                egui::Grid::new("thr_events_grid_header").num_columns(6).striped(true).show(ui, |ui| {
+                    ui.strong("End time (s)");
+                    ui.strong("Threshold");
+                    ui.strong("Trace");
+                    ui.strong("Start (s)");
+                    ui.strong("Duration (ms)");
+                    ui.strong("Area");
+                    ui.end_row();
+                });
+                // Rows in a scroll area (most recent on top)
+                egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+                    egui::Grid::new("thr_events_grid_rows").num_columns(6).striped(true).show(ui, |ui| {
+                        for e in self.threshold_event_log.iter().rev() {
+                            if self.threshold_events_filter.as_ref().map_or(false, |f| &e.threshold != f) { continue; }
+                            ui.label(format!("{:.6}", e.end_t));
+                            ui.label(&e.threshold);
+                            ui.label(&e.trace);
+                            ui.label(format!("{:.6}", e.start_t));
+                            ui.label(format!("{:.3}", e.duration * 1000.0));
+                            ui.label(format!("{:.6}", e.area));
+                            ui.end_row();
+                        }
+                    });
+                });
             });
             self.show_thresholds_dialog = show_flag;
         }
@@ -1166,4 +1244,16 @@ pub fn run_liveplot(rx: Receiver<MultiSample>, cfg: crate::config::LivePlotConfi
             app
         }))
     }))
+}
+
+/// Save a list of threshold events to a CSV file with columns:
+/// end_time_seconds,threshold,trace,start_time_seconds,duration_seconds,area
+fn save_threshold_events_csv(path: &std::path::Path, events: &[&ThresholdEvent]) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path)?;
+    writeln!(f, "end_time_seconds,threshold,trace,start_time_seconds,duration_seconds,area")?;
+    for e in events {
+        writeln!(f, "{:.9},{},{},{:.9},{:.9},{:.9}", e.end_t, e.threshold, e.trace, e.start_t, e.duration, e.area)?;
+    }
+    Ok(())
 }
