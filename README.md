@@ -46,6 +46,63 @@ External code can observe and influence the UI through lightweight controllers:
 - `UiActionController` — pause/resume, trigger screenshots, export raw data, and subscribe/request raw FFT input data for a trace.
 - `FftController` — observe and request FFT panel visibility and size (when the `fft` feature is enabled).
 
+#### Threshold detection and event logging
+
+Detect when a trace exceeds a condition for a minimum duration and keep a rolling log of events. Open the `Thresholds…` dialog to add/edit/remove detectors and to browse or export events.
+
+Supported conditions:
+
+- `GreaterThan { value }` — active while the trace is above `value`.
+- `LessThan { value }` — active while the trace is below `value`.
+- `InRange { low, high }` — active while `low ≤ value ≤ high`.
+
+Each threshold has:
+
+- A unique `name` and the `trace` to monitor.
+- `min_duration` — condition must hold continuously for at least this time (default 2 ms) to emit an event (debounce).
+- `max_events` — cap per-threshold history to bound memory usage (oldest events are dropped).
+
+For every recorded event the UI stores and shows:
+
+- `start` and `end` timestamps (formatted using the current X-axis date/time format),
+- `duration` in milliseconds,
+- `trace` and `threshold` names,
+- `area` — integrated excess while the condition was active. For `GreaterThan`, area is `∫(value - threshold) dt`; for `LessThan`, `∫(threshold - value) dt`; for `InRange`, `∫(value - low) dt`.
+
+Events appear in the `Threshold events` table inside the dialog. You can filter by threshold name and `Export to CSV` the currently visible entries. The total number of events since app start is shown on the toolbar button as a quick indicator.
+
+Programmatic API is available via `ThresholdController` to add/remove thresholds and subscribe to events from your own code:
+
+```rust
+use liveplot::{ThresholdController, ThresholdDef, ThresholdKind, TraceRef};
+
+// Create a controller and add it to `LivePlotConfig` before starting the UI.
+let controller = ThresholdController::new();
+
+// Define a threshold: "gt_0_8" while `signal` > 0.8 for at least 2 ms; keep up to 100 events.
+let def = ThresholdDef {
+    name: "gt_0_8".into(),
+    target: TraceRef("signal".into()),
+    kind: ThresholdKind::GreaterThan { value: 0.8 },
+    min_duration_s: 0.002,
+    max_events: 100,
+};
+controller.add_threshold(def);
+
+// Subscribe to events (non-blocking mpsc channel)
+let rx = controller.subscribe();
+std::thread::spawn(move || {
+    while let Ok(evt) = rx.recv() {
+        println!(
+            "Threshold {} on {}: start={:.3}s, dur={:.3}ms, area={:.6}",
+            evt.threshold, evt.trace, evt.start_t, evt.duration * 1000.0, evt.area
+        );
+    }
+});
+```
+
+In the UI, thresholds can be created/edited interactively, and any events recorded while paused operate on the per-trace snapshots, just like other analysis features.
+
 #### Flexible time axis formatting
 
 Format X-axis values (timestamps) using `XDateFormat` to suit your display needs.

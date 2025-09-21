@@ -938,12 +938,16 @@ impl eframe::App for ScopeAppMulti {
                             5 => "Area",
                             _ => "",
                         };
+                        // small left padding for readability
+                        ui.add_space(4.0);
                         ui.strong(text);
                     }
                     fn cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::CellInfo) {
                         let row = cell.row_nr as usize;
                         let col = cell.col_nr;
                         if let Some(e) = self.items.get(row).copied() {
+                            // small left padding so text doesn't touch the column line
+                            ui.add_space(4.0);
                             match col {
                                 0 => { ui.label(&e.threshold); }
                                 1 => { ui.label(self.fmt.format_value(e.start_t)); }
@@ -960,22 +964,27 @@ impl eframe::App for ScopeAppMulti {
                 let mut delegate = EventsDelegate { items: &filtered, fmt: self.x_date_format };
                 // Define columns with reasonable initial widths
                 let cols = vec![
-                    egui_table::Column::new(140.0), // Threshold
-                    egui_table::Column::new(160.0), // Start time (formatted)
-                    egui_table::Column::new(160.0), // End time (formatted)
-                    egui_table::Column::new(120.0), // Duration (ms)
-                    egui_table::Column::new(120.0), // Trace
-                    egui_table::Column::new(100.0), // Area
+                    egui_table::Column::new(152.0), // Threshold
+                    egui_table::Column::new(172.0), // Start time (formatted)
+                    egui_table::Column::new(172.0), // End time (formatted)
+                    egui_table::Column::new(132.0), // Duration (ms)
+                    egui_table::Column::new(132.0), // Trace
+                    egui_table::Column::new(112.0), // Area
                 ];
-                // Wrap the table in a fixed-height scroll area
-                egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                    Table::new()
-                        .id_salt("thr_events_table")
-                        .num_rows(filtered.len() as u64)
-                        .columns(cols)
-                        .headers(vec![EgHeaderRow::new(24.0)])
-                        .show(ui, &mut delegate);
-                });
+                // Allocate a fixed-height region for the table so it stays inside the window
+                let avail_w = ui.available_width();
+                let table_h = 260.0; // visual height for the events table
+                let (rect, _resp) = ui.allocate_exact_size(egui::vec2(avail_w, table_h), egui::Sense::hover());
+                let ui_builder = egui::UiBuilder::new()
+                    .max_rect(rect)
+                    .layout(egui::Layout::left_to_right(egui::Align::Min));
+                let mut table_ui = ui.new_child(ui_builder);
+                Table::new()
+                    .id_salt("thr_events_table")
+                    .num_rows(filtered.len() as u64)
+                    .columns(cols)
+                    .headers(vec![EgHeaderRow::new(24.0)])
+                    .show(&mut table_ui, &mut delegate);
             });
             self.show_thresholds_dialog = show_flag;
         }
