@@ -7,6 +7,14 @@ Live plotting library for timestamped data streams using egui/eframe.
 This crate provides a reusable plotting UI you can feed with a stream of `(timestamp, value)` samples.
 gRPC input is provided as an example of how to use the library, not as a built-in dependency.
 
+## Features
+
+#### Two-point analysis
+
+You can select one or two points on the plot to see the values and also delta-X and delta-Y plus slope between the points. You can also compare two different traces using this feature. There is also a "free" selection which does not track the nearest trace point.
+
+![LivePlot-RS screenshot](docs/liveplot-rs%20point%20and%20slope.png)
+
 ## Install
 
 Add `liveplot-rs` to your project's `Cargo.toml` dependencies. The crate is published on crates.io as `liveplot-rs` and depends on `eframe`/`egui` for the UI. A minimal example dependency entry:
@@ -87,8 +95,10 @@ A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is 
 Run it with:
 
 ```bash
-cargo run --example sine
+cargo run --example sine --features fft,parquet
+```
 
+(the features are optional for this example but showcase the full UI as shown in the screenshot above)
 
 ## gRPC example
 
