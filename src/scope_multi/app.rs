@@ -146,6 +146,238 @@ impl ScopeAppMulti {
         }
     }
 
+    /// Render the LivePlot UI into an arbitrary egui container (e.g., inside an egui::Window).
+    ///
+    /// This variant avoids using global panels and viewport commands, making it suitable
+    /// for embedding into another application's UI.
+    pub fn ui_embed(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        // Ingest new samples
+        while let Ok(s) = self.rx.try_recv() {
+            let is_new = !self.traces.contains_key(&s.trace);
+            let entry = self.traces.entry(s.trace.clone()).or_insert_with(|| {
+                let idx = self.trace_order.len();
+                self.trace_order.push(s.trace.clone());
+                TraceState { name: s.trace.clone(), color: Self::alloc_color(idx), visible: true, offset: 0.0, live: VecDeque::new(), snap: None, last_fft: None, is_math: false }
+            });
+            if is_new && self.selection_trace.is_none() { self.selection_trace = Some(s.trace.clone()); }
+            let t = s.timestamp_micros as f64 * 1e-6;
+            entry.live.push_back([t, s.value]);
+            if entry.live.len() > self.max_points { entry.live.pop_front(); }
+        }
+
+        // Prune per-trace based on rolling time window
+        if self.last_prune.elapsed() > Duration::from_millis(200) {
+            for (_k, tr) in self.traces.iter_mut() {
+                if let Some((&[t_latest, _], _)) = tr.live.back().map(|x| (x, ())) {
+                    let cutoff = t_latest - self.time_window * 1.15;
+                    while let Some(&[t, _]) = tr.live.front() { if t < cutoff { tr.live.pop_front(); } else { break; } }
+                }
+            }
+            self.last_prune = std::time::Instant::now();
+        }
+
+        // Recompute math traces from current sources
+        self.recompute_math_traces();
+
+        // Apply threshold controller requests
+        if let Some(ctrl) = &self.threshold_controller {
+            let (adds, removes) = {
+                let mut inner = ctrl.inner.lock().unwrap();
+                let adds: Vec<ThresholdDef> = inner.add_requests.drain(..).collect();
+                let removes: Vec<String> = inner.remove_requests.drain(..).collect();
+                (adds, removes)
+            };
+            for def in adds { self.add_threshold_internal(def); }
+            for name in removes { self.remove_threshold_internal(&name); }
+        }
+
+        // Process thresholds based on current buffers (including math traces)
+        self.process_thresholds();
+
+        // Apply traces controller requests and publish current info
+        if let Some(ctrl) = &self.traces_controller {
+            {
+                let mut inner = ctrl.inner.lock().unwrap();
+                for (name, rgb) in inner.color_requests.drain(..) {
+                    if let Some(tr) = self.traces.get_mut(&name) { tr.color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]); }
+                }
+                for (name, vis) in inner.visible_requests.drain(..) {
+                    if let Some(tr) = self.traces.get_mut(&name) { tr.visible = vis; }
+                }
+                for (name, off) in inner.offset_requests.drain(..) {
+                    if let Some(tr) = self.traces.get_mut(&name) { tr.offset = off; }
+                }
+                if let Some(sel) = inner.selection_request.take() { self.selection_trace = sel; }
+                if let Some(unit_opt) = inner.y_unit_request.take() { self.y_unit = unit_opt; }
+                if let Some(ylog) = inner.y_log_request.take() { self.y_log = ylog; }
+            }
+            let traces: Vec<TraceInfo> = self.trace_order.iter().filter_map(|n| self.traces.get(n).map(|tr| TraceInfo { name: tr.name.clone(), color_rgb: [tr.color.r(), tr.color.g(), tr.color.b()], visible: tr.visible, is_math: tr.is_math, offset: tr.offset })).collect();
+            let info = TracesInfo { traces, marker_selection: self.selection_trace.clone(), y_unit: self.y_unit.clone(), y_log: self.y_log };
+            let mut inner = ctrl.inner.lock().unwrap();
+            inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+        }
+
+        // Controls (embedded friendly)
+        ui.vertical(|ui| {
+            ui.label("LivePlot");
+            ui.label("Left mouse: pan  |  Right drag: zoom box");
+            ui.horizontal(|ui| {
+                ui.label("Time window (s):");
+                ui.add(egui::Slider::new(&mut self.time_window, 1.0..=60.0));
+                ui.label("Points cap:");
+                ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
+                if ui.button("Clear Selection").clicked() { self.point_selection.clear(); }
+                if ui.button(if self.paused { "Resume" } else { "Pause" }).clicked() {
+                    if self.paused {
+                        self.paused = false;
+                        for tr in self.traces.values_mut() { tr.snap = None; }
+                    } else {
+                        for tr in self.traces.values_mut() { tr.snap = Some(tr.live.clone()); }
+                        self.paused = true;
+                    }
+                }
+                if ui.button("Reset View").clicked() { self.reset_view = true; }
+                if ui.button("Clear").clicked() { for tr in self.traces.values_mut() { tr.live.clear(); if let Some(s) = &mut tr.snap { s.clear(); } } }
+                if ui.button("Math…").clicked() { self.show_math_dialog = true; }
+                if ui.button("Traces…").clicked() { self.show_traces_dialog = true; }
+                let thr_label = if self.threshold_total_count > 0 { format!("Thresholds… ({})", self.threshold_total_count) } else { "Thresholds…".to_string() };
+                if ui.button(thr_label).clicked() { self.show_thresholds_dialog = true; }
+            });
+        });
+
+        // Dialogs
+        if self.show_math_dialog { super::math_ui::show_math_dialog(self, &ctx); }
+        if self.show_traces_dialog { super::traces_ui::show_traces_dialog(self, &ctx); }
+        if self.show_thresholds_dialog { super::thresholds_ui::show_thresholds_dialog(self, &ctx); }
+
+        // Prepare selection data for currently selected trace (if any)
+        let selected_trace_name = self.selection_trace.clone();
+        let sel_data_points: Option<Vec<[f64;2]>> = if let Some(name) = &selected_trace_name {
+            self.traces.get(name).map(|tr| {
+                let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if self.paused {
+                    if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
+                } else { Box::new(tr.live.iter()) };
+                iter.cloned().collect()
+            })
+        } else { None };
+
+        // Plot all traces within the provided Ui
+        let mut plot = Plot::new("scope_plot_multi_embedded")
+            .allow_scroll(false)
+            .allow_zoom(true)
+            .allow_boxed_zoom(true)
+            .x_axis_formatter(|x, _range| {
+                let val = x.value; let secs = val as i64; let nsecs = ((val - secs as f64) * 1e9) as u32;
+                let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
+                    .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+                dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string()
+            })
+            .y_axis_formatter(|y, _range| {
+                let v = y.value;
+                let label_val = if self.y_log { 10f64.powf(v) } else { v };
+                if let Some(unit) = &self.y_unit { format!("{:.3} {}", label_val, unit) } else { format!("{:.3}", label_val) }
+            });
+        if self.reset_view { plot = plot.reset(); self.reset_view = false; }
+        let mut t_latest_overall = f64::NEG_INFINITY;
+        for name in self.trace_order.clone().into_iter() {
+            if let Some(tr) = self.traces.get(&name) {
+                let last_t = if self.paused { tr.snap.as_ref().and_then(|s| s.back()).map(|p| p[0]) } else { tr.live.back().map(|p| p[0]) };
+                if let Some(t) = last_t { if t > t_latest_overall { t_latest_overall = t; } }
+            }
+        }
+        if t_latest_overall.is_finite() {
+            let t_min = t_latest_overall - self.time_window;
+            plot = plot.include_x(t_min).include_x(t_latest_overall);
+        }
+        if self.traces.len() > 1 { plot = plot.legend(Legend::default()); }
+        let base_body = ctx.style().text_styles[&egui::TextStyle::Body].size;
+        let marker_font_size = base_body * 1.5;
+        let plot_response = plot.show(ui, |plot_ui| {
+            for name in self.trace_order.clone().into_iter() {
+                if let Some(tr) = self.traces.get(&name) {
+                    if !tr.visible { continue; }
+                    let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if self.paused {
+                        if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
+                    } else { Box::new(tr.live.iter()) };
+                    let pts: PlotPoints = iter.map(|p| {
+                        let y_lin = p[1] + tr.offset;
+                        let y = if self.y_log { if y_lin > 0.0 { y_lin.log10() } else { f64::NAN } } else { y_lin };
+                        [p[0], y]
+                    }).collect();
+                    let mut color = tr.color;
+                    if let Some(hov) = &self.hover_trace { if &tr.name != hov { color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 80); } }
+                    let mut line = Line::new(&tr.name, pts).color(color);
+                    if self.traces.len() > 1 { line = line.name(&tr.name); }
+                    plot_ui.line(line);
+                }
+            }
+            if let Some(p) = self.point_selection.selected_p1 {
+                plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::YELLOW));
+                let y_lin = if self.y_log { 10f64.powf(p[1]) } else { p[1] };
+                let ytxt = if let Some(u) = &self.y_unit { format!("{:.4} {}", y_lin, u) } else { format!("{:.4}", y_lin) };
+                let txt = format!("P1\nx={}\ny={}", self.x_date_format.format_value(p[0]), ytxt);
+                let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::YELLOW);
+                plot_ui.text(Text::new("p1_lbl", PlotPoint::new(p[0], p[1]), rich));
+            }
+            if let Some(p) = self.point_selection.selected_p2 {
+                plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE));
+                let y_lin = if self.y_log { 10f64.powf(p[1]) } else { p[1] };
+                let ytxt = if let Some(u) = &self.y_unit { format!("{:.4} {}", y_lin, u) } else { format!("{:.4}", y_lin) };
+                let txt = format!("P2\nx={}\ny={}", self.x_date_format.format_value(p[0]), ytxt);
+                let rich = egui::RichText::new(txt).size(marker_font_size).color(Color32::LIGHT_BLUE);
+                plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
+            }
+            if let (Some(p1), Some(p2)) = (self.point_selection.selected_p1, self.point_selection.selected_p2) {
+                plot_ui.line(Line::new("delta", vec![p1, p2]).color(Color32::LIGHT_GREEN));
+                let dx = p2[0] - p1[0];
+                let y1 = if self.y_log { 10f64.powf(p1[1]) } else { p1[1] };
+                let y2 = if self.y_log { 10f64.powf(p2[1]) } else { p2[1] };
+                let dy = y2 - y1;
+                let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
+                let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
+                let dy_txt = if let Some(u) = &self.y_unit { format!("{:.4} {}", dy, u) } else { format!("{:.4}", dy) };
+                let overlay = if slope.is_finite() { format!("Δx={:.4}\nΔy={}\nslope={:.4}", dx, dy_txt, slope) } else { format!("Δx=0\nΔy={}\nslope=∞", dy_txt) };
+                let rich = egui::RichText::new(overlay).size(marker_font_size).color(Color32::LIGHT_GREEN);
+                plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
+            }
+        });
+
+        // Handle click for selection in embedded mode
+        if plot_response.response.clicked() {
+            if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                let transform = plot_response.transform;
+                let plot_pos = transform.value_from_position(screen_pos);
+                match (&selected_trace_name, &sel_data_points) {
+                    (Some(name), Some(data_points)) if !data_points.is_empty() => {
+                        let off = self.traces.get(name).map(|t| t.offset).unwrap_or(0.0);
+                        let mut best_i = None;
+                        let mut best_d2 = f64::INFINITY;
+                        for (i, p) in data_points.iter().enumerate() {
+                            let x = p[0];
+                            let y_lin = p[1] + off;
+                            let y_plot = if self.y_log { if y_lin > 0.0 { y_lin.log10() } else { continue; } } else { y_lin };
+                            let dx = x - plot_pos.x;
+                            let dy = y_plot - plot_pos.y;
+                            let d2 = dx*dx + dy*dy;
+                            if d2 < best_d2 { best_d2 = d2; best_i = Some(i); }
+                        }
+                        if let Some(i) = best_i {
+                            let p = data_points[i];
+                            let y_lin = p[1] + off;
+                            let y_plot = if self.y_log { y_lin.log10() } else { y_lin };
+                            self.point_selection.handle_click_point([p[0], y_plot]);
+                        }
+                    },
+                    _ => { self.point_selection.handle_click_point([plot_pos.x, plot_pos.y]); }
+                }
+            }
+        }
+
+        // Repaint soon
+        ctx.request_repaint_after(Duration::from_millis(16));
+    }
+
     pub(crate) fn add_math_trace_internal(&mut self, def: MathTraceDef) {
         if self.traces.contains_key(&def.name) { return; }
         let idx = self.trace_order.len();

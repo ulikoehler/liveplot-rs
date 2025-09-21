@@ -1,6 +1,6 @@
 [package]
 name = "liveplot"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 autobins = false
 license = "Apache-2.0"
@@ -93,3 +93,7 @@ path = "examples/thresholds_sine.rs"
 [[example]]
 name = "custom_colors"
 path = "examples/custom_colors.rs"
+
+[[example]]
+name = "embedded_window"
+path = "examples/embedded_window.rs"
