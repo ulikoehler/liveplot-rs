@@ -89,3 +89,7 @@ required-features = ["window_control_display_info"]
 [[example]]
 name = "thresholds_sine"
 path = "examples/thresholds_sine.rs"
+
+[[example]]
+name = "custom_colors"
+path = "examples/custom_colors.rs"

@@ -1,6 +1,7 @@
 //! Configuration types shared across the live plot UIs.
 
 use crate::controllers::{FftController, UiActionController, WindowController};
+use crate::controllers::TracesController;
 use crate::thresholds::ThresholdController;
 use chrono::Local;
 
@@ -44,6 +45,12 @@ pub struct LivePlotConfig {
     pub max_points: usize,
     /// Format used for x-values in point labels.
     pub x_date_format: XDateFormat,
+    /// Optional unit label for the Y axis (e.g., "V", "A", "°C"). If set, it is appended
+    /// to Y tick labels and to point readouts/overlays.
+    pub y_unit: Option<String>,
+    /// Show the Y axis using a base-10 logarithmic scale. The transform is applied
+    /// to the plotted values; axis tick labels show the corresponding linear values.
+    pub y_log: bool,
     /// Optional window title. Defaults to "LivePlot (multi)".
     pub title: Option<String>,
     /// Optional eframe/native window options. If not provided, sensible defaults are used.
@@ -53,6 +60,7 @@ pub struct LivePlotConfig {
     pub fft_controller: Option<FftController>,
     pub ui_action_controller: Option<UiActionController>,
     pub threshold_controller: Option<ThresholdController>,
+    pub traces_controller: Option<TracesController>,
 }
 
 impl Default for LivePlotConfig {
@@ -61,12 +69,15 @@ impl Default for LivePlotConfig {
             time_window_secs: 10.0,
             max_points: 10_000,
             x_date_format: XDateFormat::default(),
+            y_unit: None,
+            y_log: false,
             title: None,
             native_options: None,
             window_controller: None,
             fft_controller: None,
             ui_action_controller: None,
             threshold_controller: None,
+            traces_controller: None,
         }
     }
 }

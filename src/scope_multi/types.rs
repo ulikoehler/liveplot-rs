@@ -6,6 +6,9 @@ use egui::Color32;
 pub(crate) struct TraceState {
     pub name: String,
     pub color: Color32,
+    pub visible: bool,
+    /// Additive Y offset applied before plotting and before optional log transform
+    pub offset: f64,
     pub live: VecDeque<[f64; 2]>,
     pub snap: Option<VecDeque<[f64; 2]>>,
     /// Cached last computed FFT (frequency, magnitude)

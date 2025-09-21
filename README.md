@@ -20,6 +20,8 @@ You can select one or two points on the plot to see the values and also delta-X 
 
 Display multiple named traces in a single plot with a shared X-axis. A legend appears automatically when more than one trace is visible.
 
+You can set a global Y-axis unit label and optionally enable a log10 Y scale. When log scale is enabled, each trace is transformed as `log10(value + offset)`; non-positive samples are omitted from the plot. Per-trace Y offsets can be adjusted in the Traces dialog.
+
 #### Rolling time window and point cap
 
 Control the visible time span (seconds) and limit the number of points kept per trace to manage memory and performance for long-running sessions.
@@ -46,6 +48,7 @@ External code can observe and influence the UI through lightweight controllers:
 - `WindowController` — observe window size and request size/position changes.
 - `UiActionController` — pause/resume, trigger screenshots, export raw data, and subscribe/request raw FFT input data for a trace.
 - `FftController` — observe and request FFT panel visibility and size (when the `fft` feature is enabled).
+- `TracesController` — observe and modify trace colors/visibility, per-trace Y offsets, marker selection, and global Y unit and Y log mode.
 
 #### Threshold detection and event logging
 
@@ -103,6 +106,27 @@ std::thread::spawn(move || {
 ```
 
 In the UI, thresholds can be created/edited interactively, and any events recorded while paused operate on the per-trace snapshots, just like other analysis features.
+
+#### Y axis unit, log scale, and per-trace offsets
+
+Open the `Traces…` dialog to:
+
+- Choose the marker mode: snap to a specific trace or use Free placement.
+- Toggle `Y axis log scale` (base-10).
+- Edit the `Y unit` string appended to tick labels and readouts (e.g., `V`, `A`, `°C`).
+- Set an individual `Offset` per trace, applied before plotting and the optional log transform.
+
+Programmatically, use `LivePlotConfig { y_unit, y_log, .. }` to set defaults at startup, and `TracesController` to modify them at runtime:
+
+```rust
+use liveplot::TracesController;
+let traces = TracesController::new();
+traces.request_set_color("signal", [255, 128, 0]);
+traces.request_set_visible("noise", false);
+traces.request_set_offset("signal", 1.5);
+traces.request_set_y_unit(Some("V"));
+traces.request_set_y_log(true);
+```
 
 #### Flexible time axis formatting
 
@@ -263,6 +287,47 @@ Run it with:
 
 ```bash
 cargo run --example sine_cosine
+```
+
+## Built-in example: `custom_colors`
+
+Demonstrates setting per-trace colors via the API using `TracesController`.
+
+Run it with:
+
+```bash
+cargo run --example custom_colors
+```
+
+## Built-in example: `thresholds_sine`
+
+Demonstrates adding a simple threshold (e.g., greater than 0.8 for at least 2 ms) and printing events in the console using `ThresholdController`.
+
+Run it with:
+
+```bash
+cargo run --example thresholds_sine
+```
+
+## Built-in example: `sine_cosine_delayed_snapshot`
+
+Shows saving raw data to CSV/Parquet after a short delay and/or from a paused snapshot.
+Requires the optional `parquet` feature to enable Parquet export.
+
+Run it with:
+
+```bash
+cargo run --example sine_cosine_delayed_snapshot --features parquet
+```
+
+## Built-in example: `window_control`
+
+Demonstrates using `WindowController` and (optionally) monitor geometry to position and size the window.
+
+Run it with:
+
+```bash
+cargo run --example window_control --features window_control_display_info
 ```
 
 ## Live CSV tail example: `csv_tail`

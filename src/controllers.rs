@@ -241,3 +241,103 @@ impl FftController {
         rx
     }
 }
+
+/// Information about a single trace for external observation.
+#[derive(Debug, Clone)]
+pub struct TraceInfo {
+    pub name: String,
+    pub color_rgb: [u8;3],
+    pub visible: bool,
+    pub is_math: bool,
+    /// Additive offset applied to Y before plotting or log-transform
+    pub offset: f64,
+}
+
+/// Snapshot of all traces and current marker selection.
+#[derive(Debug, Clone)]
+pub struct TracesInfo {
+    pub traces: Vec<TraceInfo>,
+    pub marker_selection: Option<String>, // None => Free
+    pub y_unit: Option<String>,
+    pub y_log: bool,
+}
+
+/// Controller to observe and modify traces UI state (color/visibility/marker selection).
+#[derive(Clone)]
+pub struct TracesController {
+    pub(crate) inner: Arc<Mutex<TracesCtrlInner>>, // crate-visible for UI
+}
+
+pub(crate) struct TracesCtrlInner {
+    pub(crate) color_requests: Vec<(String, [u8;3])>,
+    pub(crate) visible_requests: Vec<(String, bool)>,
+    pub(crate) offset_requests: Vec<(String, f64)>,
+    pub(crate) y_unit_request: Option<Option<String>>,
+    pub(crate) y_log_request: Option<bool>,
+    pub(crate) selection_request: Option<Option<String>>, // Some(None)=Free, Some(Some(name))=select, None=no-op
+    pub(crate) listeners: Vec<Sender<TracesInfo>>,
+}
+
+impl TracesController {
+    pub fn new() -> Self {
+        Self { inner: Arc::new(Mutex::new(TracesCtrlInner {
+            color_requests: Vec::new(),
+            visible_requests: Vec::new(),
+            offset_requests: Vec::new(),
+            y_unit_request: None,
+            y_log_request: None,
+            selection_request: None,
+            listeners: Vec::new(),
+        })) }
+    }
+
+    /// Request setting the RGB color of a trace by name.
+    pub fn request_set_color<S: Into<String>>(&self, name: S, rgb: [u8;3]) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.color_requests.push((name.into(), rgb));
+    }
+
+    /// Request setting the visibility of a trace by name.
+    pub fn request_set_visible<S: Into<String>>(&self, name: S, visible: bool) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.visible_requests.push((name.into(), visible));
+    }
+
+    /// Request setting the Y offset of a trace by name.
+    pub fn request_set_offset<S: Into<String>>(&self, name: S, offset: f64) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.offset_requests.push((name.into(), offset));
+    }
+
+    /// Request setting the global Y unit label (None for no unit).
+    pub fn request_set_y_unit<S: Into<String>>(&self, unit: Option<S>) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.y_unit_request = Some(unit.map(|s| s.into()));
+    }
+
+    /// Request toggling Y log scale.
+    pub fn request_set_y_log(&self, enable: bool) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.y_log_request = Some(enable);
+    }
+
+    /// Request selecting the marker to be "Free" (no snapping).
+    pub fn request_select_marker_free(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.selection_request = Some(None);
+    }
+
+    /// Request selecting a specific trace for markers.
+    pub fn request_select_marker_trace<S: Into<String>>(&self, name: S) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.selection_request = Some(Some(name.into()));
+    }
+
+    /// Subscribe to receive updates about traces and current selection.
+    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<TracesInfo> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut inner = self.inner.lock().unwrap();
+        inner.listeners.push(tx);
+        rx
+    }
+}
