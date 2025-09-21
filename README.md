@@ -15,6 +15,49 @@ You can select one or two points on the plot to see the values and also delta-X 
 
 ![LivePlot-RS screenshot](docs/liveplot-rs%20point%20and%20slope.png)
 
+#### Multi-trace plotting
+
+Display multiple named traces in a single plot with a shared X-axis. A legend appears automatically when more than one trace is visible.
+
+#### Rolling time window and point cap
+
+Control the visible time span (seconds) and limit the number of points kept per trace to manage memory and performance for long-running sessions.
+
+#### Pause/resume with snapshot
+
+Pause the live view to freeze all traces. While paused, computations and exports operate on a per-trace snapshot taken at the moment of pausing; resume to continue streaming.
+
+#### FFT spectrum (optional `fft` feature)
+
+An optional bottom panel shows magnitude spectra for all traces with per-trace overlays. Choose FFT size (power of two), select a window (Rect, Hann, Hamming, Blackman), toggle dB/linear magnitude, and auto-fit the axes. Build with `--features fft` to enable.
+
+#### Data export (CSV, optional Parquet)
+
+Export aligned raw time-domain data for all traces as CSV. With the optional `parquet` feature enabled, Parquet export (via Apache Arrow) is also available.
+
+#### Viewport screenshots (PNG)
+
+Capture the full UI viewport to a PNG file using the "Save PNG" action. Programmatic screenshots to a provided path are also supported.
+
+#### Programmatic control via controllers
+
+External code can observe and influence the UI through lightweight controllers:
+- `WindowController` — observe window size and request size/position changes.
+- `UiActionController` — pause/resume, trigger screenshots, export raw data, and subscribe/request raw FFT input data for a trace.
+- `FftController` — observe and request FFT panel visibility and size (when the `fft` feature is enabled).
+
+#### Flexible time axis formatting
+
+Format X-axis values (timestamps) using `XDateFormat` to suit your display needs.
+
+#### Marker trace selection and free mode
+
+Choose a specific trace for point snapping, or use the free mode to place markers anywhere in the plot without snapping to data points.
+
+#### Interactive plot controls
+
+Pan with the left mouse, use box-zoom with right drag, and reset the view from the toolbar. A small on-screen hint summarizes the available interactions.
+
 ## Install
 
 Add `liveplot-rs` to your project's `Cargo.toml` dependencies. The crate is published on crates.io as `liveplot-rs` and depends on `eframe`/`egui` for the UI. A minimal example dependency entry:
