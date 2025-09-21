@@ -1,8 +1,8 @@
-# liveplot-rs
+# liveplot
 
 Live plotting library for timestamped data streams using egui/eframe.
 
-![LivePlot-RS screenshot](docs/liveplot-rs%20screenshot.png)
+![LivePlot screenshot](docs/liveplot%20screenshot.png)
 
 This crate provides a reusable plotting UI you can feed with a stream of `(timestamp, value)` samples.
 gRPC input is provided as an example of how to use the library, not as a built-in dependency.
@@ -13,7 +13,7 @@ gRPC input is provided as an example of how to use the library, not as a built-i
 
 You can select one or two points on the plot to see the values and also delta-X and delta-Y plus slope between the points. You can also compare two different traces using this feature. There is also a "free" selection which does not track the nearest trace point.
 
-![LivePlot-RS screenshot](docs/liveplot-rs%20point%20and%20slope.png)
+![LivePlot screenshot](docs/liveplot%20point%20and%20slope.png)
 
 #### Multi-trace plotting
 
@@ -60,25 +60,27 @@ Pan with the left mouse, use box-zoom with right drag, and reset the view from t
 
 ## Install
 
-Add `liveplot-rs` to your project's `Cargo.toml` dependencies. The crate is published on crates.io as `liveplot-rs` and depends on `eframe`/`egui` for the UI. A minimal example dependency entry:
+First, since this is a `Rust` crate, you need to have Rust installed. If you don't have it yet, I recommend installing the latest version from [rustup.rs](https://rustup.rs/). I do not recommend using the outdated Rust from your Linux distribution's package manager.
+
+Add `liveplot` to your project's `Cargo.toml` dependencies. The crate is published on crates.io as `liveplot` and depends on `eframe`/`egui` for the UI. A minimal example dependency entry:
 
 ```toml
 [dependencies]
-liveplot-rs = "0.1"
+liveplot = "0.1"
 ```
 
 If you want to enable optional features such as `fft` (FFT computation and panel), `parquet` (for Parquet export) or `grpc` (for examples using gRPC streaming), enable them in the dependency:
 
 ```toml
 [dependencies]
-liveplot-rs = { version = "0.1", features = ["fft", "parquet", "grpc"] }
+liveplot = { version = "0.1", features = ["fft", "parquet", "grpc"] }
 ```
 
 You can also use the Git repository directly if you want the latest code from the master branch:
 
 ```toml
 [dependencies]
-liveplot-rs = { git = "https://github.com/ulikoehler/liveplot-rs", branch = "master" }
+liveplot = { git = "https://github.com/ulikoehler/liveplot", branch = "master" }
 ```
 
 Run the included examples from the repository with `cargo run --example <name>` (run this in the crate root). For example:
@@ -109,7 +111,7 @@ When the `fft` feature is disabled (default), the UI won’t show the “Show FF
 This crate now uses a unified multi-trace UI for all use-cases. For a single signal, just pick a default trace name like `"signal"`.
 
 ```rust
-use liveplot_rs::{channel_multi, run_multi};
+use liveplot::{channel_multi, run_multi};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {

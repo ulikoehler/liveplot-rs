@@ -16,7 +16,7 @@
 //
 //   cargo run --example sine_cosine_delayed_snapshot
 //
-use liveplot_rs::{channel_multi, run_multi_with_options_and_controllers, UiActionController, RawExportFormat};
+use liveplot::{channel_multi, run_multi_with_options_and_controllers, UiActionController, RawExportFormat};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {

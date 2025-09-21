@@ -1,15 +1,15 @@
 [package]
-name = "liveplot-rs"
+name = "liveplot"
 version = "0.1.0"
 edition = "2021"
 autobins = false
 license = "Apache-2.0"
 homepage = "https://github.com/ulikoehler/liveplot-rs"
 repository = "https://github.com/ulikoehler/liveplot-rs"
-description = "Realtime interactive plotting library Rust using egui/eframe, with optional gRPC and Parquet export support."
+description = "Realtime interactive plotting library using egui/eframe, with optional gRPC and Parquet export support."
 
 [lib]
-name = "liveplot_rs"
+name = "liveplot"
 path = "src/lib.rs"
 
 [features]
@@ -73,8 +73,3 @@ path = "examples/sine.rs"
 name = "sine_cosine_delayed_snapshot"
 path = "examples/sine_cosine_delayed_snapshot.rs"
 required-features = ["parquet"]
-
-[[bin]]
-name = "liveplot-rs"
-path = "src/main.rs"
-required-features = ["grpc"]

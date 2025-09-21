@@ -1,4 +1,4 @@
-use liveplot_rs::{channel_multi, run_multi};
+use liveplot::{channel_multi, run_multi};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {

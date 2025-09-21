@@ -2,7 +2,7 @@ use tonic::Request;
 use std::sync::mpsc;
 
 // Import the library (multi-trace only)
-use liveplot_rs::{MultiSample, run_multi};
+use liveplot::{MultiSample, run_multi};
 
 // Include the generated proto just for the example
 pub mod sine { pub mod v1 { tonic::include_proto!("sine.v1"); } }
