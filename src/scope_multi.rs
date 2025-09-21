@@ -26,6 +26,7 @@ use crate::export;
 use crate::sink::MultiSample;
 use crate::config::XDateFormat;
 use crate::math::{MathTraceDef, MathRuntimeState, compute_math_trace, MathKind, FilterKind, TraceRef, MinMaxMode};
+use crate::thresholds::{ThresholdDef, ThresholdKind, ThresholdEvent, ThresholdController, ThresholdRuntimeState};
 
 /// Internal per-trace state (live buffer, optional snapshot, color, cached FFT).
 struct TraceState {
@@ -78,6 +79,14 @@ pub struct ScopeAppMulti {
     math_builder: MathBuilderState,
     math_editing: Option<String>,
     math_error: Option<String>,
+    // Thresholds
+    pub threshold_controller: Option<ThresholdController>,
+    pub threshold_defs: Vec<ThresholdDef>,
+    threshold_states: HashMap<String, ThresholdRuntimeState>,
+    show_thresholds_dialog: bool,
+    thr_builder: ThresholdBuilderState,
+    thr_editing: Option<String>,
+    thr_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +108,23 @@ struct MathBuilderState {
 impl Default for MathBuilderState {
     fn default() -> Self {
         Self { name: String::new(), kind_idx: 0, add_inputs: vec![(0, 1.0), (0, 1.0)], mul_a_idx: 0, mul_b_idx: 0, single_idx: 0, integ_y0: 0.0, filter_which: 0, filter_f1: 1.0, filter_f2: 10.0, filter_q: 0.707, minmax_decay: 0.0 }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ThresholdBuilderState {
+    name: String,
+    target_idx: usize,
+    kind_idx: usize, // 0: >, 1: <, 2: in range
+    thr1: f64,
+    thr2: f64,
+    min_duration_ms: f64,
+    max_events: usize,
+}
+
+impl Default for ThresholdBuilderState {
+    fn default() -> Self {
+        Self { name: String::new(), target_idx: 0, kind_idx: 0, thr1: 0.0, thr2: 1.0, min_duration_ms: 2.0, max_events: 100 }
     }
 }
 
@@ -188,6 +214,13 @@ impl ScopeAppMulti {
             math_builder: MathBuilderState::default(),
             math_editing: None,
             math_error: None,
+            threshold_controller: None,
+            threshold_defs: Vec::new(),
+            threshold_states: HashMap::new(),
+            show_thresholds_dialog: false,
+            thr_builder: ThresholdBuilderState::default(),
+            thr_editing: None,
+            thr_error: None,
         }
     }
 
@@ -250,6 +283,80 @@ impl ScopeAppMulti {
                 self.traces.insert(def.name.clone(), TraceState { name: def.name.clone(), color: Self::alloc_color(idx), live: dq.clone(), snap: if self.paused { Some(dq.clone()) } else { None }, last_fft: None, is_math: true });
             }
         }
+    }
+
+    fn process_thresholds(&mut self) {
+        if self.threshold_defs.is_empty() { return; }
+        // Build sources from existing traces (prefer snapshot when paused)
+        let mut sources: HashMap<String, Vec<[f64;2]>> = HashMap::new();
+        for (name, tr) in &self.traces {
+            let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if self.paused { if let Some(s) = &tr.snap { Box::new(s.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
+            sources.insert(name.clone(), iter.cloned().collect());
+        }
+        // Process each threshold incrementally
+        for def in self.threshold_defs.clone().iter() {
+            let state = self.threshold_states.entry(def.name.clone()).or_insert_with(ThresholdRuntimeState::new);
+            let data = match sources.get(&def.target.0) { Some(v) => v, None => continue };
+            let mut start_idx = 0usize;
+            if let Some(t0) = state.prev_in_t { // find first strictly after t0
+                start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
+                    Ok(mut i) => { while i < data.len() && data[i][0] <= t0 { i += 1; } i },
+                    Err(i) => i,
+                };
+            }
+            for p in data.iter().skip(start_idx) {
+                let t = p[0]; let v = p[1];
+                let e = def.kind.excess(v);
+                if let Some(t0) = state.last_t {
+                    let dt = (t - t0).max(0.0);
+                    if state.active || e > 0.0 {
+                        // Trapezoid integrate excess
+                        state.accum_area += 0.5 * (state.last_excess + e) * dt;
+                    }
+                }
+                // Transition logic
+                if !state.active && e > 0.0 {
+                    state.active = true;
+                    state.start_t = t;
+                } else if state.active && e == 0.0 {
+                    // Close event
+                    let end_t = t;
+                    let dur = end_t - state.start_t;
+                    if dur >= def.min_duration_s {
+                        let evt = ThresholdEvent { threshold: def.name.clone(), trace: def.target.0.clone(), start_t: state.start_t, end_t, duration: dur, area: state.accum_area };
+                        state.push_event_capped(evt.clone(), def.max_events);
+                        if let Some(ctrl) = &self.threshold_controller {
+                            let mut inner = ctrl.inner.lock().unwrap();
+                            inner.listeners.retain(|s| s.send(evt.clone()).is_ok());
+                        }
+                    }
+                    state.active = false;
+                    state.accum_area = 0.0;
+                }
+                state.last_t = Some(t);
+                state.last_excess = e;
+                state.prev_in_t = Some(t);
+            }
+        }
+    }
+
+    fn add_threshold_internal(&mut self, def: ThresholdDef) {
+        if self.threshold_defs.iter().any(|d| d.name == def.name) { return; }
+        self.threshold_states.entry(def.name.clone()).or_insert_with(ThresholdRuntimeState::new);
+        self.threshold_defs.push(def);
+    }
+
+    fn remove_threshold_internal(&mut self, name: &str) {
+        self.threshold_defs.retain(|d| d.name != name);
+        self.threshold_states.remove(name);
+    }
+
+    /// Public API: add/remove/list thresholds; get events for a threshold (clone)
+    pub fn add_threshold(&mut self, def: ThresholdDef) { self.add_threshold_internal(def); }
+    pub fn remove_threshold(&mut self, name: &str) { self.remove_threshold_internal(name); }
+    pub fn thresholds(&self) -> &[ThresholdDef] { &self.threshold_defs }
+    pub fn threshold_events(&self, name: &str) -> Option<Vec<ThresholdEvent>> {
+        self.threshold_states.get(name).map(|s| s.events.iter().cloned().collect())
     }
 
     /// Update an existing math trace definition; supports renaming if the new name is unique.
@@ -345,6 +452,22 @@ impl eframe::App for ScopeAppMulti {
         // Recompute math traces from current sources
         self.recompute_math_traces();
 
+        // Apply threshold controller requests
+        if let Some(ctrl) = &self.threshold_controller {
+            // Drain requests first, then drop the lock before mutating self
+            let (adds, removes) = {
+                let mut inner = ctrl.inner.lock().unwrap();
+                let adds: Vec<ThresholdDef> = inner.add_requests.drain(..).collect();
+                let removes: Vec<String> = inner.remove_requests.drain(..).collect();
+                (adds, removes)
+            };
+            for def in adds { self.add_threshold_internal(def); }
+            for name in removes { self.remove_threshold_internal(&name); }
+        }
+
+        // Process thresholds based on current buffers (including math traces)
+        self.process_thresholds();
+
         // Controls
         egui::TopBottomPanel::top("controls_multi").show(ctx, |ui| {
             ui.heading("LivePlot (multi)");
@@ -391,6 +514,7 @@ impl eframe::App for ScopeAppMulti {
                 if ui.button("Clear").clicked() { for tr in self.traces.values_mut() { tr.live.clear(); if let Some(s) = &mut tr.snap { s.clear(); } } }
                 if ui.button("Save PNG").on_hover_text("Take an egui viewport screenshot").clicked() { self.request_window_shot = true; }
                 if ui.button("Math…").on_hover_text("Create and manage math traces").clicked() { self.show_math_dialog = true; }
+                if ui.button("Thresholds…").on_hover_text("Create and manage threshold detectors").clicked() { self.show_thresholds_dialog = true; }
                 let hover_text: &str = {
                     #[cfg(feature = "parquet")]
                     { "Export all traces as CSV or Parquet" }
@@ -665,6 +789,78 @@ impl eframe::App for ScopeAppMulti {
                     });
                     if !any_spec { ui.label("FFT: not enough data yet"); }
                 });
+        }
+
+        // Thresholds dialog
+        if self.show_thresholds_dialog {
+            let mut show_flag = self.show_thresholds_dialog;
+            egui::Window::new("Thresholds").open(&mut show_flag).show(ctx, |ui| {
+                ui.label("Detect and log when a trace exceeds a condition.");
+                if let Some(err) = &self.thr_error { ui.colored_label(Color32::LIGHT_RED, err); }
+                ui.separator();
+                // List existing thresholds
+                for def in self.threshold_defs.clone().iter() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{} on {}: {:?}, min_dur={:.3} ms, cap={} events", def.name, def.target.0, def.kind, def.min_duration_s*1000.0, def.max_events));
+                        if ui.button("Edit").clicked() {
+                            self.thr_builder = ThresholdBuilderState::default();
+                            self.thr_builder.name = def.name.clone();
+                            self.thr_builder.target_idx = self.trace_order.iter().position(|n| n == &def.target.0).unwrap_or(0);
+                            match &def.kind {
+                                ThresholdKind::GreaterThan { value } => { self.thr_builder.kind_idx = 0; self.thr_builder.thr1 = *value; },
+                                ThresholdKind::LessThan { value } => { self.thr_builder.kind_idx = 1; self.thr_builder.thr1 = *value; },
+                                ThresholdKind::InRange { low, high } => { self.thr_builder.kind_idx = 2; self.thr_builder.thr1 = *low; self.thr_builder.thr2 = *high; },
+                            }
+                            self.thr_builder.min_duration_ms = def.min_duration_s * 1000.0;
+                            self.thr_builder.max_events = def.max_events;
+                            self.thr_editing = Some(def.name.clone());
+                        }
+                        if ui.button("Remove").clicked() { self.remove_threshold_internal(&def.name); }
+                    });
+                    // Show a short summary of recent events
+                    if let Some(st) = self.threshold_states.get(&def.name) {
+                        let cnt = st.events.len();
+                        if let Some(last) = st.events.back() {
+                            ui.label(format!("Events: {}, last: start={:.3}s, dur={:.3}ms, area={:.4}", cnt, last.start_t, last.duration*1000.0, last.area));
+                        } else { ui.label("Events: 0"); }
+                    }
+                }
+                ui.separator();
+                let editing = self.thr_editing.clone();
+                let is_editing = editing.is_some();
+                let header = if is_editing { "Edit" } else { "Add new" };
+                ui.collapsing(header, |ui| {
+                    let kinds = [">", "<", "in range"];
+                    egui::ComboBox::from_label("Condition").selected_text(kinds[self.thr_builder.kind_idx]).show_ui(ui, |ui| { for (i, k) in kinds.iter().enumerate() { ui.selectable_value(&mut self.thr_builder.kind_idx, i, *k); } });
+                    ui.horizontal(|ui| { ui.label("Name"); ui.text_edit_singleline(&mut self.thr_builder.name); });
+                    let trace_names: Vec<String> = self.trace_order.clone();
+                    egui::ComboBox::from_label("Trace").selected_text(trace_names.get(self.thr_builder.target_idx).cloned().unwrap_or_default()).show_ui(ui, |ui| { for (i, n) in trace_names.iter().enumerate() { ui.selectable_value(&mut self.thr_builder.target_idx, i, n); } });
+                    match self.thr_builder.kind_idx {
+                        0 | 1 => { ui.horizontal(|ui| { ui.label("Value"); ui.add(egui::DragValue::new(&mut self.thr_builder.thr1).speed(0.01)); }); },
+                        _ => {
+                            ui.horizontal(|ui| { ui.label("Low"); ui.add(egui::DragValue::new(&mut self.thr_builder.thr1).speed(0.01)); });
+                            ui.horizontal(|ui| { ui.label("High"); ui.add(egui::DragValue::new(&mut self.thr_builder.thr2).speed(0.01)); });
+                        }
+                    }
+                    ui.horizontal(|ui| { ui.label("Min duration (ms)"); ui.add(egui::DragValue::new(&mut self.thr_builder.min_duration_ms).speed(0.1)); });
+                    ui.horizontal(|ui| { ui.label("Max events"); ui.add(egui::DragValue::new(&mut self.thr_builder.max_events).speed(1)); });
+                    if ui.button(if is_editing { "Save" } else { "Add threshold" }).clicked() {
+                        if let Some(nm) = trace_names.get(self.thr_builder.target_idx) { if !self.thr_builder.name.is_empty() {
+                            let kind = match self.thr_builder.kind_idx { 0 => ThresholdKind::GreaterThan { value: self.thr_builder.thr1 }, 1 => ThresholdKind::LessThan { value: self.thr_builder.thr1 }, _ => ThresholdKind::InRange { low: self.thr_builder.thr1.min(self.thr_builder.thr2), high: self.thr_builder.thr1.max(self.thr_builder.thr2) } };
+                            let def = ThresholdDef { name: self.thr_builder.name.clone(), target: TraceRef(nm.clone()), kind, min_duration_s: (self.thr_builder.min_duration_ms / 1000.0).max(0.0), max_events: self.thr_builder.max_events };
+                            if is_editing {
+                                // replace existing by name
+                                self.remove_threshold_internal(&editing.unwrap());
+                                self.add_threshold_internal(def);
+                            } else {
+                                if self.threshold_defs.iter().any(|d| d.name == def.name) { self.thr_error = Some("A threshold with this name already exists".into()); } else { self.add_threshold_internal(def); self.thr_builder = ThresholdBuilderState::default(); }
+                            }
+                        } }
+                    }
+                    if is_editing { if ui.button("Cancel").clicked() { self.thr_editing = None; self.thr_builder = ThresholdBuilderState::default(); self.thr_error = None; } }
+                });
+            });
+            self.show_thresholds_dialog = show_flag;
         }
         #[cfg(not(feature = "fft"))]
         {
@@ -994,6 +1190,20 @@ pub fn run_multi_with_config(rx: Receiver<MultiSample>, cfg: crate::config::Live
             app.time_window = cfg.time_window_secs;
             app.max_points = cfg.max_points;
             app.x_date_format = cfg.x_date_format;
+            app
+        }))
+    }))
+}
+
+/// Run the multi-trace plotting UI with a ThresholdController attached.
+pub fn run_multi_with_thresholds(rx: Receiver<MultiSample>, ctrl: ThresholdController) -> eframe::Result<()> {
+    let title = "LivePlot (multi)";
+    let mut options = eframe::NativeOptions::default();
+    options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
+    eframe::run_native(title, options, Box::new(|_cc| {
+        Ok(Box::new({
+            let mut app = ScopeAppMulti::new(rx);
+            app.threshold_controller = Some(ctrl.clone());
             app
         }))
     }))

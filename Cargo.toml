@@ -84,3 +84,7 @@ required-features = ["parquet"]
 name = "window_control"
 path = "examples/window_control.rs"
 required-features = ["window_control_display_info"]
+
+[[example]]
+name = "thresholds_sine"
+path = "examples/thresholds_sine.rs"
