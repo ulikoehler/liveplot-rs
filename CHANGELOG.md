@@ -1,0 +1,12 @@
+## v0.3.0
+
+* Added threshold events
+* Added possibility to control & readout position & size of plot window
+* Rework API with unified config as opposed to multiple `run_...` functions
+* Various UI improvements
+* See git log for details
+
+## v0.2.0
+
+* Added Math functionality
+* See git log for details

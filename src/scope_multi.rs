@@ -27,6 +27,7 @@ use crate::sink::MultiSample;
 use crate::config::XDateFormat;
 use crate::math::{MathTraceDef, MathRuntimeState, compute_math_trace, MathKind, FilterKind, TraceRef, MinMaxMode};
 use crate::thresholds::{ThresholdDef, ThresholdKind, ThresholdEvent, ThresholdController, ThresholdRuntimeState};
+use egui_table::{Table, TableDelegate, HeaderRow as EgHeaderRow};
 
 /// Internal per-trace state (live buffer, optional snapshot, color, cached FFT).
 struct TraceState {
@@ -912,30 +913,68 @@ impl eframe::App for ScopeAppMulti {
                         }
                     }
                 });
-                // Table header
-                egui::Grid::new("thr_events_grid_header").num_columns(6).striped(true).show(ui, |ui| {
-                    ui.strong("End time (s)");
-                    ui.strong("Threshold");
-                    ui.strong("Trace");
-                    ui.strong("Start (s)");
-                    ui.strong("Duration (ms)");
-                    ui.strong("Area");
-                    ui.end_row();
-                });
-                // Rows in a scroll area (most recent on top)
-                egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
-                    egui::Grid::new("thr_events_grid_rows").num_columns(6).striped(true).show(ui, |ui| {
-                        for e in self.threshold_event_log.iter().rev() {
-                            if self.threshold_events_filter.as_ref().map_or(false, |f| &e.threshold != f) { continue; }
-                            ui.label(format!("{:.6}", e.end_t));
-                            ui.label(&e.threshold);
-                            ui.label(&e.trace);
-                            ui.label(format!("{:.6}", e.start_t));
-                            ui.label(format!("{:.3}", e.duration * 1000.0));
-                            ui.label(format!("{:.6}", e.area));
-                            ui.end_row();
+                // Build filtered, newest-first slice indices for table
+                let filtered: Vec<&ThresholdEvent> = self
+                    .threshold_event_log
+                    .iter()
+                    .rev()
+                    .filter(|e| self.threshold_events_filter.as_ref().map_or(true, |f| &e.threshold == f))
+                    .collect();
+
+                // Delegate for rendering with egui_table
+                struct EventsDelegate<'a> {
+                    items: &'a [&'a ThresholdEvent],
+                    fmt: crate::config::XDateFormat,
+                }
+                impl<'a> TableDelegate for EventsDelegate<'a> {
+                    fn header_cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::HeaderCellInfo) {
+                        let col = cell.col_range.start;
+                        let text = match col {
+                            0 => "Threshold",
+                            1 => "Start time",
+                            2 => "End time",
+                            3 => "Duration (ms)",
+                            4 => "Trace",
+                            5 => "Area",
+                            _ => "",
+                        };
+                        ui.strong(text);
+                    }
+                    fn cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::CellInfo) {
+                        let row = cell.row_nr as usize;
+                        let col = cell.col_nr;
+                        if let Some(e) = self.items.get(row).copied() {
+                            match col {
+                                0 => { ui.label(&e.threshold); }
+                                1 => { ui.label(self.fmt.format_value(e.start_t)); }
+                                2 => { ui.label(self.fmt.format_value(e.end_t)); }
+                                3 => { ui.label(format!("{:.3}", e.duration * 1000.0)); }
+                                4 => { ui.label(&e.trace); }
+                                5 => { ui.label(format!("{:.6}", e.area)); }
+                                _ => {}
+                            }
                         }
-                    });
+                    }
+                }
+
+                let mut delegate = EventsDelegate { items: &filtered, fmt: self.x_date_format };
+                // Define columns with reasonable initial widths
+                let cols = vec![
+                    egui_table::Column::new(140.0), // Threshold
+                    egui_table::Column::new(160.0), // Start time (formatted)
+                    egui_table::Column::new(160.0), // End time (formatted)
+                    egui_table::Column::new(120.0), // Duration (ms)
+                    egui_table::Column::new(120.0), // Trace
+                    egui_table::Column::new(100.0), // Area
+                ];
+                // Wrap the table in a fixed-height scroll area
+                egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                    Table::new()
+                        .id_salt("thr_events_table")
+                        .num_rows(filtered.len() as u64)
+                        .columns(cols)
+                        .headers(vec![EgHeaderRow::new(24.0)])
+                        .show(ui, &mut delegate);
                 });
             });
             self.show_thresholds_dialog = show_flag;
