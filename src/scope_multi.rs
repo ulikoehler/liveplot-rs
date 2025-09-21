@@ -831,14 +831,27 @@ impl eframe::App for ScopeAppMulti {
             }
         }
 
-        // Window controller: publish current window info and record any pending requests.
+        // Window controller: publish current window info and apply any pending requests.
         if let Some(ctrl) = &self.window_controller {
             let rect = ctx.input(|i| i.screen_rect);
             let ppp = ctx.pixels_per_point();
             let mut inner = ctrl.inner.lock().unwrap();
+            // Read current size/pos (best-effort)
             let size_pts = rect.size();
             inner.current_size = Some([size_pts.x * ppp, size_pts.y * ppp]);
-            let info = WindowInfo { current_size: inner.current_size, requested_size: inner.request_set_size, requested_pos: inner.request_set_pos };
+            inner.current_pos = Some([rect.min.x * ppp, rect.min.y * ppp]);
+
+            // Apply size/pos requests (physical px -> egui points)
+            if let Some(size_px) = inner.request_set_size.take() {
+                let size_pts = [size_px[0] / ppp, size_px[1] / ppp];
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size_pts.into()));
+            }
+            if let Some(pos_px) = inner.request_set_pos.take() {
+                let pos_pts = [pos_px[0] / ppp, pos_px[1] / ppp];
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos_pts.into()));
+            }
+
+            let info = WindowInfo { current_size: inner.current_size, current_pos: inner.current_pos, requested_size: inner.request_set_size, requested_pos: inner.request_set_pos };
             inner.listeners.retain(|s| s.send(info.clone()).is_ok());
         }
 

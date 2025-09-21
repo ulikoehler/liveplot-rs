@@ -12,6 +12,9 @@ use std::sync::mpsc::Sender;
 pub struct WindowInfo {
     /// Last observed size of the entire window in physical pixels.
     pub current_size: Option<[f32; 2]>,
+    /// Last observed outer position of the window in physical pixels (top-left), if available.
+    /// Note: not all backends expose this reliably; may be None.
+    pub current_pos: Option<[f32; 2]>,
     /// Requested size (if any) set via controller. Whether it is applied
     /// depends on the backend/platform.
     pub requested_size: Option<[f32; 2]>,
@@ -27,6 +30,7 @@ pub struct WindowController {
 
 pub(crate) struct WindowCtrlInner {
     pub(crate) current_size: Option<[f32; 2]>,
+    pub(crate) current_pos: Option<[f32; 2]>,
     pub(crate) request_set_size: Option<[f32; 2]>,
     pub(crate) request_set_pos: Option<[f32; 2]>,
     pub(crate) listeners: Vec<Sender<WindowInfo>>,
@@ -35,12 +39,17 @@ pub(crate) struct WindowCtrlInner {
 impl WindowController {
     /// Create a fresh controller.
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(WindowCtrlInner { current_size: None, request_set_size: None, request_set_pos: None, listeners: Vec::new() })) }
+        Self { inner: Arc::new(Mutex::new(WindowCtrlInner { current_size: None, current_pos: None, request_set_size: None, request_set_pos: None, listeners: Vec::new() })) }
     }
 
     /// Get the last observed window size in physical pixels (if known).
     pub fn get_current_size(&self) -> Option<[f32;2]> {
         self.inner.lock().unwrap().current_size
+    }
+
+    /// Get the last observed window position in physical pixels (if known).
+    pub fn get_current_pos(&self) -> Option<[f32;2]> {
+        self.inner.lock().unwrap().current_pos
     }
 
     /// Request a window size change (physical pixels). The request is recorded and
