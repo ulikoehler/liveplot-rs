@@ -83,4 +83,4 @@ required-features = ["parquet"]
 [[example]]
 name = "window_control"
 path = "examples/window_control.rs"
-required-features = []
+required-features = ["window_control_display_info"]
