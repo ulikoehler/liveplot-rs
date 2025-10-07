@@ -491,7 +491,15 @@ impl eframe::App for ScopeAppMulti {
             ui.label("Left mouse: pan  |  Right drag: zoom box");
             ui.horizontal(|ui| {
                 ui.label("Time window (s):");
-                ui.add(egui::Slider::new(&mut self.time_window, 1.0..=60.0));
+                let mut tw = self.time_window;
+                let sresp = ui.add(
+                    egui::Slider::new(&mut tw, 1.0..=60.0)
+                        .smart_aim(false)
+                        .show_value(true)
+                );
+                if sresp.changed() {
+                    self.time_window = tw;
+                }
                 ui.label("Points cap:");
                 ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
                 // Marker trace selection ("Free" or one trace)
