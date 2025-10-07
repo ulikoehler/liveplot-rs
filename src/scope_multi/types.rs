@@ -12,6 +12,7 @@ pub(crate) struct TraceState {
     pub live: VecDeque<[f64; 2]>,
     pub snap: Option<VecDeque<[f64; 2]>>,
     /// Cached last computed FFT (frequency, magnitude)
+    #[cfg_attr(not(feature = "fft"), allow(dead_code))]
     pub last_fft: Option<Vec<[f64; 2]>>,
     /// Whether this trace is a derived math trace
     pub is_math: bool,
