@@ -89,11 +89,8 @@ pub struct ScopeAppMulti {
     /// Whether to display Y axis in log10 scale (applied after per-trace offset)
     pub y_log: bool,
     // Manual Y-axis limits; when set, Y is locked to [y_min, y_max]
-    pub y_min: Option<f64>,
-    pub y_max: Option<f64>,
-    // Inputs for manual Y bounds
-    pub y_min_input: f64,
-    pub y_max_input: f64,
+    pub y_min: f64,
+    pub y_max: f64,
     // One-shot flag to compute Y-auto from current view
     pub pending_auto_y: bool,
     // Math traces
@@ -288,7 +285,11 @@ impl ScopeAppMulti {
                 }
             }
         }
-        if t_latest_overall.is_finite() { Some(t_latest_overall) } else { None }
+        if t_latest_overall.is_finite() {
+            Some(t_latest_overall)
+        } else {
+            None
+        }
     }
 
     /// Shared plot for both embedded and main variants. Returns (x_width, zoomed) and full response.
@@ -308,10 +309,7 @@ impl ScopeAppMulti {
                 let nsecs = ((val - secs as f64) * 1e9) as u32;
                 let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
                     .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
-                dt_utc
-                    .with_timezone(&Local)
-                    .format("%H:%M:%S")
-                    .to_string()
+                dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string()
             })
             .y_axis_formatter(|y, _range| {
                 let v = y.value;
@@ -355,41 +353,48 @@ impl ScopeAppMulti {
                 }
             }
 
-            // Apply manual Y or pending auto Y
-            if let (Some(y0), Some(y1)) = (self.y_min, self.y_max) {
-                if y0.is_finite() && y1.is_finite() && y0 < y1 {
-                    plot_ui.set_plot_bounds_y(y0..=y1);
-                }
-            } else if self.pending_auto_y {
-                let mut ymin = f64::INFINITY;
-                let mut ymax = f64::NEG_INFINITY;
-                for tr in self.traces.values() {
-                    if !tr.visible {
-                        continue;
-                    }
-                    for p in tr.live.iter() {
-                        let y_lin = p[1] + tr.offset;
-                        let y = if self.y_log {
-                            if y_lin > 0.0 {
-                                y_lin.log10()
-                            } else {
-                                continue;
-                            }
-                        } else {
-                            y_lin
-                        };
-                        if y < ymin {
-                            ymin = y;
-                        }
-                        if y > ymax {
-                            ymax = y;
-                        }
-                    }
-                }
-                if ymin.is_finite() && ymax.is_finite() && ymin < ymax {
-                    plot_ui.set_plot_bounds_y(ymin..=ymax);
-                }
+            if interacting {
                 self.pending_auto_y = false;
+                let act_bounds = plot_ui.plot_bounds();
+                self.y_min = *act_bounds.range_y().start();
+                self.y_max = *act_bounds.range_y().end();
+            } else {
+                // Apply manual Y or pending auto Y
+                if self.pending_auto_y {
+                    let mut ymin = f64::INFINITY;
+                    let mut ymax = f64::NEG_INFINITY;
+                    for tr in self.traces.values() {
+                        if !tr.visible {
+                            continue;
+                        }
+                        for p in tr.live.iter() {
+                            let y_lin = p[1] + tr.offset;
+                            let y = if self.y_log {
+                                if y_lin > 0.0 {
+                                    y_lin.log10()
+                                } else {
+                                    continue;
+                                }
+                            } else {
+                                y_lin
+                            };
+                            if y < ymin {
+                                ymin = y;
+                            }
+                            if y > ymax {
+                                ymax = y;
+                            }
+                        }
+                    }
+
+                    self.y_min = ymin;
+                    self.y_max = ymax;
+                    self.pending_auto_y = false;
+                }
+                if self.y_min.is_finite() && self.y_max.is_finite() && self.y_min < self.y_max {
+                    let space = (self.y_max - self.y_min) * 0.05;
+                    plot_ui.set_plot_bounds_y(self.y_min - space..=self.y_max + space);
+                }
             }
 
             // Lines
@@ -462,7 +467,9 @@ impl ScopeAppMulti {
             }
             if let Some(p) = self.point_selection.selected_p2 {
                 plot_ui.points(
-                    Points::new("", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE),
+                    Points::new("", vec![p])
+                        .radius(5.0)
+                        .color(Color32::LIGHT_BLUE),
                 );
                 let y_lin = if self.y_log { 10f64.powf(p[1]) } else { p[1] };
                 let ytxt = if let Some(u) = &self.y_unit {
@@ -480,13 +487,20 @@ impl ScopeAppMulti {
                     .color(Color32::LIGHT_BLUE);
                 plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
             }
-            if let (Some(p1), Some(p2)) = (self.point_selection.selected_p1, self.point_selection.selected_p2) {
+            if let (Some(p1), Some(p2)) = (
+                self.point_selection.selected_p1,
+                self.point_selection.selected_p2,
+            ) {
                 plot_ui.line(Line::new("delta", vec![p1, p2]).color(Color32::LIGHT_GREEN));
                 let dx = p2[0] - p1[0];
                 let y1 = if self.y_log { 10f64.powf(p1[1]) } else { p1[1] };
                 let y2 = if self.y_log { 10f64.powf(p2[1]) } else { p2[1] };
                 let dy = y2 - y1;
-                let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
+                let slope = if dx.abs() > 1e-12 {
+                    dy / dx
+                } else {
+                    f64::INFINITY
+                };
                 let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
                 let dy_txt = if let Some(u) = &self.y_unit {
                     format!("{:.4} {}", dy, u)
@@ -535,22 +549,23 @@ impl ScopeAppMulti {
                 let transform = plot_response.transform;
                 let plot_pos = transform.value_from_position(screen_pos);
                 let selected_trace_name = self.selection_trace.clone();
-                let sel_data_points: Option<Vec<[f64; 2]>> = if let Some(name) = &selected_trace_name {
-                    self.traces.get(name).map(|tr| {
-                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
-                            if let Some(snap) = &tr.snap {
-                                Box::new(snap.iter())
+                let sel_data_points: Option<Vec<[f64; 2]>> =
+                    if let Some(name) = &selected_trace_name {
+                        self.traces.get(name).map(|tr| {
+                            let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
+                                if let Some(snap) = &tr.snap {
+                                    Box::new(snap.iter())
+                                } else {
+                                    Box::new(tr.live.iter())
+                                }
                             } else {
                                 Box::new(tr.live.iter())
-                            }
-                        } else {
-                            Box::new(tr.live.iter())
-                        };
-                        iter.cloned().collect()
-                    })
-                } else {
-                    None
-                };
+                            };
+                            iter.cloned().collect()
+                        })
+                    } else {
+                        None
+                    };
                 match (&selected_trace_name, &sel_data_points) {
                     (Some(name), Some(data_points)) if !data_points.is_empty() => {
                         let off = self.traces.get(name).map(|t| t.offset).unwrap_or(0.0);
@@ -560,8 +575,14 @@ impl ScopeAppMulti {
                             let x = p[0];
                             let y_lin = p[1] + off;
                             let y_plot = if self.y_log {
-                                if y_lin > 0.0 { y_lin.log10() } else { continue; }
-                            } else { y_lin };
+                                if y_lin > 0.0 {
+                                    y_lin.log10()
+                                } else {
+                                    continue;
+                                }
+                            } else {
+                                y_lin
+                            };
                             let dx = x - plot_pos.x;
                             let dy = y_plot - plot_pos.y;
                             let d2 = dx * dx + dy * dy;
@@ -578,8 +599,7 @@ impl ScopeAppMulti {
                         }
                     }
                     _ => {
-                        self
-                            .point_selection
+                        self.point_selection
                             .handle_click_point([plot_pos.x, plot_pos.y]);
                     }
                 }
@@ -629,31 +649,26 @@ impl ScopeAppMulti {
             ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
 
             // Y controls (shared)
+
+            let mut y_min_tmp = self.y_min;
+            let mut y_max_tmp = self.y_max;
+
+            ui.label("Y Axis Min:");
+            let r1 = ui.add(egui::DragValue::new(&mut y_min_tmp).speed(0.1));
+            ui.label(" Max:");
+            let r2 = ui.add(egui::DragValue::new(&mut y_max_tmp).speed(0.1));
+            if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
+                self.y_min = y_min_tmp;
+                self.y_max = y_max_tmp;
+                self.pending_auto_y = false;
+            }
+
             if ui.button("Auto Zoom Y-Axis").clicked() {
+                // Clear manual bounds and request one-shot auto fit
                 self.pending_auto_y = true;
             }
-            ui.label("Y min / max:");
-            let mut y_min_tmp = self.y_min.unwrap_or(self.y_min_input);
-            let mut y_max_tmp = self.y_max.unwrap_or(self.y_max_input);
-            let r1 = ui.add(egui::DragValue::new(&mut y_min_tmp).speed(0.1));
+
             ui.add_space(6.0);
-            let r2 = ui.add(egui::DragValue::new(&mut y_max_tmp).speed(0.1));
-            if r1.changed() || r2.changed() {
-                self.y_min_input = y_min_tmp;
-                self.y_max_input = y_max_tmp;
-            }
-            ui.add_space(6.0);
-            if ui.button("Apply Y").clicked() {
-                if self.y_min_input < self.y_max_input {
-                    self.y_min = Some(self.y_min_input);
-                    self.y_max = Some(self.y_max_input);
-                }
-            }
-            ui.add_space(6.0);
-            if ui.button("Clear Y").clicked() {
-                self.y_min = None;
-                self.y_max = None;
-            }
 
             // Selection + pause/reset/clear (shared)
             if ui.button("Clear Selection").clicked() {
@@ -833,11 +848,9 @@ impl ScopeAppMulti {
             x_date_format: XDateFormat::default(),
             y_unit: None,
             y_log: false,
-            y_min: None,
-            y_max: None,
-            y_min_input: 0.0,
-            y_max_input: 1.0,
-            pending_auto_y: false,
+            y_min: 0.0,
+            y_max: 1.0,
+            pending_auto_y: true,
             math_defs: Vec::new(),
             math_states: HashMap::new(),
             show_math_dialog: false,
