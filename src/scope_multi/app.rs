@@ -57,9 +57,6 @@ pub struct ScopeAppMulti {
     pub time_window_input: f64,
     // Internal: track drag state for time slider to detect release
     pub time_slider_dragging: bool,
-    /// When true, keep the X axis locked to [t_latest - time_window, t_latest].
-    /// When false, user zoom/pan decides the X bounds.
-    pub x_follow_time_window: bool,
     pub last_prune: std::time::Instant,
     pub reset_view: bool,
     pub paused: bool,
@@ -166,10 +163,9 @@ impl ScopeAppMulti {
                 }
             }
 
-            // Points cap + follow
+            // Points cap
             ui.label("Points cap:");
             ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
-            ui.checkbox(&mut self.x_follow_time_window, "Follow X");
 
             // Y controls (shared)
             if ui.button("Auto Zoom Y-Axis").clicked() {
@@ -356,7 +352,6 @@ impl ScopeAppMulti {
             time_window_max: 100.0,
             time_window_input: 10.0,
             time_slider_dragging: false,
-            x_follow_time_window: true,
             last_prune: std::time::Instant::now(),
             reset_view: false,
             paused: false,
@@ -629,7 +624,7 @@ impl ScopeAppMulti {
             });
             let interacting = resp.dragged() || resp.is_pointer_button_down_on();
             let suppress_follow = interacting || is_zooming;
-            if self.x_follow_time_window && !suppress_follow {
+            if !self.paused && !suppress_follow {
                 if let Some((xmin, xmax)) = x_bounds {
                     if xmin < xmax {
                         plot_ui.set_plot_bounds_x(xmin..=xmax);
@@ -801,8 +796,8 @@ impl ScopeAppMulti {
             (w, is_zooming)
         });
 
-        // Sync time window with zoom if Follow X is enabled (wheel zoom adjusts view width)
-        if self.x_follow_time_window && !self.time_slider_dragging {
+        // Sync time window with zoom when following is active (not paused)
+        if !self.paused && !self.time_slider_dragging {
             let (w, zoomed) = plot_response.inner;
             if zoomed
                 && w.is_finite()
@@ -1433,7 +1428,7 @@ impl eframe::App for ScopeAppMulti {
                 });
                 let interacting = resp.dragged() || resp.is_pointer_button_down_on();
                 let suppress_follow = interacting || is_zooming;
-                if self.x_follow_time_window && !suppress_follow {
+                if !self.paused && !suppress_follow {
                     if let Some((xmin, xmax)) = x_bounds {
                         if xmin < xmax {
                             plot_ui.set_plot_bounds_x(xmin..=xmax);
@@ -1607,8 +1602,8 @@ impl eframe::App for ScopeAppMulti {
                 };
                 (w, is_zooming)
             });
-            // Sync time window with zoom if Follow X is enabled
-            if self.x_follow_time_window && !self.time_slider_dragging {
+            // Sync time window with zoom when following is active (not paused)
+            if !self.paused && !self.time_slider_dragging {
                 let (w, zoomed) = plot_response.inner;
                 if zoomed
                     && w.is_finite()
