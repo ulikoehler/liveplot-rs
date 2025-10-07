@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Local;
+use eframe::glow::{LEFT, RIGHT};
 use eframe::{self, egui};
 use egui::Color32;
 use egui_plot::{Legend, Line, Plot, PlotPoint, PlotPoints, Points, Text};
@@ -93,6 +94,8 @@ pub struct ScopeAppMulti {
     pub y_max: f64,
     // One-shot flag to compute Y-auto from current view
     pub pending_auto_y: bool,
+
+    pub zoom_pending: bool,
     // Math traces
     pub math_defs: Vec<MathTraceDef>,
     pub(super) math_states: HashMap<String, MathRuntimeState>,
@@ -343,9 +346,59 @@ impl ScopeAppMulti {
                     is_zooming = true;
                 }
             });
-            let interacting = resp.dragged() || resp.is_pointer_button_down_on();
+            let interacting = resp.dragged()
+                || resp.is_pointer_button_down_on()
+                || resp.drag_stopped_by(egui::PointerButton::Secondary);
             let suppress_follow = interacting || is_zooming;
-            if !self.paused && !suppress_follow {
+
+            if interacting {
+                self.pending_auto_y = false;
+                //self.paused = true;
+                let act_bounds = plot_ui.plot_bounds();
+                // println!("act_bounds: {:?}", act_bounds);
+                // println!("range_y: {:?}", act_bounds.range_y());
+                // println!("resp: {:?}", resp);
+                // println!("resp.dragged: {}", resp.dragged());
+                // println!(
+                //     "resp.is_pointer_button_down_on: {}",
+                //     resp.is_pointer_button_down_on()
+                // );
+                if resp.dragged_by(egui::PointerButton::Primary) {
+                    let space = (self.y_max - self.y_min) * 0.05;
+                    self.y_min = *act_bounds.range_y().start() + space;
+                    self.y_max = *act_bounds.range_y().end() - space;
+                }
+            }
+            if self.zoom_pending {
+                let act_bounds = plot_ui.plot_bounds();
+                self.y_min = *act_bounds.range_y().start();
+                self.y_max = *act_bounds.range_y().end();
+                self.zoom_pending = false;
+            }
+            if resp.drag_stopped_by(egui::PointerButton::Secondary) {
+                self.pending_auto_y = false;
+                if !self.paused {
+                    for tr in self.traces.values_mut() {
+                        tr.snap = Some(tr.live.clone());
+                    }
+                }
+                self.paused = true;
+                self.zoom_pending = true;
+                let act_bounds = plot_ui.plot_bounds();
+                println!("act_bounds: {:?}", act_bounds);
+                println!("range_y: {:?}", act_bounds.range_y());
+                println!("resp: {:?}", resp);
+                println!("resp.dragged: {}", resp.dragged());
+                println!(
+                    "resp.is_pointer_button_down_on: {}",
+                    resp.is_pointer_button_down_on()
+                );
+                println!("resp.drag_delta: {}", resp.drag_delta());
+                //self.y_min = *act_bounds.range_y().start();
+                //self.y_max = *act_bounds.range_y().end();
+            }
+
+            if !self.paused && !suppress_follow && !self.zoom_pending {
                 if let Some((xmin, xmax)) = x_bounds {
                     if xmin < xmax {
                         plot_ui.set_plot_bounds_x(xmin..=xmax);
@@ -353,12 +406,7 @@ impl ScopeAppMulti {
                 }
             }
 
-            if interacting {
-                self.pending_auto_y = false;
-                let act_bounds = plot_ui.plot_bounds();
-                self.y_min = *act_bounds.range_y().start();
-                self.y_max = *act_bounds.range_y().end();
-            } else {
+            if !interacting && !self.zoom_pending {
                 // Apply manual Y or pending auto Y
                 if self.pending_auto_y {
                     let mut ymin = f64::INFINITY;
@@ -851,6 +899,7 @@ impl ScopeAppMulti {
             y_min: 0.0,
             y_max: 1.0,
             pending_auto_y: true,
+            zoom_pending: false,
             math_defs: Vec::new(),
             math_states: HashMap::new(),
             show_math_dialog: false,
