@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Local;
-use eframe::glow::{LEFT, RIGHT};
 use eframe::{self, egui};
 use egui::Color32;
 use egui_plot::{Legend, Line, Plot, PlotPoint, PlotPoints, Points, Text};
@@ -30,6 +29,15 @@ pub enum FftWindow {
     Hamming,
     Blackman,
 }
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ZoomMode {
+    Off,
+    X,
+    Y,
+    Both,
+}
+
 use crate::config::XDateFormat;
 use crate::math::{compute_math_trace, MathRuntimeState, MathTraceDef};
 use crate::point_selection::PointSelection;
@@ -43,6 +51,7 @@ enum ControlsMode {
     Embedded,
     Main,
 }
+
 
 /// Egui app that displays multiple traces and supports point selection and FFT.
 pub struct ScopeAppMulti {
@@ -96,6 +105,8 @@ pub struct ScopeAppMulti {
     pub pending_auto_y: bool,
 
     pub zoom_pending: bool,
+
+    pub zoom_mode: ZoomMode,
     // Math traces
     pub math_defs: Vec<MathTraceDef>,
     pub(super) math_states: HashMap<String, MathRuntimeState>,
@@ -328,9 +339,7 @@ impl ScopeAppMulti {
             self.reset_view = false;
         }
         // Determine desired x-bounds for follow
-        let x_bounds = self
-            .latest_time_overall()
-            .map(|t_latest| (t_latest - self.time_window, t_latest));
+        let t_latest = self.latest_time_overall().unwrap_or(0.0);
         if self.traces.len() > 1 {
             plot = plot.legend(Legend::default());
         }
@@ -339,83 +348,98 @@ impl ScopeAppMulti {
         plot.show(ui, |plot_ui| {
             let resp = plot_ui.response();
             // Detect wheel zoom over the plot
-            let mut is_zooming = false;
+            let mut is_zooming_with_wheel = false;
+            let mut scroll_data = egui::Vec2::ZERO;
             plot_ui.ctx().input(|i| {
-                let d = i.raw_scroll_delta;
-                if (d.x != 0.0 || d.y != 0.0) && resp.hovered() {
-                    is_zooming = true;
+                scroll_data = i.raw_scroll_delta;
+                if (scroll_data.x != 0.0 || scroll_data.y != 0.0) && resp.hovered() {
+                    is_zooming_with_wheel = true;
                 }
             });
-            let interacting = resp.dragged()
-                || resp.is_pointer_button_down_on()
-                || resp.drag_stopped_by(egui::PointerButton::Secondary);
-            let suppress_follow = interacting || is_zooming;
 
-            if interacting {
+            let is_panning =
+                resp.dragged_by(egui::PointerButton::Primary) && resp.is_pointer_button_down_on();
+
+            let is_zooming_with_rect =
+                resp.dragged_by(egui::PointerButton::Secondary) && resp.is_pointer_button_down_on();
+
+            let is_zooming = is_zooming_with_rect;//is_zooming_with_wheel || is_zooming_with_rect;
+
+            let act_bounds = plot_ui.plot_bounds();
+
+            if is_panning {
                 self.pending_auto_y = false;
-                //self.paused = true;
-                let act_bounds = plot_ui.plot_bounds();
-                // println!("act_bounds: {:?}", act_bounds);
-                // println!("range_y: {:?}", act_bounds.range_y());
-                // println!("resp: {:?}", resp);
-                // println!("resp.dragged: {}", resp.dragged());
-                // println!(
-                //     "resp.is_pointer_button_down_on: {}",
-                //     resp.is_pointer_button_down_on()
-                // );
-                if resp.dragged_by(egui::PointerButton::Primary) {
-                    let space = (self.y_max - self.y_min) * 0.05;
-                    self.y_min = *act_bounds.range_y().start() + space;
-                    self.y_max = *act_bounds.range_y().end() - space;
-                }
-            }
-            if self.zoom_pending {
-                let act_bounds = plot_ui.plot_bounds();
-                self.y_min = *act_bounds.range_y().start();
-                self.y_max = *act_bounds.range_y().end();
-                self.zoom_pending = false;
-            }
-            if resp.drag_stopped_by(egui::PointerButton::Secondary) {
+                let space = (self.y_max - self.y_min) * 0.05;
+                self.y_min = *act_bounds.range_y().start() + space;
+                self.y_max = *act_bounds.range_y().end() - space;
+            } else if is_zooming_with_rect {
                 self.pending_auto_y = false;
+                self.zoom_pending = true;
                 if !self.paused {
+                    self.paused = true;
                     for tr in self.traces.values_mut() {
                         tr.snap = Some(tr.live.clone());
                     }
                 }
-                self.paused = true;
-                self.zoom_pending = true;
-                let act_bounds = plot_ui.plot_bounds();
-                println!("act_bounds: {:?}", act_bounds);
-                println!("range_y: {:?}", act_bounds.range_y());
-                println!("resp: {:?}", resp);
-                println!("resp.dragged: {}", resp.dragged());
-                println!(
-                    "resp.is_pointer_button_down_on: {}",
-                    resp.is_pointer_button_down_on()
-                );
-                println!("resp.drag_delta: {}", resp.drag_delta());
-                //self.y_min = *act_bounds.range_y().start();
-                //self.y_max = *act_bounds.range_y().end();
-            }
+            } else if self.zoom_pending && !resp.dragged() && !resp.drag_stopped() {
+                self.y_min = *act_bounds.range_y().start();
+                self.y_max = *act_bounds.range_y().end();
+                self.time_window = act_bounds.range_x().end() - act_bounds.range_x().start();
+                self.zoom_pending = false;
+            } else if is_zooming_with_wheel {
+                self.pending_auto_y = false;
 
-            if !self.paused && !suppress_follow && !self.zoom_pending {
-                if let Some((xmin, xmax)) = x_bounds {
-                    if xmin < xmax {
-                        plot_ui.set_plot_bounds_x(xmin..=xmax);
-                    }
+                if self.zoom_mode == ZoomMode::Y || self.zoom_mode == ZoomMode::Both {
+                    let delta_y = (self.y_max - self.y_min) * 0.001 * (scroll_data.y as f64);
+                    self.y_min += delta_y;
+                    self.y_max -= delta_y;
+                }
+                if self.zoom_mode == ZoomMode::X || self.zoom_mode == ZoomMode::Both {
+                    self.time_window -= (scroll_data.y as f64) * 0.001 * (self.time_window);
+                }
+                if scroll_data.x != 0.0 {
+                    self.time_window -= (scroll_data.x as f64) * 0.001 * (self.time_window);
                 }
             }
 
-            if !interacting && !self.zoom_pending {
+            if self.paused && is_zooming_with_wheel {
+                let xmax = act_bounds.range_x().end()
+                    - (act_bounds.range_x().end()
+                        - act_bounds.range_x().start()
+                        - self.time_window)
+                        / 2.0;
+                let xmin = xmax - self.time_window;
+                plot_ui.set_plot_bounds_x(xmin..=xmax);
+            } else if !self.paused && !self.zoom_pending {
+                plot_ui.set_plot_bounds_x(t_latest - self.time_window..=t_latest);
+            }
+            if !self.zoom_pending {
                 // Apply manual Y or pending auto Y
                 if self.pending_auto_y {
                     let mut ymin = f64::INFINITY;
                     let mut ymax = f64::NEG_INFINITY;
+                    // Limit to currently visible X-range
+                    let rx = act_bounds.range_x();
+                    let (xmin, xmax) = (*rx.start(), *rx.end());
                     for tr in self.traces.values() {
                         if !tr.visible {
                             continue;
                         }
-                        for p in tr.live.iter() {
+                        // Use snapshot when paused, else live
+                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
+                            if let Some(snap) = &tr.snap {
+                                Box::new(snap.iter())
+                            } else {
+                                Box::new(tr.live.iter())
+                            }
+                        } else {
+                            Box::new(tr.live.iter())
+                        };
+                        for p in iter {
+                            let x = p[0];
+                            if !(x >= xmin && x <= xmax) {
+                                continue;
+                            }
                             let y_lin = p[1] + tr.offset;
                             let y = if self.y_log {
                                 if y_lin > 0.0 {
@@ -670,40 +694,46 @@ impl ScopeAppMulti {
 
         ui.horizontal(|ui| {
             // Time window slider (shared)
-            ui.label("Time window (s):");
+
+            ui.label("X-Axis: Time window (s):");
             let mut tw = self.time_window;
-            let slider = egui::Slider::new(&mut tw, self.time_window_min..=self.time_window_max)
-                .logarithmic(true)
-                .smart_aim(false)
-                .show_value(true);
-            let sresp = ui.add(slider);
-            if sresp.changed() {
-                self.time_window = tw.max(1e-6);
-            }
-            // Expand bounds only on release
-            let was_drag = self.time_slider_dragging;
-            let now_drag = sresp.is_pointer_button_down_on();
-            self.time_slider_dragging = now_drag;
-            if was_drag && !now_drag {
-                let v = self.time_window;
-                if v <= self.time_window_min || v >= self.time_window_max {
-                    self.time_window_min = (v / 10.0).max(1e-6);
-                    self.time_window_max = v * 10.0;
+            if !self.time_slider_dragging {
+                if tw <= self.time_window_min {
+                    self.time_window_min = self.time_window_min / 10.0;
+                    self.time_window_max = self.time_window_max / 10.0;
+                } else if tw >= self.time_window_max {
+                    self.time_window_min = self.time_window_min * 10.0;
+                    self.time_window_max = self.time_window_max * 10.0;
                 }
             }
+            let slider = egui::Slider::new(&mut tw, self.time_window_min..=self.time_window_max)
+                .logarithmic(true)
+                .smart_aim(true)
+                .show_value(true)
+                .clamping(egui::SliderClamping::Edits)
+                .suffix(" s");
+            let sresp = ui.add(slider);
+            if sresp.changed() {
+                println!("Time window slider changed: {}", tw);
+                self.time_window = tw; //.max(1e-6);
+            }
+            // Expand bounds only on release
+            self.time_slider_dragging = sresp.is_pointer_button_down_on();
 
             // Points cap
-            ui.label("Points cap:");
+            ui.label("Points:");
             ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
+
+            ui.separator();
 
             // Y controls (shared)
 
             let mut y_min_tmp = self.y_min;
             let mut y_max_tmp = self.y_max;
 
-            ui.label("Y Axis Min:");
+            ui.label("Y-Axis Min:");
             let r1 = ui.add(egui::DragValue::new(&mut y_min_tmp).speed(0.1));
-            ui.label(" Max:");
+            ui.label("Max:");
             let r2 = ui.add(egui::DragValue::new(&mut y_max_tmp).speed(0.1));
             if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
                 self.y_min = y_min_tmp;
@@ -711,12 +741,22 @@ impl ScopeAppMulti {
                 self.pending_auto_y = false;
             }
 
-            if ui.button("Auto Zoom Y-Axis").clicked() {
+            if ui.button("Auto Zoom").clicked() {
                 // Clear manual bounds and request one-shot auto fit
                 self.pending_auto_y = true;
             }
 
-            ui.add_space(6.0);
+            ui.separator();
+
+            ui.horizontal(|ui| {
+                ui.label("Zoom:");
+                ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "Off");
+                ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "X-Axis");
+                ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "Y-Axis");
+                ui.selectable_value(&mut self.zoom_mode, ZoomMode::Both, "Both");
+            });
+
+            ui.separator();
 
             // Selection + pause/reset/clear (shared)
             if ui.button("Clear Selection").clicked() {
@@ -900,6 +940,7 @@ impl ScopeAppMulti {
             y_max: 1.0,
             pending_auto_y: true,
             zoom_pending: false,
+            zoom_mode: ZoomMode::X,
             math_defs: Vec::new(),
             math_states: HashMap::new(),
             show_math_dialog: false,
