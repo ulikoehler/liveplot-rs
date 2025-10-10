@@ -16,6 +16,8 @@ pub(crate) struct TraceState {
     pub last_fft: Option<Vec<[f64; 2]>>,
     /// Whether this trace is a derived math trace
     pub is_math: bool,
+    pub show_points: bool,
+    pub info: String,
 }
 
 #[derive(Debug, Clone)]

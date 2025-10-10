@@ -4,11 +4,10 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::Duration;
-
 use chrono::Local;
 use eframe::{self, egui};
 use egui::Color32;
-use egui_plot::{Legend, Line, Plot, PlotPoint, PlotPoints, Points, Text};
+use egui_plot::{Legend, Line, Plot, PlotPoint, Points, Text};
 use image::{Rgba, RgbaImage};
 
 #[cfg(feature = "fft")]
@@ -151,6 +150,8 @@ impl ScopeAppMulti {
                     snap: None,
                     last_fft: None,
                     is_math: false,
+                    show_points: false,
+                    info: String::new(),
                 }
             });
             if is_new && self.selection_trace.is_none() {
@@ -471,7 +472,7 @@ impl ScopeAppMulti {
                     } else {
                         Box::new(tr.live.iter())
                     };
-                    let pts: PlotPoints = iter
+                    let pts_vec: Vec<[f64; 2]> = iter
                         .map(|p| {
                             let y_lin = p[1] + tr.offset;
                             let y = if self.y_log {
@@ -497,11 +498,19 @@ impl ScopeAppMulti {
                             );
                         }
                     }
-                    let mut line = Line::new(&tr.name, pts).color(color);
+                    let mut line = Line::new(&tr.name, pts_vec.clone()).color(color);
                     if self.traces.len() > 1 {
                         line = line.name(&tr.name);
                     }
                     plot_ui.line(line);
+
+                    // Optional point markers for each datapoint
+                    if tr.show_points {
+                        if !pts_vec.is_empty() {
+                            let points = Points::new("", pts_vec.clone()).radius(2.5).color(color);
+                            plot_ui.points(points);
+                        }
+                    }
                 }
             }
 
@@ -882,6 +891,8 @@ impl ScopeAppMulti {
                 self.pending_auto_y = true;
             }
 
+            ui.separator();
+
             // Selection + pause/reset/clear (shared)
             if ui.button("Clear Selection").clicked() {
                 self.point_selection.clear();
@@ -1138,6 +1149,8 @@ impl ScopeAppMulti {
                 snap: None,
                 last_fft: None,
                 is_math: true,
+                show_points: false,
+                info: String::new(),
             },
         );
         self.math_states
@@ -1233,6 +1246,8 @@ impl ScopeAppMulti {
                         snap: if self.paused { Some(dq.clone()) } else { None },
                         last_fft: None,
                         is_math: true,
+                        show_points: false,
+                        info: String::new(),
                     },
                 );
             }

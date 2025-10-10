@@ -43,8 +43,9 @@ pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
                     1 => "Trace",
                     2 => "Marker",
                     3 => "Visible",
-                    4 => "Color",
-                    5 => "Offset",
+                    4 => "Points",
+                    5 => "Color",
+                    6 => "Offset",
                     _ => "",
                 };
                 ui.add_space(4.0);
@@ -91,13 +92,20 @@ pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
                     4 => {
                         if r.is_free { ui.label(""); }
                         else if let Some(tr) = self.app.traces.get_mut(&r.name) {
+                            let mut sp = tr.show_points;
+                            if ui.checkbox(&mut sp, "").on_hover_text("Show point markers").changed() { tr.show_points = sp; }
+                        }
+                    }
+                    5 => {
+                        if r.is_free { ui.label(""); }
+                        else if let Some(tr) = self.app.traces.get_mut(&r.name) {
                             let mut c = tr.color;
                             if ui.color_edit_button_srgba(&mut c).changed() {
                                 tr.color = c;
                             }
                         }
                     }
-                    5 => {
+                    6 => {
                         if r.is_free { ui.label(""); }
                         else if let Some(tr) = self.app.traces.get_mut(&r.name) {
                             let mut off = tr.offset;
@@ -118,6 +126,7 @@ pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
             egui_table::Column::new(220.0), // name
             egui_table::Column::new(80.0),  // marker
             egui_table::Column::new(80.0),  // visible
+            egui_table::Column::new(70.0),  // points toggle
             egui_table::Column::new(180.0), // color edit
             egui_table::Column::new(120.0), // offset
         ];
