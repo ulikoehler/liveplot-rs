@@ -1,14 +1,14 @@
 //! Core multi-trace oscilloscope app wiring.
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::mpsc::Receiver;
-use std::sync::Arc;
-use std::time::Duration;
 use chrono::Local;
 use eframe::{self, egui};
 use egui::Color32;
 use egui_plot::{Legend, Line, Plot, PlotPoint, Points, Text};
 use image::{Rgba, RgbaImage};
+use std::collections::{HashMap, VecDeque};
+use std::sync::mpsc::Receiver;
+use std::sync::Arc;
+use std::time::Duration;
 
 #[cfg(feature = "fft")]
 use crate::controllers::FftPanelInfo;
@@ -102,8 +102,11 @@ pub struct ScopeAppMulti {
     pub y_max: f64,
     // One-shot flag to compute Y-auto from current view
     pub pending_auto_y: bool,
+    pub auto_zoom_y: bool,
 
     pub zoom_mode: ZoomMode,
+
+    pub show_legend: bool,
     // Math traces
     pub math_defs: Vec<MathTraceDef>,
     pub(super) math_states: HashMap<String, MathRuntimeState>,
@@ -356,7 +359,7 @@ impl ScopeAppMulti {
         // Determine desired x-bounds for follow
         let t_latest = self.latest_time_overall().unwrap_or(0.0);
 
-        if self.traces.len() > 1 {
+        if self.show_legend {
             plot = plot.legend(Legend::default());
         }
         let base_body = ctx.style().text_styles[&egui::TextStyle::Body].size;
@@ -586,13 +589,6 @@ impl ScopeAppMulti {
                 plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
             }
 
-            // let w = {
-            //     let b = plot_ui.plot_bounds();
-            //     let r = b.range_x();
-            //     let (a, b) = (*r.start(), *r.end());
-            //     (b - a).abs()
-            // };
-            // (w, is_zooming)
             bounds_changed
         })
     }
@@ -797,7 +793,7 @@ impl ScopeAppMulti {
             ui.label("Points:");
             ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
 
-            if ui.button("Auto Zoom").clicked() {
+            if ui.button("Fit").on_hover_text("Fit the X-axis to the visible data").clicked() {
                 // Clear manual bounds and request one-shot auto fit
                 self.pending_auto_x = true;
             }
@@ -817,12 +813,7 @@ impl ScopeAppMulti {
                         if let Some(unit) = &self.y_unit {
                             if y_range.abs() < 0.001 {
                                 let exponent = y_range.log10().floor() + 1.0;
-                                format!(
-                                    "{:.1}e{} {}",
-                                    n / 10f64.powf(exponent),
-                                    exponent,
-                                    unit
-                                )
+                                format!("{:.1}e{} {}", n / 10f64.powf(exponent), exponent, unit)
                             } else {
                                 format!("{:.3} {}", n, unit)
                             }
@@ -844,12 +835,7 @@ impl ScopeAppMulti {
                         if let Some(unit) = &self.y_unit {
                             if y_range.abs() < 0.001 {
                                 let exponent = y_range.log10().floor() + 1.0;
-                                format!(
-                                    "{:.1}e{} {}",
-                                    n / 10f64.powf(exponent),
-                                    exponent,
-                                    unit
-                                )
+                                format!("{:.1}e{} {}", n / 10f64.powf(exponent), exponent, unit)
                             } else {
                                 format!("{:.3} {}", n, unit)
                             }
@@ -869,15 +855,22 @@ impl ScopeAppMulti {
                 self.pending_auto_y = false;
             }
 
-            if ui.button("Auto Zoom").clicked() {
+            if ui.button("Fit").on_hover_text("Fit the Y-axis to the visible data").clicked() {
                 // Clear manual bounds and request one-shot auto fit
+                self.pending_auto_y = true;
+            }
+            // Continuous Y auto-zoom
+            ui.checkbox(&mut self.auto_zoom_y, "Auto Zoom")
+                .on_hover_text("Continuously fit the Y-axis to the currently visible data range");
+            if self.auto_zoom_y {
+                // Re-run auto-fit each frame while enabled
                 self.pending_auto_y = true;
             }
 
             ui.separator();
 
             ui.horizontal(|ui| {
-                ui.label("Zoom:");
+                ui.label("Zoom:").on_hover_text("Select the zoom mode for mouse wheel zooming");
                 ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "Off");
                 ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "X-Axis");
                 ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "Y-Axis");
@@ -886,7 +879,7 @@ impl ScopeAppMulti {
 
             ui.separator();
 
-            if ui.button("Fit to View").clicked() {
+            if ui.button("Fit to View").on_hover_text("Fit the view to the available data").clicked() {
                 self.pending_auto_x = true;
                 self.pending_auto_y = true;
             }
@@ -924,6 +917,9 @@ impl ScopeAppMulti {
                     }
                 }
             }
+
+            ui.checkbox(&mut self.show_legend, "Legend")
+                .on_hover_text("Show legend");
 
             // Optional extras: FFT toggle, Save PNG, Save raw (Main only)
             //if let ControlsMode::Main = mode {
@@ -1075,6 +1071,8 @@ impl ScopeAppMulti {
             y_min: 0.0,
             y_max: 1.0,
             pending_auto_y: true,
+            auto_zoom_y: false,
+            show_legend: true,
             zoom_mode: ZoomMode::X,
             math_defs: Vec::new(),
             math_states: HashMap::new(),
