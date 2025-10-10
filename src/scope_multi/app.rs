@@ -52,7 +52,6 @@ enum ControlsMode {
     Main,
 }
 
-
 /// Egui app that displays multiple traces and supports point selection and FFT.
 pub struct ScopeAppMulti {
     pub rx: Receiver<MultiSample>,
@@ -94,6 +93,7 @@ pub struct ScopeAppMulti {
     pub point_selection: PointSelection,
     /// Formatting of X values in point labels
     pub x_date_format: XDateFormat,
+    pub pending_auto_x: bool,
     /// Optional unit label for Y axis and value readouts
     pub y_unit: Option<String>,
     /// Whether to display Y axis in log10 scale (applied after per-trace offset)
@@ -312,7 +312,7 @@ impl ScopeAppMulti {
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         plot_id: &str,
-    ) -> egui_plot::PlotResponse<(f64, bool)> {
+    ) -> egui_plot::PlotResponse<()> {
         let mut plot = Plot::new(plot_id)
             .allow_scroll(false)
             .allow_zoom(true)
@@ -327,11 +327,27 @@ impl ScopeAppMulti {
             })
             .y_axis_formatter(|y, _range| {
                 let v = y.value;
+                let step = y.step_size;
                 let label_val = if self.y_log { 10f64.powf(v) } else { v };
                 if let Some(unit) = &self.y_unit {
-                    format!("{:.3} {}", label_val, unit)
+                    if step.abs() < 0.001 {
+                        let exponent = step.log10().floor() + 1.0;
+                        format!(
+                            "{:.1}e{} {}",
+                            label_val / 10f64.powf(exponent),
+                            exponent,
+                            unit
+                        )
+                    } else {
+                        format!("{:.3} {}", label_val, unit)
+                    }
                 } else {
-                    format!("{:.3}", label_val)
+                    if step.abs() < 0.001 {
+                        let exponent = step.log10().floor() + 1.0;
+                        format!("{:.1}e{}", label_val / 10f64.powf(exponent), exponent)
+                    } else {
+                        format!("{:.3}", label_val)
+                    }
                 }
             });
         if self.reset_view {
@@ -363,7 +379,7 @@ impl ScopeAppMulti {
             let is_zooming_with_rect =
                 resp.dragged_by(egui::PointerButton::Secondary) && resp.is_pointer_button_down_on();
 
-            let is_zooming = is_zooming_with_rect;//is_zooming_with_wheel || is_zooming_with_rect;
+            //let is_zooming = is_zooming_with_rect; //is_zooming_with_wheel || is_zooming_with_rect;
 
             let act_bounds = plot_ui.plot_bounds();
 
@@ -402,7 +418,7 @@ impl ScopeAppMulti {
                 }
             }
 
-            if self.paused && is_zooming_with_wheel {
+            if self.paused {
                 let xmax = act_bounds.range_x().end()
                     - (act_bounds.range_x().end()
                         - act_bounds.range_x().start()
@@ -590,32 +606,33 @@ impl ScopeAppMulti {
                 plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
             }
 
-            let w = {
-                let b = plot_ui.plot_bounds();
-                let r = b.range_x();
-                let (a, b) = (*r.start(), *r.end());
-                (b - a).abs()
-            };
-            (w, is_zooming)
+            // let w = {
+            //     let b = plot_ui.plot_bounds();
+            //     let r = b.range_x();
+            //     let (a, b) = (*r.start(), *r.end());
+            //     (b - a).abs()
+            // };
+            // (w, is_zooming)
+            ()
         })
     }
 
     /// Sync time window with zoom when following is active (not paused)
-    fn sync_time_window_with_plot(&mut self, plot_response: &egui_plot::PlotResponse<(f64, bool)>) {
-        if !self.paused && !self.time_slider_dragging {
-            let (w, zoomed) = plot_response.inner;
-            if zoomed
-                && w.is_finite()
-                && w > 0.0
-                && (w - self.time_window).abs() / self.time_window.max(1e-6) > 0.02
-            {
-                self.time_window = w;
-            }
-        }
-    }
+    // fn sync_time_window_with_plot(&mut self, plot_response: &egui_plot::PlotResponse<(f64, bool)>) {
+    //     if !self.paused && !self.time_slider_dragging {
+    //         let (w, zoomed) = plot_response.inner;
+    //         if zoomed
+    //             && w.is_finite()
+    //             && w > 0.0
+    //             && (w - self.time_window).abs() / self.time_window.max(1e-6) > 0.02
+    //         {
+    //             self.time_window = w;
+    //         }
+    //     }
+    // }
 
     /// Handle click selection on the plot using nearest point logic.
-    fn handle_plot_click(&mut self, plot_response: &egui_plot::PlotResponse<(f64, bool)>) {
+    fn handle_plot_click(&mut self, plot_response: &egui_plot::PlotResponse<()>) {
         if plot_response.response.clicked() {
             if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
                 let transform = plot_response.transform;
@@ -714,7 +731,6 @@ impl ScopeAppMulti {
                 .suffix(" s");
             let sresp = ui.add(slider);
             if sresp.changed() {
-                println!("Time window slider changed: {}", tw);
                 self.time_window = tw; //.max(1e-6);
             }
             // Expand bounds only on release
@@ -723,6 +739,11 @@ impl ScopeAppMulti {
             // Points cap
             ui.label("Points:");
             ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
+
+            if ui.button("Auto Zoom").clicked() {
+                // Clear manual bounds and request one-shot auto fit
+                self.pending_auto_x = true;
+            }
 
             ui.separator();
 
@@ -934,6 +955,7 @@ impl ScopeAppMulti {
             selection_trace: None,
             point_selection: PointSelection::default(),
             x_date_format: XDateFormat::default(),
+            pending_auto_x: false,
             y_unit: None,
             y_log: false,
             y_min: 0.0,
@@ -984,7 +1006,7 @@ impl ScopeAppMulti {
         let plot_response = self.plot_traces_common(ui, &ctx, "scope_plot_multi_embedded");
 
         // Sync time window with zoom when following is active (not paused)
-        self.sync_time_window_with_plot(&plot_response);
+        //self.sync_time_window_with_plot(&plot_response);
 
         // Handle click for selection in embedded mode
         self.handle_plot_click(&plot_response);
@@ -1349,7 +1371,7 @@ impl eframe::App for ScopeAppMulti {
         // Plot all traces in the central panel
         egui::CentralPanel::default().show(ctx, |ui| {
             let plot_response = self.plot_traces_common(ui, ctx, "scope_plot_multi");
-            self.sync_time_window_with_plot(&plot_response);
+            //self.sync_time_window_with_plot(&plot_response);
             self.handle_plot_click(&plot_response);
         });
 
