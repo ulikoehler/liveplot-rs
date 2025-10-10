@@ -104,8 +104,6 @@ pub struct ScopeAppMulti {
     // One-shot flag to compute Y-auto from current view
     pub pending_auto_y: bool,
 
-    pub zoom_pending: bool,
-
     pub zoom_mode: ZoomMode,
     // Math traces
     pub math_defs: Vec<MathTraceDef>,
@@ -312,10 +310,10 @@ impl ScopeAppMulti {
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         plot_id: &str,
-    ) -> egui_plot::PlotResponse<()> {
+    ) -> egui_plot::PlotResponse<bool> {
         let mut plot = Plot::new(plot_id)
             .allow_scroll(false)
-            .allow_zoom(true)
+            .allow_zoom(false)
             .allow_boxed_zoom(true)
             .x_axis_formatter(|x, _range| {
                 let val = x.value;
@@ -356,132 +354,105 @@ impl ScopeAppMulti {
         }
         // Determine desired x-bounds for follow
         let t_latest = self.latest_time_overall().unwrap_or(0.0);
+
         if self.traces.len() > 1 {
             plot = plot.legend(Legend::default());
         }
         let base_body = ctx.style().text_styles[&egui::TextStyle::Body].size;
         let marker_font_size = base_body * 1.5;
         plot.show(ui, |plot_ui| {
-            let resp = plot_ui.response();
-            // Detect wheel zoom over the plot
-            let mut is_zooming_with_wheel = false;
-            let mut scroll_data = egui::Vec2::ZERO;
-            plot_ui.ctx().input(|i| {
-                scroll_data = i.raw_scroll_delta;
-                if (scroll_data.x != 0.0 || scroll_data.y != 0.0) && resp.hovered() {
-                    is_zooming_with_wheel = true;
-                }
-            });
 
+            // Handle zooming/panning/auto-zooming
+            let resp = plot_ui.response();
+
+            let is_zooming_rect = resp.drag_stopped_by(egui::PointerButton::Secondary);
             let is_panning =
                 resp.dragged_by(egui::PointerButton::Primary) && resp.is_pointer_button_down_on();
 
-            let is_zooming_with_rect =
-                resp.dragged_by(egui::PointerButton::Secondary) && resp.is_pointer_button_down_on();
+            let scroll_data = resp.ctx.input(|i| i.raw_scroll_delta);
+            let is_zooming_with_wheel =
+                (scroll_data.x != 0.0 || scroll_data.y != 0.0) && resp.hovered();
 
-            //let is_zooming = is_zooming_with_rect; //is_zooming_with_wheel || is_zooming_with_rect;
+            let bounds_changed = is_zooming_rect || is_panning || is_zooming_with_wheel || self.pending_auto_x;
 
-            let act_bounds = plot_ui.plot_bounds();
-
-            if is_panning {
-                self.pending_auto_y = false;
-                let space = (self.y_max - self.y_min) * 0.05;
-                self.y_min = *act_bounds.range_y().start() + space;
-                self.y_max = *act_bounds.range_y().end() - space;
-            } else if is_zooming_with_rect {
-                self.pending_auto_y = false;
-                self.zoom_pending = true;
-                if !self.paused {
-                    self.paused = true;
-                    for tr in self.traces.values_mut() {
-                        tr.snap = Some(tr.live.clone());
-                    }
+            if is_zooming_with_wheel {
+                let mut zoom_factor = egui::Vec2::new(1.0, 1.0);
+                if scroll_data.y != 0.0
+                    && (self.zoom_mode == ZoomMode::X || self.zoom_mode == ZoomMode::Both)
+                {
+                    zoom_factor.x = 1.0 + scroll_data.y * 0.001;
+                } else if scroll_data.x != 0.0 {
+                    zoom_factor.x = 1.0 - scroll_data.x * 0.001;
                 }
-            } else if self.zoom_pending && !resp.dragged() && !resp.drag_stopped() {
-                self.y_min = *act_bounds.range_y().start();
-                self.y_max = *act_bounds.range_y().end();
-                self.time_window = act_bounds.range_x().end() - act_bounds.range_x().start();
-                self.zoom_pending = false;
-            } else if is_zooming_with_wheel {
-                self.pending_auto_y = false;
-
                 if self.zoom_mode == ZoomMode::Y || self.zoom_mode == ZoomMode::Both {
-                    let delta_y = (self.y_max - self.y_min) * 0.001 * (scroll_data.y as f64);
-                    self.y_min += delta_y;
-                    self.y_max -= delta_y;
+                    zoom_factor.y = 1.0 + scroll_data.y * 0.001;
                 }
-                if self.zoom_mode == ZoomMode::X || self.zoom_mode == ZoomMode::Both {
-                    self.time_window -= (scroll_data.y as f64) * 0.001 * (self.time_window);
-                }
-                if scroll_data.x != 0.0 {
-                    self.time_window -= (scroll_data.x as f64) * 0.001 * (self.time_window);
-                }
-            }
 
-            if self.paused {
-                let xmax = act_bounds.range_x().end()
-                    - (act_bounds.range_x().end()
-                        - act_bounds.range_x().start()
-                        - self.time_window)
-                        / 2.0;
-                let xmin = xmax - self.time_window;
-                plot_ui.set_plot_bounds_x(xmin..=xmax);
-            } else if !self.paused && !self.zoom_pending {
-                plot_ui.set_plot_bounds_x(t_latest - self.time_window..=t_latest);
-            }
-            if !self.zoom_pending {
-                // Apply manual Y or pending auto Y
-                if self.pending_auto_y {
-                    let mut ymin = f64::INFINITY;
-                    let mut ymax = f64::NEG_INFINITY;
-                    // Limit to currently visible X-range
-                    let rx = act_bounds.range_x();
-                    let (xmin, xmax) = (*rx.start(), *rx.end());
-                    for tr in self.traces.values() {
-                        if !tr.visible {
-                            continue;
-                        }
-                        // Use snapshot when paused, else live
-                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
-                            if let Some(snap) = &tr.snap {
-                                Box::new(snap.iter())
-                            } else {
-                                Box::new(tr.live.iter())
-                            }
-                        } else {
-                            Box::new(tr.live.iter())
-                        };
-                        for p in iter {
-                            let x = p[0];
-                            if !(x >= xmin && x <= xmax) {
-                                continue;
-                            }
-                            let y_lin = p[1] + tr.offset;
-                            let y = if self.y_log {
-                                if y_lin > 0.0 {
-                                    y_lin.log10()
-                                } else {
-                                    continue;
-                                }
-                            } else {
-                                y_lin
-                            };
-                            if y < ymin {
-                                ymin = y;
-                            }
-                            if y > ymax {
-                                ymax = y;
-                            }
-                        }
+                if !self.paused {
+                    plot_ui.set_plot_bounds_x(
+                        t_latest - self.time_window * (2.0 - (zoom_factor.x as f64))..=t_latest,
+                    );
+                    zoom_factor.x = 1.0;
+                }
+                plot_ui.zoom_bounds_around_hovered(zoom_factor);
+            } else if self.pending_auto_x {
+                let mut xmin = f64::INFINITY;
+                let mut xmax = f64::NEG_INFINITY;
+
+                for tr in self.traces.values() {
+                    if !tr.visible {
+                        continue;
                     }
 
-                    self.y_min = ymin;
-                    self.y_max = ymax;
-                    self.pending_auto_y = false;
+                    if self.paused {
+                        if let Some(snap) = &tr.snap {
+                            if let (Some(&[t_first, _]), Some(&[t_last, _])) =
+                                (snap.front(), snap.back())
+                            {
+                                if t_first < xmin {
+                                    xmin = t_first;
+                                }
+                                if t_last > xmax {
+                                    xmax = t_last;
+                                }
+                            }
+                        }
+                    } else if let (Some(&[t_first, _]), Some(&[t_last, _])) =
+                        (tr.live.front(), tr.live.back())
+                    {
+                        if t_first < xmin {
+                            xmin = t_first;
+                        }
+                        if t_last > xmax {
+                            xmax = t_last;
+                        }
+                    }
                 }
+
+                if xmin.is_finite() && xmax.is_finite() && xmin < xmax {
+                    if !self.paused {
+                        plot_ui.set_plot_bounds_x(t_latest - (xmax - xmin)..=t_latest);
+                    } else {
+                        plot_ui.set_plot_bounds_x(xmin..=xmax);
+                    }
+                }
+                self.pending_auto_x = false;
+            } else {
                 if self.y_min.is_finite() && self.y_max.is_finite() && self.y_min < self.y_max {
                     let space = (self.y_max - self.y_min) * 0.05;
                     plot_ui.set_plot_bounds_y(self.y_min - space..=self.y_max + space);
+                }
+                if !self.paused {
+                    plot_ui.set_plot_bounds_x(t_latest - self.time_window..=t_latest);
+                } else {
+                    let act_bounds = plot_ui.plot_bounds();
+                    let xmax = act_bounds.range_x().end()
+                        - (act_bounds.range_x().end()
+                            - act_bounds.range_x().start()
+                            - self.time_window)
+                            / 2.0;
+                    let xmin = xmax - self.time_window;
+                    plot_ui.set_plot_bounds_x(xmin..=xmax);
                 }
             }
 
@@ -613,26 +584,104 @@ impl ScopeAppMulti {
             //     (b - a).abs()
             // };
             // (w, is_zooming)
-            ()
+            bounds_changed
         })
     }
 
-    /// Sync time window with zoom when following is active (not paused)
-    // fn sync_time_window_with_plot(&mut self, plot_response: &egui_plot::PlotResponse<(f64, bool)>) {
-    //     if !self.paused && !self.time_slider_dragging {
-    //         let (w, zoomed) = plot_response.inner;
-    //         if zoomed
-    //             && w.is_finite()
-    //             && w > 0.0
-    //             && (w - self.time_window).abs() / self.time_window.max(1e-6) > 0.02
-    //         {
-    //             self.time_window = w;
-    //         }
-    //     }
-    // }
+    fn pause_on_click(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
+        if plot_response.response.clicked()
+            || plot_response
+                .response
+                .dragged_by(egui::PointerButton::Secondary)
+        {
+            if !self.paused {
+                self.paused = true;
+                for tr in self.traces.values_mut() {
+                    tr.snap = Some(tr.live.clone());
+                }
+            }
+        }
+    }
+
+    // Update zoom and pan state from plot response
+    fn apply_zoom(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
+
+        if plot_response.inner {
+            let bounds = plot_response.transform.bounds();
+
+            let w = {
+                let r = bounds.range_x();
+                let (a, b) = (*r.start(), *r.end());
+                (b - a).abs()
+            };
+            if w.is_finite()
+                && w > 0.0
+                && (w - self.time_window).abs() / self.time_window.max(1e-6) > 0.02
+            {
+                self.time_window = w;
+            }
+
+            let r = bounds.range_y();
+            let ymin = *r.start();
+            let ymax = *r.end();
+            if ymin.is_finite() && ymax.is_finite() && ymin < ymax {
+                let space = (0.05 / 1.1) * (ymax - ymin);
+                self.y_min = ymin + space;
+                self.y_max = ymax - space;
+            }
+        } else if self.pending_auto_y {
+            let act_bounds = plot_response.transform.bounds();
+            let mut ymin = f64::INFINITY;
+            let mut ymax = f64::NEG_INFINITY;
+            // Limit to currently visible X-range
+            let rx = act_bounds.range_x();
+            let (xmin, xmax) = (*rx.start(), *rx.end());
+            for tr in self.traces.values() {
+                if !tr.visible {
+                    continue;
+                }
+                // Use snapshot when paused, else live
+                let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
+                    if let Some(snap) = &tr.snap {
+                        Box::new(snap.iter())
+                    } else {
+                        Box::new(tr.live.iter())
+                    }
+                } else {
+                    Box::new(tr.live.iter())
+                };
+                for p in iter {
+                    let x = p[0];
+                    if !(x >= xmin && x <= xmax) {
+                        continue;
+                    }
+                    let y_lin = p[1] + tr.offset;
+                    let y = if self.y_log {
+                        if y_lin > 0.0 {
+                            y_lin.log10()
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        y_lin
+                    };
+                    if y < ymin {
+                        ymin = y;
+                    }
+                    if y > ymax {
+                        ymax = y;
+                    }
+                }
+            }
+
+            self.y_min = ymin;
+            self.y_max = ymax;
+            self.pending_auto_y = false;
+        }
+    }
 
     /// Handle click selection on the plot using nearest point logic.
-    fn handle_plot_click(&mut self, plot_response: &egui_plot::PlotResponse<()>) {
+    fn handle_plot_click(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
         if plot_response.response.clicked() {
             if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
                 let transform = plot_response.transform;
@@ -778,6 +827,11 @@ impl ScopeAppMulti {
             });
 
             ui.separator();
+
+            if ui.button("Fit to View").clicked() {
+                self.pending_auto_x = true;
+                self.pending_auto_y = true;
+            }
 
             // Selection + pause/reset/clear (shared)
             if ui.button("Clear Selection").clicked() {
@@ -961,7 +1015,6 @@ impl ScopeAppMulti {
             y_min: 0.0,
             y_max: 1.0,
             pending_auto_y: true,
-            zoom_pending: false,
             zoom_mode: ZoomMode::X,
             math_defs: Vec::new(),
             math_states: HashMap::new(),
@@ -1005,8 +1058,11 @@ impl ScopeAppMulti {
         // Plot all traces within the provided Ui
         let plot_response = self.plot_traces_common(ui, &ctx, "scope_plot_multi_embedded");
 
+        self.pause_on_click(&plot_response);
+
         // Sync time window with zoom when following is active (not paused)
         //self.sync_time_window_with_plot(&plot_response);
+        self.apply_zoom(&plot_response);
 
         // Handle click for selection in embedded mode
         self.handle_plot_click(&plot_response);
@@ -1372,6 +1428,8 @@ impl eframe::App for ScopeAppMulti {
         egui::CentralPanel::default().show(ctx, |ui| {
             let plot_response = self.plot_traces_common(ui, ctx, "scope_plot_multi");
             //self.sync_time_window_with_plot(&plot_response);
+            self.pause_on_click(&plot_response);
+            self.apply_zoom(&plot_response);
             self.handle_plot_click(&plot_response);
         });
 
