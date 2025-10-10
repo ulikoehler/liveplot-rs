@@ -361,7 +361,6 @@ impl ScopeAppMulti {
         let base_body = ctx.style().text_styles[&egui::TextStyle::Body].size;
         let marker_font_size = base_body * 1.5;
         plot.show(ui, |plot_ui| {
-
             // Handle zooming/panning/auto-zooming
             let resp = plot_ui.response();
 
@@ -373,7 +372,8 @@ impl ScopeAppMulti {
             let is_zooming_with_wheel =
                 (scroll_data.x != 0.0 || scroll_data.y != 0.0) && resp.hovered();
 
-            let bounds_changed = is_zooming_rect || is_panning || is_zooming_with_wheel || self.pending_auto_x;
+            let bounds_changed =
+                is_zooming_rect || is_panning || is_zooming_with_wheel || self.pending_auto_x;
 
             if is_zooming_with_wheel {
                 let mut zoom_factor = egui::Vec2::new(1.0, 1.0);
@@ -605,7 +605,6 @@ impl ScopeAppMulti {
 
     // Update zoom and pan state from plot response
     fn apply_zoom(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
-
         if plot_response.inner {
             let bounds = plot_response.transform.bounds();
 
@@ -761,7 +760,7 @@ impl ScopeAppMulti {
         ui.horizontal(|ui| {
             // Time window slider (shared)
 
-            ui.label("X-Axis: Time window (s):");
+            ui.label("X-Axis Time:");
             let mut tw = self.time_window;
             if !self.time_slider_dragging {
                 if tw <= self.time_window_min {
@@ -797,14 +796,64 @@ impl ScopeAppMulti {
             ui.separator();
 
             // Y controls (shared)
-
             let mut y_min_tmp = self.y_min;
             let mut y_max_tmp = self.y_max;
+            let y_range = y_max_tmp - y_min_tmp;
 
             ui.label("Y-Axis Min:");
-            let r1 = ui.add(egui::DragValue::new(&mut y_min_tmp).speed(0.1));
+            let r1 = ui.add(
+                egui::DragValue::new(&mut y_min_tmp)
+                    .speed(0.1)
+                    .custom_formatter(|n, _| {
+                        if let Some(unit) = &self.y_unit {
+                            if y_range.abs() < 0.001 {
+                                let exponent = y_range.log10().floor() + 1.0;
+                                format!(
+                                    "{:.1}e{} {}",
+                                    n / 10f64.powf(exponent),
+                                    exponent,
+                                    unit
+                                )
+                            } else {
+                                format!("{:.3} {}", n, unit)
+                            }
+                        } else {
+                            if y_range.abs() < 0.001 {
+                                let exponent = y_range.log10().floor() + 1.0;
+                                format!("{:.1}e{}", n / 10f64.powf(exponent), exponent)
+                            } else {
+                                format!("{:.3}", n)
+                            }
+                        }
+                    }),
+            );
             ui.label("Max:");
-            let r2 = ui.add(egui::DragValue::new(&mut y_max_tmp).speed(0.1));
+            let r2 = ui.add(
+                egui::DragValue::new(&mut y_max_tmp)
+                    .speed(0.1)
+                    .custom_formatter(|n, _| {
+                        if let Some(unit) = &self.y_unit {
+                            if y_range.abs() < 0.001 {
+                                let exponent = y_range.log10().floor() + 1.0;
+                                format!(
+                                    "{:.1}e{} {}",
+                                    n / 10f64.powf(exponent),
+                                    exponent,
+                                    unit
+                                )
+                            } else {
+                                format!("{:.3} {}", n, unit)
+                            }
+                        } else {
+                            if y_range.abs() < 0.001 {
+                                let exponent = y_range.log10().floor() + 1.0;
+                                format!("{:.1}e{}", n / 10f64.powf(exponent), exponent)
+                            } else {
+                                format!("{:.3}", n)
+                            }
+                        }
+                    }),
+            );
             if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
                 self.y_min = y_min_tmp;
                 self.y_max = y_max_tmp;
