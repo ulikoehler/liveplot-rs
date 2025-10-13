@@ -73,7 +73,6 @@ pub struct ScopeAppMulti {
     // Internal: track drag state for time slider to detect release
     pub time_slider_dragging: bool,
     pub last_prune: std::time::Instant,
-    pub reset_view: bool,
     pub paused: bool,
     /// Optional controller to let external code get/set/listen to window info.
     pub window_controller: Option<WindowController>,
@@ -374,10 +373,6 @@ impl ScopeAppMulti {
                     }
                 }
             });
-        if self.reset_view {
-            plot = plot.reset();
-            self.reset_view = false;
-        }
         // Determine desired x-bounds for follow
         let t_latest = self.latest_time_overall().unwrap_or(0.0);
 
@@ -815,7 +810,11 @@ impl ScopeAppMulti {
             ui.label("Points:");
             ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
 
-            if ui.button("Fit").on_hover_text("Fit the X-axis to the visible data").clicked() {
+            if ui
+                .button("Fit")
+                .on_hover_text("Fit the X-axis to the visible data")
+                .clicked()
+            {
                 // Clear manual bounds and request one-shot auto fit
                 self.pending_auto_x = true;
             }
@@ -877,7 +876,11 @@ impl ScopeAppMulti {
                 self.pending_auto_y = false;
             }
 
-            if ui.button("Fit").on_hover_text("Fit the Y-axis to the visible data").clicked() {
+            if ui
+                .button("Fit")
+                .on_hover_text("Fit the Y-axis to the visible data")
+                .clicked()
+            {
                 // Clear manual bounds and request one-shot auto fit
                 self.pending_auto_y = true;
             }
@@ -892,7 +895,8 @@ impl ScopeAppMulti {
             ui.separator();
 
             ui.horizontal(|ui| {
-                ui.label("Zoom:").on_hover_text("Select the zoom mode for mouse wheel zooming");
+                ui.label("Zoom:")
+                    .on_hover_text("Select the zoom mode for mouse wheel zooming");
                 ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "Off");
                 ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "X-Axis");
                 ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "Y-Axis");
@@ -901,7 +905,11 @@ impl ScopeAppMulti {
 
             ui.separator();
 
-            if ui.button("Fit to View").on_hover_text("Fit the view to the available data").clicked() {
+            if ui
+                .button("Fit to View")
+                .on_hover_text("Fit the view to the available data")
+                .clicked()
+            {
                 self.pending_auto_x = true;
                 self.pending_auto_y = true;
             }
@@ -928,9 +936,7 @@ impl ScopeAppMulti {
                     self.paused = true;
                 }
             }
-            if ui.button("Reset View").clicked() {
-                self.reset_view = true;
-            }
+
             if ui.button("Clear").clicked() {
                 for tr in self.traces.values_mut() {
                     tr.live.clear();
@@ -1030,16 +1036,11 @@ impl ScopeAppMulti {
             //}
 
             // Dialogs entry (shared)
-            if ui.button("Math…").on_hover_text("Create and manage math traces").clicked() {
-                if self.math_detached {
-                    self.show_math_dialog = true; // floating window
-                    self.right_panel_visible = false;
-                } else {
-                    self.right_panel_active_tab = RightTab::Math;
-                    self.right_panel_visible = true;
-                }
-            }
-            if ui.button("Traces…").on_hover_text("Select marker/display and colors").clicked() {
+            if ui
+                .button("Traces…")
+                .on_hover_text("Select marker/display and colors")
+                .clicked()
+            {
                 if self.traces_detached {
                     self.show_traces_dialog = true; // floating window
                     self.right_panel_visible = false;
@@ -1048,12 +1049,31 @@ impl ScopeAppMulti {
                     self.right_panel_visible = true;
                 }
             }
+
+            if ui
+                .button("Math…")
+                .on_hover_text("Create and manage math traces")
+                .clicked()
+            {
+                if self.math_detached {
+                    self.show_math_dialog = true; // floating window
+                    self.right_panel_visible = false;
+                } else {
+                    self.right_panel_active_tab = RightTab::Math;
+                    self.right_panel_visible = true;
+                }
+            }
+
             let thr_btn_label = if self.threshold_total_count > 0 {
                 format!("Thresholds… ({})", self.threshold_total_count)
             } else {
                 "Thresholds…".to_string()
             };
-            if ui.button(thr_btn_label).on_hover_text("Create and manage threshold detectors").clicked() {
+            if ui
+                .button(thr_btn_label)
+                .on_hover_text("Create and manage threshold detectors")
+                .clicked()
+            {
                 if self.thresholds_detached {
                     self.show_thresholds_dialog = true; // floating window
                     self.right_panel_visible = false;
@@ -1076,7 +1096,6 @@ impl ScopeAppMulti {
             time_window_input: 10.0,
             time_slider_dragging: false,
             last_prune: std::time::Instant::now(),
-            reset_view: false,
             paused: false,
             show_fft: false,
             fft_size: 1024,
@@ -1513,30 +1532,58 @@ impl eframe::App for ScopeAppMulti {
                 .default_width(380.0)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        ui.selectable_value(&mut self.right_panel_active_tab, RightTab::Traces, "Traces");
-                        ui.selectable_value(&mut self.right_panel_active_tab, RightTab::Math, "Math");
-                        ui.selectable_value(&mut self.right_panel_active_tab, RightTab::Thresholds, "Thresholds");
+                        ui.selectable_value(
+                            &mut self.right_panel_active_tab,
+                            RightTab::Traces,
+                            "Traces",
+                        );
+                        ui.selectable_value(
+                            &mut self.right_panel_active_tab,
+                            RightTab::Math,
+                            "Math",
+                        );
+                        ui.selectable_value(
+                            &mut self.right_panel_active_tab,
+                            RightTab::Thresholds,
+                            "Thresholds",
+                        );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Hide").on_hover_text("Hide the sidebar").clicked() {
+                            if ui
+                                .button("Hide")
+                                .on_hover_text("Hide the sidebar")
+                                .clicked()
+                            {
                                 self.right_panel_visible = false;
                             }
                             match self.right_panel_active_tab {
                                 RightTab::Traces => {
-                                    if ui.button("Pop out").on_hover_text("Open Traces panel in a floating window").clicked() {
+                                    if ui
+                                        .button("Pop out")
+                                        .on_hover_text("Open Traces panel in a floating window")
+                                        .clicked()
+                                    {
                                         self.traces_detached = true;
                                         self.show_traces_dialog = true;
                                         self.right_panel_visible = false;
                                     }
                                 }
                                 RightTab::Math => {
-                                    if ui.button("Pop out").on_hover_text("Open Math panel in a floating window").clicked() {
+                                    if ui
+                                        .button("Pop out")
+                                        .on_hover_text("Open Math panel in a floating window")
+                                        .clicked()
+                                    {
                                         self.math_detached = true;
                                         self.show_math_dialog = true;
                                         self.right_panel_visible = false;
                                     }
                                 }
                                 RightTab::Thresholds => {
-                                    if ui.button("Pop out").on_hover_text("Open Thresholds panel in a floating window").clicked() {
+                                    if ui
+                                        .button("Pop out")
+                                        .on_hover_text("Open Thresholds panel in a floating window")
+                                        .clicked()
+                                    {
                                         self.thresholds_detached = true;
                                         self.show_thresholds_dialog = true;
                                         self.right_panel_visible = false;
@@ -1551,7 +1598,11 @@ impl eframe::App for ScopeAppMulti {
                             if self.traces_detached {
                                 ui.horizontal(|ui| {
                                     ui.label("Traces panel is detached.");
-                                    if ui.button("Dock here").on_hover_text("Reattach Traces to the sidebar").clicked() {
+                                    if ui
+                                        .button("Dock here")
+                                        .on_hover_text("Reattach Traces to the sidebar")
+                                        .clicked()
+                                    {
                                         self.traces_detached = false;
                                         self.show_traces_dialog = false;
                                         self.right_panel_active_tab = RightTab::Traces;
@@ -1566,7 +1617,11 @@ impl eframe::App for ScopeAppMulti {
                             if self.math_detached {
                                 ui.horizontal(|ui| {
                                     ui.label("Math panel is detached.");
-                                    if ui.button("Dock here").on_hover_text("Reattach Math to the sidebar").clicked() {
+                                    if ui
+                                        .button("Dock here")
+                                        .on_hover_text("Reattach Math to the sidebar")
+                                        .clicked()
+                                    {
                                         self.math_detached = false;
                                         self.show_math_dialog = false;
                                         self.right_panel_active_tab = RightTab::Math;
@@ -1581,7 +1636,11 @@ impl eframe::App for ScopeAppMulti {
                             if self.thresholds_detached {
                                 ui.horizontal(|ui| {
                                     ui.label("Thresholds panel is detached.");
-                                    if ui.button("Dock here").on_hover_text("Reattach Thresholds to the sidebar").clicked() {
+                                    if ui
+                                        .button("Dock here")
+                                        .on_hover_text("Reattach Thresholds to the sidebar")
+                                        .clicked()
+                                    {
                                         self.thresholds_detached = false;
                                         self.show_thresholds_dialog = false;
                                         self.right_panel_active_tab = RightTab::Thresholds;
@@ -1626,11 +1685,15 @@ impl eframe::App for ScopeAppMulti {
             let mut inner = ctrl.inner.lock().unwrap();
             if let Some(want_pause) = inner.request_pause.take() {
                 if want_pause && !self.paused {
-                    for tr in self.traces.values_mut() { tr.snap = Some(tr.live.clone()); }
+                    for tr in self.traces.values_mut() {
+                        tr.snap = Some(tr.live.clone());
+                    }
                     self.paused = true;
                 } else if !want_pause && self.paused {
                     self.paused = false;
-                    for tr in self.traces.values_mut() { tr.snap = None; }
+                    for tr in self.traces.values_mut() {
+                        tr.snap = None;
+                    }
                 }
             }
             if inner.request_screenshot {
@@ -1649,19 +1712,33 @@ impl eframe::App for ScopeAppMulti {
                 let mut dlg = rfd::FileDialog::new();
                 dlg = dlg.add_filter("CSV", &["csv"]);
                 #[cfg(feature = "parquet")]
-                { dlg = dlg.add_filter("Parquet", &["parquet"]); }
+                {
+                    dlg = dlg.add_filter("Parquet", &["parquet"]);
+                }
                 if let Some(path) = dlg.save_file() {
                     if let Err(e) = super::export_helpers::save_raw_data_to_path(
-                        fmt, &path, self.paused, &self.traces, &self.trace_order,
-                    ) { eprintln!("Failed to save raw data: {e}"); }
+                        fmt,
+                        &path,
+                        self.paused,
+                        &self.traces,
+                        &self.trace_order,
+                    ) {
+                        eprintln!("Failed to save raw data: {e}");
+                    }
                 }
                 inner = ctrl.inner.lock().unwrap();
             }
             if let Some((fmt, path)) = inner.request_save_raw_to.take() {
                 drop(inner);
                 if let Err(e) = super::export_helpers::save_raw_data_to_path(
-                    fmt, &path, self.paused, &self.traces, &self.trace_order,
-                ) { eprintln!("Failed to save raw data: {e}"); }
+                    fmt,
+                    &path,
+                    self.paused,
+                    &self.traces,
+                    &self.trace_order,
+                ) {
+                    eprintln!("Failed to save raw data: {e}");
+                }
                 inner = ctrl.inner.lock().unwrap();
             }
             if let Some(req) = inner.fft_request.take() {
@@ -1673,10 +1750,19 @@ impl eframe::App for ScopeAppMulti {
                 if let Some(name) = name_opt {
                     if let Some(tr) = self.traces.get(&name) {
                         let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
-                            if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
-                        } else { Box::new(tr.live.iter()) };
+                            if let Some(snap) = &tr.snap {
+                                Box::new(snap.iter())
+                            } else {
+                                Box::new(tr.live.iter())
+                            }
+                        } else {
+                            Box::new(tr.live.iter())
+                        };
                         let data: Vec<[f64; 2]> = iter.cloned().collect();
-                        let msg = FftRawData { trace: name.clone(), data };
+                        let msg = FftRawData {
+                            trace: name.clone(),
+                            data,
+                        };
                         inner.fft_listeners.retain(|s| s.send(msg.clone()).is_ok());
                     }
                 }
