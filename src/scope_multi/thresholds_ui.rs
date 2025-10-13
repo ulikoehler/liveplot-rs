@@ -7,9 +7,7 @@ use crate::thresholds::{ThresholdDef, ThresholdKind, ThresholdEvent};
 use super::app::ScopeAppMulti;
 use super::types::ThresholdBuilderState;
 
-pub(super) fn show_thresholds_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    let mut show_flag = app.show_thresholds_dialog;
-    egui::Window::new("Thresholds").open(&mut show_flag).show(ctx, |ui| {
+pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
         ui.label("Detect and log when a trace exceeds a condition.");
         if let Some(err) = &app.thr_error { ui.colored_label(Color32::LIGHT_RED, err); }
         ui.separator();
@@ -173,6 +171,25 @@ pub(super) fn show_thresholds_dialog(app: &mut ScopeAppMulti, ctx: &egui::Contex
             .columns(cols)
             .headers(vec![EgHeaderRow::new(24.0)])
             .show(&mut table_ui, &mut delegate);
+}
+
+pub(super) fn show_thresholds_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
+    let mut show_flag = app.show_thresholds_dialog;
+    egui::Window::new("Thresholds").open(&mut show_flag).show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.strong("Thresholds");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Dock").on_hover_text("Attach this panel to the right sidebar").clicked() {
+                    app.thresholds_detached = false;
+                    app.show_thresholds_dialog = false;
+                    app.right_panel_active_tab = super::app::RightTab::Thresholds;
+                    app.right_panel_visible = true;
+                }
+            });
+        });
+        ui.separator();
+        thresholds_panel_contents(app, ui);
     });
+    if !show_flag { app.thresholds_detached = false; }
     app.show_thresholds_dialog = show_flag;
 }

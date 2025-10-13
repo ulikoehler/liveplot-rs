@@ -51,6 +51,13 @@ enum ControlsMode {
     Main,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(super) enum RightTab {
+    Traces,
+    Math,
+    Thresholds,
+}
+
 /// Egui app that displays multiple traces and supports point selection and FFT.
 pub struct ScopeAppMulti {
     pub rx: Receiver<MultiSample>,
@@ -112,6 +119,7 @@ pub struct ScopeAppMulti {
     pub(super) math_states: HashMap<String, MathRuntimeState>,
     pub(super) show_math_dialog: bool,
     pub(super) show_traces_dialog: bool,
+    pub(super) traces_detached: bool,
     pub(super) math_builder: MathBuilderState,
     pub(super) math_editing: Option<String>,
     pub(super) math_error: Option<String>,
@@ -120,6 +128,7 @@ pub struct ScopeAppMulti {
     pub threshold_defs: Vec<ThresholdDef>,
     pub(super) threshold_states: HashMap<String, ThresholdRuntimeState>,
     pub(super) show_thresholds_dialog: bool,
+    pub(super) thresholds_detached: bool,
     pub(super) thr_builder: ThresholdBuilderState,
     pub(super) thr_editing: Option<String>,
     pub(super) thr_error: Option<String>,
@@ -134,6 +143,12 @@ pub struct ScopeAppMulti {
     pub(super) threshold_events_filter: Option<String>,
     /// Currently hovered trace name for UI highlighting
     pub(super) hover_trace: Option<String>,
+    /// Which right-side tab is active
+    pub(super) right_panel_active_tab: RightTab,
+    /// Whether the math panel is popped out as a detached window
+    pub(super) math_detached: bool,
+    /// Whether the right sidebar (tabbed panels) is visible
+    pub(super) right_panel_visible: bool,
 }
 
 impl ScopeAppMulti {
@@ -273,14 +288,21 @@ impl ScopeAppMulti {
 
     /// Show any open dialogs in a shared way.
     fn show_dialogs_shared(&mut self, ctx: &egui::Context) {
-        if self.show_math_dialog {
+        if self.show_math_dialog && self.math_detached {
             super::math_ui::show_math_dialog(self, ctx);
+        } else if self.show_math_dialog && !self.math_detached {
+            // Prevent showing as window when not detached
+            self.show_math_dialog = false;
         }
-        if self.show_traces_dialog {
+        if self.show_traces_dialog && self.traces_detached {
             super::traces_ui::show_traces_dialog(self, ctx);
+        } else if self.show_traces_dialog && !self.traces_detached {
+            self.show_traces_dialog = false;
         }
-        if self.show_thresholds_dialog {
+        if self.show_thresholds_dialog && self.thresholds_detached {
             super::thresholds_ui::show_thresholds_dialog(self, ctx);
+        } else if self.show_thresholds_dialog && !self.thresholds_detached {
+            self.show_thresholds_dialog = false;
         }
     }
 
@@ -1008,31 +1030,37 @@ impl ScopeAppMulti {
             //}
 
             // Dialogs entry (shared)
-            if ui
-                .button("Math…")
-                .on_hover_text("Create and manage math traces")
-                .clicked()
-            {
-                self.show_math_dialog = true;
+            if ui.button("Math…").on_hover_text("Create and manage math traces").clicked() {
+                if self.math_detached {
+                    self.show_math_dialog = true; // floating window
+                    self.right_panel_visible = false;
+                } else {
+                    self.right_panel_active_tab = RightTab::Math;
+                    self.right_panel_visible = true;
+                }
             }
-            if ui
-                .button("Traces…")
-                .on_hover_text("Select marker/display and colors")
-                .clicked()
-            {
-                self.show_traces_dialog = true;
+            if ui.button("Traces…").on_hover_text("Select marker/display and colors").clicked() {
+                if self.traces_detached {
+                    self.show_traces_dialog = true; // floating window
+                    self.right_panel_visible = false;
+                } else {
+                    self.right_panel_active_tab = RightTab::Traces;
+                    self.right_panel_visible = true;
+                }
             }
             let thr_btn_label = if self.threshold_total_count > 0 {
                 format!("Thresholds… ({})", self.threshold_total_count)
             } else {
                 "Thresholds…".to_string()
             };
-            if ui
-                .button(thr_btn_label)
-                .on_hover_text("Create and manage threshold detectors")
-                .clicked()
-            {
-                self.show_thresholds_dialog = true;
+            if ui.button(thr_btn_label).on_hover_text("Create and manage threshold detectors").clicked() {
+                if self.thresholds_detached {
+                    self.show_thresholds_dialog = true; // floating window
+                    self.right_panel_visible = false;
+                } else {
+                    self.right_panel_active_tab = RightTab::Thresholds;
+                    self.right_panel_visible = true;
+                }
             }
         });
     }
@@ -1078,6 +1106,7 @@ impl ScopeAppMulti {
             math_states: HashMap::new(),
             show_math_dialog: false,
             show_traces_dialog: false,
+            traces_detached: false,
             math_builder: MathBuilderState::default(),
             math_editing: None,
             math_error: None,
@@ -1085,6 +1114,7 @@ impl ScopeAppMulti {
             threshold_defs: Vec::new(),
             threshold_states: HashMap::new(),
             show_thresholds_dialog: false,
+            thresholds_detached: false,
             thr_builder: ThresholdBuilderState::default(),
             thr_editing: None,
             thr_error: None,
@@ -1093,6 +1123,9 @@ impl ScopeAppMulti {
             threshold_event_log_cap: 10_000,
             threshold_events_filter: None,
             hover_trace: None,
+            right_panel_active_tab: RightTab::Traces,
+            math_detached: false,
+            right_panel_visible: false,
         }
     }
 
@@ -1473,6 +1506,96 @@ impl eframe::App for ScopeAppMulti {
             self.controls_ui(ui, ControlsMode::Main);
         });
 
+        // Right-side tabbed column for Traces / Math / Thresholds: show when requested
+        if self.right_panel_visible {
+            egui::SidePanel::right("right_tabs")
+                .resizable(true)
+                .default_width(380.0)
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut self.right_panel_active_tab, RightTab::Traces, "Traces");
+                        ui.selectable_value(&mut self.right_panel_active_tab, RightTab::Math, "Math");
+                        ui.selectable_value(&mut self.right_panel_active_tab, RightTab::Thresholds, "Thresholds");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Hide").on_hover_text("Hide the sidebar").clicked() {
+                                self.right_panel_visible = false;
+                            }
+                            match self.right_panel_active_tab {
+                                RightTab::Traces => {
+                                    if ui.button("Pop out").on_hover_text("Open Traces panel in a floating window").clicked() {
+                                        self.traces_detached = true;
+                                        self.show_traces_dialog = true;
+                                        self.right_panel_visible = false;
+                                    }
+                                }
+                                RightTab::Math => {
+                                    if ui.button("Pop out").on_hover_text("Open Math panel in a floating window").clicked() {
+                                        self.math_detached = true;
+                                        self.show_math_dialog = true;
+                                        self.right_panel_visible = false;
+                                    }
+                                }
+                                RightTab::Thresholds => {
+                                    if ui.button("Pop out").on_hover_text("Open Thresholds panel in a floating window").clicked() {
+                                        self.thresholds_detached = true;
+                                        self.show_thresholds_dialog = true;
+                                        self.right_panel_visible = false;
+                                    }
+                                }
+                            }
+                        });
+                    });
+                    ui.separator();
+                    match self.right_panel_active_tab {
+                        RightTab::Traces => {
+                            if self.traces_detached {
+                                ui.horizontal(|ui| {
+                                    ui.label("Traces panel is detached.");
+                                    if ui.button("Dock here").on_hover_text("Reattach Traces to the sidebar").clicked() {
+                                        self.traces_detached = false;
+                                        self.show_traces_dialog = false;
+                                        self.right_panel_active_tab = RightTab::Traces;
+                                        self.right_panel_visible = true;
+                                    }
+                                });
+                            } else {
+                                super::traces_ui::traces_panel_contents(self, ui);
+                            }
+                        }
+                        RightTab::Math => {
+                            if self.math_detached {
+                                ui.horizontal(|ui| {
+                                    ui.label("Math panel is detached.");
+                                    if ui.button("Dock here").on_hover_text("Reattach Math to the sidebar").clicked() {
+                                        self.math_detached = false;
+                                        self.show_math_dialog = false;
+                                        self.right_panel_active_tab = RightTab::Math;
+                                        self.right_panel_visible = true;
+                                    }
+                                });
+                            } else {
+                                super::math_ui::math_panel_contents(self, ui);
+                            }
+                        }
+                        RightTab::Thresholds => {
+                            if self.thresholds_detached {
+                                ui.horizontal(|ui| {
+                                    ui.label("Thresholds panel is detached.");
+                                    if ui.button("Dock here").on_hover_text("Reattach Thresholds to the sidebar").clicked() {
+                                        self.thresholds_detached = false;
+                                        self.show_thresholds_dialog = false;
+                                        self.right_panel_active_tab = RightTab::Thresholds;
+                                        self.right_panel_visible = true;
+                                    }
+                                });
+                            } else {
+                                super::thresholds_ui::thresholds_panel_contents(self, ui);
+                            }
+                        }
+                    }
+                });
+        }
+
         // Shared dialogs
         self.show_dialogs_shared(ctx);
 
@@ -1503,15 +1626,11 @@ impl eframe::App for ScopeAppMulti {
             let mut inner = ctrl.inner.lock().unwrap();
             if let Some(want_pause) = inner.request_pause.take() {
                 if want_pause && !self.paused {
-                    for tr in self.traces.values_mut() {
-                        tr.snap = Some(tr.live.clone());
-                    }
+                    for tr in self.traces.values_mut() { tr.snap = Some(tr.live.clone()); }
                     self.paused = true;
                 } else if !want_pause && self.paused {
                     self.paused = false;
-                    for tr in self.traces.values_mut() {
-                        tr.snap = None;
-                    }
+                    for tr in self.traces.values_mut() { tr.snap = None; }
                 }
             }
             if inner.request_screenshot {
@@ -1530,33 +1649,19 @@ impl eframe::App for ScopeAppMulti {
                 let mut dlg = rfd::FileDialog::new();
                 dlg = dlg.add_filter("CSV", &["csv"]);
                 #[cfg(feature = "parquet")]
-                {
-                    dlg = dlg.add_filter("Parquet", &["parquet"]);
-                }
+                { dlg = dlg.add_filter("Parquet", &["parquet"]); }
                 if let Some(path) = dlg.save_file() {
                     if let Err(e) = super::export_helpers::save_raw_data_to_path(
-                        fmt,
-                        &path,
-                        self.paused,
-                        &self.traces,
-                        &self.trace_order,
-                    ) {
-                        eprintln!("Failed to save raw data: {e}");
-                    }
+                        fmt, &path, self.paused, &self.traces, &self.trace_order,
+                    ) { eprintln!("Failed to save raw data: {e}"); }
                 }
                 inner = ctrl.inner.lock().unwrap();
             }
             if let Some((fmt, path)) = inner.request_save_raw_to.take() {
                 drop(inner);
                 if let Err(e) = super::export_helpers::save_raw_data_to_path(
-                    fmt,
-                    &path,
-                    self.paused,
-                    &self.traces,
-                    &self.trace_order,
-                ) {
-                    eprintln!("Failed to save raw data: {e}");
-                }
+                    fmt, &path, self.paused, &self.traces, &self.trace_order,
+                ) { eprintln!("Failed to save raw data: {e}"); }
                 inner = ctrl.inner.lock().unwrap();
             }
             if let Some(req) = inner.fft_request.take() {
@@ -1568,19 +1673,10 @@ impl eframe::App for ScopeAppMulti {
                 if let Some(name) = name_opt {
                     if let Some(tr) = self.traces.get(&name) {
                         let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
-                            if let Some(snap) = &tr.snap {
-                                Box::new(snap.iter())
-                            } else {
-                                Box::new(tr.live.iter())
-                            }
-                        } else {
-                            Box::new(tr.live.iter())
-                        };
+                            if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
+                        } else { Box::new(tr.live.iter()) };
                         let data: Vec<[f64; 2]> = iter.cloned().collect();
-                        let msg = FftRawData {
-                            trace: name.clone(),
-                            data,
-                        };
+                        let msg = FftRawData { trace: name.clone(), data };
                         inner.fft_listeners.retain(|s| s.send(msg.clone()).is_ok());
                     }
                 }

@@ -62,9 +62,7 @@ impl MathBuilderState {
     }
 }
 
-pub(super) fn show_math_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    let mut show_flag = app.show_math_dialog;
-    egui::Window::new("Math traces").open(&mut show_flag).show(ctx, |ui| {
+pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
         ui.label("Create virtual traces from existing ones.");
         if let Some(err) = &app.math_error { ui.colored_label(Color32::LIGHT_RED, err); }
         ui.separator();
@@ -183,6 +181,26 @@ pub(super) fn show_math_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
                 });
             }
         });
+}
+
+pub(super) fn show_math_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
+    let mut show_flag = app.show_math_dialog;
+    egui::Window::new("Math traces").open(&mut show_flag).show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.strong("Math traces");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Dock").on_hover_text("Attach this panel to the right sidebar").clicked() {
+                    app.math_detached = false;
+                    app.show_math_dialog = false;
+                    app.right_panel_active_tab = super::app::RightTab::Math;
+                    app.right_panel_visible = true;
+                }
+            });
+        });
+        ui.separator();
+        math_panel_contents(app, ui);
     });
+    // Keep window open state in app; if user closed, also clear detached flag
+    if !show_flag { app.math_detached = false; }
     app.show_math_dialog = show_flag;
 }

@@ -4,9 +4,7 @@ use egui_table::{Table, TableDelegate, HeaderRow as EgHeaderRow};
 
 use super::app::ScopeAppMulti;
 
-pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    let mut show_flag = app.show_traces_dialog;
-    egui::Window::new("Traces").open(&mut show_flag).show(ctx, |ui| {
+pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
         ui.label("Configure traces: marker selection, visibility, colors, offsets, and Y axis options.");
         ui.separator();
 
@@ -143,6 +141,25 @@ pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
             .columns(cols)
             .headers(vec![EgHeaderRow::new(24.0)])
             .show(&mut table_ui, &mut delegate);
+}
+
+pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
+    let mut show_flag = app.show_traces_dialog;
+    egui::Window::new("Traces").open(&mut show_flag).show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.strong("Traces");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Dock").on_hover_text("Attach this panel to the right sidebar").clicked() {
+                    app.traces_detached = false;
+                    app.show_traces_dialog = false;
+                    app.right_panel_active_tab = super::app::RightTab::Traces;
+                    app.right_panel_visible = true;
+                }
+            });
+        });
+        ui.separator();
+        traces_panel_contents(app, ui);
     });
+    if !show_flag { app.traces_detached = false; }
     app.show_traces_dialog = show_flag;
 }
