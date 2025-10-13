@@ -124,6 +124,8 @@ pub struct ScopeAppMulti {
     pub(super) math_builder: MathBuilderState,
     pub(super) math_editing: Option<String>,
     pub(super) math_error: Option<String>,
+    /// Whether the math builder is in 'creating new' mode (separate from editing an existing one)
+    pub(super) math_creating: bool,
     // Thresholds
     pub threshold_controller: Option<ThresholdController>,
     pub threshold_defs: Vec<ThresholdDef>,
@@ -1150,6 +1152,7 @@ impl ScopeAppMulti {
             math_builder: MathBuilderState::default(),
             math_editing: None,
             math_error: None,
+            math_creating: false,
             threshold_controller: None,
             threshold_defs: Vec::new(),
             threshold_states: HashMap::new(),
@@ -1300,6 +1303,8 @@ impl ScopeAppMulti {
                 } else {
                     tr.snap = None;
                 }
+                // Update info string with formula
+                tr.info = Self::math_formula_string(def);
             } else {
                 // Create if missing (def might have been added but no entry created)
                 let idx = self.trace_order.len();
@@ -1318,11 +1323,50 @@ impl ScopeAppMulti {
                         last_fft: None,
                         is_math: true,
                         show_points: false,
-                        info: String::new(),
+                        info: Self::math_formula_string(def),
                     },
                 );
             }
         }
+    }
+
+    /// Build a human-readable formula description for a math trace
+    fn math_formula_string(def: &MathTraceDef) -> String {
+    use crate::math::{FilterKind, MathKind, MinMaxMode};
+    match &def.kind {
+        MathKind::Add { inputs } => {
+            if inputs.is_empty() {
+                "0".to_string()
+            } else {
+                let mut s = String::new();
+                for (i, (r, g)) in inputs.iter().enumerate() {
+                    if i > 0 { s.push_str(" + "); }
+                    if (*g - 1.0).abs() < 1e-12 { s.push_str(&r.0); } else { s.push_str(&format!("{:.3}*{}", g, r.0)); }
+                }
+                s
+            }
+        }
+        MathKind::Multiply { a, b } => format!("{} * {}", a.0, b.0),
+        MathKind::Divide { a, b } => format!("{} / {}", a.0, b.0),
+        MathKind::Differentiate { input } => format!("d({})/dt", input.0),
+        MathKind::Integrate { input, y0 } => format!("∫ {} dt  (y0={:.3})", input.0, y0),
+        MathKind::Filter { input, kind } => {
+            let k = match kind {
+                FilterKind::Lowpass { cutoff_hz } => format!("LP fc={:.3} Hz", cutoff_hz),
+                FilterKind::Highpass { cutoff_hz } => format!("HP fc={:.3} Hz", cutoff_hz),
+                FilterKind::Bandpass { low_cut_hz, high_cut_hz } => format!("BP [{:.3},{:.3}] Hz", low_cut_hz, high_cut_hz),
+                FilterKind::BiquadLowpass { cutoff_hz, q } => format!("BQ-LP fc={:.3} Q={:.3}", cutoff_hz, q),
+                FilterKind::BiquadHighpass { cutoff_hz, q } => format!("BQ-HP fc={:.3} Q={:.3}", cutoff_hz, q),
+                FilterKind::BiquadBandpass { center_hz, q } => format!("BQ-BP f0={:.3} Q={:.3}", center_hz, q),
+                FilterKind::Custom { .. } => "Custom biquad".to_string(),
+            };
+            format!("{} -> {}", input.0, k)
+        }
+        MathKind::MinMax { input, decay_per_sec, mode } => {
+            let mm = match mode { MinMaxMode::Min => "Min", MinMaxMode::Max => "Max" };
+            match decay_per_sec { Some(d) => format!("{}({}) with decay {:.3} 1/s", mm, input.0, d), None => format!("{}({})", mm, input.0) }
+        }
+    }
     }
 
     fn process_thresholds(&mut self) {
