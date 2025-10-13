@@ -113,6 +113,8 @@ pub struct ScopeAppMulti {
     pub zoom_mode: ZoomMode,
 
     pub show_legend: bool,
+    /// If true, append trace info to legend labels
+    pub show_info_in_legend: bool,
     // Math traces
     pub math_defs: Vec<MathTraceDef>,
     pub(super) math_states: HashMap<String, MathRuntimeState>,
@@ -176,6 +178,10 @@ impl ScopeAppMulti {
             }
             let t = s.timestamp_micros as f64 * 1e-6;
             entry.live.push_back([t, s.value]);
+            // Set/refresh info if provided by producer
+            if let Some(info) = s.info.as_ref() {
+                entry.info = info.clone();
+            }
             if entry.live.len() > self.max_points {
                 entry.live.pop_front();
             }
@@ -508,26 +514,38 @@ impl ScopeAppMulti {
                         })
                         .collect();
                     let mut color = tr.color;
+                    let mut width: f32 = 1.0;
                     if let Some(hov) = &self.hover_trace {
                         if &tr.name != hov {
+                            // Strongly dim non-hovered traces
                             color = Color32::from_rgba_unmultiplied(
                                 color.r(),
                                 color.g(),
                                 color.b(),
-                                80,
+                                40,
                             );
+                        } else {
+                            // Emphasize hovered trace
+                            width = 2.5;
                         }
                     }
-                    let mut line = Line::new(&tr.name, pts_vec.clone()).color(color);
-                    if self.traces.len() > 1 {
-                        line = line.name(&tr.name);
-                    }
+                    let mut line = Line::new(&tr.name, pts_vec.clone()).color(color).width(width);
+                    let legend_label = if self.show_info_in_legend && !tr.info.is_empty() {
+                        format!("{} — {}", tr.name, tr.info)
+                    } else {
+                        tr.name.clone()
+                    };
+                    line = line.name(legend_label);
                     plot_ui.line(line);
 
                     // Optional point markers for each datapoint
                     if tr.show_points {
                         if !pts_vec.is_empty() {
-                            let points = Points::new("", pts_vec.clone()).radius(2.5).color(color);
+                            let mut radius = 2.5_f32;
+                            if let Some(hov) = &self.hover_trace {
+                                if &tr.name == hov { radius = 3.2; }
+                            }
+                            let points = Points::new("", pts_vec.clone()).radius(radius).color(color);
                             plot_ui.points(points);
                         }
                     }
@@ -916,7 +934,6 @@ impl ScopeAppMulti {
 
             ui.separator();
 
-           
             if ui
                 .button(if self.paused { "Resume" } else { "Pause" })
                 .clicked()
@@ -934,7 +951,7 @@ impl ScopeAppMulti {
                 }
             }
 
-             // Selection + pause/reset/clear (shared)
+            // Selection + pause/reset/clear (shared)
             if ui.button("Clear Measurement").clicked() {
                 self.point_selection.clear();
             }
@@ -1123,6 +1140,7 @@ impl ScopeAppMulti {
             pending_auto_y: true,
             auto_zoom_y: false,
             show_legend: true,
+            show_info_in_legend: false,
             zoom_mode: ZoomMode::X,
             math_defs: Vec::new(),
             math_states: HashMap::new(),
@@ -1532,7 +1550,8 @@ impl eframe::App for ScopeAppMulti {
         if self.right_panel_visible {
             egui::SidePanel::right("right_tabs")
                 .resizable(true)
-                .default_width(380.0)
+                .default_width(350.0)
+                .min_width(200.0)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         ui.selectable_value(

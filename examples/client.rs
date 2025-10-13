@@ -26,7 +26,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = client.subscribe(Request::new(SubscribeRequest{})).await?.into_inner();
 
     while let Some(sample) = stream.message().await? {
-        let s = MultiSample { index: sample.index as u64, value: sample.value, timestamp_micros: sample.timestamp_micros, trace: "signal".to_string() };
+    let s = MultiSample { index: sample.index as u64, value: sample.value, timestamp_micros: sample.timestamp_micros, trace: "signal".to_string(), info: None };
         // Stop sending if the receiver is gone
         if tx.send(s).is_err() { break; }
     }

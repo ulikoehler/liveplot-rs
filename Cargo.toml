@@ -14,6 +14,8 @@ path = "src/lib.rs"
 
 [features]
 default = []
+# Opt-in tracing for traces table width debugging (silenced by default)
+traces_table_debug = []
 # Enable building gRPC examples and proto codegen
 grpc = [
 	"dep:tokio",

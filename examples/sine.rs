@@ -19,7 +19,7 @@ fn main() -> eframe::Result<()> {
                 .map(|d| d.as_micros() as i64)
                 .unwrap_or(0);
             // Ignore error if the UI closed (receiver dropped)
-            let _ = sink.send_value(n, val, now_us, "signal");
+            let _ = sink.send_value_with_info(n, val, now_us, "signal", "Test Sine Waaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaave");
             n = n.wrapping_add(1);
             std::thread::sleep(dt);
         }

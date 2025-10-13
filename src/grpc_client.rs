@@ -28,6 +28,7 @@ pub fn spawn_grpc_client(tx: Sender<MultiSample>) {
                     value: sample.value,
                     timestamp_micros: sample.timestamp_micros,
                     trace: "signal".to_string(),
+                    info: None,
                 };
                 if tx.send(sample).is_err() {
                     break;

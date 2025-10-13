@@ -63,7 +63,7 @@ impl eframe::App for DemoApp {
         let phase = t * 2.0 * std::f64::consts::PI;
         let val = match self.kind { WaveKind::Sine => phase.sin(), WaveKind::Cosine => phase.cos() };
         let trace = match self.kind { WaveKind::Sine => "sine", WaveKind::Cosine => "cosine" };
-        let _ = self.sink.send(MultiSample { index: 0, value: val, timestamp_micros: now_us, trace: trace.to_string() });
+    let _ = self.sink.send(MultiSample { index: 0, value: val, timestamp_micros: now_us, trace: trace.to_string(), info: None });
 
         ctx.request_repaint_after(Duration::from_millis(16));
     }

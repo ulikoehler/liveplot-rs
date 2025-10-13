@@ -24,6 +24,8 @@ pub struct MultiSample {
     /// Name of the trace this sample belongs to. A new name creates a new
     /// series automatically.
     pub trace: String,
+    /// Optional metadata string shown in UI (e.g., appended to legend if enabled).
+    pub info: Option<String>,
 }
 
 /// Convenience sender for feeding `MultiSample`s into the multi-trace plotter.
@@ -46,7 +48,20 @@ impl MultiPlotSink {
         timestamp_micros: i64,
         trace: S,
     ) -> Result<(), std::sync::mpsc::SendError<MultiSample>> {
-        let s = MultiSample { index, value, timestamp_micros, trace: trace.into() };
+        let s = MultiSample { index, value, timestamp_micros, trace: trace.into(), info: None };
+        self.send(s)
+    }
+
+    /// Convenience helper to send using raw fields with optional info metadata.
+    pub fn send_value_with_info<S: Into<String>, I: Into<String>>(
+        &self,
+        index: u64,
+        value: f64,
+        timestamp_micros: i64,
+        trace: S,
+        info: I,
+    ) -> Result<(), std::sync::mpsc::SendError<MultiSample>> {
+        let s = MultiSample { index, value, timestamp_micros, trace: trace.into(), info: Some(info.into()) };
         self.send(s)
     }
 }
