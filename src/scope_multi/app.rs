@@ -916,10 +916,7 @@ impl ScopeAppMulti {
 
             ui.separator();
 
-            // Selection + pause/reset/clear (shared)
-            if ui.button("Clear Selection").clicked() {
-                self.point_selection.clear();
-            }
+           
             if ui
                 .button(if self.paused { "Resume" } else { "Pause" })
                 .clicked()
@@ -937,13 +934,19 @@ impl ScopeAppMulti {
                 }
             }
 
-            if ui.button("Clear").clicked() {
+             // Selection + pause/reset/clear (shared)
+            if ui.button("Clear Measurement").clicked() {
+                self.point_selection.clear();
+            }
+
+            if ui.button("Clear All").clicked() {
                 for tr in self.traces.values_mut() {
                     tr.live.clear();
                     if let Some(s) = &mut tr.snap {
                         s.clear();
                     }
                 }
+                self.point_selection.clear();
             }
 
             ui.checkbox(&mut self.show_legend, "Legend")
