@@ -67,6 +67,13 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
         if let Some(err) = &app.math_error { ui.colored_label(Color32::LIGHT_RED, err); }
 
         ui.separator();
+        // Global storage reset for all stateful math traces
+        ui.horizontal(|ui| {
+            if ui.button("Reset All Storage").on_hover_text("Reset integrators, filters, min/max for all math traces").clicked() {
+                app.reset_all_math_storage();
+            }
+        });
+        ui.add_space(6.0);
         // Existing math traces list with color editor, name, info, and Remove (right-aligned)
         // Reset hover before drawing; rows will set it when hovered
         app.hover_trace = None;
@@ -118,7 +125,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     app.math_error = None;
                     app.math_creating = false;
                 }
-                // Right-aligned Remove button
+                // Right-aligned per-trace actions: Reset (for stateful kinds) and Remove
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Remove").clicked() {
                         let removing = def.name.clone();
@@ -128,6 +135,14 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                             app.math_creating = false;
                             app.math_builder = MathBuilderState::default();
                             app.math_error = None;
+                        }
+                    }
+                    // Show Reset for kinds that have internal storage
+                    let is_stateful = matches!(def.kind, MathKind::Integrate { .. } | MathKind::Filter { .. } | MathKind::MinMax { .. });
+                    if is_stateful {
+                        if ui.button("Reset").on_hover_text("Reset integrator/filter/min/max state for this trace").clicked() {
+                            let nm = def.name.clone();
+                            app.reset_math_storage(&nm);
                         }
                     }
                 });

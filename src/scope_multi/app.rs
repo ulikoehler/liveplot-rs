@@ -965,6 +965,8 @@ impl ScopeAppMulti {
                         s.clear();
                     }
                 }
+                // Also reset all math runtime storage so integrators/filters/min/max start fresh
+                self.reset_all_math_storage();
                 self.point_selection.clear();
             }
 
@@ -1327,6 +1329,28 @@ impl ScopeAppMulti {
                     },
                 );
             }
+        }
+    }
+
+    /// Reset runtime storage for all math traces that maintain state (filters, integrators, min/max).
+    pub(crate) fn reset_all_math_storage(&mut self) {
+        // Only reset traces that maintain internal state (integrators, filters, min/max)
+        for def in self.math_defs.clone().into_iter() {
+            let is_stateful = matches!(def.kind, crate::math::MathKind::Integrate { .. } | crate::math::MathKind::Filter { .. } | crate::math::MathKind::MinMax { .. });
+            if is_stateful {
+                self.reset_math_storage(&def.name);
+            }
+        }
+    }
+
+    /// Reset runtime storage for a specific math trace (clears integrator, filter states, min/max, etc.).
+    pub(crate) fn reset_math_storage(&mut self, name: &str) {
+        if let Some(st) = self.math_states.get_mut(name) {
+            *st = MathRuntimeState::new();
+        }
+        if let Some(tr) = self.traces.get_mut(name) {
+            tr.live.clear();
+            if let Some(s) = &mut tr.snap { s.clear(); }
         }
     }
 
