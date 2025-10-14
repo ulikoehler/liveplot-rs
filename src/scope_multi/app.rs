@@ -576,8 +576,10 @@ impl ScopeAppMulti {
             let yr = act_bounds.range_y();
             let xw = (*xr.end() - *xr.start()).abs().max(1e-12);
             let yw = (*yr.end() - *yr.start()).abs().max(1e-12);
-            let base_dx = 0.012_f64 * xw; // horizontal text offset
-            let base_dy = 0.020_f64 * yw; // vertical text offset
+            let base_dx = 0.012_f64 * xw; // horizontal component for base radius computation
+            let base_dy = 0.020_f64 * yw; // vertical component for base radius computation
+            // Use a single radial distance so the anchor corner sits on a circle around the point.
+            let base_r = (base_dx * base_dx + base_dy * base_dy).sqrt();
 
             // (text anchor handled per-line with LEFT/RIGHT_CENTER)
 
@@ -586,48 +588,47 @@ impl ScopeAppMulti {
                 let (ox, oy) = if let Some(p2) = p2_opt {
                     let vx = p2[0] - p1[0];
                     let vy = p2[1] - p1[1];
-                    let sx = if vx >= 0.0 { -1.0 } else { 1.0 };
+                    let sx = if vx >= 0.0 { -1.0 } else { 1.0 }; // push away from P2
                     let sy = if vy >= 0.0 { -1.0 } else { 1.0 };
-                    // Increase offset if points are very close
-                    let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw {
-                        1.8
-                    } else {
-                        1.0
-                    };
-                    (sx * base_dx * amp, sy * base_dy * amp)
+                    // Amplify radius if extremely close to keep text readable
+                    let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw { 1.8 } else { 1.0 };
+                    // Radial diagonal vector with constant length: components = R / sqrt(2)
+                    let comp = (base_r * amp) / std::f64::consts::SQRT_2;
+                    (sx * comp, sy * comp)
                 } else {
-                    (-base_dx, -base_dy)
+                    // Default up-left diagonal
+                    let comp = base_r / std::f64::consts::SQRT_2;
+                    (-comp, -comp)
                 };
                 let y_lin = if self.y_log { 10f64.powf(p1[1]) } else { p1[1] };
                 let ytxt = if let Some(u) = &self.y_unit {
-                    format!("{:.4} {}", y_lin, u)
+                    format!("{:.6} {}", y_lin, u)
                 } else {
-                    format!("{:.4}", y_lin)
+                    format!("{:.6}", y_lin)
                 };
                 // Prepare per-line strings below
                 // Multiline alignment by drawing each line with a left/right anchor
                 let base = PlotPoint::new(p1[0] + ox, p1[1] + oy);
-                let halign_anchor = if ox >= 0.0 { Align2::LEFT_CENTER } else { Align2::RIGHT_CENTER };
-                let line_gap = base_dy * 1.2;
-                let lines = [
+                let halign_anchor = if ox >= 0.0 {
+                    if oy >= 0.0 { Align2::LEFT_BOTTOM } else { Align2::LEFT_TOP }
+                } else {
+                    if oy >= 0.0 { Align2::RIGHT_BOTTOM } else { Align2::RIGHT_TOP }
+                };
+                // Build multi-line layout with alignment handled by job.halign
+                let mut job = egui::text::LayoutJob::default();
+                job.halign = if ox >= 0.0 { egui::Align::LEFT } else { egui::Align::RIGHT };
+                let font_id = egui::FontId::proportional(marker_font_size);
+                let fmt = egui::TextFormat { font_id: font_id.clone(), color: Color32::YELLOW, ..Default::default() };
+                for (i, line) in [
                     "P1".to_string(),
                     format!("x={}", self.x_date_format.format_value(p1[0])),
                     format!("y={}", ytxt),
-                ];
-                let n_lines = lines.len();
-                for (i, line) in lines.iter().enumerate() {
-                    // Keep visual order constant: top-to-bottom is P1, x=, y=
-                    let offset_y = if oy >= 0.0 {
-                        ((n_lines - 1 - i) as f64) * line_gap
-                    } else {
-                        - (i as f64) * line_gap
-                    };
-                    let pos = PlotPoint::new(base.x, base.y + offset_y);
-                    let rich = egui::RichText::new(line)
-                        .size(marker_font_size)
-                        .color(Color32::YELLOW);
-                    plot_ui.text(Text::new("Measurement", pos, rich).anchor(halign_anchor));
+                ].into_iter().enumerate() {
+                    let mut text = line;
+                    if i < 2 { text.push('\n'); }
+                    job.append(&text, 0.0, fmt.clone());
                 }
+                plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
             }
 
             // Draw P2 label with offset away from P1 if available
@@ -635,47 +636,42 @@ impl ScopeAppMulti {
                 let (ox, oy) = if let Some(p1) = p1_opt {
                     let vx = p2[0] - p1[0];
                     let vy = p2[1] - p1[1];
-                    let sx = if vx >= 0.0 { 1.0 } else { -1.0 };
+                    let sx = if vx >= 0.0 { 1.0 } else { -1.0 }; // push away from P1
                     let sy = if vy >= 0.0 { 1.0 } else { -1.0 };
-                    // Increase offset if points are very close
-                    let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw {
-                        1.8
-                    } else {
-                        1.0
-                    };
-                    (sx * base_dx * amp, sy * base_dy * amp)
+                    let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw { 1.8 } else { 1.0 };
+                    let comp = (base_r * amp) / std::f64::consts::SQRT_2;
+                    (sx * comp, sy * comp)
                 } else {
-                    (base_dx, base_dy)
+                    let comp = base_r / std::f64::consts::SQRT_2;
+                    (comp, comp)
                 };
                 let y_lin = if self.y_log { 10f64.powf(p2[1]) } else { p2[1] };
                 let ytxt = if let Some(u) = &self.y_unit {
-                    format!("{:.4} {}", y_lin, u)
+                    format!("{:.6} {}", y_lin, u)
                 } else {
-                    format!("{:.4}", y_lin)
+                    format!("{:.6}", y_lin)
                 };
                 // Prepare per-line strings below
                 let base = PlotPoint::new(p2[0] + ox, p2[1] + oy);
-                let halign_anchor = if ox >= 0.0 { Align2::LEFT_CENTER } else { Align2::RIGHT_CENTER };
-                let line_gap = base_dy * 1.2;
-                let lines = [
+                let halign_anchor = if ox >= 0.0 {
+                    if oy >= 0.0 { Align2::LEFT_BOTTOM } else { Align2::LEFT_TOP }
+                } else {
+                    if oy >= 0.0 { Align2::RIGHT_BOTTOM } else { Align2::RIGHT_TOP }
+                };
+                let mut job = egui::text::LayoutJob::default();
+                job.halign = if ox >= 0.0 { egui::Align::LEFT } else { egui::Align::RIGHT };
+                let font_id = egui::FontId::proportional(marker_font_size);
+                let fmt = egui::TextFormat { font_id: font_id.clone(), color: Color32::LIGHT_BLUE, ..Default::default() };
+                for (i, line) in [
                     "P2".to_string(),
                     format!("x={}", self.x_date_format.format_value(p2[0])),
                     format!("y={}", ytxt),
-                ];
-                let n_lines = lines.len();
-                for (i, line) in lines.iter().enumerate() {
-                    // Keep visual order constant: top-to-bottom is P2, x=, y=
-                    let offset_y = if oy >= 0.0 {
-                        ((n_lines - 1 - i) as f64) * line_gap
-                    } else {
-                        - (i as f64) * line_gap
-                    };
-                    let pos = PlotPoint::new(base.x, base.y + offset_y);
-                    let rich = egui::RichText::new(line)
-                        .size(marker_font_size)
-                        .color(Color32::LIGHT_BLUE);
-                    plot_ui.text(Text::new("Measurement", pos, rich).anchor(halign_anchor));
+                ].into_iter().enumerate() {
+                    let mut text = line;
+                    if i < 2 { text.push('\n'); }
+                    job.append(&text, 0.0, fmt.clone());
                 }
+                plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
             }
 
             // Delta line and label, positioned perpendicular to P1->P2
@@ -692,12 +688,12 @@ impl ScopeAppMulti {
                 };
                 let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
                 let dy_txt = if let Some(u) = &self.y_unit {
-                    format!("{:.4} {}", dy_lin, u)
+                    format!("{:.6} {}", dy_lin, u)
                 } else {
-                    format!("{:.4}", dy_lin)
+                    format!("{:.6}", dy_lin)
                 };
                 let overlay = if slope.is_finite() {
-                    format!("Δx={:.4}\nΔy={}\nslope={:.4}", dx, dy_txt, slope)
+                    format!("Δx={:.6}\nΔy={}\nslope={:.4}", dx, dy_txt, slope)
                 } else {
                     format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
                 };
@@ -707,26 +703,27 @@ impl ScopeAppMulti {
                 let nx = -vy;
                 let ny = vx;
                 let nlen = (nx * nx + ny * ny).sqrt().max(1e-12);
-                let off_x = (nx / nlen) * base_dx * 1.5;
-                let off_y = (ny / nlen) * base_dy * 1.5;
+                // Use constant radial distance for delta label as well (scaled by 1.5)
+                let radial = base_r * 1.5;
+                let off_x = (nx / nlen) * radial;
+                let off_y = (ny / nlen) * radial;
                 let base = PlotPoint::new(mid[0] + off_x, mid[1] + off_y);
-                let halign_anchor = if off_x >= 0.0 { Align2::LEFT_CENTER } else { Align2::RIGHT_CENTER };
-                let line_gap = base_dy * 1.2;
-                let lines: Vec<&str> = overlay.split('\n').collect();
-                let n_lines = lines.len();
-                for (i, line) in lines.into_iter().enumerate() {
-                    // Keep visual order constant: top-to-bottom across all lines
-                    let offset_y = if off_y >= 0.0 {
-                        ((n_lines - 1 - i) as f64) * line_gap
-                    } else {
-                        - (i as f64) * line_gap
-                    };
-                    let pos = PlotPoint::new(base.x, base.y + offset_y);
-                    let rich = egui::RichText::new(line)
-                        .size(marker_font_size)
-                        .color(Color32::LIGHT_GREEN);
-                    plot_ui.text(Text::new("Measurement", pos, rich).anchor(halign_anchor));
+                let halign_anchor = if off_x >= 0.0 {
+                    if off_y >= 0.0 { Align2::LEFT_BOTTOM } else { Align2::LEFT_TOP }
+                } else {
+                    if off_y >= 0.0 { Align2::RIGHT_BOTTOM } else { Align2::RIGHT_TOP }
+                };
+                let mut job = egui::text::LayoutJob::default();
+                job.halign = if off_x >= 0.0 { egui::Align::LEFT } else { egui::Align::RIGHT };
+                let font_id = egui::FontId::proportional(marker_font_size);
+                let fmt = egui::TextFormat { font_id: font_id.clone(), color: Color32::LIGHT_GREEN, ..Default::default() };
+                let parts: Vec<&str> = overlay.split('\n').collect();
+                for (i, part) in parts.iter().enumerate() {
+                    let mut text = part.to_string();
+                    if i + 1 != parts.len() { text.push('\n'); }
+                    job.append(&text, 0.0, fmt.clone());
                 }
+                plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
             }
 
             bounds_changed
