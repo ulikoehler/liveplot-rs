@@ -531,7 +531,9 @@ impl ScopeAppMulti {
                             width = 2.5;
                         }
                     }
-                    let mut line = Line::new(&tr.name, pts_vec.clone()).color(color).width(width);
+                    let mut line = Line::new(&tr.name, pts_vec.clone())
+                        .color(color)
+                        .width(width);
                     let legend_label = if self.show_info_in_legend && !tr.info.is_empty() {
                         format!("{} — {}", tr.name, tr.info)
                     } else {
@@ -545,9 +547,12 @@ impl ScopeAppMulti {
                         if !pts_vec.is_empty() {
                             let mut radius = 2.5_f32;
                             if let Some(hov) = &self.hover_trace {
-                                if &tr.name == hov { radius = 3.2; }
+                                if &tr.name == hov {
+                                    radius = 3.2;
+                                }
                             }
-                            let points = Points::new("", pts_vec.clone()).radius(radius).color(color);
+                            let points =
+                                Points::new("", pts_vec.clone()).radius(radius).color(color);
                             plot_ui.points(points);
                         }
                     }
@@ -558,9 +563,87 @@ impl ScopeAppMulti {
             let p1_opt = self.point_selection.selected_p1;
             let p2_opt = self.point_selection.selected_p2;
 
+            let ox = 0.01 * self.time_window; // horizontal offset for labels
+            let oy = 0.01 * (self.y_max - self.y_min); // vertical offset for labels
+
+            //if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
+            let (dx, dy) = if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
+                (p2[0] - p1[0], p2[1] - p1[1])
+            } else {
+                (0.0, 0.0)
+            };
+
+            // Inline helper closure to compute anchor, text alignment and base point
+            let label_pos = |dx: f64,
+                             dy: f64,
+                             p: &[f64; 2],
+                             ox: f64,
+                             oy: f64|
+             -> (Align2, egui::Align, PlotPoint) {
+                let slope = if dx != 0.0 { dy / dx } else { 0.0 };
+                println!("slope = {}", slope);
+                if dx <= 0.0 || slope.abs() > 1.0 {
+                    if dy >= 0.0 || slope.abs() < 0.2 {
+                        (
+                            Align2::LEFT_TOP,
+                            egui::Align::LEFT,
+                            PlotPoint::new(p[0] + ox, p[1] - oy),
+                        )
+                    } else {
+                        (
+                            Align2::LEFT_BOTTOM,
+                            egui::Align::LEFT,
+                            PlotPoint::new(p[0] + ox, p[1] + oy),
+                        )
+                    }
+                } else {
+                    if dy >= 0.0 || slope.abs() < 0.2 {
+                        (
+                            Align2::RIGHT_TOP,
+                            egui::Align::RIGHT,
+                            PlotPoint::new(p[0] - ox, p[1] - oy),
+                        )
+                    } else {
+                        (
+                            Align2::RIGHT_BOTTOM,
+                            egui::Align::RIGHT,
+                            PlotPoint::new(p[0] - ox, p[1] + oy),
+                        )
+                    }
+                }
+            };
+
             // Always draw the point markers at exact locations
             if let Some(p) = p1_opt {
-                plot_ui.points(Points::new("Measurement", vec![p]).radius(5.0).color(Color32::YELLOW));
+                plot_ui.points(
+                    Points::new("Measurement", vec![p])
+                        .radius(5.0)
+                        .color(Color32::YELLOW),
+                );
+
+                let (halign_anchor, text_align, base) = label_pos(dx, dy, &p, ox, oy);
+
+                let y_lin = if self.y_log { 10f64.powf(p[1]) } else { p[1] };
+                let ytxt = if let Some(u) = &self.y_unit {
+                    format!("{:.6} {}", y_lin, u)
+                } else {
+                    format!("{:.6}", y_lin)
+                };
+                let txt = format!(
+                    "P1\nx = {}\ny = {}",
+                    self.x_date_format.format_value(p[0]),
+                    ytxt
+                );
+
+                // Build multi-line layout with alignment handled by job.halign
+                let style = egui::Style::default();
+                let mut job = egui::text::LayoutJob::default();
+
+                egui::RichText::new(txt)
+                    .size(marker_font_size)
+                    .color(Color32::YELLOW)
+                    .append_to(&mut job, &style, egui::FontSelection::Default, text_align);
+                plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
             }
             if let Some(p) = p2_opt {
                 plot_ui.points(
@@ -568,113 +651,31 @@ impl ScopeAppMulti {
                         .radius(5.0)
                         .color(Color32::LIGHT_BLUE),
                 );
-            }
 
-            // Compute bounds-based offsets in plot units
-            let act_bounds = plot_ui.plot_bounds();
-            let xr = act_bounds.range_x();
-            let yr = act_bounds.range_y();
-            let xw = (*xr.end() - *xr.start()).abs().max(1e-12);
-            let yw = (*yr.end() - *yr.start()).abs().max(1e-12);
-            let base_dx = 0.012_f64 * xw; // horizontal component for base radius computation
-            let base_dy = 0.020_f64 * yw; // vertical component for base radius computation
-            // Use a single radial distance so the anchor corner sits on a circle around the point.
-            let base_r = (base_dx * base_dx + base_dy * base_dy).sqrt();
+                let (halign_anchor, text_align, base) = label_pos(-dx, -dy, &p, ox, oy);
 
-            // (text anchor handled per-line with LEFT/RIGHT_CENTER)
-
-            // Draw P1 label with offset away from P2 if available
-            if let Some(p1) = p1_opt {
-                let (ox, oy) = if let Some(p2) = p2_opt {
-                    let vx = p2[0] - p1[0];
-                    let vy = p2[1] - p1[1];
-                    let sx = if vx >= 0.0 { -1.0 } else { 1.0 }; // push away from P2
-                    let sy = if vy >= 0.0 { -1.0 } else { 1.0 };
-                    // Amplify radius if extremely close to keep text readable
-                    let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw { 1.8 } else { 1.0 };
-                    // Radial diagonal vector with constant length: components = R / sqrt(2)
-                    let comp = (base_r * amp) / std::f64::consts::SQRT_2;
-                    (sx * comp, sy * comp)
-                } else {
-                    // Default up-left diagonal
-                    let comp = base_r / std::f64::consts::SQRT_2;
-                    (-comp, -comp)
-                };
-                let y_lin = if self.y_log { 10f64.powf(p1[1]) } else { p1[1] };
+                let y_lin = if self.y_log { 10f64.powf(p[1]) } else { p[1] };
                 let ytxt = if let Some(u) = &self.y_unit {
                     format!("{:.6} {}", y_lin, u)
                 } else {
                     format!("{:.6}", y_lin)
                 };
-                // Prepare per-line strings below
-                // Multiline alignment by drawing each line with a left/right anchor
-                let base = PlotPoint::new(p1[0] + ox, p1[1] + oy);
-                let halign_anchor = if ox >= 0.0 {
-                    if oy >= 0.0 { Align2::LEFT_BOTTOM } else { Align2::LEFT_TOP }
-                } else {
-                    if oy >= 0.0 { Align2::RIGHT_BOTTOM } else { Align2::RIGHT_TOP }
-                };
+                let txt = format!(
+                    "P2\nx = {}\ny = {}",
+                    self.x_date_format.format_value(p[0]),
+                    ytxt
+                );
+
                 // Build multi-line layout with alignment handled by job.halign
+                let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
-                job.halign = if ox >= 0.0 { egui::Align::LEFT } else { egui::Align::RIGHT };
-                let font_id = egui::FontId::proportional(marker_font_size);
-                let fmt = egui::TextFormat { font_id: font_id.clone(), color: Color32::YELLOW, ..Default::default() };
-                for (i, line) in [
-                    "P1".to_string(),
-                    format!("x={}", self.x_date_format.format_value(p1[0])),
-                    format!("y={}", ytxt),
-                ].into_iter().enumerate() {
-                    let mut text = line;
-                    if i < 2 { text.push('\n'); }
-                    job.append(&text, 0.0, fmt.clone());
-                }
+
+                egui::RichText::new(txt)
+                    .size(marker_font_size)
+                    .color(Color32::LIGHT_BLUE)
+                    .append_to(&mut job, &style, egui::FontSelection::Default, text_align);
                 plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
             }
-
-            // Draw P2 label with offset away from P1 if available
-            if let Some(p2) = p2_opt {
-                let (ox, oy) = if let Some(p1) = p1_opt {
-                    let vx = p2[0] - p1[0];
-                    let vy = p2[1] - p1[1];
-                    let sx = if vx >= 0.0 { 1.0 } else { -1.0 }; // push away from P1
-                    let sy = if vy >= 0.0 { 1.0 } else { -1.0 };
-                    let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw { 1.8 } else { 1.0 };
-                    let comp = (base_r * amp) / std::f64::consts::SQRT_2;
-                    (sx * comp, sy * comp)
-                } else {
-                    let comp = base_r / std::f64::consts::SQRT_2;
-                    (comp, comp)
-                };
-                let y_lin = if self.y_log { 10f64.powf(p2[1]) } else { p2[1] };
-                let ytxt = if let Some(u) = &self.y_unit {
-                    format!("{:.6} {}", y_lin, u)
-                } else {
-                    format!("{:.6}", y_lin)
-                };
-                // Prepare per-line strings below
-                let base = PlotPoint::new(p2[0] + ox, p2[1] + oy);
-                let halign_anchor = if ox >= 0.0 {
-                    if oy >= 0.0 { Align2::LEFT_BOTTOM } else { Align2::LEFT_TOP }
-                } else {
-                    if oy >= 0.0 { Align2::RIGHT_BOTTOM } else { Align2::RIGHT_TOP }
-                };
-                let mut job = egui::text::LayoutJob::default();
-                job.halign = if ox >= 0.0 { egui::Align::LEFT } else { egui::Align::RIGHT };
-                let font_id = egui::FontId::proportional(marker_font_size);
-                let fmt = egui::TextFormat { font_id: font_id.clone(), color: Color32::LIGHT_BLUE, ..Default::default() };
-                for (i, line) in [
-                    "P2".to_string(),
-                    format!("x={}", self.x_date_format.format_value(p2[0])),
-                    format!("y={}", ytxt),
-                ].into_iter().enumerate() {
-                    let mut text = line;
-                    if i < 2 { text.push('\n'); }
-                    job.append(&text, 0.0, fmt.clone());
-                }
-                plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
-            }
-
-            // Delta line and label, positioned perpendicular to P1->P2
             if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
                 plot_ui.line(Line::new("Measurement", vec![p1, p2]).color(Color32::LIGHT_GREEN));
                 let dx = p2[0] - p1[0];
@@ -692,39 +693,192 @@ impl ScopeAppMulti {
                 } else {
                     format!("{:.6}", dy_lin)
                 };
-                let overlay = if slope.is_finite() {
+                let txt = if slope.is_finite() {
                     format!("Δx={:.6}\nΔy={}\nslope={:.4}", dx, dy_txt, slope)
                 } else {
                     format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
                 };
-                // Perpendicular offset vector (scaled separately in x/y to match axes)
-                let vx = p2[0] - p1[0];
-                let vy = p2[1] - p1[1];
-                let nx = -vy;
-                let ny = vx;
-                let nlen = (nx * nx + ny * ny).sqrt().max(1e-12);
-                // Use constant radial distance for delta label as well (scaled by 1.5)
-                let radial = base_r * 1.5;
-                let off_x = (nx / nlen) * radial;
-                let off_y = (ny / nlen) * radial;
-                let base = PlotPoint::new(mid[0] + off_x, mid[1] + off_y);
-                let halign_anchor = if off_x >= 0.0 {
-                    if off_y >= 0.0 { Align2::LEFT_BOTTOM } else { Align2::LEFT_TOP }
+
+                let (halign_anchor, base) = if slope.abs() > 7.0 {
+                    (Align2::RIGHT_CENTER, PlotPoint::new(mid[0] - ox, mid[1]))
+                } else if slope.abs() < 0.2 {
+                    (Align2::CENTER_BOTTOM, PlotPoint::new(mid[0], mid[1] + oy))
+                } else if slope >= 0.0 {
+                    (Align2::LEFT_TOP, PlotPoint::new(mid[0] + ox, mid[1] - oy))
                 } else {
-                    if off_y >= 0.0 { Align2::RIGHT_BOTTOM } else { Align2::RIGHT_TOP }
+                    (Align2::LEFT_BOTTOM, PlotPoint::new(mid[0] + ox, mid[1] + oy))
                 };
+
+                let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
-                job.halign = if off_x >= 0.0 { egui::Align::LEFT } else { egui::Align::RIGHT };
-                let font_id = egui::FontId::proportional(marker_font_size);
-                let fmt = egui::TextFormat { font_id: font_id.clone(), color: Color32::LIGHT_GREEN, ..Default::default() };
-                let parts: Vec<&str> = overlay.split('\n').collect();
-                for (i, part) in parts.iter().enumerate() {
-                    let mut text = part.to_string();
-                    if i + 1 != parts.len() { text.push('\n'); }
-                    job.append(&text, 0.0, fmt.clone());
-                }
+
+                egui::RichText::new(txt)
+                    .size(marker_font_size)
+                    .color(Color32::LIGHT_GREEN)
+                    .append_to(
+                        &mut job,
+                        &style,
+                        egui::FontSelection::Default,
+                        egui::Align::LEFT,
+                    );
                 plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
             }
+
+            // // Compute bounds-based offsets in plot units
+            // let act_bounds = plot_ui.plot_bounds();
+            // let xr = act_bounds.range_x();
+            // let yr = act_bounds.range_y();
+            // let xw = (*xr.end() - *xr.start()).abs().max(1e-12);
+            // let yw = (*yr.end() - *yr.start()).abs().max(1e-12);
+            // let base_dx = 0.012_f64 * xw; // horizontal component for base radius computation
+            // let base_dy = 0.020_f64 * yw; // vertical component for base radius computation
+            // // Use a single radial distance so the anchor corner sits on a circle around the point.
+            // let base_r = (base_dx * base_dx + base_dy * base_dy).sqrt();
+
+            // // (text anchor handled per-line with LEFT/RIGHT_CENTER)
+
+            // // Draw P1 label with offset away from P2 if available
+            // if let Some(p1) = p1_opt {
+            //     let (ox, oy) = if let Some(p2) = p2_opt {
+            //         let vx = p2[0] - p1[0];
+            //         let vy = p2[1] - p1[1];
+            //         let sx = if vx >= 0.0 { -1.0 } else { 1.0 }; // push away from P2
+            //         let sy = if vy >= 0.0 { -1.0 } else { 1.0 };
+            //         // Amplify radius if extremely close to keep text readable
+            //         let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw { 1.8 } else { 1.0 };
+            //         // Radial diagonal vector with constant length: components = R / sqrt(2)
+            //         let comp = (base_r * amp) / std::f64::consts::SQRT_2;
+            //         (sx * comp, sy * comp)
+            //     } else {
+            //         // Default up-left diagonal
+            //         let comp = base_r / std::f64::consts::SQRT_2;
+            //         (-comp, -comp)
+            //     };
+            //     let y_lin = if self.y_log { 10f64.powf(p1[1]) } else { p1[1] };
+            //     let ytxt = if let Some(u) = &self.y_unit {
+            //         format!("{:.6} {}", y_lin, u)
+            //     } else {
+            //         format!("{:.6}", y_lin)
+            //     };
+            //     // Prepare per-line strings below
+            //     // Multiline alignment by drawing each line with a left/right anchor
+            //     let base = PlotPoint::new(p1[0] + ox, p1[1] + oy);
+            //     let halign_anchor = if ox >= 0.0 {
+            //         if oy >= 0.0 { Align2::LEFT_BOTTOM } else { Align2::LEFT_TOP }
+            //     } else {
+            //         if oy >= 0.0 { Align2::RIGHT_BOTTOM } else { Align2::RIGHT_TOP }
+            //     };
+            //     // Build multi-line layout with alignment handled by job.halign
+            //     let mut job = egui::text::LayoutJob::default();
+            //     job.halign = if ox >= 0.0 { egui::Align::LEFT } else { egui::Align::RIGHT };
+            //     let font_id = egui::FontId::proportional(marker_font_size);
+            //     let fmt = egui::TextFormat { font_id: font_id.clone(), color: Color32::YELLOW, ..Default::default() };
+            //     for (i, line) in [
+            //         "P1".to_string(),
+            //         format!("x={}", self.x_date_format.format_value(p1[0])),
+            //         format!("y={}", ytxt),
+            //     ].into_iter().enumerate() {
+            //         let mut text = line;
+            //         if i < 2 { text.push('\n'); }
+            //         job.append(&text, 0.0, fmt.clone());
+            //     }
+            //     plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
+            // }
+
+            // // Draw P2 label with offset away from P1 if available
+            // if let Some(p2) = p2_opt {
+            //     let (ox, oy) = if let Some(p1) = p1_opt {
+            //         let vx = p2[0] - p1[0];
+            //         let vy = p2[1] - p1[1];
+            //         let sx = if vx >= 0.0 { 1.0 } else { -1.0 }; // push away from P1
+            //         let sy = if vy >= 0.0 { 1.0 } else { -1.0 };
+            //         let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw { 1.8 } else { 1.0 };
+            //         let comp = (base_r * amp) / std::f64::consts::SQRT_2;
+            //         (sx * comp, sy * comp)
+            //     } else {
+            //         let comp = base_r / std::f64::consts::SQRT_2;
+            //         (comp, comp)
+            //     };
+            //     let y_lin = if self.y_log { 10f64.powf(p2[1]) } else { p2[1] };
+            //     let ytxt = if let Some(u) = &self.y_unit {
+            //         format!("{:.6} {}", y_lin, u)
+            //     } else {
+            //         format!("{:.6}", y_lin)
+            //     };
+            //     // Prepare per-line strings below
+            //     let base = PlotPoint::new(p2[0] + ox, p2[1] + oy);
+            //     let halign_anchor = if ox >= 0.0 {
+            //         if oy >= 0.0 { Align2::LEFT_BOTTOM } else { Align2::LEFT_TOP }
+            //     } else {
+            //         if oy >= 0.0 { Align2::RIGHT_BOTTOM } else { Align2::RIGHT_TOP }
+            //     };
+            //     let mut job = egui::text::LayoutJob::default();
+            //     job.halign = if ox >= 0.0 { egui::Align::LEFT } else { egui::Align::RIGHT };
+            //     let font_id = egui::FontId::proportional(marker_font_size);
+            //     let fmt = egui::TextFormat { font_id: font_id.clone(), color: Color32::LIGHT_BLUE, ..Default::default() };
+            //     for (i, line) in [
+            //         "P2".to_string(),
+            //         format!("x={}", self.x_date_format.format_value(p2[0])),
+            //         format!("y={}", ytxt),
+            //     ].into_iter().enumerate() {
+            //         let mut text = line;
+            //         if i < 2 { text.push('\n'); }
+            //         job.append(&text, 0.0, fmt.clone());
+            //     }
+            //     plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
+            // }
+
+            // // Delta line and label, positioned perpendicular to P1->P2
+            // if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
+            //     plot_ui.line(Line::new("Measurement", vec![p1, p2]).color(Color32::LIGHT_GREEN));
+            //     let dx = p2[0] - p1[0];
+            //     let y1 = if self.y_log { 10f64.powf(p1[1]) } else { p1[1] };
+            //     let y2 = if self.y_log { 10f64.powf(p2[1]) } else { p2[1] };
+            //     let dy_lin = y2 - y1;
+            //     let slope = if dx.abs() > 1e-12 {
+            //         dy_lin / dx
+            //     } else {
+            //         f64::INFINITY
+            //     };
+            //     let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
+            //     let dy_txt = if let Some(u) = &self.y_unit {
+            //         format!("{:.6} {}", dy_lin, u)
+            //     } else {
+            //         format!("{:.6}", dy_lin)
+            //     };
+            //     let overlay = if slope.is_finite() {
+            //         format!("Δx={:.6}\nΔy={}\nslope={:.4}", dx, dy_txt, slope)
+            //     } else {
+            //         format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
+            //     };
+            //     // Perpendicular offset vector (scaled separately in x/y to match axes)
+            //     let vx = p2[0] - p1[0];
+            //     let vy = p2[1] - p1[1];
+            //     let nx = -vy;
+            //     let ny = vx;
+            //     let nlen = (nx * nx + ny * ny).sqrt().max(1e-12);
+            //     // Use constant radial distance for delta label as well (scaled by 1.5)
+            //     let radial = base_r * 1.5;
+            //     let off_x = (nx / nlen) * radial;
+            //     let off_y = (ny / nlen) * radial;
+            //     let base = PlotPoint::new(mid[0] + off_x, mid[1] + off_y);
+            //     let halign_anchor = if off_x >= 0.0 {
+            //         if off_y >= 0.0 { Align2::LEFT_BOTTOM } else { Align2::LEFT_TOP }
+            //     } else {
+            //         if off_y >= 0.0 { Align2::RIGHT_BOTTOM } else { Align2::RIGHT_TOP }
+            //     };
+            //     let mut job = egui::text::LayoutJob::default();
+            //     job.halign = if off_x >= 0.0 { egui::Align::LEFT } else { egui::Align::RIGHT };
+            //     let font_id = egui::FontId::proportional(marker_font_size);
+            //     let fmt = egui::TextFormat { font_id: font_id.clone(), color: Color32::LIGHT_GREEN, ..Default::default() };
+            //     let parts: Vec<&str> = overlay.split('\n').collect();
+            //     for (i, part) in parts.iter().enumerate() {
+            //         let mut text = part.to_string();
+            //         if i + 1 != parts.len() { text.push('\n'); }
+            //         job.append(&text, 0.0, fmt.clone());
+            //     }
+            //     plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
+            // }
 
             bounds_changed
         })
@@ -1436,7 +1590,12 @@ impl ScopeAppMulti {
     pub(crate) fn reset_all_math_storage(&mut self) {
         // Only reset traces that maintain internal state (integrators, filters, min/max)
         for def in self.math_defs.clone().into_iter() {
-            let is_stateful = matches!(def.kind, crate::math::MathKind::Integrate { .. } | crate::math::MathKind::Filter { .. } | crate::math::MathKind::MinMax { .. });
+            let is_stateful = matches!(
+                def.kind,
+                crate::math::MathKind::Integrate { .. }
+                    | crate::math::MathKind::Filter { .. }
+                    | crate::math::MathKind::MinMax { .. }
+            );
             if is_stateful {
                 self.reset_math_storage(&def.name);
             }
@@ -1450,47 +1609,74 @@ impl ScopeAppMulti {
         }
         if let Some(tr) = self.traces.get_mut(name) {
             tr.live.clear();
-            if let Some(s) = &mut tr.snap { s.clear(); }
+            if let Some(s) = &mut tr.snap {
+                s.clear();
+            }
         }
     }
 
     /// Build a human-readable formula description for a math trace
     fn math_formula_string(def: &MathTraceDef) -> String {
-    use crate::math::{FilterKind, MathKind, MinMaxMode};
-    match &def.kind {
-        MathKind::Add { inputs } => {
-            if inputs.is_empty() {
-                "0".to_string()
-            } else {
-                let mut s = String::new();
-                for (i, (r, g)) in inputs.iter().enumerate() {
-                    if i > 0 { s.push_str(" + "); }
-                    if (*g - 1.0).abs() < 1e-12 { s.push_str(&r.0); } else { s.push_str(&format!("{:.3}*{}", g, r.0)); }
+        use crate::math::{FilterKind, MathKind, MinMaxMode};
+        match &def.kind {
+            MathKind::Add { inputs } => {
+                if inputs.is_empty() {
+                    "0".to_string()
+                } else {
+                    let mut s = String::new();
+                    for (i, (r, g)) in inputs.iter().enumerate() {
+                        if i > 0 {
+                            s.push_str(" + ");
+                        }
+                        if (*g - 1.0).abs() < 1e-12 {
+                            s.push_str(&r.0);
+                        } else {
+                            s.push_str(&format!("{:.3}*{}", g, r.0));
+                        }
+                    }
+                    s
                 }
-                s
+            }
+            MathKind::Multiply { a, b } => format!("{} * {}", a.0, b.0),
+            MathKind::Divide { a, b } => format!("{} / {}", a.0, b.0),
+            MathKind::Differentiate { input } => format!("d({})/dt", input.0),
+            MathKind::Integrate { input, y0 } => format!("∫ {} dt  (y0={:.3})", input.0, y0),
+            MathKind::Filter { input, kind } => {
+                let k = match kind {
+                    FilterKind::Lowpass { cutoff_hz } => format!("LP fc={:.3} Hz", cutoff_hz),
+                    FilterKind::Highpass { cutoff_hz } => format!("HP fc={:.3} Hz", cutoff_hz),
+                    FilterKind::Bandpass {
+                        low_cut_hz,
+                        high_cut_hz,
+                    } => format!("BP [{:.3},{:.3}] Hz", low_cut_hz, high_cut_hz),
+                    FilterKind::BiquadLowpass { cutoff_hz, q } => {
+                        format!("BQ-LP fc={:.3} Q={:.3}", cutoff_hz, q)
+                    }
+                    FilterKind::BiquadHighpass { cutoff_hz, q } => {
+                        format!("BQ-HP fc={:.3} Q={:.3}", cutoff_hz, q)
+                    }
+                    FilterKind::BiquadBandpass { center_hz, q } => {
+                        format!("BQ-BP f0={:.3} Q={:.3}", center_hz, q)
+                    }
+                    FilterKind::Custom { .. } => "Custom biquad".to_string(),
+                };
+                format!("{} -> {}", input.0, k)
+            }
+            MathKind::MinMax {
+                input,
+                decay_per_sec,
+                mode,
+            } => {
+                let mm = match mode {
+                    MinMaxMode::Min => "Min",
+                    MinMaxMode::Max => "Max",
+                };
+                match decay_per_sec {
+                    Some(d) => format!("{}({}) with decay {:.3} 1/s", mm, input.0, d),
+                    None => format!("{}({})", mm, input.0),
+                }
             }
         }
-        MathKind::Multiply { a, b } => format!("{} * {}", a.0, b.0),
-        MathKind::Divide { a, b } => format!("{} / {}", a.0, b.0),
-        MathKind::Differentiate { input } => format!("d({})/dt", input.0),
-        MathKind::Integrate { input, y0 } => format!("∫ {} dt  (y0={:.3})", input.0, y0),
-        MathKind::Filter { input, kind } => {
-            let k = match kind {
-                FilterKind::Lowpass { cutoff_hz } => format!("LP fc={:.3} Hz", cutoff_hz),
-                FilterKind::Highpass { cutoff_hz } => format!("HP fc={:.3} Hz", cutoff_hz),
-                FilterKind::Bandpass { low_cut_hz, high_cut_hz } => format!("BP [{:.3},{:.3}] Hz", low_cut_hz, high_cut_hz),
-                FilterKind::BiquadLowpass { cutoff_hz, q } => format!("BQ-LP fc={:.3} Q={:.3}", cutoff_hz, q),
-                FilterKind::BiquadHighpass { cutoff_hz, q } => format!("BQ-HP fc={:.3} Q={:.3}", cutoff_hz, q),
-                FilterKind::BiquadBandpass { center_hz, q } => format!("BQ-BP f0={:.3} Q={:.3}", center_hz, q),
-                FilterKind::Custom { .. } => "Custom biquad".to_string(),
-            };
-            format!("{} -> {}", input.0, k)
-        }
-        MathKind::MinMax { input, decay_per_sec, mode } => {
-            let mm = match mode { MinMaxMode::Min => "Min", MinMaxMode::Max => "Max" };
-            match decay_per_sec { Some(d) => format!("{}({}) with decay {:.3} 1/s", mm, input.0, d), None => format!("{}({})", mm, input.0) }
-        }
-    }
     }
 
     fn process_thresholds(&mut self) {
