@@ -580,9 +580,9 @@ impl ScopeAppMulti {
                              ox: f64,
                              oy: f64|
              -> (Align2, egui::Align, PlotPoint) {
-                let slope = if dx != 0.0 { dy / dx } else { 0.0 };
+                let slope = if dx != 0.0 || oy != 0.0 || ox != 0.0 { (dy / oy) / (dx / ox) } else { 0.0 };
                 println!("slope = {}", slope);
-                if dx <= 0.0 || slope.abs() > 1.0 {
+                if dx <= 0.0 || slope.abs() > 8.0 {
                     if dy >= 0.0 || slope.abs() < 0.2 {
                         (
                             Align2::LEFT_TOP,
@@ -699,11 +699,12 @@ impl ScopeAppMulti {
                     format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
                 };
 
-                let (halign_anchor, base) = if slope.abs() > 7.0 {
+                let slope_plot = if dx != 0.0 || oy != 0.0 || ox != 0.0 { (dy / oy) / (dx / ox) } else { 0.0 };
+                let (halign_anchor, base) = if slope_plot.abs() > 8.0 {
                     (Align2::RIGHT_CENTER, PlotPoint::new(mid[0] - ox, mid[1]))
-                } else if slope.abs() < 0.2 {
+                } else if slope_plot.abs() < 0.2 {
                     (Align2::CENTER_BOTTOM, PlotPoint::new(mid[0], mid[1] + oy))
-                } else if slope >= 0.0 {
+                } else if slope_plot >= 0.0 {
                     (Align2::LEFT_TOP, PlotPoint::new(mid[0] + ox, mid[1] - oy))
                 } else {
                     (Align2::LEFT_BOTTOM, PlotPoint::new(mid[0] + ox, mid[1] + oy))
