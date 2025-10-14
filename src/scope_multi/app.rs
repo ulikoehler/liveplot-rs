@@ -2,7 +2,7 @@
 
 use chrono::Local;
 use eframe::{self, egui};
-use egui::Color32;
+use egui::{Align2, Color32};
 use egui_plot::{Legend, Line, Plot, PlotPoint, Points, Text};
 use image::{Rgba, RgbaImage};
 use std::collections::{HashMap, VecDeque};
@@ -554,76 +554,179 @@ impl ScopeAppMulti {
                 }
             }
 
-            // Shared selection overlays
-            if let Some(p) = self.point_selection.selected_p1 {
-                plot_ui.points(Points::new("", vec![p]).radius(5.0).color(Color32::YELLOW));
-                let y_lin = if self.y_log { 10f64.powf(p[1]) } else { p[1] };
-                let ytxt = if let Some(u) = &self.y_unit {
-                    format!("{:.4} {}", y_lin, u)
-                } else {
-                    format!("{:.4}", y_lin)
-                };
-                let txt = format!(
-                    "P1\nx={}\ny={}",
-                    self.x_date_format.format_value(p[0]),
-                    ytxt
-                );
-                let rich = egui::RichText::new(txt)
-                    .size(marker_font_size)
-                    .color(Color32::YELLOW);
-                plot_ui.text(Text::new("p1_lbl", PlotPoint::new(p[0], p[1]), rich));
+            // Shared selection overlays with smart label placement to avoid overlap
+            let p1_opt = self.point_selection.selected_p1;
+            let p2_opt = self.point_selection.selected_p2;
+
+            // Always draw the point markers at exact locations
+            if let Some(p) = p1_opt {
+                plot_ui.points(Points::new("Measurement", vec![p]).radius(5.0).color(Color32::YELLOW));
             }
-            if let Some(p) = self.point_selection.selected_p2 {
+            if let Some(p) = p2_opt {
                 plot_ui.points(
-                    Points::new("", vec![p])
+                    Points::new("Measurement", vec![p])
                         .radius(5.0)
                         .color(Color32::LIGHT_BLUE),
                 );
-                let y_lin = if self.y_log { 10f64.powf(p[1]) } else { p[1] };
+            }
+
+            // Compute bounds-based offsets in plot units
+            let act_bounds = plot_ui.plot_bounds();
+            let xr = act_bounds.range_x();
+            let yr = act_bounds.range_y();
+            let xw = (*xr.end() - *xr.start()).abs().max(1e-12);
+            let yw = (*yr.end() - *yr.start()).abs().max(1e-12);
+            let base_dx = 0.012_f64 * xw; // horizontal text offset
+            let base_dy = 0.020_f64 * yw; // vertical text offset
+
+            // (text anchor handled per-line with LEFT/RIGHT_CENTER)
+
+            // Draw P1 label with offset away from P2 if available
+            if let Some(p1) = p1_opt {
+                let (ox, oy) = if let Some(p2) = p2_opt {
+                    let vx = p2[0] - p1[0];
+                    let vy = p2[1] - p1[1];
+                    let sx = if vx >= 0.0 { -1.0 } else { 1.0 };
+                    let sy = if vy >= 0.0 { -1.0 } else { 1.0 };
+                    // Increase offset if points are very close
+                    let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw {
+                        1.8
+                    } else {
+                        1.0
+                    };
+                    (sx * base_dx * amp, sy * base_dy * amp)
+                } else {
+                    (-base_dx, -base_dy)
+                };
+                let y_lin = if self.y_log { 10f64.powf(p1[1]) } else { p1[1] };
                 let ytxt = if let Some(u) = &self.y_unit {
                     format!("{:.4} {}", y_lin, u)
                 } else {
                     format!("{:.4}", y_lin)
                 };
-                let txt = format!(
-                    "P2\nx={}\ny={}",
-                    self.x_date_format.format_value(p[0]),
-                    ytxt
-                );
-                let rich = egui::RichText::new(txt)
-                    .size(marker_font_size)
-                    .color(Color32::LIGHT_BLUE);
-                plot_ui.text(Text::new("p2_lbl", PlotPoint::new(p[0], p[1]), rich));
+                // Prepare per-line strings below
+                // Multiline alignment by drawing each line with a left/right anchor
+                let base = PlotPoint::new(p1[0] + ox, p1[1] + oy);
+                let halign_anchor = if ox >= 0.0 { Align2::LEFT_CENTER } else { Align2::RIGHT_CENTER };
+                let line_gap = base_dy * 1.2;
+                let lines = [
+                    "P1".to_string(),
+                    format!("x={}", self.x_date_format.format_value(p1[0])),
+                    format!("y={}", ytxt),
+                ];
+                let n_lines = lines.len();
+                for (i, line) in lines.iter().enumerate() {
+                    // Keep visual order constant: top-to-bottom is P1, x=, y=
+                    let offset_y = if oy >= 0.0 {
+                        ((n_lines - 1 - i) as f64) * line_gap
+                    } else {
+                        - (i as f64) * line_gap
+                    };
+                    let pos = PlotPoint::new(base.x, base.y + offset_y);
+                    let rich = egui::RichText::new(line)
+                        .size(marker_font_size)
+                        .color(Color32::YELLOW);
+                    plot_ui.text(Text::new("Measurement", pos, rich).anchor(halign_anchor));
+                }
             }
-            if let (Some(p1), Some(p2)) = (
-                self.point_selection.selected_p1,
-                self.point_selection.selected_p2,
-            ) {
-                plot_ui.line(Line::new("delta", vec![p1, p2]).color(Color32::LIGHT_GREEN));
+
+            // Draw P2 label with offset away from P1 if available
+            if let Some(p2) = p2_opt {
+                let (ox, oy) = if let Some(p1) = p1_opt {
+                    let vx = p2[0] - p1[0];
+                    let vy = p2[1] - p1[1];
+                    let sx = if vx >= 0.0 { 1.0 } else { -1.0 };
+                    let sy = if vy >= 0.0 { 1.0 } else { -1.0 };
+                    // Increase offset if points are very close
+                    let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw {
+                        1.8
+                    } else {
+                        1.0
+                    };
+                    (sx * base_dx * amp, sy * base_dy * amp)
+                } else {
+                    (base_dx, base_dy)
+                };
+                let y_lin = if self.y_log { 10f64.powf(p2[1]) } else { p2[1] };
+                let ytxt = if let Some(u) = &self.y_unit {
+                    format!("{:.4} {}", y_lin, u)
+                } else {
+                    format!("{:.4}", y_lin)
+                };
+                // Prepare per-line strings below
+                let base = PlotPoint::new(p2[0] + ox, p2[1] + oy);
+                let halign_anchor = if ox >= 0.0 { Align2::LEFT_CENTER } else { Align2::RIGHT_CENTER };
+                let line_gap = base_dy * 1.2;
+                let lines = [
+                    "P2".to_string(),
+                    format!("x={}", self.x_date_format.format_value(p2[0])),
+                    format!("y={}", ytxt),
+                ];
+                let n_lines = lines.len();
+                for (i, line) in lines.iter().enumerate() {
+                    // Keep visual order constant: top-to-bottom is P2, x=, y=
+                    let offset_y = if oy >= 0.0 {
+                        ((n_lines - 1 - i) as f64) * line_gap
+                    } else {
+                        - (i as f64) * line_gap
+                    };
+                    let pos = PlotPoint::new(base.x, base.y + offset_y);
+                    let rich = egui::RichText::new(line)
+                        .size(marker_font_size)
+                        .color(Color32::LIGHT_BLUE);
+                    plot_ui.text(Text::new("Measurement", pos, rich).anchor(halign_anchor));
+                }
+            }
+
+            // Delta line and label, positioned perpendicular to P1->P2
+            if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
+                plot_ui.line(Line::new("Measurement", vec![p1, p2]).color(Color32::LIGHT_GREEN));
                 let dx = p2[0] - p1[0];
                 let y1 = if self.y_log { 10f64.powf(p1[1]) } else { p1[1] };
                 let y2 = if self.y_log { 10f64.powf(p2[1]) } else { p2[1] };
-                let dy = y2 - y1;
+                let dy_lin = y2 - y1;
                 let slope = if dx.abs() > 1e-12 {
-                    dy / dx
+                    dy_lin / dx
                 } else {
                     f64::INFINITY
                 };
                 let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
                 let dy_txt = if let Some(u) = &self.y_unit {
-                    format!("{:.4} {}", dy, u)
+                    format!("{:.4} {}", dy_lin, u)
                 } else {
-                    format!("{:.4}", dy)
+                    format!("{:.4}", dy_lin)
                 };
                 let overlay = if slope.is_finite() {
                     format!("Δx={:.4}\nΔy={}\nslope={:.4}", dx, dy_txt, slope)
                 } else {
                     format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
                 };
-                let rich = egui::RichText::new(overlay)
-                    .size(marker_font_size)
-                    .color(Color32::LIGHT_GREEN);
-                plot_ui.text(Text::new("delta_lbl", PlotPoint::new(mid[0], mid[1]), rich));
+                // Perpendicular offset vector (scaled separately in x/y to match axes)
+                let vx = p2[0] - p1[0];
+                let vy = p2[1] - p1[1];
+                let nx = -vy;
+                let ny = vx;
+                let nlen = (nx * nx + ny * ny).sqrt().max(1e-12);
+                let off_x = (nx / nlen) * base_dx * 1.5;
+                let off_y = (ny / nlen) * base_dy * 1.5;
+                let base = PlotPoint::new(mid[0] + off_x, mid[1] + off_y);
+                let halign_anchor = if off_x >= 0.0 { Align2::LEFT_CENTER } else { Align2::RIGHT_CENTER };
+                let line_gap = base_dy * 1.2;
+                let lines: Vec<&str> = overlay.split('\n').collect();
+                let n_lines = lines.len();
+                for (i, line) in lines.into_iter().enumerate() {
+                    // Keep visual order constant: top-to-bottom across all lines
+                    let offset_y = if off_y >= 0.0 {
+                        ((n_lines - 1 - i) as f64) * line_gap
+                    } else {
+                        - (i as f64) * line_gap
+                    };
+                    let pos = PlotPoint::new(base.x, base.y + offset_y);
+                    let rich = egui::RichText::new(line)
+                        .size(marker_font_size)
+                        .color(Color32::LIGHT_GREEN);
+                    plot_ui.text(Text::new("Measurement", pos, rich).anchor(halign_anchor));
+                }
             }
 
             bounds_changed
