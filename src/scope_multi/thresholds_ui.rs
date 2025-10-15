@@ -1,80 +1,366 @@
 use eframe::egui;
 use egui::Color32;
-use egui_table::{Table, TableDelegate, HeaderRow as EgHeaderRow};
+// use egui_plot::{LineStyle, MarkerShape};
+use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 
-use crate::thresholds::{ThresholdDef, ThresholdKind, ThresholdEvent};
+use crate::thresholds::{ThresholdDef, ThresholdEvent, ThresholdKind};
 
 use super::app::ScopeAppMulti;
 use super::types::ThresholdBuilderState;
 
 pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
-        ui.label("Detect and log when a trace exceeds a condition.");
-        if let Some(err) = &app.thr_error { ui.colored_label(Color32::LIGHT_RED, err); }
-        ui.separator();
-        // List existing thresholds
-        for def in app.threshold_defs.clone().iter() {
-            ui.horizontal(|ui| {
-                ui.label(format!("{} on {}: {:?}, min_dur={:.3} ms, cap={} events", def.name, def.target.0, def.kind, def.min_duration_s*1000.0, def.max_events));
-                if ui.button("Edit").clicked() {
-                    app.thr_builder = ThresholdBuilderState::default();
-                    app.thr_builder.name = def.name.clone();
-                    app.thr_builder.target_idx = app.trace_order.iter().position(|n| n == &def.target.0).unwrap_or(0);
-                    match &def.kind {
-                        ThresholdKind::GreaterThan { value } => { app.thr_builder.kind_idx = 0; app.thr_builder.thr1 = *value; },
-                        ThresholdKind::LessThan { value } => { app.thr_builder.kind_idx = 1; app.thr_builder.thr1 = *value; },
-                        ThresholdKind::InRange { low, high } => { app.thr_builder.kind_idx = 2; app.thr_builder.thr1 = *low; app.thr_builder.thr2 = *high; },
+    // (no-op)
+    ui.label("Detect and log when a trace exceeds a condition.");
+    if let Some(err) = &app.thr_error {
+        ui.colored_label(Color32::LIGHT_RED, err);
+    }
+
+    ui.separator();
+    // Existing thresholds list: color edit (threshold color), name/info, and Remove right-aligned
+    app.hover_trace = None;
+    for def in app.threshold_defs.clone().iter() {
+        let row = ui.horizontal(|ui| {
+            // Threshold line color editor (from per-threshold look)
+            let mut line_look = app.threshold_looks
+                .get(&def.name)
+                .cloned()
+                .unwrap_or_default();
+            let mut col = line_look.color;
+            if ui
+                .color_edit_button_srgba(&mut col)
+                .on_hover_text("Change threshold color")
+                .changed()
+            {
+                line_look.color = col;
+                app.threshold_looks.insert(def.name.clone(), line_look);
+                // Keep event colors in sync with the line color
+                if let Some(le) = app.threshold_start_looks.get_mut(&def.name) { le.color = col; }
+                if let Some(le) = app.threshold_stop_looks.get_mut(&def.name) { le.color = col; }
+            }
+
+            // Clickable name: opens editor; hover highlights target trace
+            let name_resp = ui.add(
+                egui::Label::new(def.name.clone())
+                    .truncate()
+                    .show_tooltip_when_elided(true)
+                    .sense(egui::Sense::click()),
+            );
+            if name_resp.hovered() { app.hover_trace = Some(def.target.0.clone()); }
+            if name_resp.clicked() {
+                app.thr_builder = ThresholdBuilderState::default();
+                app.thr_builder.name = def.name.clone();
+                app.thr_builder.target_idx = app
+                    .trace_order
+                    .iter()
+                    .position(|n| n == &def.target.0)
+                    .unwrap_or(0);
+                match &def.kind {
+                    ThresholdKind::GreaterThan { value } => {
+                        app.thr_builder.kind_idx = 0;
+                        app.thr_builder.thr1 = *value;
                     }
-                    app.thr_builder.min_duration_ms = def.min_duration_s * 1000.0;
-                    app.thr_builder.max_events = def.max_events;
-                    app.thr_editing = Some(def.name.clone());
+                    ThresholdKind::LessThan { value } => {
+                        app.thr_builder.kind_idx = 1;
+                        app.thr_builder.thr1 = *value;
+                    }
+                    ThresholdKind::InRange { low, high } => {
+                        app.thr_builder.kind_idx = 2;
+                        app.thr_builder.thr1 = *low;
+                        app.thr_builder.thr2 = *high;
+                    }
                 }
-                if ui.button("Remove").clicked() { app.remove_threshold_internal(&def.name); }
+                app.thr_builder.min_duration_ms = def.min_duration_s * 1000.0;
+                app.thr_builder.max_events = def.max_events;
+                // Pre-fill looks from stored per-threshold styles
+                if let Some(l) = app.threshold_looks.get(&def.name) { app.thr_builder.look = l.clone(); }
+                if let Some(l) = app.threshold_start_looks.get(&def.name) { app.thr_builder.look_start_events = l.clone(); }
+                if let Some(l) = app.threshold_stop_looks.get(&def.name) { app.thr_builder.look_stop_events = l.clone(); }
+                app.thr_editing = Some(def.name.clone());
+                app.thr_error = None;
+                app.thr_creating = false;
+            }
+
+            // Info text like math traces: target + condition; hover highlights target trace
+            let info_text = match &def.kind {
+                ThresholdKind::GreaterThan { value } => format!("{} > {:.3}", def.target.0, value),
+                ThresholdKind::LessThan { value } => format!("{} < {:.3}", def.target.0, value),
+                ThresholdKind::InRange { low, high } => format!("{} in [{:.3}, {:.3}]", def.target.0, low, high),
+            };
+            let info_resp = ui.add(
+                egui::Label::new(info_text)
+                    .truncate()
+                    .show_tooltip_when_elided(true)
+                    .sense(egui::Sense::click()),
+            );
+            if info_resp.hovered() { app.hover_trace = Some(def.target.0.clone()); }
+            if info_resp.clicked() {
+                // Same as clicking the name: open editor
+                app.thr_builder = ThresholdBuilderState::default();
+                app.thr_builder.name = def.name.clone();
+                app.thr_builder.target_idx = app
+                    .trace_order
+                    .iter()
+                    .position(|n| n == &def.target.0)
+                    .unwrap_or(0);
+                match &def.kind {
+                    ThresholdKind::GreaterThan { value } => {
+                        app.thr_builder.kind_idx = 0;
+                        app.thr_builder.thr1 = *value;
+                    }
+                    ThresholdKind::LessThan { value } => {
+                        app.thr_builder.kind_idx = 1;
+                        app.thr_builder.thr1 = *value;
+                    }
+                    ThresholdKind::InRange { low, high } => {
+                        app.thr_builder.kind_idx = 2;
+                        app.thr_builder.thr1 = *low;
+                        app.thr_builder.thr2 = *high;
+                    }
+                }
+                app.thr_builder.min_duration_ms = def.min_duration_s * 1000.0;
+                app.thr_builder.max_events = def.max_events;
+                if let Some(l) = app.threshold_looks.get(&def.name) { app.thr_builder.look = l.clone(); }
+                if let Some(l) = app.threshold_start_looks.get(&def.name) { app.thr_builder.look_start_events = l.clone(); }
+                if let Some(l) = app.threshold_stop_looks.get(&def.name) { app.thr_builder.look_stop_events = l.clone(); }
+                app.thr_editing = Some(def.name.clone());
+                app.thr_error = None;
+                app.thr_creating = false;
+            }
+
+            // Right-aligned actions: Clear (events) and Remove (definition)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Remove").clicked() {
+                    let removing = def.name.clone();
+                    app.remove_threshold_internal(&removing);
+                    if app.thr_editing.as_deref() == Some(&removing) {
+                        app.thr_editing = None;
+                        app.thr_creating = false;
+                        app.thr_builder = ThresholdBuilderState::default();
+                        app.thr_error = None;
+                    }
+                }
+                if ui.button("Clear").on_hover_text("Clear events for this threshold").clicked() {
+                    app.clear_threshold_events(&def.name);
+                }
             });
-            // Show a short summary of recent events
-            if let Some(st) = app.threshold_states.get(&def.name) {
-                let cnt = st.events.len();
-                if let Some(last) = st.events.back() {
-                    ui.label(format!("Events: {}, last: start={:.3}s, dur={:.3}ms, area={:.4}", cnt, last.start_t, last.duration*1000.0, last.area));
-                } else { ui.label("Events: 0"); }
+        });
+        if row.response.hovered() { app.hover_trace = Some(def.target.0.clone()); }
+        // Optional short summary of recent events below each row
+        if let Some(st) = app.threshold_states.get(&def.name) {
+            let cnt = st.events.len();
+            if let Some(last) = st.events.back() {
+                // Use the same time formatting as the events table
+                let start_fmt = app.x_date_format.format_value(last.start_t);
+                ui.label(format!(
+                    "Events: {} • last: {} • {} ms • area {}",
+                    cnt,
+                    start_fmt,
+                    format!("{:.3}", last.duration * 1000.0),
+                    format!("{:.4}", last.area)
+                ));
+            } else {
+                ui.label("Events: 0");
             }
         }
+    }
+
+    // Full-width New button
+    ui.add_space(6.0);
+    let new_clicked = ui
+        .add_sized([ui.available_width(), 24.0], egui::Button::new("New"))
+        .on_hover_text("Create a new threshold")
+        .clicked();
+    if new_clicked {
+        app.thr_builder = ThresholdBuilderState::default();
+        app.thr_editing = None;
+        app.thr_error = None;
+        app.thr_creating = true;
+    }
+
+    // Settings panel (like math): shown when creating or editing
+    let is_editing = app.thr_editing.is_some();
+    let is_creating = app.thr_creating;
+    if is_editing || is_creating {
+        ui.add_space(12.0);
         ui.separator();
-        let editing = app.thr_editing.clone();
-        let is_editing = editing.is_some();
-        let header = if is_editing { "Edit" } else { "Add new" };
-        ui.collapsing(header, |ui| {
-            let kinds = [">", "<", "in range"];
-            egui::ComboBox::from_label("Condition").selected_text(kinds[app.thr_builder.kind_idx]).show_ui(ui, |ui| { for (i, k) in kinds.iter().enumerate() { ui.selectable_value(&mut app.thr_builder.kind_idx, i, *k); } });
-            ui.horizontal(|ui| { ui.label("Name"); ui.text_edit_singleline(&mut app.thr_builder.name); });
-            let trace_names: Vec<String> = app.trace_order.clone();
-            egui::ComboBox::from_label("Trace").selected_text(trace_names.get(app.thr_builder.target_idx).cloned().unwrap_or_default()).show_ui(ui, |ui| { for (i, n) in trace_names.iter().enumerate() { ui.selectable_value(&mut app.thr_builder.target_idx, i, n); } });
-            match app.thr_builder.kind_idx {
-                0 | 1 => { ui.horizontal(|ui| { ui.label("Value"); ui.add(egui::DragValue::new(&mut app.thr_builder.thr1).speed(0.01)); }); },
-                _ => {
-                    ui.horizontal(|ui| { ui.label("Low"); ui.add(egui::DragValue::new(&mut app.thr_builder.thr1).speed(0.01)); });
-                    ui.horizontal(|ui| { ui.label("High"); ui.add(egui::DragValue::new(&mut app.thr_builder.thr2).speed(0.01)); });
+        if is_editing {
+            ui.strong("Edit threshold");
+        } else {
+            ui.strong("New threshold");
+        }
+
+    // Name, Trace, Condition
+    ui.horizontal(|ui| { ui.label("Name (id)"); ui.text_edit_singleline(&mut app.thr_builder.name); });
+        let trace_names: Vec<String> = app.trace_order.clone();
+        egui::ComboBox::from_label("Trace").selected_text(
+            trace_names
+                .get(app.thr_builder.target_idx)
+                .cloned()
+                .unwrap_or_default(),
+        )        .show_ui(ui, |ui| {
+            for (i, n) in trace_names.iter().enumerate() {
+                ui.selectable_value(&mut app.thr_builder.target_idx, i, n);
+            }
+        });
+        // Default color when creating: use selected trace color at 75% alpha if not set by user yet
+        if is_creating {
+            if let Some(sel_name) = trace_names.get(app.thr_builder.target_idx) {
+                if let Some(tr) = app.traces.get(sel_name) {
+                    if app.thr_builder.look.color == egui::Color32::WHITE {
+                        let c = tr.look.color;
+                        app.thr_builder.look.color = egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 191);
+                    }
                 }
             }
-            ui.horizontal(|ui| { ui.label("Min duration (ms)"); ui.add(egui::DragValue::new(&mut app.thr_builder.min_duration_ms).speed(0.1)); });
-            ui.horizontal(|ui| { ui.label("Max events"); ui.add(egui::DragValue::new(&mut app.thr_builder.max_events).speed(1)); });
-            if ui.button(if is_editing { "Save" } else { "Add threshold" }).clicked() {
-                if let Some(nm) = trace_names.get(app.thr_builder.target_idx) { if !app.thr_builder.name.is_empty() {
-                    let kind = match app.thr_builder.kind_idx { 0 => ThresholdKind::GreaterThan { value: app.thr_builder.thr1 }, 1 => ThresholdKind::LessThan { value: app.thr_builder.thr1 }, _ => ThresholdKind::InRange { low: app.thr_builder.thr1.min(app.thr_builder.thr2), high: app.thr_builder.thr1.max(app.thr_builder.thr2) } };
-                    let def = ThresholdDef { name: app.thr_builder.name.clone(), target: crate::math::TraceRef(nm.clone()), kind, min_duration_s: (app.thr_builder.min_duration_ms / 1000.0).max(0.0), max_events: app.thr_builder.max_events };
-                    if is_editing {
-                        // replace existing by name
-                        app.remove_threshold_internal(&editing.unwrap());
-                        app.add_threshold_internal(def);
-                    } else {
-                        if app.threshold_defs.iter().any(|d| d.name == def.name) { app.thr_error = Some("A threshold with this name already exists".into()); } else { app.add_threshold_internal(def); app.thr_builder = ThresholdBuilderState::default(); }
-                    }
-                } }
+        }
+        let kinds = [">", "<", "in range"];
+        egui::ComboBox::from_label("Condition")
+            .selected_text(kinds[app.thr_builder.kind_idx])
+            .show_ui(ui, |ui| {
+                for (i, k) in kinds.iter().enumerate() {
+                    ui.selectable_value(&mut app.thr_builder.kind_idx, i, *k);
+                }
+            });
+        match app.thr_builder.kind_idx {
+            0 | 1 => {
+                ui.horizontal(|ui| {
+                    ui.label("Value");
+                    ui.add(egui::DragValue::new(&mut app.thr_builder.thr1).speed(0.01));
+                });
             }
-            if is_editing { if ui.button("Cancel").clicked() { app.thr_editing = None; app.thr_builder = ThresholdBuilderState::default(); app.thr_error = None; } }
+            _ => {
+                ui.horizontal(|ui| {
+                    ui.label("Low");
+                    ui.add(egui::DragValue::new(&mut app.thr_builder.thr1).speed(0.01));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("High");
+                    ui.add(egui::DragValue::new(&mut app.thr_builder.thr2).speed(0.01));
+                });
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.label("Min duration (ms)");
+            ui.add(egui::DragValue::new(&mut app.thr_builder.min_duration_ms).speed(0.1));
+        });
+        ui.horizontal(|ui| {
+            ui.label("Max events");
+            ui.add(egui::DragValue::new(&mut app.thr_builder.max_events).speed(1));
         });
 
-        ui.separator();
-        ui.heading("Threshold events");
+        // Collapsible style editors (moved here, just before Save/Add)
+        ui.add_space(5.0);
+        egui::CollapsingHeader::new("Style: Threshold line")
+            .default_open(false)
+            .show(ui, |ui| {
+                super::traceslook_ui::trace_look_editor_inline(ui, &mut app.thr_builder.look, false, None, false, None);
+            });
+        // Keep event colors locked to the line color
+        app.thr_builder.look_start_events.color = app.thr_builder.look.color;
+        app.thr_builder.look_stop_events.color = app.thr_builder.look.color;
+        egui::CollapsingHeader::new("Style: Event start")
+            .default_open(false)
+            .show(ui, |ui| {
+                super::traceslook_ui::trace_look_editor_inline(
+                    ui,
+                    &mut app.thr_builder.look_start_events,
+                    true,
+                    None,
+                    true,
+                    Some(app.thr_builder.look.color),
+                );
+            });
+        egui::CollapsingHeader::new("Style: Event stop")
+            .default_open(false)
+            .show(ui, |ui| {
+                super::traceslook_ui::trace_look_editor_inline(
+                    ui,
+                    &mut app.thr_builder.look_stop_events,
+                    true,
+                    None,
+                    true,
+                    Some(app.thr_builder.look.color),
+                );
+            });
+
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            let save_label = if is_editing { "Save" } else { "Add threshold" };
+            let mut save_clicked = false;
+            if ui.button(save_label).clicked() {
+                save_clicked = true;
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Cancel").clicked() {
+                    app.thr_editing = None;
+                    app.thr_creating = false;
+                    app.thr_builder = ThresholdBuilderState::default();
+                    app.thr_error = None;
+                }
+            });
+            if save_clicked {
+                if let Some(nm) = trace_names.get(app.thr_builder.target_idx) {
+                    if !app.thr_builder.name.is_empty() {
+                        let kind = match app.thr_builder.kind_idx {
+                            0 => ThresholdKind::GreaterThan {
+                                value: app.thr_builder.thr1,
+                            },
+                            1 => ThresholdKind::LessThan {
+                                value: app.thr_builder.thr1,
+                            },
+                            _ => ThresholdKind::InRange {
+                                low: app.thr_builder.thr1.min(app.thr_builder.thr2),
+                                high: app.thr_builder.thr1.max(app.thr_builder.thr2),
+                            },
+                        };
+                        let def = ThresholdDef {
+                            name: app.thr_builder.name.clone(),
+                            display_name: None,
+                            target: crate::math::TraceRef(nm.clone()),
+                            kind,
+                            color_hint: Some([app.thr_builder.look.color.r(), app.thr_builder.look.color.g(), app.thr_builder.look.color.b()]),
+                            min_duration_s: (app.thr_builder.min_duration_ms / 1000.0).max(0.0),
+                            max_events: app.thr_builder.max_events,
+                        };
+                        if is_editing {
+                            let orig = app.thr_editing.clone().unwrap();
+                            app.remove_threshold_internal(&orig);
+                            app.add_threshold_internal(def.clone());
+                            app.threshold_looks.insert(def.name.clone(), app.thr_builder.look.clone());
+                            // Save start/stop looks (colors are already synced to line color)
+                            app.threshold_start_looks.insert(def.name.clone(), app.thr_builder.look_start_events.clone());
+                            app.threshold_stop_looks.insert(def.name.clone(), app.thr_builder.look_stop_events.clone());
+                            app.thr_editing = None;
+                            app.thr_creating = false;
+                            app.thr_builder = ThresholdBuilderState::default();
+                            app.thr_error = None;
+                        } else {
+                            if app
+                                .threshold_defs
+                                .iter()
+                                .any(|d| d.name == def.name)
+                            {
+                                app.thr_error = Some(
+                                    "A threshold with this name already exists".into(),
+                                );
+                            } else {
+                                app.add_threshold_internal(def.clone());
+                                app.threshold_looks.insert(def.name.clone(), app.thr_builder.look.clone());
+                                app.threshold_start_looks.insert(def.name.clone(), app.thr_builder.look_start_events.clone());
+                                app.threshold_stop_looks.insert(def.name.clone(), app.thr_builder.look_stop_events.clone());
+                                app.thr_creating = false;
+                                app.thr_builder = ThresholdBuilderState::default();
+                                app.thr_error = None;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    ui.separator();
+    ui.heading("Threshold events");
         ui.horizontal(|ui| {
             ui.label("Filter:");
             // Build list of names from current thresholds and from the log
@@ -102,6 +388,9 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
                     }
                 }
             }
+            if ui.button("Clear events").on_hover_text("Delete all threshold events (global log and per-threshold buffers)").clicked() {
+                app.clear_all_threshold_events();
+            }
         });
         // Build filtered, newest-first slice indices for table
         let filtered: Vec<&ThresholdEvent> = app
@@ -115,6 +404,7 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
         struct EventsDelegate<'a> {
             items: &'a [&'a ThresholdEvent],
             fmt: crate::config::XDateFormat,
+            to_clear: Vec<ThresholdEvent>,
         }
         impl<'a> TableDelegate for EventsDelegate<'a> {
             fn header_cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::HeaderCellInfo) {
@@ -126,6 +416,7 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
                     3 => "Duration (ms)",
                     4 => "Trace",
                     5 => "Area",
+                    6 => "",
                     _ => "",
                 };
                 ui.add_space(4.0);
@@ -143,13 +434,18 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
                         3 => { ui.label(format!("{:.3}", e.duration * 1000.0)); }
                         4 => { ui.label(&e.trace); }
                         5 => { ui.label(format!("{:.6}", e.area)); }
+                        6 => {
+                            if ui.small_button("Clear").on_hover_text("Remove this event from the list").clicked() {
+                                self.to_clear.push(e.clone());
+                            }
+                        }
                         _ => {}
                     }
                 }
             }
         }
 
-        let mut delegate = EventsDelegate { items: &filtered, fmt: app.x_date_format };
+    let mut delegate = EventsDelegate { items: &filtered, fmt: app.x_date_format, to_clear: Vec::new() };
         let cols = vec![
             egui_table::Column::new(152.0),
             egui_table::Column::new(172.0),
@@ -157,10 +453,12 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
             egui_table::Column::new(132.0),
             egui_table::Column::new(132.0),
             egui_table::Column::new(112.0),
+            egui_table::Column::new(72.0),
         ];
         let avail_w = ui.available_width();
-        let table_h = 260.0;
-        let (rect, _resp) = ui.allocate_exact_size(egui::vec2(avail_w, table_h), egui::Sense::hover());
+        // Expand table to the bottom of the panel
+        let remaining_h = ui.available_height();
+        let (rect, _resp) = ui.allocate_exact_size(egui::vec2(avail_w, remaining_h), egui::Sense::hover());
         let ui_builder = egui::UiBuilder::new()
             .max_rect(rect)
             .layout(egui::Layout::left_to_right(egui::Align::Min));
@@ -171,6 +469,12 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
             .columns(cols)
             .headers(vec![EgHeaderRow::new(24.0)])
             .show(&mut table_ui, &mut delegate);
+        // Apply row clears after rendering
+        if !delegate.to_clear.is_empty() {
+            for ev in delegate.to_clear {
+                app.remove_threshold_event(&ev);
+            }
+        }
 }
 
 pub(super) fn show_thresholds_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {

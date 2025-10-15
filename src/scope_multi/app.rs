@@ -3,7 +3,7 @@
 use chrono::Local;
 use eframe::{self, egui};
 use egui::{Align2, Color32};
-use egui_plot::{Legend, Line, Plot, PlotPoint, Points, Text};
+use egui_plot::{Legend, Line, Plot, PlotPoint, Points, Text, HLine, VLine};
 use image::{Rgba, RgbaImage};
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::Receiver;
@@ -43,7 +43,7 @@ use crate::point_selection::PointSelection;
 use crate::sink::MultiSample;
 use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState};
 
-use super::types::{MathBuilderState, ThresholdBuilderState, TraceState};
+use super::types::{MathBuilderState, ThresholdBuilderState, TraceLook, TraceState};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum ControlsMode {
@@ -135,6 +135,8 @@ pub struct ScopeAppMulti {
     pub(super) thr_builder: ThresholdBuilderState,
     pub(super) thr_editing: Option<String>,
     pub(super) thr_error: Option<String>,
+    /// Whether the threshold builder is in 'creating new' mode
+    pub(super) thr_creating: bool,
     // Threshold events (global)
     /// Total number of threshold exceed events observed since app start (never capped).
     pub threshold_total_count: u64,
@@ -144,6 +146,12 @@ pub struct ScopeAppMulti {
     pub(super) threshold_event_log_cap: usize,
     /// Optional filter for the events table (None = all thresholds, Some(name) = only that threshold).
     pub(super) threshold_events_filter: Option<String>,
+    /// Per-threshold styles for horizontal threshold lines
+    pub(super) threshold_looks: HashMap<String, TraceLook>,
+    /// Per-threshold styles for event start markers (vertical lines or points)
+    pub(super) threshold_start_looks: HashMap<String, TraceLook>,
+    /// Per-threshold styles for event stop markers (vertical lines or points)
+    pub(super) threshold_stop_looks: HashMap<String, TraceLook>,
     /// Currently hovered trace name for UI highlighting
     pub(super) hover_trace: Option<String>,
     /// Which right-side tab is active
@@ -152,6 +160,8 @@ pub struct ScopeAppMulti {
     pub(super) math_detached: bool,
     /// Whether the right sidebar (tabbed panels) is visible
     pub(super) right_panel_visible: bool,
+    /// If set, opens a style editor window for the given trace name
+    pub(super) look_editor_trace: Option<String>,
 }
 
 impl ScopeAppMulti {
@@ -162,16 +172,16 @@ impl ScopeAppMulti {
             let entry = self.traces.entry(s.trace.clone()).or_insert_with(|| {
                 let idx = self.trace_order.len();
                 self.trace_order.push(s.trace.clone());
+                let mut look = TraceLook::default();
+                look.color = Self::alloc_color(idx);
                 TraceState {
                     name: s.trace.clone(),
-                    color: Self::alloc_color(idx),
-                    visible: true,
+                    look,
                     offset: 0.0,
                     live: VecDeque::new(),
                     snap: None,
                     last_fft: None,
                     is_math: false,
-                    show_points: false,
                     info: String::new(),
                 }
             });
@@ -235,12 +245,12 @@ impl ScopeAppMulti {
                 let mut inner = ctrl.inner.lock().unwrap();
                 for (name, rgb) in inner.color_requests.drain(..) {
                     if let Some(tr) = self.traces.get_mut(&name) {
-                        tr.color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                        tr.look.color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
                     }
                 }
                 for (name, vis) in inner.visible_requests.drain(..) {
                     if let Some(tr) = self.traces.get_mut(&name) {
-                        tr.visible = vis;
+                        tr.look.visible = vis;
                     }
                 }
                 for (name, off) in inner.offset_requests.drain(..) {
@@ -265,8 +275,8 @@ impl ScopeAppMulti {
                 .filter_map(|n| {
                     self.traces.get(n).map(|tr| TraceInfo {
                         name: tr.name.clone(),
-                        color_rgb: [tr.color.r(), tr.color.g(), tr.color.b()],
-                        visible: tr.visible,
+                        color_rgb: [tr.look.color.r(), tr.look.color.g(), tr.look.color.b()],
+                        visible: tr.look.visible,
                         is_math: tr.is_math,
                         offset: tr.offset,
                     })
@@ -429,7 +439,7 @@ impl ScopeAppMulti {
                 let mut xmax = f64::NEG_INFINITY;
 
                 for tr in self.traces.values() {
-                    if !tr.visible {
+                    if !tr.look.visible {
                         continue;
                     }
 
@@ -488,7 +498,7 @@ impl ScopeAppMulti {
             // Lines
             for name in self.trace_order.clone().into_iter() {
                 if let Some(tr) = self.traces.get(&name) {
-                    if !tr.visible {
+                    if !tr.look.visible {
                         continue;
                     }
                     let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
@@ -515,8 +525,9 @@ impl ScopeAppMulti {
                             [p[0], y]
                         })
                         .collect();
-                    let mut color = tr.color;
-                    let mut width: f32 = 1.0;
+                    let mut color = tr.look.color;
+                    let mut width: f32 = tr.look.width.max(0.1);
+                    let style = tr.look.style;
                     if let Some(hov) = &self.hover_trace {
                         if &tr.name != hov {
                             // Strongly dim non-hovered traces
@@ -528,12 +539,13 @@ impl ScopeAppMulti {
                             );
                         } else {
                             // Emphasize hovered trace
-                            width = 2.5;
+                            width = (width * 1.6).max(width + 1.0);
                         }
                     }
                     let mut line = Line::new(&tr.name, pts_vec.clone())
                         .color(color)
-                        .width(width);
+                        .width(width)
+                        .style(style);
                     let legend_label = if self.show_info_in_legend && !tr.info.is_empty() {
                         format!("{} — {}", tr.name, tr.info)
                     } else {
@@ -543,17 +555,250 @@ impl ScopeAppMulti {
                     plot_ui.line(line);
 
                     // Optional point markers for each datapoint
-                    if tr.show_points {
+                    if tr.look.show_points {
                         if !pts_vec.is_empty() {
-                            let mut radius = 2.5_f32;
+                            let mut radius = tr.look.point_size.max(0.5);
                             if let Some(hov) = &self.hover_trace {
                                 if &tr.name == hov {
-                                    radius = 3.2;
+                                    radius = (radius * 1.25).max(radius + 0.5);
                                 }
                             }
-                            let points =
-                                Points::new("", pts_vec.clone()).radius(radius).color(color);
+                            let points = Points::new("", pts_vec.clone())
+                                .radius(radius)
+                                .shape(tr.look.marker)
+                                .color(color);
                             plot_ui.points(points);
+                        }
+                    }
+                }
+            }
+
+            // Threshold overlays: draw horizontal line(s) for each threshold on its target trace
+            if !self.threshold_defs.is_empty() {
+                let bounds = plot_ui.plot_bounds();
+                let xr = bounds.range_x();
+                let xmin = *xr.start();
+                let xmax = *xr.end();
+                // VLine/HLine draw across full axis; explicit y range not needed
+                for def in &self.threshold_defs {
+                    // Only draw if the target trace exists and is visible
+                    if let Some(tr) = self.traces.get(&def.target.0) {
+                        if !tr.look.visible {
+                            continue;
+                        }
+                        // Effective looks for threshold line and events
+                        let thr_look = self
+                            .threshold_looks
+                            .get(&def.name)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                let mut l = TraceLook::default();
+                                if let Some(rgb) = def.color_hint {
+                                    l.color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                                } else {
+                                    l.color = tr.look.color;
+                                }
+                                l.width = 1.5;
+                                l
+                            });
+                        let ev_start_look = self
+                            .threshold_start_looks
+                            .get(&def.name)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                let mut l = TraceLook::default();
+                                l.color = thr_look.color;
+                                l.width = 2.0;
+                                l
+                            });
+                        let ev_stop_look = self
+                            .threshold_stop_looks
+                            .get(&def.name)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                let mut l = TraceLook::default();
+                                l.color = thr_look.color;
+                                l.width = 2.0;
+                                l
+                            });
+                        // Use provided colors (respecting any alpha set by the UI)
+                        let thr_color = thr_look.color;
+                        let ev_color = Color32::from_rgba_unmultiplied(
+                            thr_look.color.r(), thr_look.color.g(), thr_look.color.b(), thr_look.color.a());
+
+                        // Helper: render one horizontal threshold line with a unique id and an optional legend label
+                        let mut draw_hline = |id: &str, label: Option<String>, y_world: f64| {
+                            // Apply per-trace offset and global y-log transform to map to plot space
+                            let y_lin = y_world + tr.offset;
+                            let y_plot = if self.y_log {
+                                if y_lin > 0.0 { y_lin.log10() } else { f64::NAN }
+                            } else {
+                                y_lin
+                            };
+                            if y_plot.is_finite() {
+                                let mut h = HLine::new(id.to_string(), y_plot)
+                                    .color(thr_color)
+                                    .width(thr_look.width.max(0.1))
+                                    .style(thr_look.style);
+                                if let Some(lbl) = &label { h = h.name(lbl.clone()); } else { h = h.name(""); }
+                                plot_ui.hline(h);
+                            }
+                        };
+
+                        // Compose compact condition expression for legend/info
+                        let expr = match &def.kind {
+                            crate::thresholds::ThresholdKind::GreaterThan { value } => {
+                                if let Some(u) = &self.y_unit { format!("> {:.3} {}", value, u) } else { format!("> {:.3}", value) }
+                            }
+                            crate::thresholds::ThresholdKind::LessThan { value } => {
+                                if let Some(u) = &self.y_unit { format!("< {:.3} {}", value, u) } else { format!("< {:.3}", value) }
+                            }
+                            crate::thresholds::ThresholdKind::InRange { low, high } => {
+                                if let Some(u) = &self.y_unit { format!("[{:.3}, {:.3}] {}", low, high, u) } else { format!("[{:.3}, {:.3}]", low, high) }
+                            }
+                        };
+                        // Legend label: like math traces -- base is name, optionally append info
+                        let thr_info = format!("{} {}", def.target.0, expr);
+                        let legend_label = if self.show_info_in_legend {
+                            format!("{} — {}", def.name, thr_info)
+                        } else {
+                            def.name.clone()
+                        };
+
+                        match def.kind {
+                            crate::thresholds::ThresholdKind::GreaterThan { value } => {
+                                let id = format!("thr:{}", def.name);
+                                draw_hline(&id, Some(legend_label), value);
+                            }
+                            crate::thresholds::ThresholdKind::LessThan { value } => {
+                                let id = format!("thr:{}", def.name);
+                                draw_hline(&id, Some(legend_label), value);
+                            }
+                            crate::thresholds::ThresholdKind::InRange { low, high } => {
+                                // Draw both bounds; only one legend entry (low)
+                                let id_low = format!("thr:{}:low", def.name);
+                                let id_high = format!("thr:{}:high", def.name);
+                                draw_hline(&id_low, Some(legend_label), low);
+                                draw_hline(&id_high, None, high);
+                            }
+                        }
+
+                        // Draw event markers for this threshold: vertical lines or points at start/end
+                        if let Some(state) = self.threshold_states.get(&def.name) {
+                            if ev_start_look.show_points || ev_stop_look.show_points {
+                                // Determine a representative Y for the marker (threshold value or midpoint for ranges) and map to plot space
+                                let marker_y_world = match def.kind {
+                                    crate::thresholds::ThresholdKind::GreaterThan { value } => value,
+                                    crate::thresholds::ThresholdKind::LessThan { value } => value,
+                                    crate::thresholds::ThresholdKind::InRange { low, high } => (low + high) * 0.5,
+                                };
+                                let y_lin = marker_y_world + tr.offset;
+                                let marker_y_plot = if self.y_log {
+                                    if y_lin > 0.0 { y_lin.log10() } else { f64::NAN }
+                                } else { y_lin };
+                                if marker_y_plot.is_finite() {
+                                    for ev in state.events.iter() {
+                                        if ev.end_t < xmin || ev.start_t > xmax { continue; }
+                                        if ev_start_look.show_points {
+                                            let p = Points::new("", vec![[ev.start_t, marker_y_plot]])
+                                                .radius(ev_start_look.point_size.max(0.5))
+                                                .shape(ev_start_look.marker)
+                                                .color(ev_color);
+                                            plot_ui.points(p);
+                                        } else {
+                                            let s = VLine::new("", ev.start_t)
+                                                .color(ev_color)
+                                                .width(ev_start_look.width.max(0.1))
+                                                .style(ev_start_look.style)
+                                                .name("");
+                                            plot_ui.vline(s);
+                                        }
+                                        if ev_stop_look.show_points {
+                                            let p = Points::new("", vec![[ev.end_t, marker_y_plot]])
+                                                .radius(ev_stop_look.point_size.max(0.5))
+                                                .shape(ev_stop_look.marker)
+                                                .color(ev_color);
+                                            plot_ui.points(p);
+                                        } else {
+                                            let e = VLine::new("", ev.end_t)
+                                                .color(ev_color)
+                                                .width(ev_stop_look.width.max(0.1))
+                                                .style(ev_stop_look.style)
+                                                .name("");
+                                            plot_ui.vline(e);
+                                        }
+                                    }
+                                    if state.active {
+                                        let start_t = state.start_t;
+                                        let end_t = state.last_t.unwrap_or(start_t);
+                                        if !(end_t < xmin || start_t > xmax) {
+                                            if ev_start_look.show_points {
+                                                let p = Points::new("", vec![[start_t, marker_y_plot]])
+                                                    .radius(ev_start_look.point_size.max(0.5))
+                                                    .shape(ev_start_look.marker)
+                                                    .color(ev_color);
+                                                plot_ui.points(p);
+                                            } else {
+                                                let s = VLine::new("", start_t)
+                                                    .color(ev_color)
+                                                    .width(ev_start_look.width.max(0.1))
+                                                    .style(ev_start_look.style)
+                                                    .name("");
+                                                plot_ui.vline(s);
+                                            }
+                                            if ev_stop_look.show_points {
+                                                let p = Points::new("", vec![[end_t, marker_y_plot]])
+                                                    .radius(ev_stop_look.point_size.max(0.5))
+                                                    .shape(ev_stop_look.marker)
+                                                    .color(ev_color);
+                                                plot_ui.points(p);
+                                            } else {
+                                                let e = VLine::new("", end_t)
+                                                    .color(ev_color)
+                                                    .width(ev_stop_look.width.max(0.1))
+                                                    .style(ev_stop_look.style)
+                                                    .name("");
+                                                plot_ui.vline(e);
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Draw as lines with potentially different styles for start/stop
+                                for ev in state.events.iter() {
+                                    if ev.end_t < xmin || ev.start_t > xmax { continue; }
+                                    let ls = VLine::new("", ev.start_t)
+                                        .color(ev_color)
+                                        .width(ev_start_look.width.max(0.1))
+                                        .style(ev_start_look.style)
+                                        .name("");
+                                    plot_ui.vline(ls);
+                                    let le = VLine::new("", ev.end_t)
+                                        .color(ev_color)
+                                        .width(ev_stop_look.width.max(0.1))
+                                        .style(ev_stop_look.style)
+                                        .name("");
+                                    plot_ui.vline(le);
+                                }
+                                if state.active {
+                                    let start_t = state.start_t;
+                                    let end_t = state.last_t.unwrap_or(start_t);
+                                    if !(end_t < xmin || start_t > xmax) {
+                                        let s = VLine::new("", start_t)
+                                            .color(ev_color)
+                                            .width(ev_start_look.width.max(0.1))
+                                            .style(ev_start_look.style)
+                                            .name("");
+                                        plot_ui.vline(s);
+                                        let e = VLine::new("", end_t)
+                                            .color(ev_color)
+                                            .width(ev_stop_look.width.max(0.1))
+                                            .style(ev_stop_look.style)
+                                            .name("");
+                                        plot_ui.vline(e);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -581,7 +826,6 @@ impl ScopeAppMulti {
                              oy: f64|
              -> (Align2, egui::Align, PlotPoint) {
                 let slope = if dx != 0.0 || oy != 0.0 || ox != 0.0 { (dy / oy) / (dx / ox) } else { 0.0 };
-                println!("slope = {}", slope);
                 if dx <= 0.0 || slope.abs() > 8.0 {
                     if dy >= 0.0 || slope.abs() < 0.2 {
                         (
@@ -933,7 +1177,7 @@ impl ScopeAppMulti {
             let rx = act_bounds.range_x();
             let (xmin, xmax) = (*rx.start(), *rx.end());
             for tr in self.traces.values() {
-                if !tr.visible {
+                if !tr.look.visible {
                     continue;
                 }
                 // Use snapshot when paused, else live
@@ -1223,6 +1467,8 @@ impl ScopeAppMulti {
                 // Also reset all math runtime storage so integrators/filters/min/max start fresh
                 self.reset_all_math_storage();
                 self.point_selection.clear();
+                // Clear all threshold events (global log and per-threshold buffers)
+                self.clear_all_threshold_events();
             }
 
             ui.checkbox(&mut self.show_legend, "Legend")
@@ -1418,14 +1664,19 @@ impl ScopeAppMulti {
             thr_builder: ThresholdBuilderState::default(),
             thr_editing: None,
             thr_error: None,
+            thr_creating: false,
             threshold_total_count: 0,
             threshold_event_log: VecDeque::new(),
             threshold_event_log_cap: 10_000,
             threshold_events_filter: None,
+            threshold_looks: HashMap::new(),
+            threshold_start_looks: HashMap::new(),
+            threshold_stop_looks: HashMap::new(),
             hover_trace: None,
             right_panel_active_tab: RightTab::Traces,
             math_detached: false,
             right_panel_visible: false,
+            look_editor_trace: None,
         }
     }
 
@@ -1473,14 +1724,16 @@ impl ScopeAppMulti {
             def.name.clone(),
             TraceState {
                 name: def.name.clone(),
-                color,
-                visible: true,
+                look: {
+                    let mut l = TraceLook::default();
+                    l.color = color;
+                    l
+                },
                 offset: 0.0,
                 live: VecDeque::new(),
                 snap: None,
                 last_fft: None,
                 is_math: true,
-                show_points: false,
                 info: String::new(),
             },
         );
@@ -1572,14 +1825,16 @@ impl ScopeAppMulti {
                     def.name.clone(),
                     TraceState {
                         name: def.name.clone(),
-                        color: Self::alloc_color(idx),
-                        visible: true,
+                        look: {
+                            let mut l = TraceLook::default();
+                            l.color = Self::alloc_color(idx);
+                            l
+                        },
                         offset: 0.0,
                         live: dq.clone(),
                         snap: if self.paused { Some(dq.clone()) } else { None },
                         last_fft: None,
                         is_math: true,
-                        show_points: false,
                         info: Self::math_formula_string(def),
                     },
                 );
@@ -1781,9 +2036,59 @@ impl ScopeAppMulti {
         self.threshold_defs.push(def);
     }
 
+    /// Clear all threshold events from the global log and from each threshold's runtime state.
+    pub(crate) fn clear_all_threshold_events(&mut self) {
+        self.threshold_event_log.clear();
+        for (_name, st) in self.threshold_states.iter_mut() {
+            st.events.clear();
+        }
+    }
+
+    /// Clear all events for a specific threshold: removes from its buffer and from the global log.
+    pub(crate) fn clear_threshold_events(&mut self, name: &str) {
+        if let Some(st) = self.threshold_states.get_mut(name) {
+            st.events.clear();
+        }
+        self.threshold_event_log.retain(|e| e.threshold != name);
+    }
+
+    /// Remove a specific threshold event from the global log and the corresponding threshold's buffer.
+    pub(crate) fn remove_threshold_event(&mut self, event: &ThresholdEvent) {
+        // Remove from global log (first match)
+        if let Some(pos) = self
+            .threshold_event_log
+            .iter()
+            .position(|e| e.threshold == event.threshold
+                && e.trace == event.trace
+                && e.start_t == event.start_t
+                && e.end_t == event.end_t
+                && e.duration == event.duration
+                && e.area == event.area)
+        {
+            self.threshold_event_log.remove(pos);
+        }
+        // Remove from per-threshold buffer
+        if let Some(st) = self.threshold_states.get_mut(&event.threshold) {
+            if let Some(pos) = st
+                .events
+                .iter()
+                .position(|e| e.trace == event.trace
+                    && e.start_t == event.start_t
+                    && e.end_t == event.end_t
+                    && e.duration == event.duration
+                    && e.area == event.area)
+            {
+                st.events.remove(pos);
+            }
+        }
+    }
+
     pub(crate) fn remove_threshold_internal(&mut self, name: &str) {
         self.threshold_defs.retain(|d| d.name != name);
         self.threshold_states.remove(name);
+        self.threshold_looks.remove(name);
+    self.threshold_start_looks.remove(name);
+    self.threshold_stop_looks.remove(name);
     }
 
     /// Public API: add/remove/list thresholds; get events for a threshold (clone)

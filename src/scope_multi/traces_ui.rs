@@ -17,8 +17,8 @@ macro_rules! traces_debug {
 
 thread_local! {
     static LAST_AVAIL_W: Cell<f32> = Cell::new(0.0);
-    static LAST_COL_HDR_W: RefCell<[f32; 7]> = RefCell::new([0.0; 7]);
-    static LAST_COL_ROW0_W: RefCell<[f32; 7]> = RefCell::new([0.0; 7]);
+    static LAST_COL_HDR_W: RefCell<[f32; 6]> = RefCell::new([0.0; 6]);
+    static LAST_COL_ROW0_W: RefCell<[f32; 6]> = RefCell::new([0.0; 6]);
 }
 
 use super::app::ScopeAppMulti;
@@ -80,7 +80,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
     struct TracesDelegate<'a> {
         app: &'a mut ScopeAppMulti,
         rows: Vec<Row>,
-        col_w: [f32; 7],
+        col_w: [f32; 6],
     }
     impl<'a> TableDelegate for TracesDelegate<'a> {
         fn header_cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::HeaderCellInfo) {
@@ -107,13 +107,12 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                         1 => "Trace",
                         2 => "Marker",
                         3 => "Visible",
-                        4 => "Points",
-                        5 => "Offset",
-                        6 => "Info",
+                        4 => "Offset",
+                        5 => "Info",
                         _ => "",
                     };
                     // Center certain headers; keep Name/Info left-aligned
-                    let centered_cols = [0usize, 2, 3, 4, 5];
+                    let centered_cols = [0usize, 2, 3, 4];
                     if centered_cols.contains(&col) {
                         // Use a full-width centered-and-justified layout to ensure true horizontal centering
                         let layout =
@@ -163,7 +162,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                                     if r.is_free {
                                         cui.label("");
                                     } else if let Some(tr) = self.app.traces.get_mut(&r.name) {
-                                        let mut c = tr.color;
+                                        let mut c = tr.look.color;
                                         let resp = cui
                                             .color_edit_button_srgba(&mut c)
                                             .on_hover_text("Change trace color");
@@ -171,7 +170,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                                             self.app.hover_trace = Some(r.name.clone());
                                         }
                                         if resp.changed() {
-                                            tr.color = c;
+                                            tr.look.color = c;
                                         }
                                     }
                                 },
@@ -191,7 +190,12 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                                 }
                             }
                             if resp.clicked() {
-                                inner.ctx().copy_text(r.name.clone());
+                                if !r.is_free {
+                                    let cur = self.app.look_editor_trace.clone();
+                                    self.app.look_editor_trace = if cur.as_deref() == Some(&r.name) { None } else { Some(r.name.clone()) };
+                                    // Clear hover so highlight doesn't obscure editor
+                                    self.app.hover_trace = None;
+                                }
                             }
                         }
                         2 => {
@@ -228,41 +232,19 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                                     if r.is_free {
                                         cui.label("");
                                     } else if let Some(tr) = self.app.traces.get_mut(&r.name) {
-                                        let mut vis = tr.visible;
+                                        let mut vis = tr.look.visible;
                                         let resp = cui.checkbox(&mut vis, "");
                                         if resp.hovered() {
                                             self.app.hover_trace = Some(r.name.clone());
                                         }
                                         if resp.changed() {
-                                            tr.visible = vis;
+                                            tr.look.visible = vis;
                                         }
                                     }
                                 },
                             );
                         }
                         4 => {
-                            // Points checkbox centered
-                            inner.with_layout(
-                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                                |cui| {
-                                    if r.is_free {
-                                        cui.label("");
-                                    } else if let Some(tr) = self.app.traces.get_mut(&r.name) {
-                                        let mut sp = tr.show_points;
-                                        let resp = cui
-                                            .checkbox(&mut sp, "")
-                                            .on_hover_text("Show point markers");
-                                        if resp.hovered() {
-                                            self.app.hover_trace = Some(r.name.clone());
-                                        }
-                                        if resp.changed() {
-                                            tr.show_points = sp;
-                                        }
-                                    }
-                                },
-                            );
-                        }
-                        5 => {
                             // Offset DragValue centered
                             inner.with_layout(
                                 egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
@@ -286,7 +268,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                                 },
                             );
                         }
-                        6 => {
+                        5 => {
                             inner.add_space(4.0);
                             if r.is_free {
                                 inner.label("");
@@ -311,6 +293,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                 },
             );
         }
+
     }
 
     // Compute dynamic column widths
@@ -318,11 +301,11 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
     // - All columns have a minimum width (min_w)
     // - If available width is less than the sum of minima, we DO NOT shrink below minima;
     //   instead we enable horizontal scrolling so fixed columns never get smaller.
-    // - If there's extra space, only Name (1) and Info (6) expand using weights.
+    // - If there's extra space, only Name (1) and Info (5) expand using weights.
     let avail_w = ui.available_width();
     let avail_w_f32: f32 = avail_w;
-    // Preferred minima for each column [0..6]
-    let min_w = [12.0, 70.0, 42.0, 42.0, 38.0, 32.0, 300.0];
+    // Preferred minima for each column [0..5]
+    let min_w = [12.0, 70.0, 42.0, 42.0, 32.0, 300.0];
     let mut w = min_w;
     // Current total at minima
     let sum_min: f32 = w.iter().sum();
@@ -332,13 +315,13 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
     if avail_w_f32 > sum_min {
         // We have extra space beyond all minima: distribute only to Name/Info by weights
         let extra = avail_w_f32 - sum_min;
-        w[1] = min_w[1] + extra * (name_weight / weight_sum);
-        w[6] = min_w[6] + extra * (info_weight / weight_sum);
+    w[1] = min_w[1] + extra * (name_weight / weight_sum);
+    w[5] = min_w[5] + extra * (info_weight / weight_sum);
         // Optional: ensure we fill the available width exactly (avoid tiny rounding gaps)
         let sum_now: f32 = w.iter().sum();
         let delta = avail_w_f32 - sum_now;
         if delta.abs() > 0.5 {
-            w[6] = (w[6] + delta).max(0.0);
+            w[5] = (w[5] + delta).max(0.0);
         }
     } else {
         // Narrow panel: keep all columns at their minima; we'll scroll horizontally.
@@ -361,57 +344,78 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
 
     // Reset hover before drawing; cells will set it when hovered
     app.hover_trace = None;
-    let mut delegate = TracesDelegate {
-        app,
-        rows,
-        col_w: w,
-    };
 
     let cols = vec![
-        egui_table::Column::new(w[0]), // color edit (was color dot)
+        egui_table::Column::new(w[0]), // color edit
         egui_table::Column::new(w[1]), // name (stretches)
         egui_table::Column::new(w[2]), // marker
         egui_table::Column::new(w[3]), // visible
-        egui_table::Column::new(w[4]), // points toggle
-        egui_table::Column::new(w[5]), // offset
-        egui_table::Column::new(w[6]), // info (stretches)
+        egui_table::Column::new(w[4]), // offset
+        egui_table::Column::new(w[5]), // info (stretches)
     ];
-    let total_w: f32 = w.iter().sum();
-    // Expand vertically to fill the available sidebar height
-    let table_h = ui.available_height();
-    if total_w > avail_w + 1.0 {
-        // Content wider than panel: enable horizontal scrolling to preserve column minima
-        egui::ScrollArea::horizontal()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                let (rect, _resp) =
-                    ui.allocate_exact_size(egui::vec2(total_w, table_h), egui::Sense::hover());
+    // Compute a preferred height for the table; size it relative to available height
+    let header_h = 24.0_f32;
+    let row_h = 22.0_f32;
+    let rows_len = rows.len() as f32;
+    let editor_open = app.look_editor_trace.is_some();
+    let preferred = header_h + row_h * rows_len + 8.0;
+    let avail_h = ui.available_height();
+    // With the editor placed below the table, give the table a larger share when open.
+    let max_h = if editor_open { (avail_h * 0.65).max(200.0) } else { (avail_h * 0.85).max(200.0) };
+    let table_h = preferred.clamp(120.0, max_h);
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            // Clone rows and draw the table first (style editor is rendered below)
+            let rows_clone = rows.clone();
+            {
+                let mut delegate = TracesDelegate { app, rows: rows_clone, col_w: w };
+                let (rect, _resp) = ui.allocate_exact_size(
+                    egui::vec2(avail_w, table_h),
+                    egui::Sense::hover(),
+                );
                 let ui_builder = egui::UiBuilder::new()
                     .max_rect(rect)
                     .layout(egui::Layout::left_to_right(egui::Align::Min));
                 let mut table_ui = ui.new_child(ui_builder);
                 Table::new()
-                    .id_salt(("traces_table", total_w.to_bits()))
+                    .id_salt(("traces_table", avail_w.to_bits()))
                     .num_rows(delegate.rows.len() as u64)
                     .columns(cols)
                     .headers(vec![EgHeaderRow::new(24.0)])
                     .show(&mut table_ui, &mut delegate);
-            });
-    } else {
-        // Fits within panel: fill the available width
-        let (rect, _resp) =
-            ui.allocate_exact_size(egui::vec2(avail_w, table_h), egui::Sense::hover());
-        let ui_builder = egui::UiBuilder::new()
-            .max_rect(rect)
-            .layout(egui::Layout::left_to_right(egui::Align::Min));
-        let mut table_ui = ui.new_child(ui_builder);
-        Table::new()
-            .id_salt(("traces_table", avail_w.to_bits()))
-            .num_rows(delegate.rows.len() as u64)
-            .columns(cols)
-            .headers(vec![EgHeaderRow::new(24.0)])
-            .show(&mut table_ui, &mut delegate);
-    }
+            }
+
+            // Render inline style editor beneath the table
+            if let Some(tn) = app.look_editor_trace.clone() {
+                if let Some(tr) = app.traces.get_mut(&tn) {
+                    ui.add_space(8.0);
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.strong(format!("Style: {}", tn));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.small_button("Close").clicked() {
+                                    app.look_editor_trace = None;
+                                }
+                            });
+                        });
+                        ui.separator();
+                        super::traceslook_ui::trace_look_editor_inline(
+                            ui,
+                            &mut tr.look,
+                            true,
+                            None,
+                            false,
+                            None,
+                        );
+                    });
+                } else {
+                    ui.label("Trace not found.");
+                    app.look_editor_trace = None;
+                }
+            }
+        });
 }
 
 pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {

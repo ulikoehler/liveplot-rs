@@ -49,10 +49,14 @@ impl ThresholdKind {
 pub struct ThresholdDef {
     /// Unique name for this threshold.
     pub name: String,
+    /// Optional display name for UI/legend; falls back to `name` when None/empty.
+    pub display_name: Option<String>,
     /// Source trace to monitor.
     pub target: TraceRef,
     /// Condition to test.
     pub kind: ThresholdKind,
+    /// Optional color hint for rendering this threshold (RGB).
+    pub color_hint: Option<[u8; 3]>,
     /// Minimum duration (seconds) for an event to be recorded. Default 0.002 s.
     pub min_duration_s: f64,
     /// Maximum number of events to keep (oldest dropped). Default 100.
@@ -63,8 +67,10 @@ impl Default for ThresholdDef {
     fn default() -> Self {
         Self {
             name: String::new(),
+            display_name: None,
             target: TraceRef(String::new()),
             kind: ThresholdKind::GreaterThan { value: 0.0 },
+            color_hint: None,
             min_duration_s: 0.002,
             max_events: 100,
         }
