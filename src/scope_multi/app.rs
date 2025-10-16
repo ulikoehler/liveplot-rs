@@ -17,8 +17,6 @@ use crate::controllers::{
     TracesInfo, UiActionController, WindowController, WindowInfo,
 };
 #[cfg(feature = "fft")]
-use crate::fft;
-#[cfg(feature = "fft")]
 pub use crate::fft::FftWindow;
 #[cfg(not(feature = "fft"))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -50,6 +48,8 @@ use super::panel::DockPanel;
 use super::thresholds_ui::ThresholdsPanel;
 use super::traces_ui::TracesPanel;
 use super::types::{MathBuilderState, TraceLook, TraceState};
+#[cfg(feature = "fft")]
+use super::fft_panel::FftPanel;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum ControlsMode {
@@ -140,6 +140,8 @@ pub struct ScopeAppMulti {
     pub(super) math_panel: MathPanel,
     pub(super) thresholds_panel: ThresholdsPanel,
     pub(super) traces_panel: TracesPanel,
+    #[cfg(feature = "fft")]
+    pub(super) fft_panel: FftPanel,
 }
 
 impl ScopeAppMulti {
@@ -802,6 +804,17 @@ impl ScopeAppMulti {
                 }
             }
             self.thresholds_panel = panel;
+        }
+        #[cfg(feature = "fft")]
+        {
+            let mut panel = std::mem::take(&mut self.fft_panel);
+            {
+                let d = panel.dock_mut();
+                if d.detached && d.show_dialog {
+                    panel.show_detached_dialog(self, ctx);
+                }
+            }
+            self.fft_panel = panel;
         }
     }
 
@@ -2010,24 +2023,33 @@ impl ScopeAppMulti {
             //if let ControlsMode::Main = mode {
             #[cfg(feature = "fft")]
             if ui
-                .button(if self.show_fft {
-                    "Hide FFT"
-                } else {
-                    "Show FFT"
+                .button({
+                    let d = self.fft_panel.dock.clone();
+                    if !d.detached && d.show_dialog { "Hide FFT" } else { "Show FFT" }
                 })
                 .clicked()
             {
-                self.show_fft = !self.show_fft;
-                if let Some(ctrl) = &self.fft_controller {
-                    let mut inner = ctrl.inner.lock().unwrap();
-                    inner.show = self.show_fft;
-                    let info = FftPanelInfo {
-                        shown: inner.show,
-                        current_size: inner.current_size,
-                        requested_size: inner.request_set_size,
-                    };
-                    inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+                let mut p = std::mem::take(&mut self.fft_panel);
+                {
+                    let d = p.dock_mut();
+                    if !d.detached && d.show_dialog {
+                        d.show_dialog = false;
+                    } else {
+                        d.detached = false;
+                        d.show_dialog = true;
+                    }
+                    if let Some(ctrl) = &self.fft_controller {
+                        let mut inner = ctrl.inner.lock().unwrap();
+                        inner.show = d.show_dialog && !d.detached;
+                        let info = FftPanelInfo {
+                            shown: inner.show,
+                            current_size: inner.current_size,
+                            requested_size: inner.request_set_size,
+                        };
+                        inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+                    }
                 }
+                self.fft_panel = p;
             }
             #[cfg(not(feature = "fft"))]
             {
@@ -2105,6 +2127,8 @@ impl ScopeAppMulti {
             math_panel: MathPanel::default(),
             thresholds_panel: ThresholdsPanel::default(),
             traces_panel: TracesPanel::default(),
+            #[cfg(feature = "fft")]
+            fft_panel: FftPanel::default(),
         }
     }
 
@@ -2139,6 +2163,95 @@ impl ScopeAppMulti {
 
         // Repaint soon
         ctx.request_repaint_after(Duration::from_millis(16));
+    }
+
+    /// Return bottom dock panels (e.g., FFT). Extendable to multiple bottom panels later.
+    #[cfg(feature = "fft")]
+    fn bottom_panels(&mut self) -> Vec<&mut dyn super::panel::DockPanel> {
+        vec![&mut self.fft_panel]
+    }
+    #[cfg(not(feature = "fft"))]
+    fn bottom_panels(&mut self) -> Vec<&mut dyn super::panel::DockPanel> {
+        Vec::new()
+    }
+
+    /// Render bottom panels if attached (e.g., FFT). Uses the same DockState rules:
+    /// show when !detached && show_dialog.
+    fn show_bottom_panels(&mut self, ctx: &egui::Context) {
+        // If any bottom panel is attached+visible, show a shared bottom container.
+        let visible = {
+            let mut panels = self.bottom_panels();
+            panels.iter_mut().any(|p| {
+                let d = p.dock_mut();
+                !d.detached && d.show_dialog
+            })
+        };
+        if !visible { return; }
+
+        egui::TopBottomPanel::bottom("bottom_panels")
+            .resizable(true)
+            .default_height(300.0)
+            .min_height(120.0)
+            .show(ctx, |ui| {
+                // Simple tabs like the right sidebar
+                let titles_flags: Vec<(&'static str, bool)> = {
+                    let mut panels = self.bottom_panels();
+                    panels
+                        .iter_mut()
+                        .map(|p| {
+                            let d = p.dock_mut();
+                            (d.title, !d.detached && d.show_dialog)
+                        })
+                        .collect()
+                };
+                let mut clicked_idx: Option<usize> = None;
+                ui.horizontal(|ui| {
+                    for (i, (title, active)) in titles_flags.iter().enumerate() {
+                        if ui.selectable_label(*active, *title).clicked() {
+                            clicked_idx = Some(i);
+                        }
+                    }
+                });
+                if let Some(i) = clicked_idx {
+                    let mut panels = self.bottom_panels();
+                    for (j, p) in panels.iter_mut().enumerate() {
+                        let d = p.dock_mut();
+                        if j == i {
+                            d.show_dialog = true;
+                            d.detached = false;
+                        } else if !d.detached {
+                            d.show_dialog = false;
+                        }
+                    }
+                }
+
+                ui.separator();
+
+                // Render the active attached bottom panel body (take/put to avoid borrow conflicts)
+                #[cfg(feature = "fft")]
+                {
+                    let mut p = std::mem::take(&mut self.fft_panel);
+                    let (title, show_attached) = {
+                        let d = p.dock_mut();
+                        (d.title, !d.detached && d.show_dialog)
+                    };
+                    if show_attached {
+                        ui.horizontal(|ui| {
+                            ui.strong(title);
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button("Pop out").clicked() {
+                                    let d = p.dock_mut();
+                                    d.detached = true;
+                                    d.show_dialog = true;
+                                }
+                            });
+                        });
+                        ui.separator();
+                        p.panel_contents(self, ui);
+                    }
+                    self.fft_panel = p;
+                }
+            });
     }
 
     pub(crate) fn add_math_trace_internal(&mut self, def: MathTraceDef) {
@@ -2640,15 +2753,8 @@ impl eframe::App for ScopeAppMulti {
         // Shared dialogs
         self.show_dialogs_shared(ctx);
 
-        // FFT bottom panel for multi-traces
-        #[cfg(feature = "fft")]
-        if self.show_fft {
-            super::fft_panel::show_fft_panel(self, ctx);
-        }
-        #[cfg(not(feature = "fft"))]
-        {
-            let _ = ctx; // suppress unused warnings
-        }
+        // Bottom dock panels (FFT etc.)
+        self.show_bottom_panels(ctx);
 
         // Plot all traces in the central panel
         self.render_central_plot_panel(ctx);
