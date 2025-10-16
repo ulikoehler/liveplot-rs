@@ -44,7 +44,9 @@ use crate::sink::MultiSample;
 use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState};
 
 use super::types::{MathBuilderState, TraceLook, TraceState};
-use super::panel::{MathPanelState, ThresholdsPanelState, TracesPanelState};
+use super::math_ui::MathPanel;
+use super::thresholds_ui::ThresholdsPanel;
+use super::traces_ui::TracesPanel;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum ControlsMode {
@@ -142,9 +144,9 @@ pub struct ScopeAppMulti {
     /// Whether the right sidebar (tabbed panels) is visible
     pub(super) right_panel_visible: bool,
     // New per-panel state holders
-    pub(super) math_panel: MathPanelState,
-    pub(super) thresholds_panel: ThresholdsPanelState,
-    pub(super) traces_panel: TracesPanelState,
+    pub(super) math_panel: MathPanel,
+    pub(super) thresholds_panel: ThresholdsPanel,
+    pub(super) traces_panel: TracesPanel,
 }
 
 impl ScopeAppMulti {
@@ -1657,9 +1659,9 @@ impl ScopeAppMulti {
             hover_threshold: None,
             right_panel_active_tab: RightTab::Traces,
             right_panel_visible: false,
-            math_panel: MathPanelState::default(),
-            thresholds_panel: ThresholdsPanelState::default(),
-            traces_panel: TracesPanelState::default(),
+            math_panel: MathPanel::default(),
+            thresholds_panel: ThresholdsPanel::default(),
+            traces_panel: TracesPanel::default(),
         }
     }
 

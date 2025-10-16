@@ -4,7 +4,41 @@ use egui::Color32;
 use crate::math::{FilterKind, MathKind, MathTraceDef, MinMaxMode, TraceRef};
 
 use super::app::ScopeAppMulti;
+use super::panel::{DockPanel, DockState};
 use super::types::MathBuilderState;
+
+#[derive(Debug, Clone)]
+pub struct MathPanel {
+    pub dock: DockState,
+    pub builder: MathBuilderState,
+    pub editing: Option<String>,
+    pub error: Option<String>,
+    pub creating: bool,
+}
+
+impl Default for MathPanel {
+    fn default() -> Self {
+        Self {
+            dock: DockState::new("Math traces"),
+            builder: MathBuilderState::default(),
+            editing: None,
+            error: None,
+            creating: false,
+        }
+    }
+}
+
+impl DockPanel for MathPanel {
+    fn get_mut(app: &mut ScopeAppMulti) -> &mut Self { &mut app.math_panel }
+    fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
+    fn panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+        math_panel_contents(app, ui);
+    }
+    fn on_dock(app: &mut ScopeAppMulti) {
+        app.right_panel_active_tab = super::app::RightTab::Math;
+        app.right_panel_visible = true;
+    }
+}
 
 impl MathBuilderState {
     pub(super) fn from_def(def: &MathTraceDef, trace_order: &Vec<String>) -> Self {
@@ -965,5 +999,5 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
 }
 
 pub(super) fn show_math_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    super::panel::show_detached_dialog::<super::panel::MathDockPanel>(app, ctx);
+    <MathPanel as DockPanel>::show_detached_dialog(app, ctx);
 }

@@ -1,5 +1,7 @@
 use eframe::egui;
 use egui::Color32;
+use std::collections::HashMap;
+use super::panel::{DockPanel, DockState};
 // use egui_plot::{LineStyle, MarkerShape};
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 
@@ -7,6 +9,47 @@ use crate::thresholds::{ThresholdDef, ThresholdEvent, ThresholdKind};
 
 use super::app::ScopeAppMulti;
 use super::types::ThresholdBuilderState;
+
+#[derive(Debug, Clone)]
+pub struct ThresholdsPanel {
+    pub dock: DockState,
+    pub builder: super::types::ThresholdBuilderState,
+    pub editing: Option<String>,
+    pub error: Option<String>,
+    pub creating: bool,
+    pub looks: HashMap<String, super::types::TraceLook>,
+    pub start_looks: HashMap<String, super::types::TraceLook>,
+    pub stop_looks: HashMap<String, super::types::TraceLook>,
+    pub events_filter: Option<String>,
+}
+
+impl Default for ThresholdsPanel {
+    fn default() -> Self {
+        Self {
+            dock: DockState::new("Thresholds"),
+            builder: super::types::ThresholdBuilderState::default(),
+            editing: None,
+            error: None,
+            creating: false,
+            looks: HashMap::new(),
+            start_looks: HashMap::new(),
+            stop_looks: HashMap::new(),
+            events_filter: None,
+        }
+    }
+}
+
+impl DockPanel for ThresholdsPanel {
+    fn get_mut(app: &mut ScopeAppMulti) -> &mut Self { &mut app.thresholds_panel }
+    fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
+    fn panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+        thresholds_panel_contents(app, ui);
+    }
+    fn on_dock(app: &mut ScopeAppMulti) {
+        app.right_panel_active_tab = super::app::RightTab::Thresholds;
+        app.right_panel_visible = true;
+    }
+}
 
 pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
     // (no-op)
@@ -623,5 +666,7 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
 }
 
 pub(super) fn show_thresholds_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    super::panel::show_detached_dialog::<super::panel::ThresholdsDockPanel>(app, ctx);
+    <ThresholdsPanel as DockPanel>::show_detached_dialog(app, ctx);
 }
+
+

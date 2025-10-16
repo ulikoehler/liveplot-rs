@@ -1,4 +1,5 @@
 use eframe::egui;
+use super::panel::{DockPanel, DockState};
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 use std::cell::{Cell, RefCell};
 
@@ -419,5 +420,29 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
 }
 
 pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    super::panel::show_detached_dialog::<super::panel::TracesDockPanel>(app, ctx);
+    <TracesPanel as DockPanel>::show_detached_dialog(app, ctx);
+}
+
+#[derive(Debug, Clone)]
+pub struct TracesPanel {
+    pub dock: DockState,
+    pub look_editor_trace: Option<String>,
+}
+
+impl Default for TracesPanel {
+    fn default() -> Self {
+        Self { dock: DockState::new("Traces"), look_editor_trace: None }
+    }
+}
+
+impl DockPanel for TracesPanel {
+    fn get_mut(app: &mut ScopeAppMulti) -> &mut Self { &mut app.traces_panel }
+    fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
+    fn panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+        traces_panel_contents(app, ui);
+    }
+    fn on_dock(app: &mut ScopeAppMulti) {
+        app.right_panel_active_tab = super::app::RightTab::Traces;
+        app.right_panel_visible = true;
+    }
 }
