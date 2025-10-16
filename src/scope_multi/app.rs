@@ -154,6 +154,8 @@ pub struct ScopeAppMulti {
     pub(super) threshold_stop_looks: HashMap<String, TraceLook>,
     /// Currently hovered trace name for UI highlighting
     pub(super) hover_trace: Option<String>,
+    /// Currently hovered threshold name for UI highlighting
+    pub(super) hover_threshold: Option<String>,
     /// Which right-side tab is active
     pub(super) right_panel_active_tab: RightTab,
     /// Whether the math panel is popped out as a detached window
@@ -622,9 +624,28 @@ impl ScopeAppMulti {
                                 l
                             });
                         // Use provided colors (respecting any alpha set by the UI)
-                        let thr_color = thr_look.color;
-                        let ev_color = Color32::from_rgba_unmultiplied(
-                            thr_look.color.r(), thr_look.color.g(), thr_look.color.b(), thr_look.color.a());
+                        let mut thr_color = thr_look.color;
+                        let mut thr_width = thr_look.width.max(0.1);
+                        if let Some(hov_thr) = &self.hover_threshold {
+                            if &def.name != hov_thr {
+                                // Dim non-hovered thresholds
+                                thr_color = Color32::from_rgba_unmultiplied(
+                                    thr_color.r(), thr_color.g(), thr_color.b(), 60,
+                                );
+                            } else {
+                                // Emphasize hovered threshold
+                                thr_width = (thr_width * 1.6).max(thr_width + 1.0);
+                            }
+                        }
+                        // Event markers follow the same dimming when another threshold is hovered
+                        let ev_base = thr_look.color;
+                        let ev_color = if let Some(hov_thr) = &self.hover_threshold {
+                            if &def.name != hov_thr {
+                                Color32::from_rgba_unmultiplied(ev_base.r(), ev_base.g(), ev_base.b(), 60)
+                            } else {
+                                ev_base
+                            }
+                        } else { ev_base };
 
                         // Helper: render one horizontal threshold line with a unique id and an optional legend label
                         let mut draw_hline = |id: &str, label: Option<String>, y_world: f64| {
@@ -638,7 +659,7 @@ impl ScopeAppMulti {
                             if y_plot.is_finite() {
                                 let mut h = HLine::new(id.to_string(), y_plot)
                                     .color(thr_color)
-                                    .width(thr_look.width.max(0.1))
+                                    .width(thr_width)
                                     .style(thr_look.style);
                                 if let Some(lbl) = &label { h = h.name(lbl.clone()); } else { h = h.name(""); }
                                 plot_ui.hline(h);
@@ -1673,6 +1694,7 @@ impl ScopeAppMulti {
             threshold_start_looks: HashMap::new(),
             threshold_stop_looks: HashMap::new(),
             hover_trace: None,
+            hover_threshold: None,
             right_panel_active_tab: RightTab::Traces,
             math_detached: false,
             right_panel_visible: false,
