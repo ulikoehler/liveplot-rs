@@ -104,7 +104,7 @@ impl MathBuilderState {
 
 pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
     ui.label("Create virtual traces from existing ones.");
-    if let Some(err) = &app.math_error {
+    if let Some(err) = &app.math_panel.error {
         ui.colored_label(Color32::LIGHT_RED, err);
     }
 
@@ -152,10 +152,10 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                 app.hover_trace = Some(def.name.clone());
             }
             if name_resp.clicked() {
-                app.math_builder = MathBuilderState::from_def(def, &app.trace_order);
-                app.math_editing = Some(def.name.clone());
-                app.math_error = None;
-                app.math_creating = false;
+                app.math_panel.builder = MathBuilderState::from_def(def, &app.trace_order);
+                app.math_panel.editing = Some(def.name.clone());
+                app.math_panel.error = None;
+                app.math_panel.creating = false;
             }
 
             // Info string (formula) - clickable to edit
@@ -174,10 +174,10 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                 app.hover_trace = Some(def.name.clone());
             }
             if info_resp.clicked() {
-                app.math_builder = MathBuilderState::from_def(def, &app.trace_order);
-                app.math_editing = Some(def.name.clone());
-                app.math_error = None;
-                app.math_creating = false;
+                app.math_panel.builder = MathBuilderState::from_def(def, &app.trace_order);
+                app.math_panel.editing = Some(def.name.clone());
+                app.math_panel.error = None;
+                app.math_panel.creating = false;
             }
             // Right-aligned per-trace actions: Reset and Remove
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -186,14 +186,14 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                 if remove_resp.hovered() {
                     app.hover_trace = Some(def.name.clone());
                 }
-                if remove_resp.clicked() {
+                    if remove_resp.clicked() {
                     let removing = def.name.clone();
                     app.remove_math_trace_internal(&removing);
-                    if app.math_editing.as_deref() == Some(&removing) {
-                        app.math_editing = None;
-                        app.math_creating = false;
-                        app.math_builder = MathBuilderState::default();
-                        app.math_error = None;
+                        if app.math_panel.editing.as_deref() == Some(&removing) {
+                            app.math_panel.editing = None;
+                            app.math_panel.creating = false;
+                            app.math_panel.builder = MathBuilderState::default();
+                            app.math_panel.error = None;
                     }
                 }
                 // Show Reset for kinds that have internal storage
@@ -229,15 +229,15 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
         .on_hover_text("Create a new math trace")
         .clicked();
     if new_clicked {
-        app.math_builder = MathBuilderState::default();
-        app.math_editing = None;
-        app.math_error = None;
-        app.math_creating = true;
+        app.math_panel.builder = MathBuilderState::default();
+        app.math_panel.editing = None;
+        app.math_panel.error = None;
+        app.math_panel.creating = true;
     }
 
     // Settings panel (hidden unless creating or editing)
-    let is_editing = app.math_editing.is_some();
-    let is_creating = app.math_creating;
+    let is_editing = app.math_panel.editing.is_some();
+    let is_creating = app.math_panel.creating;
     if is_editing || is_creating {
         ui.add_space(12.0);
         ui.separator();
@@ -247,10 +247,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
             ui.strong("New math trace");
         }
         // Name first, then Operation (no label; tooltip on combobox)
-        ui.horizontal(|ui| {
-            ui.label("Name");
-            ui.text_edit_singleline(&mut app.math_builder.name);
-        });
+        ui.horizontal(|ui| { ui.label("Name"); ui.text_edit_singleline(&mut app.math_panel.builder.name); });
         let kinds = [
             "Add/Subtract",
             "Multiply",
@@ -262,11 +259,9 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
             "Max",
         ];
         let ir = egui::ComboBox::from_id_salt("math_op")
-            .selected_text(kinds[app.math_builder.kind_idx])
+            .selected_text(kinds[app.math_panel.builder.kind_idx])
             .show_ui(ui, |ui| {
-                for (i, k) in kinds.iter().enumerate() {
-                    ui.selectable_value(&mut app.math_builder.kind_idx, i, *k);
-                }
+                for (i, k) in kinds.iter().enumerate() { ui.selectable_value(&mut app.math_panel.builder.kind_idx, i, *k); }
             });
         ir.response.on_hover_text("Operation");
         let trace_names: Vec<String> = app.trace_order.clone();
@@ -274,17 +269,17 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
         // Initialize builder look color if blank name changed to a new one (use palette color based on future index)
         // Compute default color index for this potential new trace name
         if is_creating {
-            let future_idx = if app.traces.contains_key(&app.math_builder.name) {
+            let future_idx = if app.traces.contains_key(&app.math_panel.builder.name) {
                 // if name exists, keep current
                 None
-            } else if app.math_builder.name.is_empty() {
+            } else if app.math_panel.builder.name.is_empty() {
                 None
             } else {
                 Some(app.trace_order.len())
             };
             if let Some(idx) = future_idx {
                 // Set default color only if look color is still default white to avoid clobbering user choice
-                if app.math_builder.look.color == egui::Color32::WHITE {
+                if app.math_panel.builder.look.color == egui::Color32::WHITE {
                     // Reuse the same palette as alloc_color
                     const PALETTE: [egui::Color32; 10] = [
                         egui::Color32::LIGHT_BLUE,
@@ -298,17 +293,17 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         egui::Color32::from_rgb(0x66, 0xCC, 0x66),
                         egui::Color32::from_rgb(0xCC, 0x66, 0x66),
                     ];
-                    app.math_builder.look.color = PALETTE[idx % PALETTE.len()];
+                    app.math_panel.builder.look.color = PALETTE[idx % PALETTE.len()];
                 }
             }
         }
 
         // (Style editor moved to appear just before the Add/Save button per kind)
 
-        match app.math_builder.kind_idx {
+        match app.math_panel.builder.kind_idx {
             0 => {
                 // Add/Sub
-                for (idx, (sel, gain)) in app.math_builder.add_inputs.iter_mut().enumerate() {
+                for (idx, (sel, gain)) in app.math_panel.builder.add_inputs.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
                         egui::ComboBox::from_id_salt(format!("add_sel_{}", idx))
                             .selected_text(trace_names.get(*sel).cloned().unwrap_or_default())
@@ -322,14 +317,8 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     });
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("Add input").clicked() {
-                        app.math_builder.add_inputs.push((0, 1.0));
-                    }
-                    if ui.button("Remove input").clicked() {
-                        if app.math_builder.add_inputs.len() > 1 {
-                            app.math_builder.add_inputs.pop();
-                        }
-                    }
+                    if ui.button("Add input").clicked() { app.math_panel.builder.add_inputs.push((0, 1.0)); }
+                    if ui.button("Remove input").clicked() { if app.math_panel.builder.add_inputs.len() > 1 { app.math_panel.builder.add_inputs.pop(); } }
                 });
                 // Style editor just before Save/Add
                 ui.add_space(5.0);
@@ -337,7 +326,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     .default_open(false)
                     .show(ui, |ui| {
                         if is_editing {
-                            if let Some(editing_name) = app.math_editing.clone() {
+                            if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
                                     super::traceslook_ui::trace_look_editor_inline(
                                         ui,
@@ -354,7 +343,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         } else {
                             super::traceslook_ui::trace_look_editor_inline(
                                 ui,
-                                &mut app.math_builder.look,
+                                &mut app.math_panel.builder.look,
                                 true,
                                 None,
                                 false,
@@ -368,38 +357,39 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     let save_clicked = ui.button(save_label).clicked();
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Cancel").clicked() {
-                            app.math_editing = None;
-                            app.math_creating = false;
-                            app.math_builder = MathBuilderState::default();
-                            app.math_error = None;
+                            app.math_panel.editing = None;
+                            app.math_panel.creating = false;
+                            app.math_panel.builder = MathBuilderState::default();
+                            app.math_panel.error = None;
                         }
                     });
                     if save_clicked {
                         let inputs = app
-                            .math_builder
+                            .math_panel
+                            .builder
                             .add_inputs
                             .iter()
                             .filter_map(|(i, g)| {
                                 trace_names.get(*i).cloned().map(|n| (TraceRef(n), *g))
                             })
                             .collect();
-                        if !app.math_builder.name.is_empty() {
+                        if !app.math_panel.builder.name.is_empty() {
                             let def = MathTraceDef {
-                                name: app.math_builder.name.clone(),
+                                name: app.math_panel.builder.name.clone(),
                                 color_hint: None,
                                 kind: MathKind::Add { inputs },
                             };
                             // Apply and then set created/edited look
                             app.apply_add_or_edit(def);
-                            if app.math_error.is_none() {
-                                if let Some(tr) = app.traces.get_mut(&app.math_builder.name) {
+                            if app.math_panel.error.is_none() {
+                                if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
                                     if is_creating {
-                                        tr.look = app.math_builder.look.clone();
+                                        tr.look = app.math_panel.builder.look.clone();
                                     }
                                 }
                             }
-                            if app.math_error.is_none() {
-                                app.math_creating = false;
+                            if app.math_panel.error.is_none() {
+                                app.math_panel.creating = false;
                             }
                         }
                     }
@@ -411,25 +401,25 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     egui::ComboBox::from_label("A")
                         .selected_text(
                             trace_names
-                                .get(app.math_builder.mul_a_idx)
+                                .get(app.math_panel.builder.mul_a_idx)
                                 .cloned()
                                 .unwrap_or_default(),
                         )
                         .show_ui(ui, |ui| {
                             for (i, n) in trace_names.iter().enumerate() {
-                                ui.selectable_value(&mut app.math_builder.mul_a_idx, i, n);
+                                ui.selectable_value(&mut app.math_panel.builder.mul_a_idx, i, n);
                             }
                         });
                     egui::ComboBox::from_label("B")
                         .selected_text(
                             trace_names
-                                .get(app.math_builder.mul_b_idx)
+                                .get(app.math_panel.builder.mul_b_idx)
                                 .cloned()
                                 .unwrap_or_default(),
                         )
                         .show_ui(ui, |ui| {
                             for (i, n) in trace_names.iter().enumerate() {
-                                ui.selectable_value(&mut app.math_builder.mul_b_idx, i, n);
+                                ui.selectable_value(&mut app.math_panel.builder.mul_b_idx, i, n);
                             }
                         });
                 });
@@ -440,7 +430,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     .default_open(false)
                     .show(ui, |ui| {
                         if is_editing {
-                            if let Some(editing_name) = app.math_editing.clone() {
+                            if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
                                     super::traceslook_ui::trace_look_editor_inline(
                                         ui,
@@ -457,7 +447,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         } else {
                             super::traceslook_ui::trace_look_editor_inline(
                                 ui,
-                                &mut app.math_builder.look,
+                                &mut app.math_panel.builder.look,
                                 true,
                                 None,
                                 false,
@@ -473,18 +463,18 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Cancel").clicked() {
-                            app.math_editing = None;
-                            app.math_creating = false;
-                            app.math_builder = MathBuilderState::default();
-                            app.math_error = None;
+                            app.math_panel.editing = None;
+                            app.math_panel.creating = false;
+                            app.math_panel.builder = MathBuilderState::default();
+                            app.math_panel.error = None;
                         }
                     });
                     if save_clicked {
                         if let (Some(a), Some(b)) = (
-                            trace_names.get(app.math_builder.mul_a_idx),
-                            trace_names.get(app.math_builder.mul_b_idx),
+                            trace_names.get(app.math_panel.builder.mul_a_idx),
+                            trace_names.get(app.math_panel.builder.mul_b_idx),
                         ) {
-                            let kind = if app.math_builder.kind_idx == 1 {
+                            let kind = if app.math_panel.builder.kind_idx == 1 {
                                 MathKind::Multiply {
                                     a: TraceRef(a.clone()),
                                     b: TraceRef(b.clone()),
@@ -495,20 +485,20 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                                     b: TraceRef(b.clone()),
                                 }
                             };
-                            if !app.math_builder.name.is_empty() {
+                            if !app.math_panel.builder.name.is_empty() {
                                 let def = MathTraceDef {
-                                    name: app.math_builder.name.clone(),
+                                    name: app.math_panel.builder.name.clone(),
                                     color_hint: None,
                                     kind,
                                 };
                                 app.apply_add_or_edit(def);
-                                if app.math_error.is_none() {
-                                    if let Some(tr) = app.traces.get_mut(&app.math_builder.name) {
+                                if app.math_panel.error.is_none() {
+                                    if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
                                         if is_creating {
-                                            tr.look = app.math_builder.look.clone();
+                                            tr.look = app.math_panel.builder.look.clone();
                                         }
                                     }
-                                    app.math_creating = false;
+                                    app.math_panel.creating = false;
                                 }
                             }
                         }
@@ -520,13 +510,13 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                 egui::ComboBox::from_label("Input")
                     .selected_text(
                         trace_names
-                            .get(app.math_builder.single_idx)
+                            .get(app.math_panel.builder.single_idx)
                             .cloned()
                             .unwrap_or_default(),
                     )
                     .show_ui(ui, |ui| {
                         for (i, n) in trace_names.iter().enumerate() {
-                            ui.selectable_value(&mut app.math_builder.single_idx, i, n);
+                            ui.selectable_value(&mut app.math_panel.builder.single_idx, i, n);
                         }
                     });
                 ui.add_space(10.0);
@@ -536,7 +526,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     .default_open(false)
                     .show(ui, |ui| {
                         if is_editing {
-                            if let Some(editing_name) = app.math_editing.clone() {
+                            if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
                                     super::traceslook_ui::trace_look_editor_inline(
                                         ui,
@@ -553,7 +543,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         } else {
                             super::traceslook_ui::trace_look_editor_inline(
                                 ui,
-                                &mut app.math_builder.look,
+                                &mut app.math_panel.builder.look,
                                 true,
                                 None,
                                 false,
@@ -569,30 +559,30 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Cancel").clicked() {
-                            app.math_editing = None;
-                            app.math_creating = false;
-                            app.math_builder = MathBuilderState::default();
-                            app.math_error = None;
+                            app.math_panel.editing = None;
+                            app.math_panel.creating = false;
+                            app.math_panel.builder = MathBuilderState::default();
+                            app.math_panel.error = None;
                         }
                     });
                     if save_clicked {
-                        if let Some(nm) = trace_names.get(app.math_builder.single_idx) {
-                            if !app.math_builder.name.is_empty() {
+                        if let Some(nm) = trace_names.get(app.math_panel.builder.single_idx) {
+                            if !app.math_panel.builder.name.is_empty() {
                                 let def = MathTraceDef {
-                                    name: app.math_builder.name.clone(),
+                                    name: app.math_panel.builder.name.clone(),
                                     color_hint: None,
                                     kind: MathKind::Differentiate {
                                         input: TraceRef(nm.clone()),
                                     },
                                 };
                                 app.apply_add_or_edit(def);
-                                if app.math_error.is_none() {
-                                    if let Some(tr) = app.traces.get_mut(&app.math_builder.name) {
+                                if app.math_panel.error.is_none() {
+                                    if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
                                         if is_creating {
-                                            tr.look = app.math_builder.look.clone();
+                                            tr.look = app.math_panel.builder.look.clone();
                                         }
                                     }
-                                    app.math_creating = false;
+                                    app.math_panel.creating = false;
                                 }
                             }
                         }
@@ -604,18 +594,18 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                 egui::ComboBox::from_label("Input")
                     .selected_text(
                         trace_names
-                            .get(app.math_builder.single_idx)
+                            .get(app.math_panel.builder.single_idx)
                             .cloned()
                             .unwrap_or_default(),
                     )
                     .show_ui(ui, |ui| {
                         for (i, n) in trace_names.iter().enumerate() {
-                            ui.selectable_value(&mut app.math_builder.single_idx, i, n);
+                            ui.selectable_value(&mut app.math_panel.builder.single_idx, i, n);
                         }
                     });
                 ui.horizontal(|ui| {
                     ui.label("y0");
-                    ui.add(egui::DragValue::new(&mut app.math_builder.integ_y0).speed(0.1));
+                    ui.add(egui::DragValue::new(&mut app.math_panel.builder.integ_y0).speed(0.1));
                 });
                 ui.add_space(10.0);
                 // Style editor just before Save/Add
@@ -624,7 +614,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     .default_open(false)
                     .show(ui, |ui| {
                         if is_editing {
-                            if let Some(editing_name) = app.math_editing.clone() {
+                            if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
                                     super::traceslook_ui::trace_look_editor_inline(
                                         ui,
@@ -641,7 +631,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         } else {
                             super::traceslook_ui::trace_look_editor_inline(
                                 ui,
-                                &mut app.math_builder.look,
+                                &mut app.math_panel.builder.look,
                                 true,
                                 None,
                                 false,
@@ -657,31 +647,31 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Cancel").clicked() {
-                            app.math_editing = None;
-                            app.math_creating = false;
-                            app.math_builder = MathBuilderState::default();
-                            app.math_error = None;
+                            app.math_panel.editing = None;
+                            app.math_panel.creating = false;
+                            app.math_panel.builder = MathBuilderState::default();
+                            app.math_panel.error = None;
                         }
                     });
                     if save_clicked {
-                        if let Some(nm) = trace_names.get(app.math_builder.single_idx) {
-                            if !app.math_builder.name.is_empty() {
+                        if let Some(nm) = trace_names.get(app.math_panel.builder.single_idx) {
+                            if !app.math_panel.builder.name.is_empty() {
                                 let def = MathTraceDef {
-                                    name: app.math_builder.name.clone(),
+                                    name: app.math_panel.builder.name.clone(),
                                     color_hint: None,
                                     kind: MathKind::Integrate {
                                         input: TraceRef(nm.clone()),
-                                        y0: app.math_builder.integ_y0,
+                                        y0: app.math_panel.builder.integ_y0,
                                     },
                                 };
                                 app.apply_add_or_edit(def);
-                                if app.math_error.is_none() {
-                                    if let Some(tr) = app.traces.get_mut(&app.math_builder.name) {
+                                if app.math_panel.error.is_none() {
+                                    if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
                                         if is_creating {
-                                            tr.look = app.math_builder.look.clone();
+                                            tr.look = app.math_panel.builder.look.clone();
                                         }
                                     }
-                                    app.math_creating = false;
+                                    app.math_panel.creating = false;
                                 }
                             }
                         }
@@ -693,13 +683,13 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                 egui::ComboBox::from_label("Input")
                     .selected_text(
                         trace_names
-                            .get(app.math_builder.single_idx)
+                            .get(app.math_panel.builder.single_idx)
                             .cloned()
                             .unwrap_or_default(),
                     )
                     .show_ui(ui, |ui| {
                         for (i, n) in trace_names.iter().enumerate() {
-                            ui.selectable_value(&mut app.math_builder.single_idx, i, n);
+                            ui.selectable_value(&mut app.math_panel.builder.single_idx, i, n);
                         }
                     });
                 let fk = [
@@ -711,18 +701,18 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     "Biquad BP",
                 ];
                 egui::ComboBox::from_label("Filter")
-                    .selected_text(fk[app.math_builder.filter_which])
+                    .selected_text(fk[app.math_panel.builder.filter_which])
                     .show_ui(ui, |ui| {
                         for (i, n) in fk.iter().enumerate() {
-                            ui.selectable_value(&mut app.math_builder.filter_which, i, *n);
+                            ui.selectable_value(&mut app.math_panel.builder.filter_which, i, *n);
                         }
                     });
-                match app.math_builder.filter_which {
+                match app.math_panel.builder.filter_which {
                     0 | 1 => {
                         ui.horizontal(|ui| {
                             ui.label("Cutoff Hz");
                             ui.add(
-                                egui::DragValue::new(&mut app.math_builder.filter_f1).speed(0.1),
+                                egui::DragValue::new(&mut app.math_panel.builder.filter_f1).speed(0.1),
                             );
                         });
                     }
@@ -730,31 +720,31 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         ui.horizontal(|ui| {
                             ui.label("Low cut Hz");
                             ui.add(
-                                egui::DragValue::new(&mut app.math_builder.filter_f1).speed(0.1),
+                                egui::DragValue::new(&mut app.math_panel.builder.filter_f1).speed(0.1),
                             );
                         });
                         ui.horizontal(|ui| {
                             ui.label("High cut Hz");
                             ui.add(
-                                egui::DragValue::new(&mut app.math_builder.filter_f2).speed(0.1),
+                                egui::DragValue::new(&mut app.math_panel.builder.filter_f2).speed(0.1),
                             );
                         });
                     }
                     3 | 4 | 5 => {
-                        let label = match app.math_builder.filter_which {
+                        let label = match app.math_panel.builder.filter_which {
                             3 | 4 => "Cutoff Hz",
                             _ => "Center Hz",
                         };
                         ui.horizontal(|ui| {
                             ui.label(label);
                             ui.add(
-                                egui::DragValue::new(&mut app.math_builder.filter_f1).speed(0.1),
+                                egui::DragValue::new(&mut app.math_panel.builder.filter_f1).speed(0.1),
                             );
                         });
                         ui.horizontal(|ui| {
                             ui.label("Q");
                             ui.add(
-                                egui::DragValue::new(&mut app.math_builder.filter_q).speed(0.01),
+                                egui::DragValue::new(&mut app.math_panel.builder.filter_q).speed(0.01),
                             );
                         });
                     }
@@ -767,7 +757,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     .default_open(false)
                     .show(ui, |ui| {
                         if is_editing {
-                            if let Some(editing_name) = app.math_editing.clone() {
+                            if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
                                     super::traceslook_ui::trace_look_editor_inline(
                                         ui,
@@ -784,7 +774,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         } else {
                             super::traceslook_ui::trace_look_editor_inline(
                                 ui,
-                                &mut app.math_builder.look,
+                                &mut app.math_panel.builder.look,
                                 true,
                                 None,
                                 false,
@@ -800,70 +790,70 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Cancel").clicked() {
-                            app.math_editing = None;
-                            app.math_creating = false;
-                            app.math_builder = MathBuilderState::default();
-                            app.math_error = None;
+                            app.math_panel.editing = None;
+                            app.math_panel.creating = false;
+                            app.math_panel.builder = MathBuilderState::default();
+                            app.math_panel.error = None;
                         }
                     });
                     if save_clicked {
-                        if let Some(nm) = trace_names.get(app.math_builder.single_idx) {
-                            if !app.math_builder.name.is_empty() {
-                                let kind = match app.math_builder.filter_which {
+                        if let Some(nm) = trace_names.get(app.math_panel.builder.single_idx) {
+                            if !app.math_panel.builder.name.is_empty() {
+                                let kind = match app.math_panel.builder.filter_which {
                                     0 => MathKind::Filter {
                                         input: TraceRef(nm.clone()),
                                         kind: FilterKind::Lowpass {
-                                            cutoff_hz: app.math_builder.filter_f1,
+                                            cutoff_hz: app.math_panel.builder.filter_f1,
                                         },
                                     },
                                     1 => MathKind::Filter {
                                         input: TraceRef(nm.clone()),
                                         kind: FilterKind::Highpass {
-                                            cutoff_hz: app.math_builder.filter_f1,
+                                            cutoff_hz: app.math_panel.builder.filter_f1,
                                         },
                                     },
                                     2 => MathKind::Filter {
                                         input: TraceRef(nm.clone()),
                                         kind: FilterKind::Bandpass {
-                                            low_cut_hz: app.math_builder.filter_f1,
-                                            high_cut_hz: app.math_builder.filter_f2,
+                                            low_cut_hz: app.math_panel.builder.filter_f1,
+                                            high_cut_hz: app.math_panel.builder.filter_f2,
                                         },
                                     },
                                     3 => MathKind::Filter {
                                         input: TraceRef(nm.clone()),
                                         kind: FilterKind::BiquadLowpass {
-                                            cutoff_hz: app.math_builder.filter_f1,
-                                            q: app.math_builder.filter_q,
+                                            cutoff_hz: app.math_panel.builder.filter_f1,
+                                            q: app.math_panel.builder.filter_q,
                                         },
                                     },
                                     4 => MathKind::Filter {
                                         input: TraceRef(nm.clone()),
                                         kind: FilterKind::BiquadHighpass {
-                                            cutoff_hz: app.math_builder.filter_f1,
-                                            q: app.math_builder.filter_q,
+                                            cutoff_hz: app.math_panel.builder.filter_f1,
+                                            q: app.math_panel.builder.filter_q,
                                         },
                                     },
                                     _ => MathKind::Filter {
                                         input: TraceRef(nm.clone()),
                                         kind: FilterKind::BiquadBandpass {
-                                            center_hz: app.math_builder.filter_f1,
-                                            q: app.math_builder.filter_q,
+                                            center_hz: app.math_panel.builder.filter_f1,
+                                            q: app.math_panel.builder.filter_q,
                                         },
                                     },
                                 };
                                 let def = MathTraceDef {
-                                    name: app.math_builder.name.clone(),
+                                    name: app.math_panel.builder.name.clone(),
                                     color_hint: None,
                                     kind,
                                 };
                                 app.apply_add_or_edit(def);
-                                if app.math_error.is_none() {
-                                    if let Some(tr) = app.traces.get_mut(&app.math_builder.name) {
+                                if app.math_panel.error.is_none() {
+                                    if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
                                         if is_creating {
-                                            tr.look = app.math_builder.look.clone();
+                                            tr.look = app.math_panel.builder.look.clone();
                                         }
                                     }
-                                    app.math_creating = false;
+                                    app.math_panel.creating = false;
                                 }
                             }
                         }
@@ -875,18 +865,18 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                 egui::ComboBox::from_label("Input")
                     .selected_text(
                         trace_names
-                            .get(app.math_builder.single_idx)
+                            .get(app.math_panel.builder.single_idx)
                             .cloned()
                             .unwrap_or_default(),
                     )
                     .show_ui(ui, |ui| {
                         for (i, n) in trace_names.iter().enumerate() {
-                            ui.selectable_value(&mut app.math_builder.single_idx, i, n);
+                            ui.selectable_value(&mut app.math_panel.builder.single_idx, i, n);
                         }
                     });
                 ui.horizontal(|ui| {
                     ui.label("Decay (1/s, 0=none)");
-                    ui.add(egui::DragValue::new(&mut app.math_builder.minmax_decay).speed(0.1));
+                    ui.add(egui::DragValue::new(&mut app.math_panel.builder.minmax_decay).speed(0.1));
                 });
                 // Style editor just before Save/Add
                 ui.add_space(8.0);
@@ -894,7 +884,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     .default_open(false)
                     .show(ui, |ui| {
                         if is_editing {
-                            if let Some(editing_name) = app.math_editing.clone() {
+                            if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
                                     super::traceslook_ui::trace_look_editor_inline(
                                         ui,
@@ -911,7 +901,7 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         } else {
                             super::traceslook_ui::trace_look_editor_inline(
                                 ui,
-                                &mut app.math_builder.look,
+                                &mut app.math_panel.builder.look,
                                 true,
                                 None,
                                 false,
@@ -927,27 +917,27 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Cancel").clicked() {
-                            app.math_editing = None;
-                            app.math_creating = false;
-                            app.math_builder = MathBuilderState::default();
-                            app.math_error = None;
+                            app.math_panel.editing = None;
+                            app.math_panel.creating = false;
+                            app.math_panel.builder = MathBuilderState::default();
+                            app.math_panel.error = None;
                         }
                     });
                     if save_clicked {
-                        if let Some(nm) = trace_names.get(app.math_builder.single_idx) {
-                            if !app.math_builder.name.is_empty() {
-                                let mode = if app.math_builder.kind_idx == 6 {
+                        if let Some(nm) = trace_names.get(app.math_panel.builder.single_idx) {
+                            if !app.math_panel.builder.name.is_empty() {
+                                let mode = if app.math_panel.builder.kind_idx == 6 {
                                     MinMaxMode::Min
                                 } else {
                                     MinMaxMode::Max
                                 };
-                                let decay_opt = if app.math_builder.minmax_decay > 0.0 {
-                                    Some(app.math_builder.minmax_decay)
+                                let decay_opt = if app.math_panel.builder.minmax_decay > 0.0 {
+                                    Some(app.math_panel.builder.minmax_decay)
                                 } else {
                                     None
                                 };
                                 let def = MathTraceDef {
-                                    name: app.math_builder.name.clone(),
+                                    name: app.math_panel.builder.name.clone(),
                                     color_hint: None,
                                     kind: MathKind::MinMax {
                                         input: TraceRef(nm.clone()),
@@ -956,13 +946,13 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                                     },
                                 };
                                 app.apply_add_or_edit(def);
-                                if app.math_error.is_none() {
-                                    if let Some(tr) = app.traces.get_mut(&app.math_builder.name) {
+                                if app.math_panel.error.is_none() {
+                                    if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
                                         if is_creating {
-                                            tr.look = app.math_builder.look.clone();
+                                            tr.look = app.math_panel.builder.look.clone();
                                         }
                                     }
-                                    app.math_creating = false;
+                                    app.math_panel.creating = false;
                                 }
                             }
                         }
@@ -975,31 +965,24 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
 }
 
 pub(super) fn show_math_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    let mut show_flag = app.show_math_dialog;
-    egui::Window::new("Math traces")
+    let mut show_flag = app.math_dock.show_dialog;
+    egui::Window::new(app.math_dock.title)
         .open(&mut show_flag)
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.strong("Math traces");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button("Dock")
-                        .on_hover_text("Attach this panel to the right sidebar")
-                        .clicked()
-                    {
-                        app.math_detached = false;
-                        app.show_math_dialog = false;
-                        app.right_panel_active_tab = super::app::RightTab::Math;
-                        app.right_panel_visible = true;
-                    }
-                });
-            });
+            let mut dock_clicked = false;
+            app.math_dock.dock_button_row(ui, || { dock_clicked = true; });
+            if dock_clicked {
+                app.math_dock.detached = false;
+                app.math_dock.show_dialog = false;
+                app.right_panel_active_tab = super::app::RightTab::Math;
+                app.right_panel_visible = true;
+            }
             ui.separator();
             math_panel_contents(app, ui);
         });
     // Keep window open state in app; if user closed, also clear detached flag
     if !show_flag {
-        app.math_detached = false;
+        app.math_dock.detached = false;
     }
-    app.show_math_dialog = show_flag;
+    app.math_dock.show_dialog = show_flag;
 }

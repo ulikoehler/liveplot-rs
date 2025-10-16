@@ -11,7 +11,7 @@ use super::types::ThresholdBuilderState;
 pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
     // (no-op)
     ui.label("Detect and log when a trace exceeds a condition.");
-    if let Some(err) = &app.thr_error {
+    if let Some(err) = &app.thresholds_panel.error {
         ui.colored_label(Color32::LIGHT_RED, err);
     }
 
@@ -24,7 +24,8 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
         let row = ui.horizontal(|ui| {
             // Threshold line color editor (from per-threshold look)
             let mut line_look = app
-                .threshold_looks
+                .thresholds_panel
+                .looks
                 .get(&def.name)
                 .cloned()
                 .unwrap_or_default();
@@ -37,12 +38,14 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
             }
             if color_resp.changed() {
                 line_look.color = col;
-                app.threshold_looks.insert(def.name.clone(), line_look);
+                app.thresholds_panel
+                    .looks
+                    .insert(def.name.clone(), line_look);
                 // Keep event colors in sync with the line color
-                if let Some(le) = app.threshold_start_looks.get_mut(&def.name) {
+                if let Some(le) = app.thresholds_panel.start_looks.get_mut(&def.name) {
                     le.color = col;
                 }
-                if let Some(le) = app.threshold_stop_looks.get_mut(&def.name) {
+                if let Some(le) = app.thresholds_panel.stop_looks.get_mut(&def.name) {
                     le.color = col;
                 }
             }
@@ -58,43 +61,43 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
                 app.hover_threshold = Some(def.name.clone());
             }
             if name_resp.clicked() {
-                app.thr_builder = ThresholdBuilderState::default();
-                app.thr_builder.name = def.name.clone();
-                app.thr_builder.target_idx = app
+                app.thresholds_panel.builder = ThresholdBuilderState::default();
+                app.thresholds_panel.builder.name = def.name.clone();
+                app.thresholds_panel.builder.target_idx = app
                     .trace_order
                     .iter()
                     .position(|n| n == &def.target.0)
                     .unwrap_or(0);
                 match &def.kind {
                     ThresholdKind::GreaterThan { value } => {
-                        app.thr_builder.kind_idx = 0;
-                        app.thr_builder.thr1 = *value;
+                        app.thresholds_panel.builder.kind_idx = 0;
+                        app.thresholds_panel.builder.thr1 = *value;
                     }
                     ThresholdKind::LessThan { value } => {
-                        app.thr_builder.kind_idx = 1;
-                        app.thr_builder.thr1 = *value;
+                        app.thresholds_panel.builder.kind_idx = 1;
+                        app.thresholds_panel.builder.thr1 = *value;
                     }
                     ThresholdKind::InRange { low, high } => {
-                        app.thr_builder.kind_idx = 2;
-                        app.thr_builder.thr1 = *low;
-                        app.thr_builder.thr2 = *high;
+                        app.thresholds_panel.builder.kind_idx = 2;
+                        app.thresholds_panel.builder.thr1 = *low;
+                        app.thresholds_panel.builder.thr2 = *high;
                     }
                 }
-                app.thr_builder.min_duration_ms = def.min_duration_s * 1000.0;
-                app.thr_builder.max_events = def.max_events;
+                app.thresholds_panel.builder.min_duration_ms = def.min_duration_s * 1000.0;
+                app.thresholds_panel.builder.max_events = def.max_events;
                 // Pre-fill looks from stored per-threshold styles
-                if let Some(l) = app.threshold_looks.get(&def.name) {
-                    app.thr_builder.look = l.clone();
+                if let Some(l) = app.thresholds_panel.looks.get(&def.name) {
+                    app.thresholds_panel.builder.look = l.clone();
                 }
-                if let Some(l) = app.threshold_start_looks.get(&def.name) {
-                    app.thr_builder.look_start_events = l.clone();
+                if let Some(l) = app.thresholds_panel.start_looks.get(&def.name) {
+                    app.thresholds_panel.builder.look_start_events = l.clone();
                 }
-                if let Some(l) = app.threshold_stop_looks.get(&def.name) {
-                    app.thr_builder.look_stop_events = l.clone();
+                if let Some(l) = app.thresholds_panel.stop_looks.get(&def.name) {
+                    app.thresholds_panel.builder.look_stop_events = l.clone();
                 }
-                app.thr_editing = Some(def.name.clone());
-                app.thr_error = None;
-                app.thr_creating = false;
+                app.thresholds_panel.editing = Some(def.name.clone());
+                app.thresholds_panel.error = None;
+                app.thresholds_panel.creating = false;
             }
 
             // Info text like math traces: target + condition; hover highlights target trace
@@ -116,42 +119,42 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
             }
             if info_resp.clicked() {
                 // Same as clicking the name: open editor
-                app.thr_builder = ThresholdBuilderState::default();
-                app.thr_builder.name = def.name.clone();
-                app.thr_builder.target_idx = app
+                app.thresholds_panel.builder = ThresholdBuilderState::default();
+                app.thresholds_panel.builder.name = def.name.clone();
+                app.thresholds_panel.builder.target_idx = app
                     .trace_order
                     .iter()
                     .position(|n| n == &def.target.0)
                     .unwrap_or(0);
                 match &def.kind {
                     ThresholdKind::GreaterThan { value } => {
-                        app.thr_builder.kind_idx = 0;
-                        app.thr_builder.thr1 = *value;
+                        app.thresholds_panel.builder.kind_idx = 0;
+                        app.thresholds_panel.builder.thr1 = *value;
                     }
                     ThresholdKind::LessThan { value } => {
-                        app.thr_builder.kind_idx = 1;
-                        app.thr_builder.thr1 = *value;
+                        app.thresholds_panel.builder.kind_idx = 1;
+                        app.thresholds_panel.builder.thr1 = *value;
                     }
                     ThresholdKind::InRange { low, high } => {
-                        app.thr_builder.kind_idx = 2;
-                        app.thr_builder.thr1 = *low;
-                        app.thr_builder.thr2 = *high;
+                        app.thresholds_panel.builder.kind_idx = 2;
+                        app.thresholds_panel.builder.thr1 = *low;
+                        app.thresholds_panel.builder.thr2 = *high;
                     }
                 }
-                app.thr_builder.min_duration_ms = def.min_duration_s * 1000.0;
-                app.thr_builder.max_events = def.max_events;
-                if let Some(l) = app.threshold_looks.get(&def.name) {
-                    app.thr_builder.look = l.clone();
+                app.thresholds_panel.builder.min_duration_ms = def.min_duration_s * 1000.0;
+                app.thresholds_panel.builder.max_events = def.max_events;
+                if let Some(l) = app.thresholds_panel.looks.get(&def.name) {
+                    app.thresholds_panel.builder.look = l.clone();
                 }
-                if let Some(l) = app.threshold_start_looks.get(&def.name) {
-                    app.thr_builder.look_start_events = l.clone();
+                if let Some(l) = app.thresholds_panel.start_looks.get(&def.name) {
+                    app.thresholds_panel.builder.look_start_events = l.clone();
                 }
-                if let Some(l) = app.threshold_stop_looks.get(&def.name) {
-                    app.thr_builder.look_stop_events = l.clone();
+                if let Some(l) = app.thresholds_panel.stop_looks.get(&def.name) {
+                    app.thresholds_panel.builder.look_stop_events = l.clone();
                 }
-                app.thr_editing = Some(def.name.clone());
-                app.thr_error = None;
-                app.thr_creating = false;
+                app.thresholds_panel.editing = Some(def.name.clone());
+                app.thresholds_panel.error = None;
+                app.thresholds_panel.creating = false;
             }
 
             // Right-aligned actions: Clear (events) and Remove (definition)
@@ -163,11 +166,11 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
                 if remove_resp.clicked() {
                     let removing = def.name.clone();
                     app.remove_threshold_internal(&removing);
-                    if app.thr_editing.as_deref() == Some(&removing) {
-                        app.thr_editing = None;
-                        app.thr_creating = false;
-                        app.thr_builder = ThresholdBuilderState::default();
-                        app.thr_error = None;
+                    if app.thresholds_panel.editing.as_deref() == Some(&removing) {
+                        app.thresholds_panel.editing = None;
+                        app.thresholds_panel.creating = false;
+                        app.thresholds_panel.builder = ThresholdBuilderState::default();
+                        app.thresholds_panel.error = None;
                     }
                 }
                 let clear_resp = ui
@@ -216,15 +219,15 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
         .on_hover_text("Create a new threshold")
         .clicked();
     if new_clicked {
-        app.thr_builder = ThresholdBuilderState::default();
-        app.thr_editing = None;
-        app.thr_error = None;
-        app.thr_creating = true;
+        app.thresholds_panel.builder = ThresholdBuilderState::default();
+        app.thresholds_panel.editing = None;
+        app.thresholds_panel.error = None;
+        app.thresholds_panel.creating = true;
     }
 
     // Settings panel (like math): shown when creating or editing
-    let is_editing = app.thr_editing.is_some();
-    let is_creating = app.thr_creating;
+    let is_editing = app.thresholds_panel.editing.is_some();
+    let is_creating = app.thresholds_panel.creating;
     if is_editing || is_creating {
         ui.add_space(12.0);
         ui.separator();
@@ -239,28 +242,28 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
         // Name, Trace, Condition
         ui.horizontal(|ui| {
             ui.label("Name");
-            ui.text_edit_singleline(&mut app.thr_builder.name);
+            ui.text_edit_singleline(&mut app.thresholds_panel.builder.name);
         });
         let trace_names: Vec<String> = app.trace_order.clone();
         egui::ComboBox::from_label("Trace")
             .selected_text(
                 trace_names
-                    .get(app.thr_builder.target_idx)
+                    .get(app.thresholds_panel.builder.target_idx)
                     .cloned()
                     .unwrap_or_default(),
             )
             .show_ui(ui, |ui| {
                 for (i, n) in trace_names.iter().enumerate() {
-                    ui.selectable_value(&mut app.thr_builder.target_idx, i, n);
+                    ui.selectable_value(&mut app.thresholds_panel.builder.target_idx, i, n);
                 }
             });
         // Default color when creating: use selected trace color at 75% alpha if not set by user yet
         if is_creating {
-            if let Some(sel_name) = trace_names.get(app.thr_builder.target_idx) {
+            if let Some(sel_name) = trace_names.get(app.thresholds_panel.builder.target_idx) {
                 if let Some(tr) = app.traces.get(sel_name) {
-                    if app.thr_builder.look.color == egui::Color32::WHITE {
+                    if app.thresholds_panel.builder.look.color == egui::Color32::WHITE {
                         let c = tr.look.color;
-                        app.thr_builder.look.color =
+                        app.thresholds_panel.builder.look.color =
                             egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 191);
                     }
                 }
@@ -268,37 +271,37 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
         }
         let kinds = [">", "<", "in range"];
         egui::ComboBox::from_label("Condition")
-            .selected_text(kinds[app.thr_builder.kind_idx])
+            .selected_text(kinds[app.thresholds_panel.builder.kind_idx])
             .show_ui(ui, |ui| {
                 for (i, k) in kinds.iter().enumerate() {
-                    ui.selectable_value(&mut app.thr_builder.kind_idx, i, *k);
+                    ui.selectable_value(&mut app.thresholds_panel.builder.kind_idx, i, *k);
                 }
             });
-        match app.thr_builder.kind_idx {
+        match app.thresholds_panel.builder.kind_idx {
             0 | 1 => {
                 ui.horizontal(|ui| {
                     ui.label("Value");
-                    ui.add(egui::DragValue::new(&mut app.thr_builder.thr1).speed(0.01));
+                    ui.add(egui::DragValue::new(&mut app.thresholds_panel.builder.thr1).speed(0.01));
                 });
             }
             _ => {
                 ui.horizontal(|ui| {
                     ui.label("Low");
-                    ui.add(egui::DragValue::new(&mut app.thr_builder.thr1).speed(0.01));
+                    ui.add(egui::DragValue::new(&mut app.thresholds_panel.builder.thr1).speed(0.01));
                 });
                 ui.horizontal(|ui| {
                     ui.label("High");
-                    ui.add(egui::DragValue::new(&mut app.thr_builder.thr2).speed(0.01));
+                    ui.add(egui::DragValue::new(&mut app.thresholds_panel.builder.thr2).speed(0.01));
                 });
             }
         }
         ui.horizontal(|ui| {
             ui.label("Min duration (ms)");
-            ui.add(egui::DragValue::new(&mut app.thr_builder.min_duration_ms).speed(0.1));
+            ui.add(egui::DragValue::new(&mut app.thresholds_panel.builder.min_duration_ms).speed(0.1));
         });
         ui.horizontal(|ui| {
             ui.label("Max events");
-            ui.add(egui::DragValue::new(&mut app.thr_builder.max_events).speed(1));
+            ui.add(egui::DragValue::new(&mut app.thresholds_panel.builder.max_events).speed(1));
         });
 
         // Collapsible style editors (moved here, just before Save/Add)
@@ -308,7 +311,7 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
             .show(ui, |ui| {
                 super::traceslook_ui::trace_look_editor_inline(
                     ui,
-                    &mut app.thr_builder.look,
+                    &mut app.thresholds_panel.builder.look,
                     false,
                     None,
                     false,
@@ -316,18 +319,18 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
                 );
             });
         // Keep event colors locked to the line color
-        app.thr_builder.look_start_events.color = app.thr_builder.look.color;
-        app.thr_builder.look_stop_events.color = app.thr_builder.look.color;
+        app.thresholds_panel.builder.look_start_events.color = app.thresholds_panel.builder.look.color;
+        app.thresholds_panel.builder.look_stop_events.color = app.thresholds_panel.builder.look.color;
         egui::CollapsingHeader::new("Style: Event start")
             .default_open(false)
             .show(ui, |ui| {
                 super::traceslook_ui::trace_look_editor_inline(
                     ui,
-                    &mut app.thr_builder.look_start_events,
+                    &mut app.thresholds_panel.builder.look_start_events,
                     true,
                     None,
                     true,
-                    Some(app.thr_builder.look.color),
+                    Some(app.thresholds_panel.builder.look.color),
                 );
             });
         egui::CollapsingHeader::new("Style: Event stop")
@@ -335,11 +338,11 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
             .show(ui, |ui| {
                 super::traceslook_ui::trace_look_editor_inline(
                     ui,
-                    &mut app.thr_builder.look_stop_events,
+                    &mut app.thresholds_panel.builder.look_stop_events,
                     true,
                     None,
                     true,
-                    Some(app.thr_builder.look.color),
+                    Some(app.thresholds_panel.builder.look.color),
                 );
             });
 
@@ -352,76 +355,79 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Cancel").clicked() {
-                    app.thr_editing = None;
-                    app.thr_creating = false;
-                    app.thr_builder = ThresholdBuilderState::default();
-                    app.thr_error = None;
+                    app.thresholds_panel.editing = None;
+                    app.thresholds_panel.creating = false;
+                    app.thresholds_panel.builder = ThresholdBuilderState::default();
+                    app.thresholds_panel.error = None;
                 }
             });
             if save_clicked {
-                if let Some(nm) = trace_names.get(app.thr_builder.target_idx) {
-                    if !app.thr_builder.name.is_empty() {
-                        let kind = match app.thr_builder.kind_idx {
+                if let Some(nm) = trace_names.get(app.thresholds_panel.builder.target_idx) {
+                    if !app.thresholds_panel.builder.name.is_empty() {
+                        let kind = match app.thresholds_panel.builder.kind_idx {
                             0 => ThresholdKind::GreaterThan {
-                                value: app.thr_builder.thr1,
+                                value: app.thresholds_panel.builder.thr1,
                             },
                             1 => ThresholdKind::LessThan {
-                                value: app.thr_builder.thr1,
+                                value: app.thresholds_panel.builder.thr1,
                             },
                             _ => ThresholdKind::InRange {
-                                low: app.thr_builder.thr1.min(app.thr_builder.thr2),
-                                high: app.thr_builder.thr1.max(app.thr_builder.thr2),
+                                low: app.thresholds_panel.builder.thr1.min(app.thresholds_panel.builder.thr2),
+                                high: app.thresholds_panel.builder.thr1.max(app.thresholds_panel.builder.thr2),
                             },
                         };
                         let def = ThresholdDef {
-                            name: app.thr_builder.name.clone(),
+                            name: app.thresholds_panel.builder.name.clone(),
                             display_name: None,
                             target: crate::math::TraceRef(nm.clone()),
                             kind,
                             color_hint: Some([
-                                app.thr_builder.look.color.r(),
-                                app.thr_builder.look.color.g(),
-                                app.thr_builder.look.color.b(),
+                                app.thresholds_panel.builder.look.color.r(),
+                                app.thresholds_panel.builder.look.color.g(),
+                                app.thresholds_panel.builder.look.color.b(),
                             ]),
-                            min_duration_s: (app.thr_builder.min_duration_ms / 1000.0).max(0.0),
-                            max_events: app.thr_builder.max_events,
+                            min_duration_s: (app.thresholds_panel.builder.min_duration_ms / 1000.0).max(0.0),
+                            max_events: app.thresholds_panel.builder.max_events,
                         };
                         if is_editing {
-                            let orig = app.thr_editing.clone().unwrap();
+                            let orig = app.thresholds_panel.editing.clone().unwrap();
                             app.remove_threshold_internal(&orig);
                             app.add_threshold_internal(def.clone());
-                            app.threshold_looks
-                                .insert(def.name.clone(), app.thr_builder.look.clone());
+                            app.thresholds_panel
+                                .looks
+                                .insert(def.name.clone(), app.thresholds_panel.builder.look.clone());
                             // Save start/stop looks (colors are already synced to line color)
-                            app.threshold_start_looks.insert(
+                            app.thresholds_panel.start_looks.insert(
                                 def.name.clone(),
-                                app.thr_builder.look_start_events.clone(),
+                                app.thresholds_panel.builder.look_start_events.clone(),
                             );
-                            app.threshold_stop_looks
-                                .insert(def.name.clone(), app.thr_builder.look_stop_events.clone());
-                            app.thr_editing = None;
-                            app.thr_creating = false;
-                            app.thr_builder = ThresholdBuilderState::default();
-                            app.thr_error = None;
+                            app.thresholds_panel
+                                .stop_looks
+                                .insert(def.name.clone(), app.thresholds_panel.builder.look_stop_events.clone());
+                            app.thresholds_panel.editing = None;
+                            app.thresholds_panel.creating = false;
+                            app.thresholds_panel.builder = ThresholdBuilderState::default();
+                            app.thresholds_panel.error = None;
                         } else {
                             if app.threshold_defs.iter().any(|d| d.name == def.name) {
-                                app.thr_error =
+                                app.thresholds_panel.error =
                                     Some("A threshold with this name already exists".into());
                             } else {
                                 app.add_threshold_internal(def.clone());
-                                app.threshold_looks
-                                    .insert(def.name.clone(), app.thr_builder.look.clone());
-                                app.threshold_start_looks.insert(
+                                app.thresholds_panel
+                                    .looks
+                                    .insert(def.name.clone(), app.thresholds_panel.builder.look.clone());
+                                app.thresholds_panel.start_looks.insert(
                                     def.name.clone(),
-                                    app.thr_builder.look_start_events.clone(),
+                                    app.thresholds_panel.builder.look_start_events.clone(),
                                 );
-                                app.threshold_stop_looks.insert(
+                                app.thresholds_panel.stop_looks.insert(
                                     def.name.clone(),
-                                    app.thr_builder.look_stop_events.clone(),
+                                    app.thresholds_panel.builder.look_stop_events.clone(),
                                 );
-                                app.thr_creating = false;
-                                app.thr_builder = ThresholdBuilderState::default();
-                                app.thr_error = None;
+                                app.thresholds_panel.creating = false;
+                                app.thresholds_panel.builder = ThresholdBuilderState::default();
+                                app.thresholds_panel.error = None;
                             }
                         }
                     }
@@ -443,7 +449,7 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
         }
         names.sort();
         names.dedup();
-        let mut sel = app.threshold_events_filter.clone();
+        let mut sel = app.thresholds_panel.events_filter.clone();
         egui::ComboBox::from_id_salt("thr_events_filter")
             .selected_text(match &sel {
                 Some(s) => format!("{}", s),
@@ -459,8 +465,8 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
                     }
                 }
             });
-        if sel != app.threshold_events_filter {
-            app.threshold_events_filter = sel;
+        if sel != app.thresholds_panel.events_filter {
+            app.thresholds_panel.events_filter = sel;
         }
         if ui.button("Export to CSV").clicked() {
             // Collect filtered events (newest first as shown)
@@ -469,7 +475,7 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
                 .iter()
                 .rev()
                 .filter(|e| {
-                    app.threshold_events_filter
+                    app.thresholds_panel.events_filter
                         .as_ref()
                         .map_or(true, |f| &e.threshold == f)
                 })
@@ -500,7 +506,7 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
         .iter()
         .rev()
         .filter(|e| {
-            app.threshold_events_filter
+            app.thresholds_panel.events_filter
                 .as_ref()
                 .map_or(true, |f| &e.threshold == f)
         })
@@ -617,30 +623,23 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
 }
 
 pub(super) fn show_thresholds_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    let mut show_flag = app.show_thresholds_dialog;
-    egui::Window::new("Thresholds")
+    let mut show_flag = app.thresholds_dock.show_dialog;
+    egui::Window::new(app.thresholds_dock.title)
         .open(&mut show_flag)
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.strong("Thresholds");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button("Dock")
-                        .on_hover_text("Attach this panel to the right sidebar")
-                        .clicked()
-                    {
-                        app.thresholds_detached = false;
-                        app.show_thresholds_dialog = false;
-                        app.right_panel_active_tab = super::app::RightTab::Thresholds;
-                        app.right_panel_visible = true;
-                    }
-                });
-            });
+            let mut dock_clicked = false;
+            app.thresholds_dock.dock_button_row(ui, || { dock_clicked = true; });
+            if dock_clicked {
+                app.thresholds_dock.detached = false;
+                app.thresholds_dock.show_dialog = false;
+                app.right_panel_active_tab = super::app::RightTab::Thresholds;
+                app.right_panel_visible = true;
+            }
             ui.separator();
             thresholds_panel_contents(app, ui);
         });
     if !show_flag {
-        app.thresholds_detached = false;
+        app.thresholds_dock.detached = false;
     }
-    app.show_thresholds_dialog = show_flag;
+    app.thresholds_dock.show_dialog = show_flag;
 }

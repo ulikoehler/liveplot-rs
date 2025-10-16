@@ -191,8 +191,8 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                             }
                             if resp.clicked() {
                                 if !r.is_free {
-                                    let cur = self.app.look_editor_trace.clone();
-                                    self.app.look_editor_trace = if cur.as_deref() == Some(&r.name) { None } else { Some(r.name.clone()) };
+                                    let cur = self.app.traces_panel.look_editor_trace.clone();
+                                    self.app.traces_panel.look_editor_trace = if cur.as_deref() == Some(&r.name) { None } else { Some(r.name.clone()) };
                                     // Clear hover so highlight doesn't obscure editor
                                     self.app.hover_trace = None;
                                 }
@@ -357,7 +357,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
     let header_h = 24.0_f32;
     let row_h = 22.0_f32;
     let rows_len = rows.len() as f32;
-    let editor_open = app.look_editor_trace.is_some();
+    let editor_open = app.traces_panel.look_editor_trace.is_some();
     let preferred = header_h + row_h * rows_len + 8.0;
     let avail_h = ui.available_height();
     // With the editor placed below the table, give the table a larger share when open.
@@ -388,7 +388,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
             }
 
             // Render inline style editor beneath the table
-            if let Some(tn) = app.look_editor_trace.clone() {
+            if let Some(tn) = app.traces_panel.look_editor_trace.clone() {
                 if let Some(tr) = app.traces.get_mut(&tn) {
                     ui.add_space(8.0);
                     egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -396,7 +396,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                             ui.strong(format!("Style: {}", tn));
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 if ui.small_button("Close").clicked() {
-                                    app.look_editor_trace = None;
+                                    app.traces_panel.look_editor_trace = None;
                                 }
                             });
                         });
@@ -412,37 +412,30 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                     });
                 } else {
                     ui.label("Trace not found.");
-                    app.look_editor_trace = None;
+                    app.traces_panel.look_editor_trace = None;
                 }
             }
         });
 }
 
 pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    let mut show_flag = app.show_traces_dialog;
-    egui::Window::new("Traces")
+    let mut show_flag = app.traces_dock.show_dialog;
+    egui::Window::new(app.traces_dock.title)
         .open(&mut show_flag)
         .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.strong("Traces");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .button("Dock")
-                        .on_hover_text("Attach this panel to the right sidebar")
-                        .clicked()
-                    {
-                        app.traces_detached = false;
-                        app.show_traces_dialog = false;
-                        app.right_panel_active_tab = super::app::RightTab::Traces;
-                        app.right_panel_visible = true;
-                    }
-                });
-            });
+            let mut dock_clicked = false;
+            app.traces_dock.dock_button_row(ui, || { dock_clicked = true; });
+            if dock_clicked {
+                app.traces_dock.detached = false;
+                app.traces_dock.show_dialog = false;
+                app.right_panel_active_tab = super::app::RightTab::Traces;
+                app.right_panel_visible = true;
+            }
             ui.separator();
             traces_panel_contents(app, ui);
         });
     if !show_flag {
-        app.traces_detached = false;
+        app.traces_dock.detached = false;
     }
-    app.show_traces_dialog = show_flag;
+    app.traces_dock.show_dialog = show_flag;
 }

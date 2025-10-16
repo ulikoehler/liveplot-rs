@@ -42,8 +42,10 @@ use crate::math::{compute_math_trace, MathRuntimeState, MathTraceDef};
 use crate::point_selection::PointSelection;
 use crate::sink::MultiSample;
 use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState};
+use super::panel::DockState;
 
-use super::types::{MathBuilderState, ThresholdBuilderState, TraceLook, TraceState};
+use super::types::{MathBuilderState, TraceLook, TraceState};
+use super::panel::{MathPanelState, ThresholdsPanelState, TracesPanelState};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum ControlsMode {
@@ -118,52 +120,35 @@ pub struct ScopeAppMulti {
     // Math traces
     pub math_defs: Vec<MathTraceDef>,
     pub(super) math_states: HashMap<String, MathRuntimeState>,
-    pub(super) show_math_dialog: bool,
-    pub(super) show_traces_dialog: bool,
-    pub(super) traces_detached: bool,
-    pub(super) math_builder: MathBuilderState,
-    pub(super) math_editing: Option<String>,
-    pub(super) math_error: Option<String>,
-    /// Whether the math builder is in 'creating new' mode (separate from editing an existing one)
-    pub(super) math_creating: bool,
+    
     // Thresholds
     pub threshold_controller: Option<ThresholdController>,
     pub threshold_defs: Vec<ThresholdDef>,
     pub(super) threshold_states: HashMap<String, ThresholdRuntimeState>,
-    pub(super) show_thresholds_dialog: bool,
-    pub(super) thresholds_detached: bool,
-    pub(super) thr_builder: ThresholdBuilderState,
-    pub(super) thr_editing: Option<String>,
-    pub(super) thr_error: Option<String>,
-    /// Whether the threshold builder is in 'creating new' mode
-    pub(super) thr_creating: bool,
+    
+    // Unified dock state for panels
+    pub(super) traces_dock: DockState,
+    pub(super) math_dock: DockState,
+    pub(super) thresholds_dock: DockState,
     // Threshold events (global)
     /// Total number of threshold exceed events observed since app start (never capped).
-    pub threshold_total_count: u64,
+    pub threshold_total_count: u64, // TODO Remove
     /// Global rolling log of recent threshold events (for the UI table).
     pub(super) threshold_event_log: VecDeque<ThresholdEvent>,
     /// Maximum number of events to keep in the global UI log (prevents unbounded memory growth).
     pub(super) threshold_event_log_cap: usize,
-    /// Optional filter for the events table (None = all thresholds, Some(name) = only that threshold).
-    pub(super) threshold_events_filter: Option<String>,
-    /// Per-threshold styles for horizontal threshold lines
-    pub(super) threshold_looks: HashMap<String, TraceLook>,
-    /// Per-threshold styles for event start markers (vertical lines or points)
-    pub(super) threshold_start_looks: HashMap<String, TraceLook>,
-    /// Per-threshold styles for event stop markers (vertical lines or points)
-    pub(super) threshold_stop_looks: HashMap<String, TraceLook>,
     /// Currently hovered trace name for UI highlighting
     pub(super) hover_trace: Option<String>,
     /// Currently hovered threshold name for UI highlighting
     pub(super) hover_threshold: Option<String>,
     /// Which right-side tab is active
     pub(super) right_panel_active_tab: RightTab,
-    /// Whether the math panel is popped out as a detached window
-    pub(super) math_detached: bool,
     /// Whether the right sidebar (tabbed panels) is visible
     pub(super) right_panel_visible: bool,
-    /// If set, opens a style editor window for the given trace name
-    pub(super) look_editor_trace: Option<String>,
+    // New per-panel state holders
+    pub(super) math_panel: MathPanelState,
+    pub(super) thresholds_panel: ThresholdsPanelState,
+    pub(super) traces_panel: TracesPanelState,
 }
 
 impl ScopeAppMulti {
@@ -307,21 +292,14 @@ impl ScopeAppMulti {
 
     /// Show any open dialogs in a shared way.
     fn show_dialogs_shared(&mut self, ctx: &egui::Context) {
-        if self.show_math_dialog && self.math_detached {
+        if self.math_dock.detached && self.math_dock.show_dialog {
             super::math_ui::show_math_dialog(self, ctx);
-        } else if self.show_math_dialog && !self.math_detached {
-            // Prevent showing as window when not detached
-            self.show_math_dialog = false;
         }
-        if self.show_traces_dialog && self.traces_detached {
+        if self.traces_dock.detached && self.traces_dock.show_dialog {
             super::traces_ui::show_traces_dialog(self, ctx);
-        } else if self.show_traces_dialog && !self.traces_detached {
-            self.show_traces_dialog = false;
         }
-        if self.show_thresholds_dialog && self.thresholds_detached {
+        if self.thresholds_dock.detached && self.thresholds_dock.show_dialog {
             super::thresholds_ui::show_thresholds_dialog(self, ctx);
-        } else if self.show_thresholds_dialog && !self.thresholds_detached {
-            self.show_thresholds_dialog = false;
         }
     }
 
@@ -590,7 +568,8 @@ impl ScopeAppMulti {
                         }
                         // Effective looks for threshold line and events
                         let thr_look = self
-                            .threshold_looks
+                            .thresholds_panel
+                            .looks
                             .get(&def.name)
                             .cloned()
                             .unwrap_or_else(|| {
@@ -604,7 +583,8 @@ impl ScopeAppMulti {
                                 l
                             });
                         let ev_start_look = self
-                            .threshold_start_looks
+                            .thresholds_panel
+                            .start_looks
                             .get(&def.name)
                             .cloned()
                             .unwrap_or_else(|| {
@@ -614,7 +594,8 @@ impl ScopeAppMulti {
                                 l
                             });
                         let ev_stop_look = self
-                            .threshold_stop_looks
+                            .thresholds_panel
+                            .stop_looks
                             .get(&def.name)
                             .cloned()
                             .unwrap_or_else(|| {
@@ -1587,8 +1568,9 @@ impl ScopeAppMulti {
                 .on_hover_text("Select marker/display and colors")
                 .clicked()
             {
-                if self.traces_detached {
-                    self.show_traces_dialog = true; // floating window
+                if self.traces_dock.detached {
+                    self.traces_dock.detached = true;
+                    self.traces_dock.show_dialog = true; // floating window
                     self.right_panel_visible = false;
                 } else {
                     self.right_panel_active_tab = RightTab::Traces;
@@ -1601,8 +1583,9 @@ impl ScopeAppMulti {
                 .on_hover_text("Create and manage math traces")
                 .clicked()
             {
-                if self.math_detached {
-                    self.show_math_dialog = true; // floating window
+                if self.math_dock.detached {
+                    self.math_dock.detached = true;
+                    self.math_dock.show_dialog = true; // floating window
                     self.right_panel_visible = false;
                 } else {
                     self.right_panel_active_tab = RightTab::Math;
@@ -1620,8 +1603,9 @@ impl ScopeAppMulti {
                 .on_hover_text("Create and manage threshold detectors")
                 .clicked()
             {
-                if self.thresholds_detached {
-                    self.show_thresholds_dialog = true; // floating window
+                if self.thresholds_dock.detached {
+                    self.thresholds_dock.detached = true;
+                    self.thresholds_dock.show_dialog = true; // floating window
                     self.right_panel_visible = false;
                 } else {
                     self.right_panel_active_tab = RightTab::Thresholds;
@@ -1670,35 +1654,22 @@ impl ScopeAppMulti {
             zoom_mode: ZoomMode::X,
             math_defs: Vec::new(),
             math_states: HashMap::new(),
-            show_math_dialog: false,
-            show_traces_dialog: false,
-            traces_detached: false,
-            math_builder: MathBuilderState::default(),
-            math_editing: None,
-            math_error: None,
-            math_creating: false,
             threshold_controller: None,
             threshold_defs: Vec::new(),
             threshold_states: HashMap::new(),
-            show_thresholds_dialog: false,
-            thresholds_detached: false,
-            thr_builder: ThresholdBuilderState::default(),
-            thr_editing: None,
-            thr_error: None,
-            thr_creating: false,
+            traces_dock: DockState::new("Traces"),
+            math_dock: DockState::new("Math traces"),
+            thresholds_dock: DockState::new("Thresholds"),
             threshold_total_count: 0,
             threshold_event_log: VecDeque::new(),
             threshold_event_log_cap: 10_000,
-            threshold_events_filter: None,
-            threshold_looks: HashMap::new(),
-            threshold_start_looks: HashMap::new(),
-            threshold_stop_looks: HashMap::new(),
             hover_trace: None,
             hover_threshold: None,
             right_panel_active_tab: RightTab::Traces,
-            math_detached: false,
             right_panel_visible: false,
-            look_editor_trace: None,
+            math_panel: MathPanelState::default(),
+            thresholds_panel: ThresholdsPanelState::default(),
+            traces_panel: TracesPanelState::default(),
         }
     }
 
@@ -2108,9 +2079,10 @@ impl ScopeAppMulti {
     pub(crate) fn remove_threshold_internal(&mut self, name: &str) {
         self.threshold_defs.retain(|d| d.name != name);
         self.threshold_states.remove(name);
-        self.threshold_looks.remove(name);
-    self.threshold_start_looks.remove(name);
-    self.threshold_stop_looks.remove(name);
+        // Remove any stored looks for this threshold
+        self.thresholds_panel.looks.remove(name);
+        self.thresholds_panel.start_looks.remove(name);
+        self.thresholds_panel.stop_looks.remove(name);
     }
 
     /// Public API: add/remove/list thresholds; get events for a threshold (clone)
@@ -2179,25 +2151,27 @@ impl ScopeAppMulti {
     }
 
     pub(crate) fn apply_add_or_edit(&mut self, def: MathTraceDef) {
-        self.math_error = None;
-        if let Some(orig) = self.math_editing.clone() {
+        // Prefer panel state; keep legacy fields in sync if still used elsewhere
+        self.math_panel.error = None;
+        if let Some(orig) = self.math_panel.editing.clone() {
             match self.update_math_trace(&orig, def) {
                 Ok(()) => {
-                    self.math_editing = None;
-                    self.math_builder = MathBuilderState::default();
+                    self.math_panel.editing = None;
+                    self.math_panel.builder = MathBuilderState::default();
                 }
                 Err(e) => {
-                    self.math_error = Some(e.to_string());
+                    self.math_panel.error = Some(e.to_string());
                 }
             }
         } else {
             if self.traces.contains_key(&def.name) {
-                self.math_error = Some("A trace with this name already exists".into());
+                self.math_panel.error = Some("A trace with this name already exists".into());
                 return;
             }
             self.add_math_trace_internal(def);
-            self.math_builder = MathBuilderState::default();
+            self.math_panel.builder = MathBuilderState::default();
         }
+        // no-op: legacy mirrors removed
     }
 
     fn alloc_color(index: usize) -> Color32 {
@@ -2266,8 +2240,8 @@ impl eframe::App for ScopeAppMulti {
                                         .on_hover_text("Open Traces panel in a floating window")
                                         .clicked()
                                     {
-                                        self.traces_detached = true;
-                                        self.show_traces_dialog = true;
+                                        self.traces_dock.detached = true;
+                                        self.traces_dock.show_dialog = true;
                                         self.right_panel_visible = false;
                                     }
                                 }
@@ -2277,8 +2251,8 @@ impl eframe::App for ScopeAppMulti {
                                         .on_hover_text("Open Math panel in a floating window")
                                         .clicked()
                                     {
-                                        self.math_detached = true;
-                                        self.show_math_dialog = true;
+                                        self.math_dock.detached = true;
+                                        self.math_dock.show_dialog = true;
                                         self.right_panel_visible = false;
                                     }
                                 }
@@ -2288,8 +2262,8 @@ impl eframe::App for ScopeAppMulti {
                                         .on_hover_text("Open Thresholds panel in a floating window")
                                         .clicked()
                                     {
-                                        self.thresholds_detached = true;
-                                        self.show_thresholds_dialog = true;
+                                        self.thresholds_dock.detached = true;
+                                        self.thresholds_dock.show_dialog = true;
                                         self.right_panel_visible = false;
                                     }
                                 }
@@ -2299,7 +2273,7 @@ impl eframe::App for ScopeAppMulti {
                     ui.separator();
                     match self.right_panel_active_tab {
                         RightTab::Traces => {
-                            if self.traces_detached {
+                            if self.traces_dock.detached {
                                 ui.horizontal(|ui| {
                                     ui.label("Traces panel is detached.");
                                     if ui
@@ -2307,8 +2281,8 @@ impl eframe::App for ScopeAppMulti {
                                         .on_hover_text("Reattach Traces to the sidebar")
                                         .clicked()
                                     {
-                                        self.traces_detached = false;
-                                        self.show_traces_dialog = false;
+                                        self.traces_dock.detached = false;
+                                        self.traces_dock.show_dialog = false;
                                         self.right_panel_active_tab = RightTab::Traces;
                                         self.right_panel_visible = true;
                                     }
@@ -2318,7 +2292,7 @@ impl eframe::App for ScopeAppMulti {
                             }
                         }
                         RightTab::Math => {
-                            if self.math_detached {
+                            if self.math_dock.detached {
                                 ui.horizontal(|ui| {
                                     ui.label("Math panel is detached.");
                                     if ui
@@ -2326,8 +2300,8 @@ impl eframe::App for ScopeAppMulti {
                                         .on_hover_text("Reattach Math to the sidebar")
                                         .clicked()
                                     {
-                                        self.math_detached = false;
-                                        self.show_math_dialog = false;
+                                        self.math_dock.detached = false;
+                                        self.math_dock.show_dialog = false;
                                         self.right_panel_active_tab = RightTab::Math;
                                         self.right_panel_visible = true;
                                     }
@@ -2337,7 +2311,7 @@ impl eframe::App for ScopeAppMulti {
                             }
                         }
                         RightTab::Thresholds => {
-                            if self.thresholds_detached {
+                            if self.thresholds_dock.detached {
                                 ui.horizontal(|ui| {
                                     ui.label("Thresholds panel is detached.");
                                     if ui
@@ -2345,8 +2319,8 @@ impl eframe::App for ScopeAppMulti {
                                         .on_hover_text("Reattach Thresholds to the sidebar")
                                         .clicked()
                                     {
-                                        self.thresholds_detached = false;
-                                        self.show_thresholds_dialog = false;
+                                        self.thresholds_dock.detached = false;
+                                        self.thresholds_dock.show_dialog = false;
                                         self.right_panel_active_tab = RightTab::Thresholds;
                                         self.right_panel_visible = true;
                                     }
@@ -2359,7 +2333,7 @@ impl eframe::App for ScopeAppMulti {
                 });
         }
 
-        // Shared dialogs
+    // Shared dialogs
         self.show_dialogs_shared(ctx);
 
         // FFT bottom panel for multi-traces
