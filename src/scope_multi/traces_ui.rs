@@ -419,23 +419,5 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
 }
 
 pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    let mut show_flag = app.traces_dock.show_dialog;
-    egui::Window::new(app.traces_dock.title)
-        .open(&mut show_flag)
-        .show(ctx, |ui| {
-            let mut dock_clicked = false;
-            app.traces_dock.dock_button_row(ui, || { dock_clicked = true; });
-            if dock_clicked {
-                app.traces_dock.detached = false;
-                app.traces_dock.show_dialog = false;
-                app.right_panel_active_tab = super::app::RightTab::Traces;
-                app.right_panel_visible = true;
-            }
-            ui.separator();
-            traces_panel_contents(app, ui);
-        });
-    if !show_flag {
-        app.traces_dock.detached = false;
-    }
-    app.traces_dock.show_dialog = show_flag;
+    super::panel::show_detached_dialog::<super::panel::TracesDockPanel>(app, ctx);
 }

@@ -965,24 +965,5 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
 }
 
 pub(super) fn show_math_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    let mut show_flag = app.math_dock.show_dialog;
-    egui::Window::new(app.math_dock.title)
-        .open(&mut show_flag)
-        .show(ctx, |ui| {
-            let mut dock_clicked = false;
-            app.math_dock.dock_button_row(ui, || { dock_clicked = true; });
-            if dock_clicked {
-                app.math_dock.detached = false;
-                app.math_dock.show_dialog = false;
-                app.right_panel_active_tab = super::app::RightTab::Math;
-                app.right_panel_visible = true;
-            }
-            ui.separator();
-            math_panel_contents(app, ui);
-        });
-    // Keep window open state in app; if user closed, also clear detached flag
-    if !show_flag {
-        app.math_dock.detached = false;
-    }
-    app.math_dock.show_dialog = show_flag;
+    super::panel::show_detached_dialog::<super::panel::MathDockPanel>(app, ctx);
 }

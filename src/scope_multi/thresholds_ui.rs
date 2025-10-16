@@ -623,23 +623,5 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
 }
 
 pub(super) fn show_thresholds_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    let mut show_flag = app.thresholds_dock.show_dialog;
-    egui::Window::new(app.thresholds_dock.title)
-        .open(&mut show_flag)
-        .show(ctx, |ui| {
-            let mut dock_clicked = false;
-            app.thresholds_dock.dock_button_row(ui, || { dock_clicked = true; });
-            if dock_clicked {
-                app.thresholds_dock.detached = false;
-                app.thresholds_dock.show_dialog = false;
-                app.right_panel_active_tab = super::app::RightTab::Thresholds;
-                app.right_panel_visible = true;
-            }
-            ui.separator();
-            thresholds_panel_contents(app, ui);
-        });
-    if !show_flag {
-        app.thresholds_dock.detached = false;
-    }
-    app.thresholds_dock.show_dialog = show_flag;
+    super::panel::show_detached_dialog::<super::panel::ThresholdsDockPanel>(app, ctx);
 }
