@@ -40,14 +40,9 @@ impl Default for ThresholdsPanel {
 }
 
 impl DockPanel for ThresholdsPanel {
-    fn get_mut(app: &mut ScopeAppMulti) -> &mut Self { &mut app.thresholds_panel }
     fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
-    fn panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+    fn panel_contents(&mut self, app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
         thresholds_panel_contents(app, ui);
-    }
-    fn on_dock(app: &mut ScopeAppMulti) {
-        app.right_panel_active_tab = super::app::RightTab::Thresholds;
-        app.right_panel_visible = true;
     }
 }
 
@@ -665,8 +660,6 @@ pub(super) fn thresholds_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::
     }
 }
 
-pub(super) fn show_thresholds_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    <ThresholdsPanel as DockPanel>::show_detached_dialog(app, ctx);
-}
+// Removed unused show_thresholds_dialog helper; dialogs are shown via DockPanel::show_detached_dialog
 
 

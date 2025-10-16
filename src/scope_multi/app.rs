@@ -3,7 +3,7 @@
 use chrono::Local;
 use eframe::{self, egui};
 use egui::{Align2, Color32};
-use egui_plot::{Legend, Line, Plot, PlotPoint, Points, Text, HLine, VLine};
+use egui_plot::{HLine, Legend, Line, Plot, PlotPoint, Points, Text, VLine};
 use image::{Rgba, RgbaImage};
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::Receiver;
@@ -41,12 +41,15 @@ use crate::config::XDateFormat;
 use crate::math::{compute_math_trace, MathRuntimeState, MathTraceDef};
 use crate::point_selection::PointSelection;
 use crate::sink::MultiSample;
-use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState};
+use crate::thresholds::{
+    ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState,
+};
 
-use super::types::{MathBuilderState, TraceLook, TraceState};
 use super::math_ui::MathPanel;
+use super::panel::DockPanel;
 use super::thresholds_ui::ThresholdsPanel;
 use super::traces_ui::TracesPanel;
+use super::types::{MathBuilderState, TraceLook, TraceState};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum ControlsMode {
@@ -54,12 +57,7 @@ enum ControlsMode {
     Main,
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub(super) enum RightTab {
-    Traces,
-    Math,
-    Thresholds,
-}
+// Removed RightTab enum: sidebar visibility and active tab are derived from per-panel DockState
 
 /// Egui app that displays multiple traces and supports point selection and FFT.
 pub struct ScopeAppMulti {
@@ -121,16 +119,14 @@ pub struct ScopeAppMulti {
     // Math traces
     pub math_defs: Vec<MathTraceDef>,
     pub(super) math_states: HashMap<String, MathRuntimeState>,
-    
+
     // Thresholds
     pub threshold_controller: Option<ThresholdController>,
     pub threshold_defs: Vec<ThresholdDef>,
     pub(super) threshold_states: HashMap<String, ThresholdRuntimeState>,
-    
+
     // Unified dock state lives in per-panel state structs
     // Threshold events (global)
-    /// Total number of threshold exceed events observed since app start (never capped).
-    pub threshold_total_count: u64, // TODO Remove
     /// Global rolling log of recent threshold events (for the UI table).
     pub(super) threshold_event_log: VecDeque<ThresholdEvent>,
     /// Maximum number of events to keep in the global UI log (prevents unbounded memory growth).
@@ -139,10 +135,7 @@ pub struct ScopeAppMulti {
     pub(super) hover_trace: Option<String>,
     /// Currently hovered threshold name for UI highlighting
     pub(super) hover_threshold: Option<String>,
-    /// Which right-side tab is active
-    pub(super) right_panel_active_tab: RightTab,
-    /// Whether the right sidebar (tabbed panels) is visible
-    pub(super) right_panel_visible: bool,
+    // Right panel sidebar visibility/active tab are derived from per-panel DockState
     // New per-panel state holders
     pub(super) math_panel: MathPanel,
     pub(super) thresholds_panel: ThresholdsPanel,
@@ -150,6 +143,495 @@ pub struct ScopeAppMulti {
 }
 
 impl ScopeAppMulti {
+    /// Render the right-side sidebar contents (tabs header + active panel body).
+    ///
+    /// This method draws only the inner UI. Call it inside a container, e.g.:
+    /// - In the main app: inside `egui::SidePanel::right(...).show(ctx, |ui| { ... })`
+    /// - In embedded/inline usage: inside any `ui` region such as `ui.group(|ui| ...)`.
+    fn render_sidebar_ui(&mut self, ui: &mut egui::Ui) {
+        // Header: choose active attached panel by toggling which one is attached
+        ui.horizontal(|ui| {
+            let mut clicked_idx: Option<usize> = None;
+            // Read titles and active flags first to avoid holding borrows during UI
+            let titles_flags: Vec<(&'static str, bool)> = {
+                let mut panels = self.side_panels();
+                panels
+                    .iter_mut()
+                    .map(|p| {
+                        let d = p.dock_mut();
+                        (d.title, !d.detached && d.show_dialog)
+                    })
+                    .collect()
+            };
+            for (i, (title, active)) in titles_flags.iter().enumerate() {
+                if ui.selectable_label(*active, *title).clicked() {
+                    clicked_idx = Some(i);
+                }
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .button("Hide")
+                    .on_hover_text("Hide the sidebar")
+                    .clicked()
+                {
+                    let mut panels = self.side_panels();
+                    for p in panels.iter_mut() {
+                        let d = p.dock_mut();
+                        if !d.detached {
+                            d.show_dialog = false;
+                        }
+                    }
+                }
+                // Pop out is only relevant if any panel is attached
+                let any_attached = {
+                    let mut panels = self.side_panels();
+                    panels.iter_mut().any(|p| {
+                        let d = p.dock_mut();
+                        !d.detached && d.show_dialog
+                    })
+                };
+                if any_attached {
+                    if ui
+                        .button("Pop out")
+                        .on_hover_text("Open attached panel in a floating window")
+                        .clicked()
+                    {
+                        // Convert current attached+visible panel(s) to detached dialog(s)
+                        let mut panels = self.side_panels();
+                        for p in panels.iter_mut() {
+                            let d = p.dock_mut();
+                            if !d.detached && d.show_dialog {
+                                d.detached = true;
+                                d.show_dialog = true;
+                            }
+                        }
+                    }
+                }
+            });
+            // Tab selection: focus chosen panel in sidebar and hide other attached panels
+            if let Some(i) = clicked_idx {
+                let mut panels = self.side_panels();
+                for (j, p) in panels.iter_mut().enumerate() {
+                    let d = p.dock_mut();
+                    if j == i {
+                        d.detached = false;
+                        d.show_dialog = true;
+                    } else if !d.detached {
+                        d.show_dialog = false;
+                    }
+                }
+            }
+        });
+        ui.separator();
+        // Show the currently attached panel's contents (first non-detached)
+        {
+            // Render exactly one attached+visible panel
+            let mut rendered = false;
+            if !rendered {
+                let mut p = std::mem::take(&mut self.traces_panel);
+                let show = {
+                    let d = p.dock_mut();
+                    !d.detached && d.show_dialog
+                };
+                if show {
+                    p.panel_contents(self, ui);
+                    rendered = true;
+                }
+                self.traces_panel = p;
+            }
+            if !rendered {
+                let mut p = std::mem::take(&mut self.math_panel);
+                let show = {
+                    let d = p.dock_mut();
+                    !d.detached && d.show_dialog
+                };
+                if show {
+                    p.panel_contents(self, ui);
+                    rendered = true;
+                }
+                self.math_panel = p;
+            }
+            if !rendered {
+                let mut p = std::mem::take(&mut self.thresholds_panel);
+                let show = {
+                    let d = p.dock_mut();
+                    !d.detached && d.show_dialog
+                };
+                if show {
+                    p.panel_contents(self, ui);
+                    // rendered = true; // last one doesn't matter
+                }
+                self.thresholds_panel = p;
+            }
+        }
+    }
+
+    /// Render export buttons (Save PNG screenshot and Save raw data CSV/Parquet) into the given Ui.
+    fn render_export_buttons(&mut self, ui: &mut egui::Ui) {
+        if ui
+            .button("Save PNG")
+            .on_hover_text("Take an egui viewport screenshot")
+            .clicked()
+        {
+            self.request_window_shot = true;
+        }
+        ui.menu_button("Export", |ui| {
+            let hover_text_traces: &str = {
+                #[cfg(feature = "parquet")]
+                {
+                    "Export all traces as CSV or Parquet"
+                }
+                #[cfg(not(feature = "parquet"))]
+                {
+                    "Export all traces as CSV"
+                }
+            };
+            if ui
+                .button("Traces…")
+                .on_hover_text(hover_text_traces)
+                .clicked()
+            {
+                ui.close();
+                self.prompt_and_save_raw_data();
+            }
+
+            if ui
+                .button("Threshold events…")
+                .on_hover_text("Export filtered or all threshold events as CSV")
+                .clicked()
+            {
+                ui.close();
+                self.prompt_and_save_threshold_events();
+            }
+        });
+    }
+
+    /// Show a file dialog and save raw data in the chosen format.
+    fn prompt_and_save_raw_data(&mut self) {
+        let mut dlg = rfd::FileDialog::new();
+        dlg = dlg.add_filter("CSV", &["csv"]);
+        #[cfg(feature = "parquet")]
+        {
+            dlg = dlg.add_filter("Parquet", &["parquet"]);
+        }
+        if let Some(path) = dlg.set_file_name("liveplot_export.csv").save_file() {
+            let fmt = {
+                #[cfg(feature = "parquet")]
+                {
+                    match path.extension().and_then(|s| s.to_str()).unwrap_or("") {
+                        "parquet" => RawExportFormat::Parquet,
+                        _ => RawExportFormat::Csv,
+                    }
+                }
+                #[cfg(not(feature = "parquet"))]
+                {
+                    RawExportFormat::Csv
+                }
+            };
+            if let Err(e) = super::export_helpers::save_raw_data_to_path(
+                fmt,
+                &path,
+                self.paused,
+                &self.traces,
+                &self.trace_order,
+            ) {
+                eprintln!("Failed to save raw data: {e}");
+            }
+        }
+    }
+
+    /// Show a file dialog and export threshold events to CSV (respects current events filter if set).
+    fn prompt_and_save_threshold_events(&mut self) {
+        // Collect filtered events (newest first as shown in the UI)
+        let evts: Vec<&ThresholdEvent> = self
+            .threshold_event_log
+            .iter()
+            .rev()
+            .filter(|e| {
+                self.thresholds_panel
+                    .events_filter
+                    .as_ref()
+                    .map_or(true, |f| &e.threshold == f)
+            })
+            .collect();
+        if evts.is_empty() {
+            return;
+        }
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name("threshold_events.csv")
+            .add_filter("CSV", &["csv"])
+            .save_file()
+        {
+            if let Err(e) = super::export_helpers::save_threshold_events_csv(&path, &evts) {
+                eprintln!("Failed to export events CSV: {e}");
+            }
+        }
+    }
+
+    /// Handle pending screenshot request and save the resulting image to a chosen path or env path.
+    fn handle_screenshot_result(&mut self, ctx: &egui::Context) {
+        if self.request_window_shot {
+            self.request_window_shot = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+        }
+        if let Some(image_arc) = ctx.input(|i| {
+            i.events.iter().rev().find_map(|e| {
+                if let egui::Event::Screenshot { image, .. } = e {
+                    Some(image.clone())
+                } else {
+                    None
+                }
+            })
+        }) {
+            self.last_viewport_capture = Some(image_arc.clone());
+            // Save to explicit path if requested via env hook; else prompt user
+            if let Ok(path_str) = std::env::var("LIVEPLOT_SAVE_SCREENSHOT_TO") {
+                std::env::remove_var("LIVEPLOT_SAVE_SCREENSHOT_TO");
+                let path = std::path::PathBuf::from(path_str);
+                let egui::ColorImage {
+                    size: [w, h],
+                    pixels,
+                    ..
+                } = &*image_arc;
+                let mut out = RgbaImage::new(*w as u32, *h as u32);
+                for y in 0..*h {
+                    for x in 0..*w {
+                        let p = pixels[y * *w + x];
+                        out.put_pixel(x as u32, y as u32, Rgba([p.r(), p.g(), p.b(), p.a()]));
+                    }
+                }
+                if let Err(e) = out.save(&path) {
+                    eprintln!("Failed to save viewport screenshot: {e}");
+                } else {
+                    eprintln!("Saved viewport screenshot to {:?}", path);
+                }
+            } else {
+                let default_name = format!(
+                    "viewport_{:.0}.png",
+                    chrono::Local::now().timestamp_millis()
+                );
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name(&default_name)
+                    .save_file()
+                {
+                    let egui::ColorImage {
+                        size: [w, h],
+                        pixels,
+                        ..
+                    } = &*image_arc;
+                    let mut out = RgbaImage::new(*w as u32, *h as u32);
+                    for y in 0..*h {
+                        for x in 0..*w {
+                            let p = pixels[y * *w + x];
+                            out.put_pixel(
+                                x as u32,
+                                y as u32,
+                                Rgba([p.r(), p.g(), p.b(), p.a()]),
+                            );
+                        }
+                    }
+                    if let Err(e) = out.save(&path) {
+                        eprintln!("Failed to save viewport screenshot: {e}");
+                    } else {
+                        eprintln!("Saved viewport screenshot to {:?}", path);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Handle focus requests coming from detached panels (Dock buttons) and hide other attached panels.
+    fn process_focus_requests(&mut self) {
+        let mut focus_idx: Option<usize> = None;
+        {
+            let mut panels = self.side_panels();
+            for (i, p) in panels.iter_mut().enumerate() {
+                if p.dock_mut().focus_dock {
+                    focus_idx = Some(i);
+                    break;
+                }
+            }
+        }
+        if let Some(i) = focus_idx {
+            let mut panels = self.side_panels();
+            for (j, p) in panels.iter_mut().enumerate() {
+                let d = p.dock_mut();
+                if j == i {
+                    d.focus_dock = false;
+                    d.detached = false;
+                    d.show_dialog = true;
+                } else if !d.detached {
+                    d.show_dialog = false;
+                }
+            }
+        }
+    }
+
+    /// If any attached panel is set to show, render the right sidebar with tabs and active panel.
+    fn show_right_sidebar_panel(&mut self, ctx: &egui::Context) {
+        let sidebar_visible = {
+            let mut panels = self.side_panels();
+            panels.iter_mut().any(|p| {
+                let d = p.dock_mut();
+                !d.detached && d.show_dialog
+            })
+        };
+        if sidebar_visible {
+            egui::SidePanel::right("right_tabs")
+                .resizable(true)
+                .default_width(350.0)
+                .min_width(200.0)
+                .show(ctx, |ui| {
+                    self.render_sidebar_ui(ui);
+                });
+        }
+    }
+
+    /// Render the central plot inside the default central panel and apply interactions.
+    fn render_central_plot_panel(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let plot_response = self.plot_traces_common(ui, ctx, "scope_plot_multi");
+            //self.sync_time_window_with_plot(&plot_response);
+            self.pause_on_click(&plot_response);
+            self.apply_zoom(&plot_response);
+            self.handle_plot_click(&plot_response);
+        });
+    }
+
+    /// Apply any pending UI action controller requests (pause/resume/screenshot/raw save, FFT data).
+    fn handle_ui_action_requests(&mut self) {
+        if let Some(ctrl) = &self.ui_action_controller {
+            let mut inner = ctrl.inner.lock().unwrap();
+            if let Some(want_pause) = inner.request_pause.take() {
+                if want_pause && !self.paused {
+                    for tr in self.traces.values_mut() {
+                        tr.snap = Some(tr.live.clone());
+                    }
+                    self.paused = true;
+                } else if !want_pause && self.paused {
+                    self.paused = false;
+                    for tr in self.traces.values_mut() {
+                        tr.snap = None;
+                    }
+                }
+            }
+            if inner.request_screenshot {
+                inner.request_screenshot = false;
+                self.request_window_shot = true;
+            }
+            if let Some(path) = inner.request_screenshot_to.take() {
+                // Request a screenshot, then save to given path when event arrives
+                self.request_window_shot = true;
+                drop(inner);
+                std::env::set_var("LIVEPLOT_SAVE_SCREENSHOT_TO", path);
+                inner = ctrl.inner.lock().unwrap();
+            }
+            if let Some(fmt) = inner.request_save_raw.take() {
+                drop(inner); // avoid holding the lock during file dialog/IO
+                let mut dlg = rfd::FileDialog::new();
+                dlg = dlg.add_filter("CSV", &["csv"]);
+                #[cfg(feature = "parquet")]
+                {
+                    dlg = dlg.add_filter("Parquet", &["parquet"]);
+                }
+                if let Some(path) = dlg.save_file() {
+                    if let Err(e) = super::export_helpers::save_raw_data_to_path(
+                        fmt,
+                        &path,
+                        self.paused,
+                        &self.traces,
+                        &self.trace_order,
+                    ) {
+                        eprintln!("Failed to save raw data: {e}");
+                    }
+                }
+                inner = ctrl.inner.lock().unwrap();
+            }
+            if let Some((fmt, path)) = inner.request_save_raw_to.take() {
+                drop(inner);
+                if let Err(e) = super::export_helpers::save_raw_data_to_path(
+                    fmt,
+                    &path,
+                    self.paused,
+                    &self.traces,
+                    &self.trace_order,
+                ) {
+                    eprintln!("Failed to save raw data: {e}");
+                }
+                inner = ctrl.inner.lock().unwrap();
+            }
+            if let Some(req) = inner.fft_request.take() {
+                // Gather the requested trace's time-domain data and notify listeners
+                let name_opt = match req {
+                    FftDataRequest::CurrentTrace => self.selection_trace.clone(),
+                    FftDataRequest::NamedTrace(s) => Some(s),
+                };
+                if let Some(name) = name_opt {
+                    if let Some(tr) = self.traces.get(&name) {
+                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
+                            if let Some(snap) = &tr.snap {
+                                Box::new(snap.iter())
+                            } else {
+                                Box::new(tr.live.iter())
+                            }
+                        } else {
+                            Box::new(tr.live.iter())
+                        };
+                        let data: Vec<[f64; 2]> = iter.cloned().collect();
+                        let msg = FftRawData {
+                            trace: name.clone(),
+                            data,
+                        };
+                        inner.fft_listeners.retain(|s| s.send(msg.clone()).is_ok());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Publish current window info and apply any pending viewport requests from the window controller.
+    fn handle_window_controller_requests(&mut self, ctx: &egui::Context) {
+        if let Some(ctrl) = &self.window_controller {
+            let rect = ctx.input(|i| i.screen_rect);
+            let ppp = ctx.pixels_per_point();
+            let mut inner = ctrl.inner.lock().unwrap();
+            // Read current size/pos (best-effort)
+            let size_pts = rect.size();
+            inner.current_size = Some([size_pts.x * ppp, size_pts.y * ppp]);
+            inner.current_pos = Some([rect.min.x * ppp, rect.min.y * ppp]);
+
+            // Apply size/pos requests (physical px -> egui points)
+            if let Some(size_px) = inner.request_set_size.take() {
+                let size_pts = [size_px[0] / ppp, size_px[1] / ppp];
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size_pts.into()));
+            }
+            if let Some(pos_px) = inner.request_set_pos.take() {
+                let pos_pts = [pos_px[0] / ppp, pos_px[1] / ppp];
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos_pts.into()));
+            }
+
+            let info = WindowInfo {
+                current_size: inner.current_size,
+                current_pos: inner.current_pos,
+                requested_size: inner.request_set_size,
+                requested_pos: inner.request_set_pos,
+            };
+            inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+        }
+    }
+
+    #[inline]
+    fn repaint_tick(ctx: &egui::Context) {
+        ctx.request_repaint_after(Duration::from_millis(16));
+    }
+    fn side_panels(&mut self) -> Vec<&mut dyn DockPanel> {
+        vec![
+            &mut self.traces_panel,
+            &mut self.math_panel,
+            &mut self.thresholds_panel,
+        ]
+    }
+
     /// Drain incoming samples and append to per-trace buffers. Create traces on first sighting.
     fn drain_rx_and_update_traces(&mut self) {
         while let Ok(s) = self.rx.try_recv() {
@@ -290,14 +772,36 @@ impl ScopeAppMulti {
 
     /// Show any open dialogs in a shared way.
     fn show_dialogs_shared(&mut self, ctx: &egui::Context) {
-        if self.math_panel.dock.detached && self.math_panel.dock.show_dialog {
-            super::math_ui::show_math_dialog(self, ctx);
+        // Handle each panel individually to avoid simultaneous mutable borrows of self
+        {
+            let mut panel = std::mem::take(&mut self.traces_panel);
+            {
+                let d = panel.dock_mut();
+                if d.detached && d.show_dialog {
+                    panel.show_detached_dialog(self, ctx);
+                }
+            }
+            self.traces_panel = panel;
         }
-        if self.traces_panel.dock.detached && self.traces_panel.dock.show_dialog {
-            super::traces_ui::show_traces_dialog(self, ctx);
+        {
+            let mut panel = std::mem::take(&mut self.math_panel);
+            {
+                let d = panel.dock_mut();
+                if d.detached && d.show_dialog {
+                    panel.show_detached_dialog(self, ctx);
+                }
+            }
+            self.math_panel = panel;
         }
-        if self.thresholds_panel.dock.detached && self.thresholds_panel.dock.show_dialog {
-            super::thresholds_ui::show_thresholds_dialog(self, ctx);
+        {
+            let mut panel = std::mem::take(&mut self.thresholds_panel);
+            {
+                let d = panel.dock_mut();
+                if d.detached && d.show_dialog {
+                    panel.show_detached_dialog(self, ctx);
+                }
+            }
+            self.thresholds_panel = panel;
         }
     }
 
@@ -377,7 +881,7 @@ impl ScopeAppMulti {
         }
         let base_body = ctx.style().text_styles[&egui::TextStyle::Body].size;
         let marker_font_size = base_body * 1.5;
-        plot.show(ui, |plot_ui| {
+        let plot_resp = plot.show(ui, |plot_ui| {
             // Handle zooming/panning/auto-zooming
             let resp = plot_ui.response();
 
@@ -609,7 +1113,10 @@ impl ScopeAppMulti {
                             if &def.name != hov_thr {
                                 // Dim non-hovered thresholds
                                 thr_color = Color32::from_rgba_unmultiplied(
-                                    thr_color.r(), thr_color.g(), thr_color.b(), 60,
+                                    thr_color.r(),
+                                    thr_color.g(),
+                                    thr_color.b(),
+                                    60,
                                 );
                             } else {
                                 // Emphasize hovered threshold
@@ -620,18 +1127,29 @@ impl ScopeAppMulti {
                         let ev_base = thr_look.color;
                         let ev_color = if let Some(hov_thr) = &self.hover_threshold {
                             if &def.name != hov_thr {
-                                Color32::from_rgba_unmultiplied(ev_base.r(), ev_base.g(), ev_base.b(), 60)
+                                Color32::from_rgba_unmultiplied(
+                                    ev_base.r(),
+                                    ev_base.g(),
+                                    ev_base.b(),
+                                    60,
+                                )
                             } else {
                                 ev_base
                             }
-                        } else { ev_base };
+                        } else {
+                            ev_base
+                        };
 
                         // Helper: render one horizontal threshold line with a unique id and an optional legend label
                         let mut draw_hline = |id: &str, label: Option<String>, y_world: f64| {
                             // Apply per-trace offset and global y-log transform to map to plot space
                             let y_lin = y_world + tr.offset;
                             let y_plot = if self.y_log {
-                                if y_lin > 0.0 { y_lin.log10() } else { f64::NAN }
+                                if y_lin > 0.0 {
+                                    y_lin.log10()
+                                } else {
+                                    f64::NAN
+                                }
                             } else {
                                 y_lin
                             };
@@ -640,7 +1158,11 @@ impl ScopeAppMulti {
                                     .color(thr_color)
                                     .width(thr_width)
                                     .style(thr_look.style);
-                                if let Some(lbl) = &label { h = h.name(lbl.clone()); } else { h = h.name(""); }
+                                if let Some(lbl) = &label {
+                                    h = h.name(lbl.clone());
+                                } else {
+                                    h = h.name("");
+                                }
                                 plot_ui.hline(h);
                             }
                         };
@@ -648,13 +1170,25 @@ impl ScopeAppMulti {
                         // Compose compact condition expression for legend/info
                         let expr = match &def.kind {
                             crate::thresholds::ThresholdKind::GreaterThan { value } => {
-                                if let Some(u) = &self.y_unit { format!("> {:.3} {}", value, u) } else { format!("> {:.3}", value) }
+                                if let Some(u) = &self.y_unit {
+                                    format!("> {:.3} {}", value, u)
+                                } else {
+                                    format!("> {:.3}", value)
+                                }
                             }
                             crate::thresholds::ThresholdKind::LessThan { value } => {
-                                if let Some(u) = &self.y_unit { format!("< {:.3} {}", value, u) } else { format!("< {:.3}", value) }
+                                if let Some(u) = &self.y_unit {
+                                    format!("< {:.3} {}", value, u)
+                                } else {
+                                    format!("< {:.3}", value)
+                                }
                             }
                             crate::thresholds::ThresholdKind::InRange { low, high } => {
-                                if let Some(u) = &self.y_unit { format!("[{:.3}, {:.3}] {}", low, high, u) } else { format!("[{:.3}, {:.3}]", low, high) }
+                                if let Some(u) = &self.y_unit {
+                                    format!("[{:.3}, {:.3}] {}", low, high, u)
+                                } else {
+                                    format!("[{:.3}, {:.3}]", low, high)
+                                }
                             }
                         };
                         // Legend label: like math traces -- base is name, optionally append info
@@ -688,22 +1222,35 @@ impl ScopeAppMulti {
                             if ev_start_look.show_points || ev_stop_look.show_points {
                                 // Determine a representative Y for the marker (threshold value or midpoint for ranges) and map to plot space
                                 let marker_y_world = match def.kind {
-                                    crate::thresholds::ThresholdKind::GreaterThan { value } => value,
+                                    crate::thresholds::ThresholdKind::GreaterThan { value } => {
+                                        value
+                                    }
                                     crate::thresholds::ThresholdKind::LessThan { value } => value,
-                                    crate::thresholds::ThresholdKind::InRange { low, high } => (low + high) * 0.5,
+                                    crate::thresholds::ThresholdKind::InRange { low, high } => {
+                                        (low + high) * 0.5
+                                    }
                                 };
                                 let y_lin = marker_y_world + tr.offset;
                                 let marker_y_plot = if self.y_log {
-                                    if y_lin > 0.0 { y_lin.log10() } else { f64::NAN }
-                                } else { y_lin };
+                                    if y_lin > 0.0 {
+                                        y_lin.log10()
+                                    } else {
+                                        f64::NAN
+                                    }
+                                } else {
+                                    y_lin
+                                };
                                 if marker_y_plot.is_finite() {
                                     for ev in state.events.iter() {
-                                        if ev.end_t < xmin || ev.start_t > xmax { continue; }
+                                        if ev.end_t < xmin || ev.start_t > xmax {
+                                            continue;
+                                        }
                                         if ev_start_look.show_points {
-                                            let p = Points::new("", vec![[ev.start_t, marker_y_plot]])
-                                                .radius(ev_start_look.point_size.max(0.5))
-                                                .shape(ev_start_look.marker)
-                                                .color(ev_color);
+                                            let p =
+                                                Points::new("", vec![[ev.start_t, marker_y_plot]])
+                                                    .radius(ev_start_look.point_size.max(0.5))
+                                                    .shape(ev_start_look.marker)
+                                                    .color(ev_color);
                                             plot_ui.points(p);
                                         } else {
                                             let s = VLine::new("", ev.start_t)
@@ -714,10 +1261,11 @@ impl ScopeAppMulti {
                                             plot_ui.vline(s);
                                         }
                                         if ev_stop_look.show_points {
-                                            let p = Points::new("", vec![[ev.end_t, marker_y_plot]])
-                                                .radius(ev_stop_look.point_size.max(0.5))
-                                                .shape(ev_stop_look.marker)
-                                                .color(ev_color);
+                                            let p =
+                                                Points::new("", vec![[ev.end_t, marker_y_plot]])
+                                                    .radius(ev_stop_look.point_size.max(0.5))
+                                                    .shape(ev_stop_look.marker)
+                                                    .color(ev_color);
                                             plot_ui.points(p);
                                         } else {
                                             let e = VLine::new("", ev.end_t)
@@ -733,10 +1281,11 @@ impl ScopeAppMulti {
                                         let end_t = state.last_t.unwrap_or(start_t);
                                         if !(end_t < xmin || start_t > xmax) {
                                             if ev_start_look.show_points {
-                                                let p = Points::new("", vec![[start_t, marker_y_plot]])
-                                                    .radius(ev_start_look.point_size.max(0.5))
-                                                    .shape(ev_start_look.marker)
-                                                    .color(ev_color);
+                                                let p =
+                                                    Points::new("", vec![[start_t, marker_y_plot]])
+                                                        .radius(ev_start_look.point_size.max(0.5))
+                                                        .shape(ev_start_look.marker)
+                                                        .color(ev_color);
                                                 plot_ui.points(p);
                                             } else {
                                                 let s = VLine::new("", start_t)
@@ -747,10 +1296,11 @@ impl ScopeAppMulti {
                                                 plot_ui.vline(s);
                                             }
                                             if ev_stop_look.show_points {
-                                                let p = Points::new("", vec![[end_t, marker_y_plot]])
-                                                    .radius(ev_stop_look.point_size.max(0.5))
-                                                    .shape(ev_stop_look.marker)
-                                                    .color(ev_color);
+                                                let p =
+                                                    Points::new("", vec![[end_t, marker_y_plot]])
+                                                        .radius(ev_stop_look.point_size.max(0.5))
+                                                        .shape(ev_stop_look.marker)
+                                                        .color(ev_color);
                                                 plot_ui.points(p);
                                             } else {
                                                 let e = VLine::new("", end_t)
@@ -766,7 +1316,9 @@ impl ScopeAppMulti {
                             } else {
                                 // Draw as lines with potentially different styles for start/stop
                                 for ev in state.events.iter() {
-                                    if ev.end_t < xmin || ev.start_t > xmax { continue; }
+                                    if ev.end_t < xmin || ev.start_t > xmax {
+                                        continue;
+                                    }
                                     let ls = VLine::new("", ev.start_t)
                                         .color(ev_color)
                                         .width(ev_start_look.width.max(0.1))
@@ -825,7 +1377,11 @@ impl ScopeAppMulti {
                              ox: f64,
                              oy: f64|
              -> (Align2, egui::Align, PlotPoint) {
-                let slope = if dx != 0.0 || oy != 0.0 || ox != 0.0 { (dy / oy) / (dx / ox) } else { 0.0 };
+                let slope = if dx != 0.0 || oy != 0.0 || ox != 0.0 {
+                    (dy / oy) / (dx / ox)
+                } else {
+                    0.0
+                };
                 if dx <= 0.0 || slope.abs() > 8.0 {
                     if dy >= 0.0 || slope.abs() < 0.2 {
                         (
@@ -943,7 +1499,11 @@ impl ScopeAppMulti {
                     format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
                 };
 
-                let slope_plot = if dx != 0.0 || oy != 0.0 || ox != 0.0 { (dy / oy) / (dx / ox) } else { 0.0 };
+                let slope_plot = if dx != 0.0 || oy != 0.0 || ox != 0.0 {
+                    (dy / oy) / (dx / ox)
+                } else {
+                    0.0
+                };
                 let (halign_anchor, base) = if slope_plot.abs() > 8.0 {
                     (Align2::RIGHT_CENTER, PlotPoint::new(mid[0] - ox, mid[1]))
                 } else if slope_plot.abs() < 0.2 {
@@ -951,7 +1511,10 @@ impl ScopeAppMulti {
                 } else if slope_plot >= 0.0 {
                     (Align2::LEFT_TOP, PlotPoint::new(mid[0] + ox, mid[1] - oy))
                 } else {
-                    (Align2::LEFT_BOTTOM, PlotPoint::new(mid[0] + ox, mid[1] + oy))
+                    (
+                        Align2::LEFT_BOTTOM,
+                        PlotPoint::new(mid[0] + ox, mid[1] + oy),
+                    )
                 };
 
                 let style = egui::Style::default();
@@ -1028,18 +1591,6 @@ impl ScopeAppMulti {
             //         job.append(&text, 0.0, fmt.clone());
             //     }
             //     plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
-            // }
-
-            // // Draw P2 label with offset away from P1 if available
-            // if let Some(p2) = p2_opt {
-            //     let (ox, oy) = if let Some(p1) = p1_opt {
-            //         let vx = p2[0] - p1[0];
-            //         let vy = p2[1] - p1[1];
-            //         let sx = if vx >= 0.0 { 1.0 } else { -1.0 }; // push away from P1
-            //         let sy = if vy >= 0.0 { 1.0 } else { -1.0 };
-            //         let amp = if vx.abs() < 0.02 * xw && vy.abs() < 0.02 * yw { 1.8 } else { 1.0 };
-            //         let comp = (base_r * amp) / std::f64::consts::SQRT_2;
-            //         (sx * comp, sy * comp)
             //     } else {
             //         let comp = base_r / std::f64::consts::SQRT_2;
             //         (comp, comp)
@@ -1069,29 +1620,7 @@ impl ScopeAppMulti {
             //         let mut text = line;
             //         if i < 2 { text.push('\n'); }
             //         job.append(&text, 0.0, fmt.clone());
-            //     }
-            //     plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
-            // }
-
-            // // Delta line and label, positioned perpendicular to P1->P2
-            // if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
-            //     plot_ui.line(Line::new("Measurement", vec![p1, p2]).color(Color32::LIGHT_GREEN));
-            //     let dx = p2[0] - p1[0];
-            //     let y1 = if self.y_log { 10f64.powf(p1[1]) } else { p1[1] };
-            //     let y2 = if self.y_log { 10f64.powf(p2[1]) } else { p2[1] };
-            //     let dy_lin = y2 - y1;
-            //     let slope = if dx.abs() > 1e-12 {
-            //         dy_lin / dx
-            //     } else {
-            //         f64::INFINITY
-            //     };
-            //     let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
-            //     let dy_txt = if let Some(u) = &self.y_unit {
-            //         format!("{:.6} {}", dy_lin, u)
-            //     } else {
-            //         format!("{:.6}", dy_lin)
-            //     };
-            //     let overlay = if slope.is_finite() {
+            // Removed hardcoded Math/Thresholds buttons; handled by registry above
             //         format!("Δx={:.6}\nΔy={}\nslope={:.4}", dx, dy_txt, slope)
             //     } else {
             //         format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
@@ -1126,7 +1655,10 @@ impl ScopeAppMulti {
             // }
 
             bounds_changed
-        })
+        });
+        // After plot (outside closure) we can safely render registry-driven buttons if needed
+        // (No-op here: buttons are already rendered in controls_ui)
+        plot_resp
     }
 
     fn pause_on_click(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
@@ -1501,110 +2033,23 @@ impl ScopeAppMulti {
             {
                 let _ = (FftWindow::Rect,);
             }
-
-            if ui
-                .button("Save PNG")
-                .on_hover_text("Take an egui viewport screenshot")
-                .clicked()
-            {
-                self.request_window_shot = true;
-            }
-
-            let hover_text: &str = {
-                #[cfg(feature = "parquet")]
-                {
-                    "Export all traces as CSV or Parquet"
-                }
-                #[cfg(not(feature = "parquet"))]
-                {
-                    "Export all traces as CSV"
-                }
-            };
-            if ui
-                .button("Save raw data")
-                .on_hover_text(hover_text)
-                .clicked()
-            {
-                let mut dlg = rfd::FileDialog::new();
-                dlg = dlg.add_filter("CSV", &["csv"]);
-                #[cfg(feature = "parquet")]
-                {
-                    dlg = dlg.add_filter("Parquet", &["parquet"]);
-                }
-                if let Some(path) = dlg.set_file_name("liveplot_export.csv").save_file() {
-                    let fmt = {
-                        #[cfg(feature = "parquet")]
-                        {
-                            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                            if ext.eq_ignore_ascii_case("parquet") {
-                                RawExportFormat::Parquet
-                            } else {
-                                RawExportFormat::Csv
-                            }
-                        }
-                        #[cfg(not(feature = "parquet"))]
-                        {
-                            RawExportFormat::Csv
-                        }
-                    };
-                    if let Err(e) = super::export_helpers::save_raw_data_to_path(
-                        fmt,
-                        &path,
-                        self.paused,
-                        &self.traces,
-                        &self.trace_order,
-                    ) {
-                        eprintln!("Failed to save raw data: {e}");
-                    }
-                }
-            }
+            // Export actions: Save PNG + Save raw (CSV/Parquet)
+            self.render_export_buttons(ui);
             //}
 
-            // Dialogs entry (shared)
-            if ui
-                .button("Traces…")
-                .on_hover_text("Select marker/display and colors")
-                .clicked()
+            // Dialogs entry (shared) using side_panels()
             {
-                if self.traces_panel.dock.detached {
-                    self.traces_panel.dock.show_dialog = true; // floating window
-                    self.right_panel_visible = false;
-                } else {
-                    self.right_panel_active_tab = RightTab::Traces;
-                    self.right_panel_visible = true;
-                }
-            }
-
-            if ui
-                .button("Math…")
-                .on_hover_text("Create and manage math traces")
-                .clicked()
-            {
-                if self.math_panel.dock.detached {
-                    self.math_panel.dock.show_dialog = true; // floating window
-                    self.right_panel_visible = false;
-                } else {
-                    self.right_panel_active_tab = RightTab::Math;
-                    self.right_panel_visible = true;
-                }
-            }
-
-            let thr_btn_label = if self.threshold_total_count > 0 {
-                format!("Thresholds… ({})", self.threshold_total_count)
-            } else {
-                "Thresholds…".to_string()
-            };
-            if ui
-                .button(thr_btn_label)
-                .on_hover_text("Create and manage threshold detectors")
-                .clicked()
-            {
-                if self.thresholds_panel.dock.detached {
-                    self.thresholds_panel.dock.show_dialog = true; // floating window
-                    self.right_panel_visible = false;
-                } else {
-                    self.right_panel_active_tab = RightTab::Thresholds;
-                    self.right_panel_visible = true;
+                let mut panels = self.side_panels();
+                for p in panels.iter_mut() {
+                    // Read title with a short borrow, then drop it before doing UI
+                    let title = { p.dock_mut().title };
+                    if ui.button(format!("{}…", title)).clicked() {
+                        let d = p.dock_mut();
+                        d.show_dialog = true;
+                        if !d.detached {
+                            d.focus_dock = true;
+                        }
+                    }
                 }
             }
         });
@@ -1652,13 +2097,11 @@ impl ScopeAppMulti {
             threshold_controller: None,
             threshold_defs: Vec::new(),
             threshold_states: HashMap::new(),
-            threshold_total_count: 0,
             threshold_event_log: VecDeque::new(),
             threshold_event_log_cap: 10_000,
             hover_trace: None,
             hover_threshold: None,
-            right_panel_active_tab: RightTab::Traces,
-            right_panel_visible: false,
+
             math_panel: MathPanel::default(),
             thresholds_panel: ThresholdsPanel::default(),
             traces_panel: TracesPanel::default(),
@@ -1991,7 +2434,6 @@ impl ScopeAppMulti {
                         };
                         state.push_event_capped(evt.clone(), def.max_events);
                         // Update global counters/log (never capped counter)
-                        self.threshold_total_count = self.threshold_total_count.saturating_add(1);
                         self.threshold_event_log.push_back(evt.clone());
                         while self.threshold_event_log.len() > self.threshold_event_log_cap {
                             self.threshold_event_log.pop_front();
@@ -2040,29 +2482,25 @@ impl ScopeAppMulti {
     /// Remove a specific threshold event from the global log and the corresponding threshold's buffer.
     pub(crate) fn remove_threshold_event(&mut self, event: &ThresholdEvent) {
         // Remove from global log (first match)
-        if let Some(pos) = self
-            .threshold_event_log
-            .iter()
-            .position(|e| e.threshold == event.threshold
+        if let Some(pos) = self.threshold_event_log.iter().position(|e| {
+            e.threshold == event.threshold
                 && e.trace == event.trace
                 && e.start_t == event.start_t
                 && e.end_t == event.end_t
                 && e.duration == event.duration
-                && e.area == event.area)
-        {
+                && e.area == event.area
+        }) {
             self.threshold_event_log.remove(pos);
         }
         // Remove from per-threshold buffer
         if let Some(st) = self.threshold_states.get_mut(&event.threshold) {
-            if let Some(pos) = st
-                .events
-                .iter()
-                .position(|e| e.trace == event.trace
+            if let Some(pos) = st.events.iter().position(|e| {
+                e.trace == event.trace
                     && e.start_t == event.start_t
                     && e.end_t == event.end_t
                     && e.duration == event.duration
-                    && e.area == event.area)
-            {
+                    && e.area == event.area
+            }) {
                 st.events.remove(pos);
             }
         }
@@ -2188,144 +2626,18 @@ impl eframe::App for ScopeAppMulti {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Shared non-UI tick
         self.tick_non_ui();
+        // Focus requests from detached windows
+        self.process_focus_requests();
 
         // Controls
         egui::TopBottomPanel::top("controls_multi").show(ctx, |ui| {
             self.controls_ui(ui, ControlsMode::Main);
         });
 
-        // Right-side tabbed column for Traces / Math / Thresholds: show when requested
-        if self.right_panel_visible {
-            egui::SidePanel::right("right_tabs")
-                .resizable(true)
-                .default_width(350.0)
-                .min_width(200.0)
-                .show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.selectable_value(
-                            &mut self.right_panel_active_tab,
-                            RightTab::Traces,
-                            "Traces",
-                        );
-                        ui.selectable_value(
-                            &mut self.right_panel_active_tab,
-                            RightTab::Math,
-                            "Math",
-                        );
-                        ui.selectable_value(
-                            &mut self.right_panel_active_tab,
-                            RightTab::Thresholds,
-                            "Thresholds",
-                        );
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui
-                                .button("Hide")
-                                .on_hover_text("Hide the sidebar")
-                                .clicked()
-                            {
-                                self.right_panel_visible = false;
-                            }
-                            match self.right_panel_active_tab {
-                                RightTab::Traces => {
-                                    if ui
-                                        .button("Pop out")
-                                        .on_hover_text("Open Traces panel in a floating window")
-                                        .clicked()
-                                    {
-                                        self.traces_panel.dock.detached = true;
-                                        self.traces_panel.dock.show_dialog = true;
-                                        self.right_panel_visible = false;
-                                    }
-                                }
-                                RightTab::Math => {
-                                    if ui
-                                        .button("Pop out")
-                                        .on_hover_text("Open Math panel in a floating window")
-                                        .clicked()
-                                    {
-                                        self.math_panel.dock.detached = true;
-                                        self.math_panel.dock.show_dialog = true;
-                                        self.right_panel_visible = false;
-                                    }
-                                }
-                                RightTab::Thresholds => {
-                                    if ui
-                                        .button("Pop out")
-                                        .on_hover_text("Open Thresholds panel in a floating window")
-                                        .clicked()
-                                    {
-                                        self.thresholds_panel.dock.detached = true;
-                                        self.thresholds_panel.dock.show_dialog = true;
-                                        self.right_panel_visible = false;
-                                    }
-                                }
-                            }
-                        });
-                    });
-                    ui.separator();
-                    match self.right_panel_active_tab {
-                        RightTab::Traces => {
-                            if self.traces_panel.dock.detached {
-                                ui.horizontal(|ui| {
-                                    ui.label("Traces panel is detached.");
-                                    if ui
-                                        .button("Dock here")
-                                        .on_hover_text("Reattach Traces to the sidebar")
-                                        .clicked()
-                                    {
-                                        self.traces_panel.dock.detached = false;
-                                        self.traces_panel.dock.show_dialog = false;
-                                        self.right_panel_active_tab = RightTab::Traces;
-                                        self.right_panel_visible = true;
-                                    }
-                                });
-                            } else {
-                                super::traces_ui::traces_panel_contents(self, ui);
-                            }
-                        }
-                        RightTab::Math => {
-                            if self.math_panel.dock.detached {
-                                ui.horizontal(|ui| {
-                                    ui.label("Math panel is detached.");
-                                    if ui
-                                        .button("Dock here")
-                                        .on_hover_text("Reattach Math to the sidebar")
-                                        .clicked()
-                                    {
-                                        self.math_panel.dock.detached = false;
-                                        self.math_panel.dock.show_dialog = false;
-                                        self.right_panel_active_tab = RightTab::Math;
-                                        self.right_panel_visible = true;
-                                    }
-                                });
-                            } else {
-                                super::math_ui::math_panel_contents(self, ui);
-                            }
-                        }
-                        RightTab::Thresholds => {
-                            if self.thresholds_panel.dock.detached {
-                                ui.horizontal(|ui| {
-                                    ui.label("Thresholds panel is detached.");
-                                    if ui
-                                        .button("Dock here")
-                                        .on_hover_text("Reattach Thresholds to the sidebar")
-                                        .clicked()
-                                    {
-                                        self.thresholds_panel.dock.detached = false;
-                                        self.thresholds_panel.dock.show_dialog = false;
-                                        self.right_panel_active_tab = RightTab::Thresholds;
-                                        self.right_panel_visible = true;
-                                    }
-                                });
-                            } else {
-                                super::thresholds_ui::thresholds_panel_contents(self, ui);
-                            }
-                        }
-                    }
-                });
-        }
+        // Right-side panel
+        self.show_right_sidebar_panel(ctx);
 
-    // Shared dialogs
+        // Shared dialogs
         self.show_dialogs_shared(ctx);
 
         // FFT bottom panel for multi-traces
@@ -2339,200 +2651,19 @@ impl eframe::App for ScopeAppMulti {
         }
 
         // Plot all traces in the central panel
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let plot_response = self.plot_traces_common(ui, ctx, "scope_plot_multi");
-            //self.sync_time_window_with_plot(&plot_response);
-            self.pause_on_click(&plot_response);
-            self.apply_zoom(&plot_response);
-            self.handle_plot_click(&plot_response);
-        });
+        self.render_central_plot_panel(ctx);
 
         // Repaint
-        ctx.request_repaint_after(Duration::from_millis(16));
+        Self::repaint_tick(ctx);
 
         // Apply any external UI action requests (pause/resume/screenshot)
-        if let Some(ctrl) = &self.ui_action_controller {
-            let mut inner = ctrl.inner.lock().unwrap();
-            if let Some(want_pause) = inner.request_pause.take() {
-                if want_pause && !self.paused {
-                    for tr in self.traces.values_mut() {
-                        tr.snap = Some(tr.live.clone());
-                    }
-                    self.paused = true;
-                } else if !want_pause && self.paused {
-                    self.paused = false;
-                    for tr in self.traces.values_mut() {
-                        tr.snap = None;
-                    }
-                }
-            }
-            if inner.request_screenshot {
-                inner.request_screenshot = false;
-                self.request_window_shot = true;
-            }
-            if let Some(path) = inner.request_screenshot_to.take() {
-                // Request a screenshot, then save to given path when event arrives
-                self.request_window_shot = true;
-                drop(inner);
-                std::env::set_var("LIVEPLOT_SAVE_SCREENSHOT_TO", path);
-                inner = ctrl.inner.lock().unwrap();
-            }
-            if let Some(fmt) = inner.request_save_raw.take() {
-                drop(inner); // avoid holding the lock during file dialog/IO
-                let mut dlg = rfd::FileDialog::new();
-                dlg = dlg.add_filter("CSV", &["csv"]);
-                #[cfg(feature = "parquet")]
-                {
-                    dlg = dlg.add_filter("Parquet", &["parquet"]);
-                }
-                if let Some(path) = dlg.save_file() {
-                    if let Err(e) = super::export_helpers::save_raw_data_to_path(
-                        fmt,
-                        &path,
-                        self.paused,
-                        &self.traces,
-                        &self.trace_order,
-                    ) {
-                        eprintln!("Failed to save raw data: {e}");
-                    }
-                }
-                inner = ctrl.inner.lock().unwrap();
-            }
-            if let Some((fmt, path)) = inner.request_save_raw_to.take() {
-                drop(inner);
-                if let Err(e) = super::export_helpers::save_raw_data_to_path(
-                    fmt,
-                    &path,
-                    self.paused,
-                    &self.traces,
-                    &self.trace_order,
-                ) {
-                    eprintln!("Failed to save raw data: {e}");
-                }
-                inner = ctrl.inner.lock().unwrap();
-            }
-            if let Some(req) = inner.fft_request.take() {
-                // Gather the requested trace's time-domain data and notify listeners
-                let name_opt = match req {
-                    FftDataRequest::CurrentTrace => self.selection_trace.clone(),
-                    FftDataRequest::NamedTrace(s) => Some(s),
-                };
-                if let Some(name) = name_opt {
-                    if let Some(tr) = self.traces.get(&name) {
-                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
-                            if let Some(snap) = &tr.snap {
-                                Box::new(snap.iter())
-                            } else {
-                                Box::new(tr.live.iter())
-                            }
-                        } else {
-                            Box::new(tr.live.iter())
-                        };
-                        let data: Vec<[f64; 2]> = iter.cloned().collect();
-                        let msg = FftRawData {
-                            trace: name.clone(),
-                            data,
-                        };
-                        inner.fft_listeners.retain(|s| s.send(msg.clone()).is_ok());
-                    }
-                }
-            }
-        }
+        self.handle_ui_action_requests();
 
         // Window controller: publish current window info and apply any pending requests.
-        if let Some(ctrl) = &self.window_controller {
-            let rect = ctx.input(|i| i.screen_rect);
-            let ppp = ctx.pixels_per_point();
-            let mut inner = ctrl.inner.lock().unwrap();
-            // Read current size/pos (best-effort)
-            let size_pts = rect.size();
-            inner.current_size = Some([size_pts.x * ppp, size_pts.y * ppp]);
-            inner.current_pos = Some([rect.min.x * ppp, rect.min.y * ppp]);
+        self.handle_window_controller_requests(ctx);
 
-            // Apply size/pos requests (physical px -> egui points)
-            if let Some(size_px) = inner.request_set_size.take() {
-                let size_pts = [size_px[0] / ppp, size_px[1] / ppp];
-                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size_pts.into()));
-            }
-            if let Some(pos_px) = inner.request_set_pos.take() {
-                let pos_pts = [pos_px[0] / ppp, pos_px[1] / ppp];
-                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos_pts.into()));
-            }
-
-            let info = WindowInfo {
-                current_size: inner.current_size,
-                current_pos: inner.current_pos,
-                requested_size: inner.request_set_size,
-                requested_pos: inner.request_set_pos,
-            };
-            inner.listeners.retain(|s| s.send(info.clone()).is_ok());
-        }
-
-        // Screenshot request
-        if self.request_window_shot {
-            self.request_window_shot = false;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
-        }
-        if let Some(image_arc) = ctx.input(|i| {
-            i.events.iter().rev().find_map(|e| {
-                if let egui::Event::Screenshot { image, .. } = e {
-                    Some(image.clone())
-                } else {
-                    None
-                }
-            })
-        }) {
-            self.last_viewport_capture = Some(image_arc.clone());
-            // Save to explicit path if requested via env hook; else prompt user
-            if let Ok(path_str) = std::env::var("LIVEPLOT_SAVE_SCREENSHOT_TO") {
-                std::env::remove_var("LIVEPLOT_SAVE_SCREENSHOT_TO");
-                let path = std::path::PathBuf::from(path_str);
-                let egui::ColorImage {
-                    size: [w, h],
-                    pixels,
-                    ..
-                } = &*image_arc;
-                let mut out = RgbaImage::new(*w as u32, *h as u32);
-                for y in 0..*h {
-                    for x in 0..*w {
-                        let p = pixels[y * *w + x];
-                        out.put_pixel(x as u32, y as u32, Rgba([p.r(), p.g(), p.b(), p.a()]));
-                    }
-                }
-                if let Err(e) = out.save(&path) {
-                    eprintln!("Failed to save viewport screenshot: {e}");
-                } else {
-                    eprintln!("Saved viewport screenshot to {:?}", path);
-                }
-            } else {
-                let default_name = format!(
-                    "viewport_{:.0}.png",
-                    chrono::Local::now().timestamp_millis()
-                );
-                if let Some(path) = rfd::FileDialog::new()
-                    .set_file_name(&default_name)
-                    .save_file()
-                {
-                    let egui::ColorImage {
-                        size: [w, h],
-                        pixels,
-                        ..
-                    } = &*image_arc;
-                    let mut out = RgbaImage::new(*w as u32, *h as u32);
-                    for y in 0..*h {
-                        for x in 0..*w {
-                            let p = pixels[y * *w + x];
-                            out.put_pixel(x as u32, y as u32, Rgba([p.r(), p.g(), p.b(), p.a()]));
-                        }
-                    }
-                    if let Err(e) = out.save(&path) {
-                        eprintln!("Failed to save viewport screenshot: {e}");
-                    } else {
-                        eprintln!("Saved viewport screenshot to {:?}", path);
-                    }
-                }
-            }
-        }
+        // Screenshot request and saving
+        self.handle_screenshot_result(ctx);
     }
 }
 

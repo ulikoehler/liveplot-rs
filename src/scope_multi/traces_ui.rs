@@ -419,9 +419,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
         });
 }
 
-pub(super) fn show_traces_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    <TracesPanel as DockPanel>::show_detached_dialog(app, ctx);
-}
+// Removed unused show_traces_dialog helper; dialogs are shown via DockPanel::show_detached_dialog
 
 #[derive(Debug, Clone)]
 pub struct TracesPanel {
@@ -436,13 +434,8 @@ impl Default for TracesPanel {
 }
 
 impl DockPanel for TracesPanel {
-    fn get_mut(app: &mut ScopeAppMulti) -> &mut Self { &mut app.traces_panel }
     fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
-    fn panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+    fn panel_contents(&mut self, app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
         traces_panel_contents(app, ui);
-    }
-    fn on_dock(app: &mut ScopeAppMulti) {
-        app.right_panel_active_tab = super::app::RightTab::Traces;
-        app.right_panel_visible = true;
     }
 }

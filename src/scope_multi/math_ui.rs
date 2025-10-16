@@ -19,7 +19,7 @@ pub struct MathPanel {
 impl Default for MathPanel {
     fn default() -> Self {
         Self {
-            dock: DockState::new("Math traces"),
+            dock: DockState::new("Math"),
             builder: MathBuilderState::default(),
             editing: None,
             error: None,
@@ -29,14 +29,9 @@ impl Default for MathPanel {
 }
 
 impl DockPanel for MathPanel {
-    fn get_mut(app: &mut ScopeAppMulti) -> &mut Self { &mut app.math_panel }
     fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
-    fn panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+    fn panel_contents(&mut self, app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
         math_panel_contents(app, ui);
-    }
-    fn on_dock(app: &mut ScopeAppMulti) {
-        app.right_panel_active_tab = super::app::RightTab::Math;
-        app.right_panel_visible = true;
     }
 }
 
@@ -998,6 +993,4 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
     }
 }
 
-pub(super) fn show_math_dialog(app: &mut ScopeAppMulti, ctx: &egui::Context) {
-    <MathPanel as DockPanel>::show_detached_dialog(app, ctx);
-}
+// Removed unused show_math_dialog helper; dialogs are shown via DockPanel::show_detached_dialog
