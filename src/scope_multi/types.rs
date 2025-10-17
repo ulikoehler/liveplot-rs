@@ -1,35 +1,8 @@
 use std::collections::VecDeque;
 
-use egui::Color32;
+pub(crate) use super::traceslook_ui::TraceLook;
 
-#[derive(Debug, Clone)]
-pub(crate) struct TraceLook {
-    pub visible: bool,
-    
-    // Line style
-    pub color: Color32,
-    pub width: f32,
-    pub style: egui_plot::LineStyle,
-
-    // Point style
-    pub show_points: bool,
-    pub point_size: f32,
-    pub marker: egui_plot::MarkerShape,
-}
-
-impl Default for TraceLook {
-    fn default() -> Self {
-        Self {
-            visible: true,
-            color: Color32::WHITE,
-            width: 1.0,
-            style: egui_plot::LineStyle::Solid,
-            show_points: false,
-            point_size: 2.0,
-            marker: egui_plot::MarkerShape::Circle,
-        }
-    }
-}
+// TraceLook moved to traceslook_ui.rs
 
 /// Internal per-trace state (live buffer, optional snapshot, color, cached FFT).
 pub(crate) struct TraceState {

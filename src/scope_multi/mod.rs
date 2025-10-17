@@ -11,4 +11,4 @@ mod export_helpers;
 mod panel;
 
 pub use app::{ScopeAppMulti, run_liveplot};
-// use functions from traceslook_ui by path: crate::scope_multi::traceslook_ui::trace_look_editor_inline
+// traceslook_ui now provides TraceLook with a render_editor() method

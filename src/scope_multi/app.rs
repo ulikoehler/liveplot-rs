@@ -39,17 +39,16 @@ use crate::config::XDateFormat;
 use crate::math::{compute_math_trace, MathRuntimeState, MathTraceDef};
 use crate::point_selection::PointSelection;
 use crate::sink::MultiSample;
-use crate::thresholds::{
-    ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState,
-};
+use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState};
 
+#[cfg(feature = "fft")]
+use super::fft_panel::FftPanel;
 use super::math_ui::MathPanel;
 use super::panel::DockPanel;
 use super::thresholds_ui::ThresholdsPanel;
 use super::traces_ui::TracesPanel;
-use super::types::{MathBuilderState, TraceLook, TraceState};
-#[cfg(feature = "fft")]
-use super::fft_panel::FftPanel;
+use super::types::{MathBuilderState, TraceState};
+use super::traceslook_ui::TraceLook;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum ControlsMode {
@@ -145,127 +144,132 @@ pub struct ScopeAppMulti {
 }
 
 impl ScopeAppMulti {
-    /// Render the right-side sidebar contents (tabs header + active panel body).
-    ///
-    /// This method draws only the inner UI. Call it inside a container, e.g.:
-    /// - In the main app: inside `egui::SidePanel::right(...).show(ctx, |ui| { ... })`
-    /// - In embedded/inline usage: inside any `ui` region such as `ui.group(|ui| ...)`.
-    fn render_sidebar_ui(&mut self, ui: &mut egui::Ui) {
-        // Header: choose active attached panel by toggling which one is attached
-        ui.horizontal(|ui| {
-            let mut clicked_idx: Option<usize> = None;
-            // Read titles and active flags first to avoid holding borrows during UI
-            let titles_flags: Vec<(&'static str, bool)> = {
-                let mut panels = self.side_panels();
-                panels
-                    .iter_mut()
-                    .map(|p| {
-                        let d = p.dock_mut();
-                        (d.title, !d.detached && d.show_dialog)
-                    })
-                    .collect()
-            };
-            for (i, (title, active)) in titles_flags.iter().enumerate() {
-                if ui.selectable_label(*active, *title).clicked() {
-                    clicked_idx = Some(i);
-                }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .button("Hide")
-                    .on_hover_text("Hide the sidebar")
-                    .clicked()
-                {
-                    let mut panels = self.side_panels();
-                    for p in panels.iter_mut() {
-                        let d = p.dock_mut();
-                        if !d.detached {
-                            d.show_dialog = false;
+    /// Render the right-side sidebar if any attached panel is visible; includes header and body.
+    fn render_right_sidebar_panel(&mut self, ctx: &egui::Context) {
+        // Check if any attached side panel should be shown
+        let sidebar_visible = {
+            let mut panels = self.side_panels();
+            panels.iter_mut().any(|p| {
+                let d = p.dock_mut();
+                !d.detached && d.show_dialog
+            })
+        };
+        if !sidebar_visible {
+            return;
+        }
+        egui::SidePanel::right("right_tabs")
+            .resizable(true)
+            .default_width(350.0)
+            .min_width(200.0)
+            .show(ctx, |ui| {
+                // Header: choose active attached panel by toggling which one is attached
+                ui.horizontal(|ui| {
+                    let mut clicked_idx: Option<usize> = None;
+                    // Read titles and active flags first to avoid holding borrows during UI
+                    let titles_flags: Vec<(&'static str, bool)> = {
+                        let mut panels = self.side_panels();
+                        panels
+                            .iter_mut()
+                            .map(|p| {
+                                let d = p.dock_mut();
+                                (d.title, !d.detached && d.show_dialog)
+                            })
+                            .collect()
+                    };
+                    if titles_flags.len() == 1 {
+                        ui.strong(titles_flags[0].0);
+                    } else {
+                        for (i, (title, active)) in titles_flags.iter().enumerate() {
+                            if ui.selectable_label(*active, *title).clicked() {
+                                clicked_idx = Some(i);
+                            }
                         }
                     }
-                }
-                // Pop out is only relevant if any panel is attached
-                let any_attached = {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .button("Hide")
+                            .on_hover_text("Hide the sidebar")
+                            .clicked()
+                        {
+                            let mut panels = self.side_panels();
+                            for p in panels.iter_mut() {
+                                let d = p.dock_mut();
+                                if !d.detached {
+                                    d.show_dialog = false;
+                                }
+                            }
+                        }
+                        // Pop out is only relevant if any panel is attached
+                        let any_attached = {
+                            let mut panels = self.side_panels();
+                            panels.iter_mut().any(|p| {
+                                let d = p.dock_mut();
+                                !d.detached && d.show_dialog
+                            })
+                        };
+                        if any_attached {
+                            if ui
+                                .button("Pop out")
+                                .on_hover_text("Open attached panel in a floating window")
+                                .clicked()
+                            {
+                                // Convert current attached+visible panel(s) to detached dialog(s)
+                                let mut panels = self.side_panels();
+                                for p in panels.iter_mut() {
+                                    let d = p.dock_mut();
+                                    if !d.detached && d.show_dialog {
+                                        d.detached = true;
+                                        d.show_dialog = true;
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    // Tab selection: focus chosen panel in sidebar and hide other attached panels
+                    if let Some(i) = clicked_idx {
+                        let mut panels = self.side_panels();
+                        for (j, p) in panels.iter_mut().enumerate() {
+                            let d = p.dock_mut();
+                            if j == i {
+                                d.detached = false;
+                                d.show_dialog = true;
+                            } else if !d.detached {
+                                d.show_dialog = false;
+                            }
+                        }
+                    }
+                });
+                ui.separator();
+                // Show the currently attached panel's contents (first non-detached) safely
+                // by temporarily taking the concrete panel out of `self` to avoid aliasing.
+                let active_idx = {
                     let mut panels = self.side_panels();
-                    panels.iter_mut().any(|p| {
+                    panels.iter_mut().position(|p| {
                         let d = p.dock_mut();
                         !d.detached && d.show_dialog
                     })
                 };
-                if any_attached {
-                    if ui
-                        .button("Pop out")
-                        .on_hover_text("Open attached panel in a floating window")
-                        .clicked()
-                    {
-                        // Convert current attached+visible panel(s) to detached dialog(s)
-                        let mut panels = self.side_panels();
-                        for p in panels.iter_mut() {
-                            let d = p.dock_mut();
-                            if !d.detached && d.show_dialog {
-                                d.detached = true;
-                                d.show_dialog = true;
-                            }
+                if let Some(i) = active_idx {
+                    match i {
+                        0 => {
+                            let mut panel = std::mem::take(&mut self.traces_panel);
+                            panel.panel_contents(self, ui);
+                            self.traces_panel = panel;
                         }
+                        1 => {
+                            let mut panel = std::mem::take(&mut self.math_panel);
+                            panel.panel_contents(self, ui);
+                            self.math_panel = panel;
+                        }
+                        2 => {
+                            let mut panel = std::mem::take(&mut self.thresholds_panel);
+                            panel.panel_contents(self, ui);
+                            self.thresholds_panel = panel;
+                        }
+                        _ => {}
                     }
                 }
             });
-            // Tab selection: focus chosen panel in sidebar and hide other attached panels
-            if let Some(i) = clicked_idx {
-                let mut panels = self.side_panels();
-                for (j, p) in panels.iter_mut().enumerate() {
-                    let d = p.dock_mut();
-                    if j == i {
-                        d.detached = false;
-                        d.show_dialog = true;
-                    } else if !d.detached {
-                        d.show_dialog = false;
-                    }
-                }
-            }
-        });
-        ui.separator();
-        // Show the currently attached panel's contents (first non-detached)
-        {
-            // Render exactly one attached+visible panel
-            let mut rendered = false;
-            if !rendered {
-                let mut p = std::mem::take(&mut self.traces_panel);
-                let show = {
-                    let d = p.dock_mut();
-                    !d.detached && d.show_dialog
-                };
-                if show {
-                    p.panel_contents(self, ui);
-                    rendered = true;
-                }
-                self.traces_panel = p;
-            }
-            if !rendered {
-                let mut p = std::mem::take(&mut self.math_panel);
-                let show = {
-                    let d = p.dock_mut();
-                    !d.detached && d.show_dialog
-                };
-                if show {
-                    p.panel_contents(self, ui);
-                    rendered = true;
-                }
-                self.math_panel = p;
-            }
-            if !rendered {
-                let mut p = std::mem::take(&mut self.thresholds_panel);
-                let show = {
-                    let d = p.dock_mut();
-                    !d.detached && d.show_dialog
-                };
-                if show {
-                    p.panel_contents(self, ui);
-                    // rendered = true; // last one doesn't matter
-                }
-                self.thresholds_panel = p;
-            }
-        }
     }
 
     /// Render export buttons (Save PNG screenshot and Save raw data CSV/Parquet) into the given Ui.
@@ -425,11 +429,7 @@ impl ScopeAppMulti {
                     for y in 0..*h {
                         for x in 0..*w {
                             let p = pixels[y * *w + x];
-                            out.put_pixel(
-                                x as u32,
-                                y as u32,
-                                Rgba([p.r(), p.g(), p.b(), p.a()]),
-                            );
+                            out.put_pixel(x as u32, y as u32, Rgba([p.r(), p.g(), p.b(), p.a()]));
                         }
                     }
                     if let Err(e) = out.save(&path) {
@@ -469,25 +469,7 @@ impl ScopeAppMulti {
         }
     }
 
-    /// If any attached panel is set to show, render the right sidebar with tabs and active panel.
-    fn show_right_sidebar_panel(&mut self, ctx: &egui::Context) {
-        let sidebar_visible = {
-            let mut panels = self.side_panels();
-            panels.iter_mut().any(|p| {
-                let d = p.dock_mut();
-                !d.detached && d.show_dialog
-            })
-        };
-        if sidebar_visible {
-            egui::SidePanel::right("right_tabs")
-                .resizable(true)
-                .default_width(350.0)
-                .min_width(200.0)
-                .show(ctx, |ui| {
-                    self.render_sidebar_ui(ui);
-                });
-        }
-    }
+    // show_right_sidebar_panel is now merged into render_right_sidebar_panel
 
     /// Render the central plot inside the default central panel and apply interactions.
     fn render_central_plot_panel(&mut self, ctx: &egui::Context) {
@@ -2021,39 +2003,20 @@ impl ScopeAppMulti {
 
             // Optional extras: FFT toggle, Save PNG, Save raw (Main only)
             //if let ControlsMode::Main = mode {
-            #[cfg(feature = "fft")]
-            if ui
-                .button({
-                    let d = self.fft_panel.dock.clone();
-                    if !d.detached && d.show_dialog { "Hide FFT" } else { "Show FFT" }
-                })
-                .clicked()
+            // Bottom panels entry (shared) using bottom_panels(), identical style to side_panels()
             {
-                let mut p = std::mem::take(&mut self.fft_panel);
-                {
-                    let d = p.dock_mut();
-                    if !d.detached && d.show_dialog {
-                        d.show_dialog = false;
-                    } else {
-                        d.detached = false;
+                let mut panels = self.bottom_panels();
+                for p in panels.iter_mut() {
+                    // Read title with a short borrow, then drop it before doing UI
+                    let title = { p.dock_mut().title };
+                    if ui.button(format!("{}…", title)).clicked() {
+                        let d = p.dock_mut();
                         d.show_dialog = true;
-                    }
-                    if let Some(ctrl) = &self.fft_controller {
-                        let mut inner = ctrl.inner.lock().unwrap();
-                        inner.show = d.show_dialog && !d.detached;
-                        let info = FftPanelInfo {
-                            shown: inner.show,
-                            current_size: inner.current_size,
-                            requested_size: inner.request_set_size,
-                        };
-                        inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+                        if !d.detached {
+                            d.focus_dock = true;
+                        }
                     }
                 }
-                self.fft_panel = p;
-            }
-            #[cfg(not(feature = "fft"))]
-            {
-                let _ = (FftWindow::Rect,);
             }
             // Export actions: Save PNG + Save raw (CSV/Parquet)
             self.render_export_buttons(ui);
@@ -2165,19 +2128,60 @@ impl ScopeAppMulti {
         ctx.request_repaint_after(Duration::from_millis(16));
     }
 
-    /// Return bottom dock panels (e.g., FFT). Extendable to multiple bottom panels later.
-    #[cfg(feature = "fft")]
     fn bottom_panels(&mut self) -> Vec<&mut dyn super::panel::DockPanel> {
-        vec![&mut self.fft_panel]
-    }
-    #[cfg(not(feature = "fft"))]
-    fn bottom_panels(&mut self) -> Vec<&mut dyn super::panel::DockPanel> {
-        Vec::new()
+        #[cfg(feature = "fft")]
+        {
+            vec![&mut self.fft_panel]
+        }
+        #[cfg(not(feature = "fft"))]
+        {
+            Vec::new()
+        }
     }
 
-    /// Render bottom panels if attached (e.g., FFT). Uses the same DockState rules:
-    /// show when !detached && show_dialog.
-    fn show_bottom_panels(&mut self, ctx: &egui::Context) {
+    /// Update any external controllers about attached bottom-panel visibility (e.g., FFT).
+    fn update_bottom_panels_controller_visibility(&mut self) {
+        #[cfg(feature = "fft")]
+        {
+            if let Some(ctrl) = &self.fft_controller {
+                let d = self.fft_panel.dock.clone();
+                let mut inner = ctrl.inner.lock().unwrap();
+                inner.show = d.show_dialog && !d.detached;
+                let info = FftPanelInfo {
+                    shown: inner.show,
+                    current_size: inner.current_size,
+                    requested_size: inner.request_set_size,
+                };
+                inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+            }
+        }
+    }
+
+    /// Call a closure with the bottom panel at the given index temporarily moved out,
+    /// then put it back. The index corresponds to the order returned by `bottom_panels()`.
+    fn with_bottom_panel_at<F>(&mut self, index: usize, f: F)
+    where
+        F: FnMut(&mut dyn super::panel::DockPanel, &mut Self),
+    {
+        #[cfg(feature = "fft")]
+        {
+            if index == 0 {
+                let mut p = std::mem::take(&mut self.fft_panel);
+                f(&mut p, self);
+                self.fft_panel = p;
+                return;
+            }
+        }
+        // no-op for unknown index or non-fft builds; avoid moving `f`
+        let _ = index;
+        // Ensure we don't move or require mut outside cfg
+        let _ = &f;
+    }
+
+    // (take/put helper no longer needed here; side/bottom panels are handled inline like sidebar)
+
+    /// Render the bottom panel container if any attached bottom panel is visible; includes header and body.
+    fn render_bottom_panel(&mut self, ctx: &egui::Context) {
         // If any bottom panel is attached+visible, show a shared bottom container.
         let visible = {
             let mut panels = self.bottom_panels();
@@ -2186,14 +2190,16 @@ impl ScopeAppMulti {
                 !d.detached && d.show_dialog
             })
         };
-        if !visible { return; }
+        if !visible {
+            return;
+        }
 
         egui::TopBottomPanel::bottom("bottom_panels")
             .resizable(true)
             .default_height(300.0)
             .min_height(120.0)
             .show(ctx, |ui| {
-                // Simple tabs like the right sidebar
+                // Simple tabs like the right sidebar, with Hide/Pop out actions on the right
                 let titles_flags: Vec<(&'static str, bool)> = {
                     let mut panels = self.bottom_panels();
                     panels
@@ -2204,13 +2210,37 @@ impl ScopeAppMulti {
                         })
                         .collect()
                 };
+                let active_idx_current = titles_flags.iter().position(|(_, active)| *active);
                 let mut clicked_idx: Option<usize> = None;
                 ui.horizontal(|ui| {
-                    for (i, (title, active)) in titles_flags.iter().enumerate() {
-                        if ui.selectable_label(*active, *title).clicked() {
-                            clicked_idx = Some(i);
+                    if titles_flags.len() == 1 {
+                        ui.strong(titles_flags[0].0);
+                    } else {
+                        for (i, (title, active)) in titles_flags.iter().enumerate() {
+                            if ui.selectable_label(*active, *title).clicked() {
+                                clicked_idx = Some(i);
+                            }
                         }
                     }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(ai) = active_idx_current {
+                            if ui.button("Pop out").clicked() {
+                                self.with_bottom_panel_at(ai, |p, app| {
+                                    let d = p.dock_mut();
+                                    d.detached = true;
+                                    d.show_dialog = true;
+                                    app.update_bottom_panels_controller_visibility();
+                                });
+                            }
+                            if ui.button("Hide").clicked() {
+                                self.with_bottom_panel_at(ai, |p, app| {
+                                    let d = p.dock_mut();
+                                    d.show_dialog = false;
+                                    app.update_bottom_panels_controller_visibility();
+                                });
+                            }
+                        }
+                    });
                 });
                 if let Some(i) = clicked_idx {
                     let mut panels = self.bottom_panels();
@@ -2227,29 +2257,24 @@ impl ScopeAppMulti {
 
                 ui.separator();
 
-                // Render the active attached bottom panel body (take/put to avoid borrow conflicts)
-                #[cfg(feature = "fft")]
-                {
-                    let mut p = std::mem::take(&mut self.fft_panel);
-                    let (title, show_attached) = {
+                // Render the active attached bottom panel body (generic via bottom_panels), no extra header inside
+                let active_idx: Option<usize> = {
+                    let mut panels = self.bottom_panels();
+                    panels.iter_mut().position(|p| {
                         let d = p.dock_mut();
-                        (d.title, !d.detached && d.show_dialog)
-                    };
-                    if show_attached {
-                        ui.horizontal(|ui| {
-                            ui.strong(title);
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("Pop out").clicked() {
-                                    let d = p.dock_mut();
-                                    d.detached = true;
-                                    d.show_dialog = true;
-                                }
-                            });
-                        });
-                        ui.separator();
-                        p.panel_contents(self, ui);
-                    }
-                    self.fft_panel = p;
+                        !d.detached && d.show_dialog
+                    })
+                };
+                if let Some(i) = active_idx {
+                    self.with_bottom_panel_at(i, |p, app| {
+                        let show_attached = {
+                            let d = p.dock_mut();
+                            !d.detached && d.show_dialog
+                        };
+                        if show_attached {
+                            p.panel_contents(app, ui);
+                        }
+                    });
                 }
             });
     }
@@ -2748,13 +2773,13 @@ impl eframe::App for ScopeAppMulti {
         });
 
         // Right-side panel
-        self.show_right_sidebar_panel(ctx);
+        self.render_right_sidebar_panel(ctx);
 
         // Shared dialogs
         self.show_dialogs_shared(ctx);
 
         // Bottom dock panels (FFT etc.)
-        self.show_bottom_panels(ctx);
+        self.render_bottom_panel(ctx);
 
         // Plot all traces in the central panel
         self.render_central_plot_panel(ctx);

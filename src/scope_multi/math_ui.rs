@@ -357,27 +357,13 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         if is_editing {
                             if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
-                                    super::traceslook_ui::trace_look_editor_inline(
-                                        ui,
-                                        &mut tr.look,
-                                        true,
-                                        None,
-                                        false,
-                                        None,
-                                    );
+                                    tr.look.render_editor(ui, true, None, false, None);
                                 } else {
                                     ui.label("Trace not found.");
                                 }
                             }
                         } else {
-                            super::traceslook_ui::trace_look_editor_inline(
-                                ui,
-                                &mut app.math_panel.builder.look,
-                                true,
-                                None,
-                                false,
-                                None,
-                            );
+                            app.math_panel.builder.look.render_editor(ui, true, None, false, None);
                         }
                     });
                 ui.add_space(10.0);
@@ -456,34 +442,20 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                 // Style editor just before Save/Add
                 ui.add_space(8.0);
                 egui::CollapsingHeader::new("Style")
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        if is_editing {
-                            if let Some(editing_name) = app.math_panel.editing.clone() {
-                                if let Some(tr) = app.traces.get_mut(&editing_name) {
-                                    super::traceslook_ui::trace_look_editor_inline(
-                                        ui,
-                                        &mut tr.look,
-                                        true,
-                                        None,
-                                        false,
-                                        None,
-                                    );
-                                } else {
-                                    ui.label("Trace not found.");
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            if is_editing {
+                                if let Some(editing_name) = app.math_panel.editing.clone() {
+                                    if let Some(tr) = app.traces.get_mut(&editing_name) {
+                                        tr.look.render_editor(ui, true, None, false, None);
+                                    } else {
+                                        ui.label("Trace not found.");
+                                    }
                                 }
+                            } else {
+                                app.math_panel.builder.look.render_editor(ui, true, None, false, None);
                             }
-                        } else {
-                            super::traceslook_ui::trace_look_editor_inline(
-                                ui,
-                                &mut app.math_panel.builder.look,
-                                true,
-                                None,
-                                false,
-                                None,
-                            );
-                        }
-                    });
+                        });
                 ui.horizontal(|ui| {
                     let save_label = if is_editing { "Save" } else { "Add trace" };
                     let mut save_clicked = false;
@@ -557,27 +529,16 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         if is_editing {
                             if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
-                                    super::traceslook_ui::trace_look_editor_inline(
-                                        ui,
-                                        &mut tr.look,
-                                        true,
-                                        None,
-                                        false,
-                                        None,
-                                    );
+                                    tr.look.render_editor(ui, true, None, false, None);
                                 } else {
                                     ui.label("Trace not found.");
                                 }
                             }
                         } else {
-                            super::traceslook_ui::trace_look_editor_inline(
-                                ui,
-                                &mut app.math_panel.builder.look,
-                                true,
-                                None,
-                                false,
-                                None,
-                            );
+                            app.math_panel
+                                .builder
+                                .look
+                                .render_editor(ui, true, None, false, None);
                         }
                     });
                 ui.horizontal(|ui| {
@@ -645,27 +606,16 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         if is_editing {
                             if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
-                                    super::traceslook_ui::trace_look_editor_inline(
-                                        ui,
-                                        &mut tr.look,
-                                        true,
-                                        None,
-                                        false,
-                                        None,
-                                    );
+                                    tr.look.render_editor(ui, true, None, false, None);
                                 } else {
                                     ui.label("Trace not found.");
                                 }
                             }
                         } else {
-                            super::traceslook_ui::trace_look_editor_inline(
-                                ui,
-                                &mut app.math_panel.builder.look,
-                                true,
-                                None,
-                                false,
-                                None,
-                            );
+                            app.math_panel
+                                .builder
+                                .look
+                                .render_editor(ui, true, None, false, None);
                         }
                     });
                 ui.horizontal(|ui| {
@@ -788,27 +738,16 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         if is_editing {
                             if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
-                                    super::traceslook_ui::trace_look_editor_inline(
-                                        ui,
-                                        &mut tr.look,
-                                        true,
-                                        None,
-                                        false,
-                                        None,
-                                    );
+                                    tr.look.render_editor(ui, true, None, false, None);
                                 } else {
                                     ui.label("Trace not found.");
                                 }
                             }
                         } else {
-                            super::traceslook_ui::trace_look_editor_inline(
-                                ui,
-                                &mut app.math_panel.builder.look,
-                                true,
-                                None,
-                                false,
-                                None,
-                            );
+                            app.math_panel
+                                .builder
+                                .look
+                                .render_editor(ui, true, None, false, None);
                         }
                     });
                 ui.horizontal(|ui| {
@@ -915,27 +854,16 @@ pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
                         if is_editing {
                             if let Some(editing_name) = app.math_panel.editing.clone() {
                                 if let Some(tr) = app.traces.get_mut(&editing_name) {
-                                    super::traceslook_ui::trace_look_editor_inline(
-                                        ui,
-                                        &mut tr.look,
-                                        true,
-                                        None,
-                                        false,
-                                        None,
-                                    );
+                                    tr.look.render_editor(ui, true, None, false, None);
                                 } else {
                                     ui.label("Trace not found.");
                                 }
                             }
                         } else {
-                            super::traceslook_ui::trace_look_editor_inline(
-                                ui,
-                                &mut app.math_panel.builder.look,
-                                true,
-                                None,
-                                false,
-                                None,
-                            );
+                            app.math_panel
+                                .builder
+                                .look
+                                .render_editor(ui, true, None, false, None);
                         }
                     });
                 ui.horizontal(|ui| {

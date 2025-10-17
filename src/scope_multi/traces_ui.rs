@@ -402,14 +402,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
                             });
                         });
                         ui.separator();
-                        super::traceslook_ui::trace_look_editor_inline(
-                            ui,
-                            &mut tr.look,
-                            true,
-                            None,
-                            false,
-                            None,
-                        );
+                        tr.look.render_editor(ui, true, None, false, None);
                     });
                 } else {
                     ui.label("Trace not found.");
