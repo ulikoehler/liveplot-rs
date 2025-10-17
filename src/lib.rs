@@ -1,38 +1,18 @@
-//! LivePlot crate root: re-exports and module wiring.
-//!
-//! This crate provides two ready-to-use plotting UIs built on egui/eframe:
-//! - Single-trace oscilloscope (`scope`)
-//! - Multi-trace oscilloscope (`scope_multi`)
-//!
-//! The monolithic implementation has been refactored into cohesive modules:
-//! - `sink`: data types and channels to feed samples
-//! - `controllers`: external control of window/FFT panel
-//! - `config`: shared configuration and time formatting
-//! - `scope`: single-trace UI and run helpers
-//! - `scope_multi`: multi-trace UI and run helpers
+//! New modular LivePlot architecture (work-in-progress reorg)
 
-mod point_selection;
-#[cfg(feature = "fft")]
-mod fft;
-mod line_draw;
-mod math;
-mod thresholds;
-
-pub mod sink;
-pub mod controllers;
+pub mod sink; // keep existing sink API unchanged
 pub mod config;
-#[path = "scope_multi/mod.rs"]
-pub mod scope_multi_mod;
-pub mod export;
+pub mod controllers;
 
-// Public re-exports for a compact external API
-#[cfg(feature = "fft")]
-pub use fft::FftWindow;
+pub mod data;
+pub mod panels;
+
+pub mod app; // standalone runner and embedding entrypoints
+
+// Re-exports for external API compatibility with examples
 pub use config::{LivePlotConfig, XDateFormat};
 pub use controllers::{FftController, FftPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FftRawData, FftDataRequest};
 pub use controllers::{TracesController, TracesInfo, TraceInfo};
 pub use sink::{channel_multi, MultiPlotSink, MultiSample};
-pub use scope_multi_mod::{run_liveplot, ScopeAppMulti};
-pub use math::{MathTraceDef, MathKind, FilterKind, TraceRef};
-pub use thresholds::{ThresholdDef, ThresholdKind, ThresholdEvent, ThresholdController};
 
+pub use app::{run_liveplot, MainApp as ScopeAppMulti};
