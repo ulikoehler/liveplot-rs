@@ -43,8 +43,10 @@ fn main() -> eframe::Result<()> {
     }
     thr_ctrl.add_threshold(ThresholdDef {
         name: "gt_0_8".into(),
+        display_name: None,
         target: TraceRef("signal".into()),
         kind: ThresholdKind::GreaterThan { value: 0.8 },
+        color_hint: None,
         min_duration_s: 0.002,
         max_events: 100,
     });

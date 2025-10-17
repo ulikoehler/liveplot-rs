@@ -31,6 +31,7 @@ pub struct LivePlotConfig {
     pub y_log: bool,
     pub title: Option<String>,
     pub native_options: Option<eframe::NativeOptions>,
+    pub threshold_controller: Option<crate::data::thresholds::ThresholdController>,
 }
 
 impl Default for LivePlotConfig {
@@ -43,6 +44,7 @@ impl Default for LivePlotConfig {
             y_log: false,
             title: None,
             native_options: None,
+            threshold_controller: None,
         }
     }
 }

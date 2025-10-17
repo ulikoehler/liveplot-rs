@@ -1,8 +1,8 @@
 use eframe::egui;
 
-use crate::config::{LivePlotConfig, XDateFormat};
+use crate::config::LivePlotConfig;
 use crate::data::DataContext;
-use crate::panels::panel_trait::{Panel, PanelState};
+use crate::panels::panel_trait::Panel;
 use crate::panels::{scope_ui::ScopePanel, traces_ui::TracesPanel, math_ui::MathPanel, thresholds_ui::ThresholdsPanel, triggers_ui::TriggersPanel, fft_ui::FftPanel, export_ui::ExportPanel};
 
 pub struct MainPanelLayout {
@@ -32,19 +32,26 @@ pub struct MainApp {
 }
 
 impl MainApp {
-    pub fn new(_rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
-        Self { data: DataContext::default(), cfg: LivePlotConfig::default(), layout: MainPanelLayout::default_layout() }
+    pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
+        let mut data = DataContext::new_with_rx(rx);
+        // Defaults (could come from LivePlotConfig later)
+        data.traces.max_points = 10_000;
+        data.traces.time_window = 10.0;
+        Self { data, cfg: LivePlotConfig::default(), layout: MainPanelLayout::default_layout() }
     }
 
     pub fn ui_embed(&mut self, ui: &mut egui::Ui) {
-        // Menu bar placeholder
-        egui::menu::bar(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                ui.label("Save PNG…");
-            });
-            ui.menu_button("View", |ui| {
-                ui.label("Toggle bars…");
-            });
+        // Top bar: let the active main panel render its controls/menu
+        ui.horizontal_wrapped(|ui| {
+            let mut list = std::mem::take(&mut self.layout.main_panels);
+            if let Some((idx, _)) = list
+                .iter()
+                .enumerate()
+                .find(|(_, p)| p.state().visible && !p.state().detached)
+            {
+                list[idx].render_menu(ui, &mut self.data);
+            }
+            self.layout.main_panels = list;
         });
         ui.separator();
 
@@ -55,14 +62,22 @@ impl MainApp {
 
         if show_left {
             let mut list = std::mem::take(&mut self.layout.left_side_panels);
-            egui::SidePanel::left("left_sidebar").show_inside(ui, |ui| {
+            egui::SidePanel::left("left_sidebar")
+                .resizable(true)
+                .default_width(280.0)
+                .width_range(160.0..=600.0)
+                .show_inside(ui, |ui| {
                 self.render_tabs(ui, &mut list, Area::Left);
             });
             self.layout.left_side_panels = list;
         }
         if show_right {
             let mut list = std::mem::take(&mut self.layout.right_side_panels);
-            egui::SidePanel::right("right_sidebar").show_inside(ui, |ui| {
+            egui::SidePanel::right("right_sidebar")
+                .resizable(true)
+                .default_width(320.0)
+                .width_range(160.0..=600.0)
+                .show_inside(ui, |ui| {
                 self.render_tabs(ui, &mut list, Area::Right);
             });
             self.layout.right_side_panels = list;
@@ -70,9 +85,13 @@ impl MainApp {
 
         if show_bottom {
             let mut list = std::mem::take(&mut self.layout.bottom_panels);
-            egui::TopBottomPanel::bottom("bottom_bar").show_inside(ui, |ui| {
-                self.render_tabs(ui, &mut list, Area::Bottom);
-            });
+            egui::TopBottomPanel::bottom("bottom_bar")
+                .resizable(true)
+                .default_height(220.0)
+                .height_range(120.0..=600.0)
+                .show_inside(ui, |ui| {
+                    self.render_tabs(ui, &mut list, Area::Bottom);
+                });
             self.layout.bottom_panels = list;
         }
 
@@ -87,7 +106,7 @@ impl MainApp {
             if p.state().visible && p.state().detached {
                 let mut open = true;
                 egui::Window::new(p.name()).open(&mut open).show(ui.ctx(), |ui| {
-                    p.render_panel(ui);
+                    p.render_panel(ui, &mut self.data);
                 });
                 if !open { p.state_mut().visible = false; }
             }
@@ -176,7 +195,7 @@ impl MainApp {
         // Body: find first attached+visible panel
         if let Some((idx, _)) = list.iter().enumerate().find(|(_i,p)| p.state().visible && !p.state().detached) {
             let p = &mut list[idx];
-            p.render_panel(ui);
+            p.render_panel(ui, &mut self.data);
         } else {
             ui.label("No panel active");
         }
@@ -189,6 +208,8 @@ enum Area { Main, Left, Right, Bottom }
 impl eframe::App for MainApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
+            // Non-UI calculations first
+            self.data.calculate();
             self.ui_embed(ui);
         });
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
@@ -197,7 +218,21 @@ impl eframe::App for MainApp {
 
 pub fn run_liveplot(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>, cfg: LivePlotConfig) -> eframe::Result<()> {
     let mut app = MainApp::new(rx);
-    let title = cfg.title.clone().unwrap_or_else(|| "LivePlot".to_string());
-    let opts = cfg.native_options.clone().unwrap_or_default();
+    // Apply config to app
+    if let Some(ctrl) = cfg.threshold_controller.as_ref().cloned() {
+        app.data.thresholds.attach_controller(ctrl);
+    }
+    app.cfg = LivePlotConfig { 
+        time_window_secs: cfg.time_window_secs,
+        max_points: cfg.max_points,
+        x_date_format: cfg.x_date_format,
+        y_unit: cfg.y_unit.clone(),
+        y_log: cfg.y_log,
+        title: cfg.title.clone(),
+        native_options: cfg.native_options.clone(),
+        threshold_controller: cfg.threshold_controller.clone(),
+    };
+    let title = app.cfg.title.clone().unwrap_or_else(|| "LivePlot".to_string());
+    let opts = app.cfg.native_options.clone().unwrap_or_default();
     eframe::run_native(&title, opts, Box::new(|_cc| Ok(Box::new(app))))
 }
