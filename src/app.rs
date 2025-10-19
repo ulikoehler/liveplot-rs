@@ -1,13 +1,11 @@
 use eframe::egui;
 
-use crate::config::LivePlotConfig;
-use crate::data::scope::ScopeData;
 use crate::panels::panel_trait::Panel;
 // use crate::panels::{
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
 //     thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,
 // };
-use crate::panels::scope_ui::ScopePanel;
+use crate::panels::{scope_ui::ScopePanel, traces_ui::TracesPanel};
 
 pub struct MainPanel {
     // Panels
@@ -23,7 +21,7 @@ impl MainPanel {
     pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
         Self {
             scope_panel: ScopePanel::new(rx),
-            right_side_panels: vec![], //vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default()), Box::new(ThresholdsPanel::default()), Box::new(TriggersPanel::default()), Box::new(ExportPanel::default())],
+            right_side_panels: vec![Box::new(TracesPanel::default())], //vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default()), Box::new(ThresholdsPanel::default()), Box::new(TriggersPanel::default()), Box::new(ExportPanel::default())],
             left_side_panels: vec![],
             bottom_panels: vec![], //vec![Box::new(FftPanel::default())],
             detached_panels: vec![],
@@ -32,26 +30,27 @@ impl MainPanel {
     }
 
     pub fn update(&mut self, ui: &mut egui::Ui) {
-        let mut data = self.update_data();
+        self.update_data();
 
         // Render UI
-        self.render_menu(ui, data);
-        self.render_panels(ui, data);
+        self.render_menu(ui);
+        self.render_panels(ui);
 
-        let draw_objs: Vec<Box<dyn Panel>> = self
-            .right_side_panels
-            .iter_mut()
-            .chain(self.left_side_panels.iter_mut())
-            .chain(self.bottom_panels.iter_mut())
-            .chain(self.detached_panels.iter_mut())
-            .chain(self.empty_panels.iter_mut())
-            .map(|p| p.as_mut())
-            .collect();
+        // let draw_objs: Vec<Box<dyn Panel>> = self
+        //     .right_side_panels
+        //     .iter_mut()
+        //     .chain(self.left_side_panels.iter_mut())
+        //     .chain(self.bottom_panels.iter_mut())
+        //     .chain(self.detached_panels.iter_mut())
+        //     .chain(self.empty_panels.iter_mut())
+        //     .map(|p| p.as_mut())
+        //     .collect();
 
-        self.scope_panel.render_panel(ui, draw_objs);
+        // For now we don't draw additional overlay objects
+        self.scope_panel.render_panel(ui, vec![]);
     }
 
-    fn update_data(&mut self) -> &mut ScopeData {
+    fn update_data(&mut self) {
         let data = self.scope_panel.update_data();
 
         for p in &mut self.left_side_panels {
@@ -69,12 +68,14 @@ impl MainPanel {
         for p in &mut self.empty_panels {
             p.update_data(data);
         }
-        data
     }
 
-    fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut ScopeData) {
+    fn render_menu(&mut self, ui: &mut egui::Ui) {
         // Render Menu
         self.scope_panel.render_menu(ui);
+
+        let data = self.scope_panel.get_data_mut();
+
         for p in &mut self.left_side_panels {
             p.render_menu(ui, data);
         }
@@ -92,7 +93,7 @@ impl MainPanel {
         }
     }
 
-    fn render_panels(&mut self, ui: &mut egui::Ui, data: &mut ScopeData) {
+    fn render_panels(&mut self, ui: &mut egui::Ui) {
         // Layout: left, right side optional; bottom optional; main center
         let show_left = !self.left_side_panels.is_empty();
         let show_right = !self.right_side_panels.is_empty();
@@ -105,7 +106,7 @@ impl MainPanel {
                 .default_width(280.0)
                 .width_range(160.0..=600.0)
                 .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list, egui::Align::LEFT);
+                    self.render_tabs(ui, &mut list, egui::Align::Min);
                 });
             self.left_side_panels = list;
         }
@@ -116,7 +117,7 @@ impl MainPanel {
                 .default_width(320.0)
                 .width_range(160.0..=600.0)
                 .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list, egui::Align::RIGHT);
+                    self.render_tabs(ui, &mut list, egui::Align::Max);
                 });
             self.right_side_panels = list;
         }
@@ -128,16 +129,18 @@ impl MainPanel {
                 .default_height(220.0)
                 .height_range(120.0..=600.0)
                 .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list, egui::Align::BOTTOM);
+                    self.render_tabs(ui, &mut list, egui::Align::Max);
                 });
             self.bottom_panels = list;
         }
 
         // Detached windows
+
         for p in &mut self.detached_panels {
             if p.state().visible && p.state().detached {
+                let data = self.scope_panel.get_data_mut();
                 let mut open = true;
-                egui::Window::new(p.name())
+                egui::Window::new(p.title())
                     .open(&mut open)
                     .show(ui.ctx(), |ui| {
                         p.render_panel(ui, data);
@@ -153,11 +156,13 @@ impl MainPanel {
         &mut self,
         ui: &mut egui::Ui,
         list: &mut Vec<Box<dyn Panel>>,
-        align: egui::Align,
+        _align: egui::Align,
     ) {
         let count = list.len();
 
         let mut clicked: Option<usize> = None;
+
+        let data = self.scope_panel.get_data_mut();
 
         if count > 0 {
             // Decide if actions fit on the same row; if not, render them on a new row.
@@ -256,7 +261,7 @@ impl MainPanel {
             .find(|(_i, p)| p.state().visible && !p.state().detached)
         {
             let p = &mut list[idx];
-            p.render_panel(ui, &mut data);
+            p.render_panel(ui, data);
         } else {
             ui.label("No panel active");
         }
@@ -267,32 +272,31 @@ pub struct MainApp {
     pub main_panel: MainPanel,
 }
 
-impl eframe::App for MainApp {
+impl MainApp {
     pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
         Self {
             main_panel: MainPanel::new(rx),
         }
     }
+}
 
+impl eframe::App for MainApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Non-UI calculations first
-            self.main_panel.update(ui, ctx);
+            self.main_panel.update(ui);
         });
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
     }
 }
 
-pub fn run_liveplot(
-    rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>,
-    cfg: LivePlotConfig,
-) -> eframe::Result<()> {
-    let mut app = MainApp::new(rx);
+pub fn run_liveplot(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> eframe::Result<()> {
+    let app = MainApp::new(rx);
 
-    let title = app
-        .title
-        .clone()
-        .unwrap_or_else(|| "LivePlot".to_string());
-    let opts = app.cfg.native_options.clone().unwrap_or_default();
+    let title = "LivePlot".to_string();
+    let opts = eframe::NativeOptions {
+        // initial_window_size: Some(egui::vec2(1280.0, 720.0)),
+        ..Default::default()
+    };
     eframe::run_native(&title, opts, Box::new(|_cc| Ok(Box::new(app))))
 }

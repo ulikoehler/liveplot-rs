@@ -1,8 +1,5 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
-use egui::Color32;
-
-use crate::sink::MultiSample;
 use crate::data::trace_look::TraceLook;
 
 #[derive(Default)]
@@ -10,8 +7,8 @@ pub struct TraceData {
     pub name: String,
     pub look: TraceLook,
     pub offset: f64,
-    pub live: VecDeque<[f64;2]>,
-    pub snap: Option<VecDeque<[f64;2]>>,
+    pub live: VecDeque<[f64; 2]>,
+    pub snap: Option<VecDeque<[f64; 2]>>,
     pub info: String,
 }
 

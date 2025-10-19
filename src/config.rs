@@ -22,29 +22,3 @@ impl XDateFormat {
         }
     }
 }
-
-pub struct LivePlotConfig {
-    pub time_window_secs: f64,
-    pub max_points: usize,
-    pub x_date_format: XDateFormat,
-    pub y_unit: Option<String>,
-    pub y_log: bool,
-    pub title: Option<String>,
-    pub native_options: Option<eframe::NativeOptions>,
-    pub threshold_controller: Option<crate::data::thresholds::ThresholdController>,
-}
-
-impl Default for LivePlotConfig {
-    fn default() -> Self {
-        Self {
-            time_window_secs: 10.0,
-            max_points: 10_000,
-            x_date_format: XDateFormat::default(),
-            y_unit: None,
-            y_log: false,
-            title: None,
-            native_options: None,
-            threshold_controller: None,
-        }
-    }
-}
