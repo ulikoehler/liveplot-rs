@@ -4,6 +4,7 @@ pub mod fft;
 pub mod export;
 pub mod trace_look;
 pub mod thresholds;
+pub mod scope;
 
 // Shared context passed to panels for non-UI data and functions
 #[derive(Default)]

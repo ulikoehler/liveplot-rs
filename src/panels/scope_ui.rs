@@ -1,10 +1,14 @@
-use egui::Ui;
+use std::vec;
+
+use egui::{Color32, Ui};
 use egui_plot::{Legend, Line, Plot, Points};
+use serde::de::value;
 
 // no XDateFormat needed in this panel for now
 
-use super::panel_trait::{Panel, PanelState};
-use crate::data::DataContext;
+use crate::data::scope::{AxisSettings, ScopeData, ScopeType};
+use crate::panels::panel_trait::{Panel, PanelState};
+
 use chrono::Local;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -16,92 +20,184 @@ enum ZoomMode {
 }
 
 pub struct ScopePanel {
-    pub state: PanelState,
+    data: ScopeData,
+
     // Zoom/fit state
     zoom_mode: ZoomMode,
-    pending_auto_x: bool,
-    pending_auto_y: bool,
-    auto_zoom_y: bool,
-    y_min: f64,
-    y_max: f64,
-    show_thresholds: bool,
-    show_threshold_events: bool,
 }
+
 impl Default for ScopePanel {
     fn default() -> Self {
         Self {
-            state: PanelState {
-                visible: true,
-                detached: false,
-            },
+            data: ScopeData::default(),
             zoom_mode: ZoomMode::X,
-            pending_auto_x: false,
-            pending_auto_y: false,
-            auto_zoom_y: false,
-            y_min: 0.0,
-            y_max: 1.0,
-            show_thresholds: true,
-            show_threshold_events: false,
         }
     }
 }
 
-impl Panel for ScopePanel {
-    fn name(&self) -> &'static str { "Scope" }
-    fn state(&self) -> &PanelState { &self.state }
-    fn state_mut(&mut self) -> &mut PanelState { &mut self.state }
-    fn render_menu(&mut self, ui: &mut Ui, data: &mut DataContext) {
+impl ScopePanel {
+    pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
+        let mut instance = Self::default();
+        instance.data.set_rx(rx);
+        instance
+    }
+
+    fn format_sci(value: f64, step: f64, unit: Option<&str>) -> String {
+        let sci = step < 1e-3 || step >= 1e4;
+        if let Some(unit) = unit {
+            if sci {
+                // determine exponent from step if possible
+                let exp = if step > 0.0 {
+                    step.log10().floor() as i32
+                } else {
+                    0
+                };
+                let base = 10f64.powi(exp);
+                format!("{:.3}e{} {}", value / base, exp, unit)
+            } else {
+                format!("{:.3} {}", value, unit)
+            }
+        } else {
+            if sci {
+                let exp = if step > 0.0 {
+                    step.log10().floor() as i32
+                } else {
+                    0
+                };
+                let base = 10f64.powi(exp);
+                format!("{:.3}e{}", value / base, exp)
+            } else {
+                format!("{:.3}", value)
+            }
+        }
+    }
+
+    pub fn update_data(&mut self) -> &mut ScopeData {
+        self.data.update();
+        &mut self.data
+    }
+
+    pub fn get_data_mut(&mut self) -> &mut ScopeData {
+        &mut self.data
+    }
+
+    pub fn render_menu(&mut self, ui: &mut Ui) {}
+
+    pub fn render_panel(&mut self, ui: &mut Ui, draw_objs: Vec<Box<dyn Panel>>) {
+        self.render_controls(ui);
+        ui.separator();
+        self.render_plot(ui, draw_objs);
+    }
+
+    fn render_controls(&mut self, ui: &mut Ui) {
         // Main top-bar controls grouped similarly to old controls_ui
-        ui.label("X-Axis Time:");
-        let mut tw = data.traces.time_window.max(1e-9);
-        static mut TW_MIN: f64 = 0.1;
-        static mut TW_MAX: f64 = 100.0;
-        let (mut tw_min, mut tw_max) = unsafe { (TW_MIN, TW_MAX) };
-        if tw <= tw_min { tw_min /= 10.0; }
-        if tw >= tw_max { tw_min *= 10.0; tw_max *= 10.0; }
-        let slider = egui::Slider::new(&mut tw, tw_min..=tw_max)
-            .logarithmic(true)
-            .smart_aim(true)
-            .show_value(true)
-            .suffix(" s");
-        if ui.add(slider).changed() { data.traces.time_window = tw; }
+
+        ui.label("Data Points:");
+        ui.add(egui::Slider::new(
+            &mut self.data.max_points,
+            5_000..=200_000,
+        ));
 
         ui.separator();
-        ui.label("Points:");
-        ui.add(egui::Slider::new(&mut data.traces.max_points, 5_000..=200_000));
 
-        if ui.button("Fit X").on_hover_text("Fit X to visible data").clicked() { self.pending_auto_x = true; }
+        if self.data.scope_type == ScopeType::TimeScope {
+            ui.label("X-Axis Time Window:");
+            let mut tw = self.data.time_window.max(1e-9);
+            static mut TW_MIN: f64 = 0.1;
+            static mut TW_MAX: f64 = 100.0;
+            let (mut tw_min, mut tw_max) = unsafe { (TW_MIN, TW_MAX) };
+            if tw <= tw_min {
+                tw_min /= 10.0;
+                tw_max /= 10.0;
+            }
+            if tw >= tw_max {
+                tw_min *= 10.0;
+                tw_max *= 10.0;
+            }
+
+            let slider = egui::Slider::new(&mut tw, tw_min..=tw_max)
+                .logarithmic(true)
+                .smart_aim(true)
+                .show_value(true)
+                .suffix(self.data.x_axis.unit.as_deref().unwrap_or(" s"));
+            if ui.add(slider).changed() {
+                self.data.time_window = tw;
+            }
+        } else {
+            let mut x_min_tmp = self.data.x_axis.bounds.0;
+            let mut x_max_tmp = self.data.x_axis.bounds.1;
+            let x_range = x_max_tmp - x_min_tmp;
+            ui.label("X-Axis Min:");
+            let r1 = ui.add(
+                egui::DragValue::new(&mut x_min_tmp)
+                    .speed(0.1)
+                    .custom_formatter(|n, _| {
+                        Self::format_sci(n, x_range, self.data.x_axis.unit.as_deref())
+                    }),
+            );
+            ui.label("Max:");
+            let r2 = ui.add(
+                egui::DragValue::new(&mut x_max_tmp)
+                    .speed(0.1)
+                    .custom_formatter(|n, _| {
+                        Self::format_sci(n, x_range, self.data.x_axis.unit.as_deref())
+                    }),
+            );
+            if (r1.changed() || r2.changed()) && x_min_tmp < x_max_tmp {
+                self.data.x_axis.bounds.0 = x_min_tmp;
+                self.data.x_axis.bounds.1 = x_max_tmp;
+                self.data.time_window = x_max_tmp - x_min_tmp;
+            }
+        }
+
+        if ui
+            .button("Fit X")
+            .on_hover_text("Fit X to visible data")
+            .clicked()
+        {
+            self.data.fit_x_bounds();
+        }
+
+        ui.checkbox(&mut self.data.x_axis.auto_fit, "Auto Fit X");
 
         ui.separator();
 
         // Y controls
-        let mut y_min_tmp = self.y_min;
-        let mut y_max_tmp = self.y_max;
+        let mut y_min_tmp = self.data.y_axis.bounds.0;
+        let mut y_max_tmp = self.data.y_axis.bounds.1;
         let y_range = y_max_tmp - y_min_tmp;
-        ui.label("Y Min:");
+        ui.label("Y-Axis Min:");
         let r1 = ui.add(
-            egui::DragValue::new(&mut y_min_tmp).speed(0.1).custom_formatter(|n,_|{
-                if let Some(unit) = &data.traces.y_unit {
-                    if y_range.abs() < 0.001 { let exponent = y_range.abs().max(1e-12).log10().floor() + 1.0; format!("{:.1}e{} {}", n/10f64.powf(exponent), exponent, unit) } else { format!("{:.3} {}", n, unit) }
-                } else {
-                    if y_range.abs() < 0.001 { let exponent = y_range.abs().max(1e-12).log10().floor() + 1.0; format!("{:.1}e{}", n/10f64.powf(exponent), exponent) } else { format!("{:.3}", n) }
-                }
-            })
+            egui::DragValue::new(&mut y_min_tmp)
+                .speed(0.1)
+                .custom_formatter(|n, _| {
+                    Self::format_sci(n, y_range, self.data.y_axis.unit.as_deref())
+                }),
         );
         ui.label("Max:");
         let r2 = ui.add(
-            egui::DragValue::new(&mut y_max_tmp).speed(0.1).custom_formatter(|n,_|{
-                if let Some(unit) = &data.traces.y_unit {
-                    if y_range.abs() < 0.001 { let exponent = y_range.abs().max(1e-12).log10().floor() + 1.0; format!("{:.1}e{} {}", n/10f64.powf(exponent), exponent, unit) } else { format!("{:.3} {}", n, unit) }
-                } else {
-                    if y_range.abs() < 0.001 { let exponent = y_range.abs().max(1e-12).log10().floor() + 1.0; format!("{:.1}e{}", n/10f64.powf(exponent), exponent) } else { format!("{:.3}", n) }
-                }
-            })
+            egui::DragValue::new(&mut y_max_tmp)
+                .speed(0.1)
+                .custom_formatter(|n, _| {
+                    Self::format_sci(n, y_range, self.data.y_axis.unit.as_deref())
+                }),
         );
-        if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp { self.y_min = y_min_tmp; self.y_max = y_max_tmp; self.pending_auto_y = false; }
-        if ui.button("Fit Y").on_hover_text("Fit Y to visible data").clicked() { self.pending_auto_y = true; }
-        ui.checkbox(&mut self.auto_zoom_y, "Auto Zoom Y");
-        if self.auto_zoom_y { self.pending_auto_y = true; }
+        if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
+            self.data.y_axis.bounds.0 = y_min_tmp;
+            self.data.y_axis.bounds.1 = y_max_tmp;
+        }
+
+        if ui
+            .button("Fit Y")
+            .on_hover_text("Fit Y to visible data")
+            .clicked()
+        {
+            self.data.fit_y_bounds();
+        }
+
+        ui.checkbox(&mut self.data.y_axis.auto_fit, "Auto Fit Y");
+
+        ui.separator();
 
         ui.separator();
         ui.label("Zoom:");
@@ -111,191 +207,135 @@ impl Panel for ScopePanel {
         ui.selectable_value(&mut self.zoom_mode, ZoomMode::Both, "Both");
 
         ui.separator();
-        if ui.button(if data.traces.y_log { "Y: Log10" } else { "Y: Linear" }).clicked() { data.traces.y_log = !data.traces.y_log; }
-        ui.checkbox(&mut data.traces.show_info_in_legend, "Legend info");
 
-    ui.separator();
-    ui.checkbox(&mut self.show_thresholds, "Threshold lines");
-    ui.checkbox(&mut self.show_threshold_events, "Threshold events");
+        if ui
+            .button("Fit to View")
+            .on_hover_text("Fit both axes to visible data")
+            .clicked()
+        {
+            self.data.fit_bounds();
+        }
 
-        // Additional grouped menu for quick actions if needed
-        ui.menu_button("More", |ui| {
-            if ui.button("Fit X").on_hover_text("Fit the X-axis to visible data").clicked() {
-                self.pending_auto_x = true;
-                ui.close();
+        ui.separator();
+
+        if !self.data.paused {
+            if ui.button("Pause").clicked() {
+                self.data.pause();
             }
-            if ui.button("Fit Y").on_hover_text("Fit the Y-axis to visible data").clicked() {
-                self.pending_auto_y = true;
-                ui.close();
+        } else {
+            if ui.button("Resume").clicked() {
+                self.data.resume();
             }
-            if ui.button("Fit to View").on_hover_text("Fit both axes to visible data").clicked() {
-                self.pending_auto_x = true;
-                self.pending_auto_y = true;
-                ui.close();
-            }
-            ui.separator();
-            ui.checkbox(&mut self.auto_zoom_y, "Auto Zoom Y")
-                .on_hover_text("Continuously fit Y to visible data");
-            if self.auto_zoom_y { self.pending_auto_y = true; }
-            ui.separator();
-            ui.label("Wheel zoom mode:");
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "Off");
-                ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "X");
-                ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "Y");
-                ui.selectable_value(&mut self.zoom_mode, ZoomMode::Both, "Both");
-            });
-            ui.separator();
-            // Basic Y settings
-            ui.label("Y unit and scale:");
-            if ui.button(if data.traces.y_log { "Y: Log10" } else { "Y: Linear" }).clicked() {
-                data.traces.y_log = !data.traces.y_log;
-            }
-        });
+        }
+
+        if ui.button("Clear All").clicked() {
+            self.data.clear_all();
+        }
+
+        ui.separator();
     }
-    fn render_panel(&mut self, ui: &mut Ui, data: &mut DataContext) {
+
+    fn render_plot(&mut self, ui: &mut Ui, draw_objs: Vec<Box<dyn Panel>>) {
         // No extra controls in panel; top bar uses render_menu
         // Render plot directly here (for now). Later we can separate draw() if needed.
-    let y_unit = data.traces.y_unit.clone();
-    let y_log = data.traces.y_log;
-    let plot = Plot::new("scope_plot")
+        let y_log = self.data.y_axis.log_scale;
+        let x_log = self.data.x_axis.log_scale;
+        let plot = Plot::new("scope_plot")
             .allow_scroll(false)
             .allow_zoom(false)
             .allow_boxed_zoom(true)
             .legend(Legend::default())
             .x_axis_formatter(|x, _range| {
-                let val = x.value;
-                let secs = val as i64;
-                let nsecs = ((val - secs as f64) * 1e9) as u32;
-                let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
-                    .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
-                dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string()
-            })
-            .y_axis_formatter(move |y, _range| {
-                // Scientific ticks with optional unit, apply inverse log mapping for display
-                let v_plot = y.value;
-                let step = y.step_size.abs();
-                let label_val = if y_log { 10f64.powf(v_plot) } else { v_plot };
-                let sci = step < 1e-3 || step >= 1e4;
-                match &y_unit {
-                    Some(unit) => {
-                        if sci {
-                            // determine exponent from step if possible
-                            let exp = if step > 0.0 { step.log10().floor() as i32 } else { 0 };
-                            let base = 10f64.powi(exp);
-                            format!("{:.3}e{} {}", label_val / base, exp, unit)
-                        } else {
-                            format!("{:.3} {}", label_val, unit)
-                        }
-                    }
-                    None => {
-                        if sci {
-                            let exp = if step > 0.0 { step.log10().floor() as i32 } else { 0 };
-                            let base = 10f64.powi(exp);
-                            format!("{:.3}e{}", label_val / base, exp)
-                        } else {
-                            format!("{:.3}", label_val)
-                        }
-                    }
+                if self.data.scope_type == ScopeType::TimeScope {
+                    let val = x.value;
+                    let secs = val as i64;
+                    let nsecs = ((val - secs as f64) * 1e9) as u32;
+                    let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
+                        .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+
+                    dt_utc
+                        .with_timezone(&Local)
+                        .format(self.data.x_axis.format.as_deref().unwrap_or("%H:%M:%S"))
+                        .to_string()
+                } else {
+                    let x_value = if x_log { 10f64.powf(x.value) } else { x.value };
+                    Self::format_sci(x_value, x.step_size.abs(), self.data.x_axis.unit.as_deref())
                 }
+            })
+            .y_axis_formatter(|y, _range| {
+                // Scientific ticks with optional unit, apply inverse log mapping for display
+                let y_value = if y_log { 10f64.powf(y.value) } else { y.value };
+                Self::format_sci(y_value, y.step_size.abs(), self.data.y_axis.unit.as_deref())
             });
 
         let plot_resp = plot.show(ui, |plot_ui| {
-            // Determine latest time for auto-follow
-            let mut t_latest = f64::NEG_INFINITY;
-            for name in data.traces.trace_order.iter() {
-                if let Some(tr) = data.traces.traces.get(name) {
-                    if let Some(&[t, _]) = tr.live.back() {
-                        if t > t_latest {
-                            t_latest = t;
-                        }
-                    }
-                }
-            }
-
             // Handle wheel zoom around hovered point
             let resp = plot_ui.response();
-            let scroll = resp.ctx.input(|i| i.raw_scroll_delta);
-            let hovered = resp.hovered();
-            let mut bounds_changed = false;
-            if hovered && (scroll.x != 0.0 || scroll.y != 0.0) {
-                let mut zx = 1.0f32;
-                let mut zy = 1.0f32;
-                if matches!(self.zoom_mode, ZoomMode::X | ZoomMode::Both) {
-                    zx = 1.0 + scroll.y * 0.001;
-                }
-                if matches!(self.zoom_mode, ZoomMode::Y | ZoomMode::Both) {
-                    zy = 1.0 + scroll.y * 0.001;
-                }
-                // Keep within sane bounds
-                zx = zx.clamp(0.2, 5.0);
-                zy = zy.clamp(0.2, 5.0);
-                // Apply zoom around hovered
-                plot_ui.zoom_bounds_around_hovered(egui::vec2(zx, zy));
-                bounds_changed = true;
-            }
 
-            // Auto-fit requests
-            if self.pending_auto_x {
-                let mut xmin = f64::INFINITY;
-                let mut xmax = f64::NEG_INFINITY;
-                for tr in data.traces.traces.values() {
-                    if !tr.look.visible { continue; }
-                    if let (Some(&[t0, _]), Some(&[t1, _])) = (tr.live.front(), tr.live.back()) {
-                        if t0 < xmin { xmin = t0; }
-                        if t1 > xmax { xmax = t1; }
-                    }
+            let is_zooming_rect = resp.drag_stopped_by(egui::PointerButton::Secondary);
+            let is_panning =
+                resp.dragged_by(egui::PointerButton::Primary) && resp.is_pointer_button_down_on();
+
+            let scroll_data = resp.ctx.input(|i| i.raw_scroll_delta);
+            let is_zooming_with_wheel =
+                (scroll_data.x != 0.0 || scroll_data.y != 0.0) && resp.hovered();
+
+            let bounds_changed = is_zooming_rect || is_panning || is_zooming_with_wheel;
+
+            if is_zooming_with_wheel {
+                let mut zoom_factor = egui::Vec2::new(1.0, 1.0);
+                if scroll_data.y != 0.0
+                    && (self.zoom_mode == ZoomMode::X || self.zoom_mode == ZoomMode::Both)
+                {
+                    zoom_factor.x = 1.0 + scroll_data.y * 0.001;
+                } else if scroll_data.x != 0.0 {
+                    zoom_factor.x = 1.0 - scroll_data.x * 0.001;
                 }
-                if xmin.is_finite() && xmax.is_finite() && xmax > xmin {
-                    data.traces.time_window = (xmax - xmin).max(1e-9);
+                if self.zoom_mode == ZoomMode::Y || self.zoom_mode == ZoomMode::Both {
+                    zoom_factor.y = 1.0 + scroll_data.y * 0.001;
                 }
-                self.pending_auto_x = false;
-            }
-            if self.pending_auto_y || self.auto_zoom_y {
-                // Fit Y to visible X range
-                let bounds = plot_ui.plot_bounds();
-                let xr = bounds.range_x();
-                let xmin = *xr.start();
-                let xmax = *xr.end();
-                let mut ymin = f64::INFINITY;
-                let mut ymax = f64::NEG_INFINITY;
-                for tr in data.traces.traces.values() {
-                    if !tr.look.visible { continue; }
-                    for p in tr.live.iter() {
-                        let x = p[0];
-                        if x < xmin || x > xmax { continue; }
-                        let y_lin = p[1] + tr.offset;
-                        let y = if y_log { if y_lin > 0.0 { y_lin.log10() } else { continue; } } else { y_lin };
-                        if y < ymin { ymin = y; }
-                        if y > ymax { ymax = y; }
-                    }
+
+                if !self.data.paused {
+                    let t_latest = self.data.x_axis.bounds.1;
+                    plot_ui.set_plot_bounds_x(
+                        t_latest - self.data.time_window * (2.0 - (zoom_factor.x as f64))
+                            ..=t_latest,
+                    );
+                    zoom_factor.x = 1.0;
                 }
-                if ymin.is_finite() && ymax.is_finite() && ymax > ymin {
-                    let pad = (ymax - ymin) * 0.05;
-                    self.y_min = ymin - pad;
-                    self.y_max = ymax + pad;
-                }
-                self.pending_auto_y = false;
+                plot_ui.zoom_bounds_around_hovered(zoom_factor);
             }
 
             // Apply bounds: X follows latest time using time_window; Y respects manual limits if valid
-            if t_latest.is_finite() {
-                plot_ui.set_plot_bounds_x(t_latest - data.traces.time_window..=t_latest);
-            }
-            if self.y_min.is_finite() && self.y_max.is_finite() && self.y_max > self.y_min {
-                plot_ui.set_plot_bounds_y(self.y_min..=self.y_max);
+            if !bounds_changed {
+                let (x_min, x_max) = self.data.x_axis.bounds;
+                let x_space = (x_max - x_min) * 0.05;
+                plot_ui.set_plot_bounds_x(x_min - x_space..=x_max + x_space);
+
+                let (y_min, y_max) = self.data.y_axis.bounds;
+                let y_space = (y_max - y_min) * 0.05;
+                plot_ui.set_plot_bounds_y(y_min - y_space..=y_max + y_space);
             }
 
             // Draw traces
-            for name in data.traces.trace_order.clone().into_iter() {
-                if let Some(tr) = data.traces.traces.get(&name) {
-                    if !tr.look.visible { continue; }
-                    let pts: Vec<[f64; 2]> = tr
-                        .live
-                        .iter()
+            for name in self.data.trace_order.clone().into_iter() {
+                if let Some(tr) = self.data.traces.get(&name) {
+                    if !tr.look.visible {
+                        continue;
+                    }
+                    let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.data.paused {
+                        if let Some(snap) = &tr.snap {
+                            Box::new(snap.iter())
+                        } else {
+                            Box::new(tr.live.iter())
+                        }
+                    } else {
+                        Box::new(tr.live.iter())
+                    };
+                    let pts_vec: Vec<[f64; 2]> = iter
                         .map(|p| {
                             let y_lin = p[1] + tr.offset;
-                            let y = if y_log {
+                            let y = if self.data.y_axis.log_scale {
                                 if y_lin > 0.0 {
                                     y_lin.log10()
                                 } else {
@@ -304,103 +344,68 @@ impl Panel for ScopePanel {
                             } else {
                                 y_lin
                             };
-                            [p[0], y]
+                            let x = if self.data.x_axis.log_scale {
+                                if p[0] > 0.0 {
+                                    p[0].log10()
+                                } else {
+                                    f64::NAN
+                                }
+                            } else {
+                                p[0]
+                            };
+                            [x, y]
                         })
                         .collect();
-                    let mut line = Line::new(name.clone(), pts.clone())
-                        .color(tr.look.color)
-                        .width(tr.look.width)
-                        .style(tr.look.style);
-                    let legend_label = if data.traces.show_info_in_legend && !tr.info.is_empty() {
-                        format!("{} — {}", name, tr.info)
+                    let mut color = tr.look.color;
+                    let mut width: f32 = tr.look.width.max(0.1);
+                    let style = tr.look.style;
+                    if let Some(hov) = &self.data.hover_trace {
+                        if &tr.name != hov {
+                            // Strongly dim non-hovered traces
+                            color = Color32::from_rgba_unmultiplied(
+                                color.r(),
+                                color.g(),
+                                color.b(),
+                                40,
+                            );
+                        } else {
+                            // Emphasize hovered trace
+                            width = (width * 1.6).max(width + 1.0);
+                        }
+                    }
+                    let mut line = Line::new(&tr.name, pts_vec.clone())
+                        .color(color)
+                        .width(width)
+                        .style(style);
+                    let legend_label = if self.data.show_info_in_legend && !tr.info.is_empty() {
+                        format!("{} — {}", tr.name, tr.info)
                     } else {
-                        name.clone()
+                        tr.name.clone()
                     };
-                    line = line.name(legend_label);
+                    line = line.name(legend_label.clone());
                     plot_ui.line(line);
 
-                    if tr.look.show_points && !pts.is_empty() {
-                        let points = Points::new(format!("{}_pts", name), pts)
-                            .radius(tr.look.point_size.max(0.5))
-                            .shape(tr.look.marker)
-                            .color(tr.look.color);
-                        plot_ui.points(points);
+                    // Optional point markers for each datapoint
+                    if tr.look.show_points {
+                        if !pts_vec.is_empty() {
+                            let mut radius = tr.look.point_size.max(0.5);
+                            if let Some(hov) = &self.data.hover_trace {
+                                if &tr.name == hov {
+                                    radius = (radius * 1.25).max(radius + 0.5);
+                                }
+                            }
+                            let points = Points::new(legend_label, pts_vec.clone())
+                                .radius(radius)
+                                .shape(tr.look.marker)
+                                .color(color);
+                            plot_ui.points(points);
+                        }
                     }
                 }
             }
 
-            // Overlays: thresholds and events
-            if self.show_thresholds || self.show_threshold_events {
-                // Determine visible X for event culling
-                let bounds = plot_ui.plot_bounds();
-                let xr = bounds.range_x();
-                let xmin = *xr.start();
-                let xmax = *xr.end();
-                let yr = bounds.range_y();
-                let ymin = *yr.start();
-                let ymax = *yr.end();
-
-                for def in data.thresholds.defs.iter() {
-                    let color = def
-                        .color_hint
-                        .map(|rgb| egui::Color32::from_rgba_unmultiplied(rgb[0], rgb[1], rgb[2], 200))
-                        .unwrap_or(egui::Color32::from_rgba_unmultiplied(200, 200, 200, 200));
-                    if self.show_thresholds {
-                        match &def.kind {
-                            crate::data::thresholds::ThresholdKind::GreaterThan { value }
-                            | crate::data::thresholds::ThresholdKind::LessThan { value } => {
-                                if !data.traces.y_log || *value > 0.0 {
-                                    let y = if data.traces.y_log { value.log10() } else { *value };
-                                    let pts = vec![[xmin, y], [xmax, y]];
-                                    let line = Line::new(format!("thr:{}", def.name), pts)
-                                        .color(color)
-                                        .width(1.0)
-                                        .style(egui_plot::LineStyle::Dashed { length: 6.0 });
-                                    plot_ui.line(line);
-                                }
-                            }
-                            crate::data::thresholds::ThresholdKind::InRange { low, high } => {
-                                if !data.traces.y_log || *low > 0.0 {
-                                    let y = if data.traces.y_log { low.log10() } else { *low };
-                                    let pts = vec![[xmin, y], [xmax, y]];
-                                    let line = Line::new(format!("thr:{}:low", def.name), pts)
-                                        .color(color)
-                                        .width(1.0)
-                                        .style(egui_plot::LineStyle::Dashed { length: 6.0 });
-                                    plot_ui.line(line);
-                                }
-                                if !data.traces.y_log || *high > 0.0 {
-                                    let y = if data.traces.y_log { high.log10() } else { *high };
-                                    let pts = vec![[xmin, y], [xmax, y]];
-                                    let line = Line::new(format!("thr:{}:high", def.name), pts)
-                                        .color(color)
-                                        .width(1.0)
-                                        .style(egui_plot::LineStyle::Dashed { length: 6.0 });
-                                    plot_ui.line(line);
-                                }
-                            }
-                        }
-                    }
-                    if self.show_threshold_events {
-                        // render start/end as vertical lines from the global log
-                        let ev_color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 120);
-                        for e in data.thresholds.event_log.iter().filter(|e| e.threshold == def.name) {
-                            if e.end_t < xmin || e.start_t > xmax { continue; }
-                            let pts_s = vec![[e.start_t, ymin], [e.start_t, ymax]];
-                            let pts_e = vec![[e.end_t, ymin], [e.end_t, ymax]];
-                            let line_s = Line::new(format!("thr_evt_start:{}:{:.6}", def.name, e.start_t), pts_s)
-                                .color(ev_color)
-                                .width(0.75)
-                                .style(egui_plot::LineStyle::Dotted { spacing: 3.0 });
-                            let line_e = Line::new(format!("thr_evt_end:{}:{:.6}", def.name, e.end_t), pts_e)
-                                .color(ev_color)
-                                .width(0.75)
-                                .style(egui_plot::LineStyle::Dotted { spacing: 3.0 });
-                            plot_ui.line(line_s);
-                            plot_ui.line(line_e);
-                        }
-                    }
-                }
+            for draw_obj in draw_objs.iter_mut() {
+                draw_obj.draw(plot_ui, &egui::Context::default(), &self.data);
             }
 
             // Detect bounds changes via zoom box
@@ -411,16 +416,17 @@ impl Panel for ScopePanel {
         if plot_resp.inner {
             let b = plot_resp.transform.bounds();
             let xr = b.range_x();
-            let xw = (*xr.end() - *xr.start()).abs();
-            if xw.is_finite() && xw > 0.0 {
-                data.traces.time_window = xw;
+            let (x_min, x_max) = (xr.start(), xr.end());
+            let space_x = (0.05 / 1.1) * (x_max - x_min);
+            if x_min.is_finite() && x_max.is_finite() && x_max > x_min {
+                self.data.x_axis.bounds = (x_min + space_x, x_max - space_x);
+                self.data.time_window = x_max - x_min - 2.0 * space_x;
             }
             let yr = b.range_y();
-            let ymin = *yr.start();
-            let ymax = *yr.end();
-            if ymin.is_finite() && ymax.is_finite() && ymax > ymin {
-                self.y_min = ymin;
-                self.y_max = ymax;
+            let (y_min, y_max) = (yr.start(), yr.end());
+            let space_y = (0.05 / 1.1) * (y_max - y_min);
+            if y_min.is_finite() && y_max.is_finite() && y_max > y_min {
+                self.data.y_axis.bounds = (y_min + space_y, y_max - space_y);
             }
         }
     }
