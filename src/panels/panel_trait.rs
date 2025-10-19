@@ -1,4 +1,4 @@
-use egui::{Ui, Context};
+use egui::{Context, Ui};
 
 use crate::config::XDateFormat;
 use crate::data::scope::ScopeData;
@@ -12,7 +12,7 @@ pub struct PanelState {
 }
 
 pub trait Panel {
-    fn title(&self) -> &'static str{
+    fn title(&self) -> &'static str {
         self.state().title
     }
 
@@ -27,7 +27,7 @@ pub trait Panel {
 
     fn panel_contents(&mut self, _ui: &mut Ui, _data: &mut ScopeData) {}
 
-    fn show_detached_dialog(&mut self,  _ui: &mut Ui, _data: &mut ScopeData) {
+    fn show_detached_dialog(&mut self, _ui: &mut Ui, _ctx: &Context, _data: &mut ScopeData) {
         // Read minimal window state in a short borrow scope to avoid conflicts
         let (title, mut show_flag) = {
             let dock: &mut PanelState = self.state_mut();
@@ -41,10 +41,7 @@ pub trait Panel {
                 ui.horizontal(|ui| {
                     ui.strong(title);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button("Dock")
-                            .clicked()
-                        {
+                        if ui.button("Dock").clicked() {
                             dock_clicked = true;
                         }
                     });
@@ -55,19 +52,18 @@ pub trait Panel {
             });
 
         // Write back state changes without overlapping borrows
+        let mut state = self.state_mut();
         if dock_clicked {
-            let dock = self.dock_mut();
-            dock.detached = false;
+            state.detached = false;
             // Closing the detached window after docking back to sidebar
-            dock.show_dialog = true;
-            dock.focus_dock = true;
+            state.visible = true;
+            state.request_docket = true;
         } else {
-            let dock = self.dock_mut();
             if !show_flag {
                 // If window was closed externally, clear detached flag
-                dock.detached = false;
+                state.detached = false;
             }
-            dock.show_dialog = show_flag;
+            state.visible = show_flag;
         }
     }
 }

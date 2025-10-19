@@ -3,10 +3,11 @@ use eframe::egui;
 use crate::config::LivePlotConfig;
 use crate::data::scope::ScopeData;
 use crate::panels::panel_trait::Panel;
-use crate::panels::{
-    export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
-    thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,
-};
+// use crate::panels::{
+//     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
+//     thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,
+// };
+use crate::panels::scope_ui::ScopePanel;
 
 pub struct MainPanel {
     // Panels
@@ -104,7 +105,7 @@ impl MainPanel {
                 .default_width(280.0)
                 .width_range(160.0..=600.0)
                 .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list, egui::Align::Left);
+                    self.render_tabs(ui, &mut list, egui::Align::LEFT);
                 });
             self.left_side_panels = list;
         }
@@ -115,7 +116,7 @@ impl MainPanel {
                 .default_width(320.0)
                 .width_range(160.0..=600.0)
                 .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list, egui::Align::Right);
+                    self.render_tabs(ui, &mut list, egui::Align::RIGHT);
                 });
             self.right_side_panels = list;
         }
@@ -127,7 +128,7 @@ impl MainPanel {
                 .default_height(220.0)
                 .height_range(120.0..=600.0)
                 .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list, egui::Align::Bottom);
+                    self.render_tabs(ui, &mut list, egui::Align::BOTTOM);
                 });
             self.bottom_panels = list;
         }
@@ -160,7 +161,7 @@ impl MainPanel {
 
         if count > 0 {
             // Decide if actions fit on the same row; if not, render them on a new row.
-            let actions_need_row_below = if show_actions {
+            let actions_need_row_below = {
                 let available = ui.available_width();
                 // Estimate width of tabs/labels
                 let button_font = egui::TextStyle::Button.resolve(ui.style());
@@ -174,26 +175,24 @@ impl MainPanel {
                 let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
                 let tabs_w: f32 = match count {
                     0 => 0.0,
-                    1 => txt_width(list[0].name(), ui) + pad,
-                    _ => list.iter().map(|p| txt_width(p.name(), ui) + pad).sum(),
+                    1 => txt_width(list[0].title(), ui) + pad,
+                    _ => list.iter().map(|p| txt_width(p.title(), ui) + pad).sum(),
                 };
                 let actions_w = txt_width("Pop out", ui) + pad + txt_width("Hide", ui) + pad;
                 tabs_w + actions_w > available
-            } else {
-                false
             };
 
             ui.horizontal(|ui| {
                 if count > 1 {
                     for (i, p) in list.iter_mut().enumerate() {
                         let active = p.state().visible && !p.state().detached;
-                        if ui.selectable_label(active, p.name()).clicked() {
+                        if ui.selectable_label(active, p.title()).clicked() {
                             clicked = Some(i);
                         }
                     }
                 }
 
-                if show_actions && !actions_need_row_below {
+                if !actions_need_row_below {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Hide").clicked() {
                             for p in list.iter_mut() {
@@ -213,7 +212,7 @@ impl MainPanel {
                 }
             });
 
-            if show_actions && actions_need_row_below {
+            if actions_need_row_below {
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Hide").clicked() {
@@ -257,19 +256,28 @@ impl MainPanel {
             .find(|(_i, p)| p.state().visible && !p.state().detached)
         {
             let p = &mut list[idx];
-            p.render_panel(ui, &mut self.data);
+            p.render_panel(ui, &mut data);
         } else {
             ui.label("No panel active");
         }
     }
 }
 
+pub struct MainApp {
+    pub main_panel: MainPanel,
+}
+
 impl eframe::App for MainApp {
+    pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
+        Self {
+            main_panel: MainPanel::new(rx),
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Non-UI calculations first
-            self.data.calculate();
-            self.ui_embed(ui);
+            self.main_panel.update(ui, ctx);
         });
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
     }
@@ -280,22 +288,8 @@ pub fn run_liveplot(
     cfg: LivePlotConfig,
 ) -> eframe::Result<()> {
     let mut app = MainApp::new(rx);
-    // Apply config to app
-    if let Some(ctrl) = cfg.threshold_controller.as_ref().cloned() {
-        app.data.thresholds.attach_controller(ctrl);
-    }
-    app.cfg = LivePlotConfig {
-        time_window_secs: cfg.time_window_secs,
-        max_points: cfg.max_points,
-        x_date_format: cfg.x_date_format,
-        y_unit: cfg.y_unit.clone(),
-        y_log: cfg.y_log,
-        title: cfg.title.clone(),
-        native_options: cfg.native_options.clone(),
-        threshold_controller: cfg.threshold_controller.clone(),
-    };
+
     let title = app
-        .cfg
         .title
         .clone()
         .unwrap_or_else(|| "LivePlot".to_string());
