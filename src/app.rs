@@ -5,7 +5,7 @@ use crate::panels::panel_trait::Panel;
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
 //     thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,
 // };
-use crate::panels::{scope_ui::ScopePanel, traces_ui::TracesPanel};
+use crate::panels::{scope_ui::ScopePanel, traces_ui::TracesPanel, math_ui::MathPanel};
 
 pub struct MainPanel {
     // Panels
@@ -21,7 +21,8 @@ impl MainPanel {
     pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
         Self {
             scope_panel: ScopePanel::new(rx),
-            right_side_panels: vec![Box::new(TracesPanel::default())], //vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default()), Box::new(ThresholdsPanel::default()), Box::new(TriggersPanel::default()), Box::new(ExportPanel::default())],
+            right_side_panels: vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default())], 
+            //vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default()), Box::new(ThresholdsPanel::default()), Box::new(TriggersPanel::default()), Box::new(ExportPanel::default())],
             left_side_panels: vec![],
             bottom_panels: vec![], //vec![Box::new(FftPanel::default())],
             detached_panels: vec![],
@@ -47,7 +48,9 @@ impl MainPanel {
         //     .collect();
 
         // For now we don't draw additional overlay objects
-        self.scope_panel.render_panel(ui, vec![]);
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.scope_panel.render_panel(ui, vec![]);
+        });
     }
 
     fn update_data(&mut self) {
@@ -72,41 +75,93 @@ impl MainPanel {
 
     fn render_menu(&mut self, ui: &mut egui::Ui) {
         // Render Menu
-        self.scope_panel.render_menu(ui);
 
-        let data = self.scope_panel.get_data_mut();
+        egui::MenuBar::new().ui(ui, |ui| {
+            self.scope_panel.render_menu(ui);
 
-        for p in &mut self.left_side_panels {
-            p.render_menu(ui, data);
-        }
-        for p in &mut self.right_side_panels {
-            p.render_menu(ui, data);
-        }
-        for p in &mut self.bottom_panels {
-            p.render_menu(ui, data);
-        }
-        for p in &mut self.detached_panels {
-            p.render_menu(ui, data);
-        }
-        for p in &mut self.empty_panels {
-            p.render_menu(ui, data);
-        }
+            let data = self.scope_panel.get_data_mut();
 
-        
+            for p in &mut self.left_side_panels {
+                p.render_menu(ui, data);
+            }
+            for p in &mut self.right_side_panels {
+                p.render_menu(ui, data);
+            }
+            for p in &mut self.bottom_panels {
+                p.render_menu(ui, data);
+            }
+            for p in &mut self.detached_panels {
+                p.render_menu(ui, data);
+            }
+            for p in &mut self.empty_panels {
+                p.render_menu(ui, data);
+            }
+
+            ui.menu_button("Panels", |ui| {
+                for p in &mut self.left_side_panels {
+                    if ui
+                        .selectable_label(p.state_mut().visible, p.title())
+                        .clicked()
+                    {
+                        p.state_mut().detached = false;
+                        p.state_mut().visible = true;
+                    }
+                }
+                for p in &mut self.right_side_panels {
+                    if ui
+                        .selectable_label(p.state_mut().visible, p.title())
+                        .clicked()
+                    {
+                        p.state_mut().detached = false;
+                        p.state_mut().visible = true;
+                    }
+                }
+                for p in &mut self.bottom_panels {
+                    if ui
+                        .selectable_label(p.state_mut().visible, p.title())
+                        .clicked()
+                    {
+                        p.state_mut().detached = false;
+                        p.state_mut().visible = true;
+                    }
+                }
+                for p in &mut self.detached_panels {
+                    if ui
+                        .selectable_label(p.state_mut().visible, p.title())
+                        .clicked()
+                    {
+                        p.state_mut().detached = true;
+                        p.state_mut().visible = true;
+                    }
+                }
+            });
+        });
     }
 
     fn render_panels(&mut self, ui: &mut egui::Ui) {
         // Layout: left, right side optional; bottom optional; main center
-        let show_left = !self.left_side_panels.is_empty();
-        let show_right = !self.right_side_panels.is_empty();
-        let show_bottom = !self.bottom_panels.is_empty();
+        let show_left = !self.left_side_panels.is_empty()
+            && self
+                .left_side_panels
+                .iter()
+                .any(|p| p.state().visible && !p.state().detached);
+        let show_right = !self.right_side_panels.is_empty()
+            && self
+                .right_side_panels
+                .iter()
+                .any(|p| p.state().visible && !p.state().detached);
+        let show_bottom = !self.bottom_panels.is_empty()
+            && self
+                .bottom_panels
+                .iter()
+                .any(|p| p.state().visible && !p.state().detached);
 
         if show_left {
             let mut list = std::mem::take(&mut self.left_side_panels);
             egui::SidePanel::left("left_sidebar")
                 .resizable(true)
                 .default_width(280.0)
-                .width_range(160.0..=600.0)
+                .min_width(160.0)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list, egui::Align::Min);
                 });
@@ -117,7 +172,7 @@ impl MainPanel {
             egui::SidePanel::right("right_sidebar")
                 .resizable(true)
                 .default_width(320.0)
-                .width_range(160.0..=600.0)
+                .min_width(200.0)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list, egui::Align::Max);
                 });
@@ -129,7 +184,7 @@ impl MainPanel {
             egui::TopBottomPanel::bottom("bottom_bar")
                 .resizable(true)
                 .default_height(220.0)
-                .height_range(120.0..=600.0)
+                .min_height(120.0)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list, egui::Align::Max);
                 });
@@ -137,19 +192,30 @@ impl MainPanel {
         }
 
         // Detached windows
+        // Detached left windows
+        for p in &mut self.left_side_panels {
+            if p.state().visible && p.state().detached {
+                p.show_detached_dialog(ui.ctx(), self.scope_panel.get_data_mut());
+            }
+        }
+
+        // Detached right windows
+        for p in &mut self.right_side_panels {
+            if p.state().visible && p.state().detached {
+                p.show_detached_dialog(ui.ctx(), self.scope_panel.get_data_mut());
+            }
+        }
+
+        // Detached bottom windows
+        for p in &mut self.bottom_panels {
+            if p.state().visible && p.state().detached {
+                p.show_detached_dialog(ui.ctx(), self.scope_panel.get_data_mut());
+            }
+        }
 
         for p in &mut self.detached_panels {
             if p.state().visible && p.state().detached {
-                let data = self.scope_panel.get_data_mut();
-                let mut open = true;
-                egui::Window::new(p.title())
-                    .open(&mut open)
-                    .show(ui.ctx(), |ui| {
-                        p.render_panel(ui, data);
-                    });
-                if !open {
-                    p.state_mut().visible = false;
-                }
+                p.show_detached_dialog(ui.ctx(), self.scope_panel.get_data_mut());
             }
         }
     }
@@ -197,6 +263,10 @@ impl MainPanel {
                             clicked = Some(i);
                         }
                     }
+                } else {
+                    let p = &mut list[0];
+                    ui.label(p.title());
+                    clicked = Some(0);
                 }
 
                 if !actions_need_row_below {
