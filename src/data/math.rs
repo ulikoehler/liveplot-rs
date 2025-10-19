@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 trait MathTrace {
     fn get_mathkind(&self) -> MathKind;
     fn get_name(&self) -> &String;
-    fn evaluate(&self, data: &ScopeData);
+    fn evaluate(&self, data: &mut ScopeData);
 }
 
 /// Identifier of a source trace by name.
@@ -56,20 +56,20 @@ pub enum FilterKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MathKind {
     /// Sum or difference of N traces: sum_i (sign_i * x_i)
-    Add, // { inputs: Vec<(TraceRef, f64)> },
+    Add { inputs: Vec<(TraceRef, f64)> },
     /// Multiply two traces
-    Multiply, // { a: TraceRef, b: TraceRef },
+    Multiply { a: TraceRef, b: TraceRef },
     /// Divide two traces (a/b)
-    Divide, // { a: TraceRef, b: TraceRef },
+    Divide { a: TraceRef, b: TraceRef },
     /// Numerical derivative of one trace (dy/dt)
-    Differentiate, // { input: TraceRef },
+    Differentiate { input: TraceRef },
     /// Numerical integral of one trace (∫ y dt), optional initial value
-    Integrate, // { input: TraceRef, y0: f64 },
+    Integrate { input: TraceRef, y0: f64 },
     /// IIR filter on one trace
-    Filter, // { input: TraceRef, kind: FilterKind },
+    Filter { input: TraceRef, kind: FilterKind },
     /// Track min/max with optional exponential decay (per second)
     /// Track min or max with optional exponential decay (per second)
-    MinMax, // { input: TraceRef, decay_per_sec: Option<f64>, mode: MinMaxMode },
+    MinMax { input: TraceRef, decay_per_sec: Option<f64>, mode: MinMaxMode },
 }
 
 struct Add {
@@ -85,15 +85,55 @@ impl Add {
 
 impl MathTrace for Add {
     fn get_mathkind(&self) -> MathKind {
-        MathKind::Add
+        MathKind::Add { inputs: self.inputs.iter().map(|(n, s)| (TraceRef(n.clone()), *s)).collect() }
     }
     fn get_name(&self) -> &String {
         &self.name
     }
 
-    fn evaluate(&self, data: &ScopeData) {
+    fn evaluate(&self, data: &mut ScopeData) {
         let math_trace = data.get_trace_or_new(self.get_name());
-        
+
+        let last_t = if !data.paused {
+            math_trace.get_last_live_timestamp()
+        } else {
+            math_trace.get_last_snapshot_timestamp()
+        };
+
+        // Build union grid across inputs
+            let mut grid: Vec<f64> = union_times(self.inputs.iter().map(|(r, _)| r), data.traces);
+            grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            grid.dedup_by(|a, b| (*a - *b).abs() < 1e-15);
+            // Value getter with last-sample hold
+            let mut caches: std::collections::HashMap<String, (usize, f64)> = Default::default();
+            let mut get_val = |name: &str, t: f64| -> Option<f64> {
+                let data = sources.get(name)?;
+                let (idx, last) = caches.entry(name.to_string()).or_insert((0, f64::NAN));
+                while *idx + 1 < data.len() && data[*idx + 1][0] <= t {
+                    *idx += 1;
+                }
+                *last = data[*idx][1];
+                Some(*last)
+            };
+            out.clear();
+            for &t in &grid {
+                let mut sum = 0.0;
+                let mut any = false;
+                for (r, k) in inputs {
+                    if let Some(v) = get_val(&r.0, t) {
+                        sum += k * v;
+                        any = true;
+                    }
+                }
+                if any {
+                    if let Some(cut) = prune_before {
+                        if t < cut {
+                            continue;
+                        }
+                    }
+                    out.push([t, sum]);
+                }
+            }
     }
 }
 
@@ -534,7 +574,7 @@ fn union_times<'a>(
     let mut v = Vec::new();
     for r in it {
         if let Some(d) = sources.get(&r.0) {
-            v.extend(d.iter().map(|p| p[0]));
+            v.extend(d.iter().map(|p: &[f64; 2]| p[0]));
         }
     }
     v

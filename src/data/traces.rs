@@ -31,4 +31,12 @@ impl TraceData {
     pub fn clear_snapshot(&mut self) {
         self.snap = None;
     }
+
+    pub fn get_last_live_timestamp(&self) -> Option<f64> {
+        self.live.back().map(|p| p[0])
+    }
+
+    pub fn get_last_snapshot_timestamp(&self) -> Option<f64> {
+        self.snap.as_ref().and_then(|s| s.back().map(|p| p[0]))
+    }
 }
