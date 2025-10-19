@@ -438,5 +438,7 @@ impl ScopePanel {
                 self.data.y_axis.bounds = (y_min + space_y, y_max - space_y);
             }
         }
+
+        self.data.hover_trace = None;
     }
 }

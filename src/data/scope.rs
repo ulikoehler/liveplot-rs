@@ -46,6 +46,7 @@ pub struct ScopeData {
     pub traces: HashMap<String, TraceData>,
     pub trace_order: Vec<String>,
     pub hover_trace: Option<String>,
+    pub selection_trace: Option<String>,
 }
 
 impl Default for ScopeData {
@@ -67,6 +68,7 @@ impl Default for ScopeData {
             traces: HashMap::new(),
             trace_order: Vec::new(),
             hover_trace: None,
+            selection_trace: None,
         }
     }
 }
@@ -193,11 +195,11 @@ impl ScopeData {
                 if p[0] > x_bounds.1 {
                     break;
                 }
-                if p[1] < min_y {
-                    min_y = p[1];
+                if p[1] + trace.offset < min_y {
+                    min_y = p[1] + trace.offset;
                 }
-                if p[1] > max_y {
-                    max_y = p[1];
+                if p[1] + trace.offset > max_y {
+                    max_y = p[1] + trace.offset;
                 }
             }
         }

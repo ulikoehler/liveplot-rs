@@ -91,6 +91,8 @@ impl MainPanel {
         for p in &mut self.empty_panels {
             p.render_menu(ui, data);
         }
+
+        
     }
 
     fn render_panels(&mut self, ui: &mut egui::Ui) {
