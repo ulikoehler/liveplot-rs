@@ -231,4 +231,18 @@ impl ScopeData {
             trace.clear_all();
         }
     }
+
+    pub fn get_trace_or_new(&mut self, name: &str) -> &mut TraceData {
+        self.traces.entry(name.to_string()).or_insert_with(|| {
+            self.trace_order.push(name.to_string());
+            TraceData {
+                name: name.to_string(),
+                look: TraceLook::new(self.trace_order.len() - 1),
+                offset: 0.0,
+                live: VecDeque::new(),
+                snap: None,
+                info: String::new(),
+            }
+        })
+    }
 }

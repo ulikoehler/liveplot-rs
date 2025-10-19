@@ -11,6 +11,17 @@ pub struct PanelState {
     pub request_docket: bool,
 }
 
+impl PanelState {
+    pub fn new(title: &'static str) -> Self {
+        Self {
+            title,
+            visible: false,
+            detached: false,
+            request_docket: false,
+        }
+    }
+}
+
 pub trait Panel {
     fn title(&self) -> &'static str {
         self.state().title
