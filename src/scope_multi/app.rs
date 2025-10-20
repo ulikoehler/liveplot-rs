@@ -2159,7 +2159,7 @@ impl ScopeAppMulti {
 
     /// Call a closure with the bottom panel at the given index temporarily moved out,
     /// then put it back. The index corresponds to the order returned by `bottom_panels()`.
-    fn with_bottom_panel_at<F>(&mut self, index: usize, f: F)
+    fn with_bottom_panel_at<F>(&mut self, index: usize, mut f: F)
     where
         F: FnMut(&mut dyn super::panel::DockPanel, &mut Self),
     {
