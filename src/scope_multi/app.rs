@@ -134,37 +134,6 @@ pub struct ScopeAppMulti {
 }
 
 impl ScopeAppMulti {
-    
-    // moved: render_right_sidebar_panel
-
-    // moved: render_export_buttons
-
-    // moved: prompt_and_save_raw_data
-
-    // moved: prompt_and_save_threshold_events
-
-    // moved: handle_screenshot_result
-
-    // moved: process_focus_requests
-
-    // show_right_sidebar_panel is now merged into render_right_sidebar_panel
-
-    // moved: render_central_plot_panel
-
-    // moved: handle_ui_action_requests
-
-    // moved: handle_window_controller_requests
-
-    // moved: repaint_tick and side_panels
-
-    // moved: drain_rx_and_update_traces
-
-    // moved: prune_by_time_window
-
-    // moved: apply_threshold_controller_requests
-
-    // moved: apply_traces_controller_requests_and_publish
-
     /// One-shot shared update: ingest -> prune -> recompute math -> thresholds -> traces publish
     pub(super) fn tick_non_ui(&mut self) {
         self.drain_rx_and_update_traces();
@@ -175,18 +144,6 @@ impl ScopeAppMulti {
         self.apply_traces_controller_requests_and_publish();
     }
 
-    // moved: show_dialogs_shared
-
-    // moved: latest_time_overall
-    // moved: plot_traces_common
-
-    // moved: pause_on_click
-
-    // moved: apply_zoom
-
-    // moved: handle_plot_click
-
-    // moved: controls_ui
     pub fn new(rx: Receiver<PlotCommand>) -> Self {
         Self {
             rx,
