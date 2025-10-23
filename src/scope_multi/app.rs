@@ -144,6 +144,58 @@ pub struct ScopeAppMulti {
 }
 
 impl ScopeAppMulti {
+    /// Directly set/replace the sample buffer for a named trace.
+    ///
+    /// This API is useful for displaying data that isn't streamed live. The provided
+    /// points are treated as absolute time/value pairs `[t_seconds, value]` and will
+    /// be copied into the trace's live buffer and also captured as a snapshot. The
+    /// app will switch to paused mode and request auto-fit of X and Y axes.
+    pub fn set_trace_data<S: Into<String>>(&mut self, name: S, points: Vec<[f64; 2]>) {
+        let name = name.into();
+        // Create trace if missing
+        let is_new = !self.traces.contains_key(&name);
+        let idx = self.trace_order.len();
+        let entry = self.traces.entry(name.clone()).or_insert_with(|| {
+            self.trace_order.push(name.clone());
+            let mut look = TraceLook::default();
+            look.color = Self::alloc_color(idx);
+            TraceState {
+                name: name.clone(),
+                look,
+                offset: 0.0,
+                live: VecDeque::new(),
+                snap: None,
+                last_fft: None,
+                is_math: false,
+                info: String::new(),
+            }
+        });
+        // Replace buffers
+        entry.live = points.iter().copied().collect();
+        entry.snap = Some(entry.live.clone());
+        // Select first trace if none selected yet
+        if is_new && self.selection_trace.is_none() {
+            self.selection_trace = Some(name);
+        }
+        // Show fixed data without scrolling/pruning
+        self.paused = true;
+        // Request auto-fit to the provided data
+        self.pending_auto_x = true;
+        self.pending_auto_y = true;
+    }
+
+    /// Convenience: set/replace multiple traces at once.
+    ///
+    /// Each tuple is `(trace_name, points)` where points are `[t_seconds, value]`.
+    /// The app switches to paused mode and requests auto-fit.
+    pub fn set_traces_data(&mut self, data: Vec<(String, Vec<[f64; 2]>)>) {
+        for (name, pts) in data {
+            self.set_trace_data(name, pts);
+        }
+        self.paused = true;
+        self.pending_auto_x = true;
+        self.pending_auto_y = true;
+    }
     /// Render the right-side sidebar if any attached panel is visible; includes header and body.
     fn render_right_sidebar_panel(&mut self, ctx: &egui::Context) {
         // Check if any attached side panel should be shown
