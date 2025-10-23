@@ -347,7 +347,7 @@ pub fn run_liveplot(
     let title = cfg
         .title
         .clone()
-        .unwrap_or_else(|| "LivePlot (multi)".to_string());
+        .unwrap_or_else(|| "LivePlot".to_string());
     eframe::run_native(
         &title,
         options,
