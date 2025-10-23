@@ -4,14 +4,12 @@
 //! for dialogs, screenshots, window controller updates, and controller-driven actions.
 
 use eframe::egui;
-use egui::Color32;
 use image::{Rgba, RgbaImage};
-use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(feature = "fft")]
 use crate::controllers::FftPanelInfo;
-use crate::controllers::{FftController, FftDataRequest, FftRawData, RawExportFormat, WindowInfo};
+use crate::controllers::{FftDataRequest, FftRawData, RawExportFormat, WindowInfo};
 use crate::thresholds::ThresholdEvent;
 
 use super::panel::DockPanel;
