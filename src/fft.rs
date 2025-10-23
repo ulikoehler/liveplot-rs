@@ -1,7 +1,7 @@
 
 // FFT logic for time-series data, extracted from main.rs
 // Provides windowing and spectrum calculation utilities for plotting
-use rustfft::{FFTPlanner, num_complex::Complex};
+use rustfft::{num_complex::Complex, FftPlanner};
 use std::collections::VecDeque;
 
 
@@ -91,7 +91,7 @@ pub fn compute_fft(
     let sample_rate = 1.0 / dt_est;
 
     // Prepare windowed real input for FFT
-    let mut planner = FFTPlanner::new();
+    let mut planner = FftPlanner::new();
     let fft = planner.plan_fft_forward(fft_size);
     let mut data: Vec<Complex<f64>> = slice.iter().enumerate().map(|(i, arr)| {
         let w = fft_window.weight(i, fft_size);
