@@ -8,8 +8,8 @@ use image::{Rgba, RgbaImage};
 use std::time::Duration;
 
 #[cfg(feature = "fft")]
-use crate::controllers::FftPanelInfo;
-use crate::controllers::{FftDataRequest, FftRawData, RawExportFormat, WindowInfo};
+use crate::controllers::FFTPanelInfo;
+use crate::controllers::{FFTDataRequest, FFTRawData, RawExportFormat, WindowInfo};
 use crate::thresholds::ThresholdEvent;
 
 use super::panel::DockPanel;
@@ -327,7 +327,7 @@ impl ScopeAppMulti {
                 let d = self.fft_panel.dock.clone();
                 let mut inner = ctrl.inner.lock().unwrap();
                 inner.show = d.show_dialog && !d.detached;
-                let info = FftPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
+                let info = FFTPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
                 inner.listeners.retain(|s| s.send(info.clone()).is_ok());
             }
         }
@@ -416,11 +416,11 @@ impl ScopeAppMulti {
                 inner = ctrl.inner.lock().unwrap();
             }
             if let Some(req) = inner.fft_request.take() {
-                let name_opt = match req { FftDataRequest::CurrentTrace => self.selection_trace.clone(), FftDataRequest::NamedTrace(s) => Some(s) };
+                let name_opt = match req { FFTDataRequest::CurrentTrace => self.selection_trace.clone(), FFTDataRequest::NamedTrace(s) => Some(s) };
                 if let Some(name) = name_opt { if let Some(tr) = self.traces.get(&name) {
                     let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused { if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
                     let data: Vec<[f64; 2]> = iter.cloned().collect();
-                    let msg = FftRawData { trace: name.clone(), data };
+                    let msg = FFTRawData { trace: name.clone(), data };
                     inner.fft_listeners.retain(|s| s.send(msg.clone()).is_ok());
                 } }
             }

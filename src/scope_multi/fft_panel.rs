@@ -3,24 +3,24 @@
 use eframe::egui;
 use egui_plot::{Line, Legend, Plot, PlotPoints};
 
-use crate::controllers::FftPanelInfo;
+use crate::controllers::FFTPanelInfo;
 use crate::fft;
 
-use super::app::{FftWindow, ScopeAppMulti};
+use super::app::{FFTWindow, ScopeAppMulti};
 use super::panel::{DockPanel, DockState};
 
 #[derive(Debug, Clone)]
-pub struct FftPanel {
+pub struct FFTPanel {
     pub dock: DockState,
 }
 
-impl Default for FftPanel {
+impl Default for FFTPanel {
     fn default() -> Self {
         Self { dock: DockState::new("FFT") }
     }
 }
 
-impl DockPanel for FftPanel {
+impl DockPanel for FFTPanel {
     fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
 
     fn panel_contents(&mut self, app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
@@ -31,7 +31,7 @@ impl DockPanel for FftPanel {
             let size_px = [size_pts.x * ppp, size_pts.y * ppp];
             let mut inner = ctrl.inner.lock().unwrap();
             inner.current_size = Some(size_px);
-            let info = FftPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
+            let info = FFTPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
             inner.listeners.retain(|s| s.send(info.clone()).is_ok());
         }
 
@@ -47,7 +47,7 @@ impl DockPanel for FftPanel {
                 ui.label("Window:");
                 egui::ComboBox::from_id_salt("fft_window_multi")
                     .selected_text(app.fft_window.label())
-                    .show_ui(ui, |ui| { for w in FftWindow::ALL { ui.selectable_value(&mut app.fft_window, *w, w.label()); } });
+                    .show_ui(ui, |ui| { for w in FFTWindow::ALL { ui.selectable_value(&mut app.fft_window, *w, w.label()); } });
                 ui.separator();
                 if ui.button(if app.fft_db { "Linear" } else { "dB" }).on_hover_text("Toggle FFT magnitude scale").clicked() { app.fft_db = !app.fft_db; }
                 ui.separator();

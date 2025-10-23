@@ -76,7 +76,7 @@ impl WindowController {
 
 /// Information about the FFT bottom panel (shown + size in physical pixels)
 #[derive(Debug, Clone)]
-pub struct FftPanelInfo {
+pub struct FFTPanelInfo {
     /// Whether the FFT panel is currently shown
     pub shown: bool,
     /// Current panel size in physical pixels (width, height)
@@ -87,8 +87,8 @@ pub struct FftPanelInfo {
 
 /// Controller to get/set FFT panel visibility/size and subscribe to updates.
 #[derive(Clone)]
-pub struct FftController {
-    pub(crate) inner: Arc<Mutex<FftCtrlInner>>, // crate-visible for UI
+pub struct FFTController {
+    pub(crate) inner: Arc<Mutex<FFTCtrlInner>>, // crate-visible for UI
 }
 
 /// Controller for high-level UI actions like pause/resume and saving a PNG.
@@ -105,8 +105,8 @@ pub(crate) struct UiActionInner {
     pub(crate) request_pause: Option<bool>,
     pub(crate) request_screenshot: bool,
     pub(crate) request_save_raw: Option<RawExportFormat>,
-    pub(crate) fft_request: Option<FftDataRequest>,
-    pub(crate) fft_listeners: Vec<Sender<FftRawData>>,
+    pub(crate) fft_request: Option<FFTDataRequest>,
+    pub(crate) fft_listeners: Vec<Sender<FFTRawData>>,
     pub(crate) request_screenshot_to: Option<std::path::PathBuf>,
     pub(crate) request_save_raw_to: Option<(RawExportFormat, std::path::PathBuf)>,
 }
@@ -162,7 +162,7 @@ impl UiActionController {
     }
 
     /// Subscribe to receive the current raw FFT input data (time-domain) for a trace.
-    pub fn subscribe_fft_data(&self) -> std::sync::mpsc::Receiver<FftRawData> {
+    pub fn subscribe_fft_data(&self) -> std::sync::mpsc::Receiver<FFTRawData> {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut inner = self.inner.lock().unwrap();
         inner.fft_listeners.push(tx);
@@ -172,13 +172,13 @@ impl UiActionController {
     /// Request FFT input data for the currently selected trace (if any).
     pub fn request_fft_data_current(&self) {
         let mut inner = self.inner.lock().unwrap();
-        inner.fft_request = Some(FftDataRequest::CurrentTrace);
+        inner.fft_request = Some(FFTDataRequest::CurrentTrace);
     }
 
     /// Request FFT input data for a specific named trace.
     pub fn request_fft_data_for<S: Into<String>>(&self, name: S) {
         let mut inner = self.inner.lock().unwrap();
-        inner.fft_request = Some(FftDataRequest::NamedTrace(name.into()));
+        inner.fft_request = Some(FFTDataRequest::NamedTrace(name.into()));
     }
 }
 
@@ -188,27 +188,27 @@ pub enum RawExportFormat { Csv, Parquet }
 
 /// Request for FFT raw input data.
 #[derive(Debug, Clone)]
-pub enum FftDataRequest { CurrentTrace, NamedTrace(String) }
+pub enum FFTDataRequest { CurrentTrace, NamedTrace(String) }
 
 /// Raw FFT input time-domain data for a single trace.
 #[derive(Debug, Clone)]
-pub struct FftRawData {
+pub struct FFTRawData {
     pub trace: String,
     /// Time-domain points [t_seconds, value]
     pub data: Vec<[f64;2]>,
 }
 
-pub(crate) struct FftCtrlInner {
+pub(crate) struct FFTCtrlInner {
     pub(crate) show: bool,
     pub(crate) current_size: Option<[f32; 2]>,
     pub(crate) request_set_size: Option<[f32; 2]>,
-    pub(crate) listeners: Vec<Sender<FftPanelInfo>>,
+    pub(crate) listeners: Vec<Sender<FFTPanelInfo>>,
 }
 
-impl FftController {
+impl FFTController {
     /// Create a fresh controller.
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(FftCtrlInner { show: false, current_size: None, request_set_size: None, listeners: Vec::new() })) }
+        Self { inner: Arc::new(Mutex::new(FFTCtrlInner { show: false, current_size: None, request_set_size: None, listeners: Vec::new() })) }
     }
 
     /// Query whether the FFT panel is (last known) shown.
@@ -219,7 +219,7 @@ impl FftController {
     pub fn set_shown(&self, show: bool) {
         let mut inner = self.inner.lock().unwrap();
         inner.show = show;
-        let info = FftPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
+        let info = FFTPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
         inner.listeners.retain(|s| s.send(info.clone()).is_ok());
     }
 
@@ -233,8 +233,8 @@ impl FftController {
         inner.request_set_size = Some(size_px);
     }
 
-    /// Subscribe to FFT panel updates. Returned receiver receives `FftPanelInfo` whenever the UI publishes it.
-    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<FftPanelInfo> {
+    /// Subscribe to FFT panel updates. Returned receiver receives `FFTPanelInfo` whenever the UI publishes it.
+    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<FFTPanelInfo> {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut inner = self.inner.lock().unwrap();
         inner.listeners.push(tx);

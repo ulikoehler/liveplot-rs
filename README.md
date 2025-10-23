@@ -47,7 +47,7 @@ Capture the full UI viewport to a PNG file using the "Save PNG" action. Programm
 External code can observe and influence the UI through lightweight controllers:
 - `WindowController` — observe window size and request size/position changes.
 - `UiActionController` — pause/resume, trigger screenshots, export raw data, and subscribe/request raw FFT input data for a trace.
-- `FftController` — observe and request FFT panel visibility and size (when the `fft` feature is enabled).
+- `FFTController` — observe and request FFT panel visibility and size (when the `fft` feature is enabled).
 - `TracesController` — observe and modify trace colors/visibility, per-trace Y offsets, marker selection, and global Y unit and Y log mode.
 
 #### Threshold detection and event logging

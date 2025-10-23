@@ -1,6 +1,6 @@
 //! Configuration types shared across the live plot UIs.
 
-use crate::controllers::{FftController, UiActionController, WindowController};
+use crate::controllers::{FFTController, UiActionController, WindowController};
 use crate::controllers::TracesController;
 use crate::thresholds::ThresholdController;
 use chrono::Local;
@@ -57,7 +57,7 @@ pub struct LivePlotConfig {
     pub native_options: Option<eframe::NativeOptions>,
     /// Optional controllers to attach.
     pub window_controller: Option<WindowController>,
-    pub fft_controller: Option<FftController>,
+    pub fft_controller: Option<FFTController>,
     pub ui_action_controller: Option<UiActionController>,
     pub threshold_controller: Option<ThresholdController>,
     pub traces_controller: Option<TracesController>,

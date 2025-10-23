@@ -27,9 +27,9 @@ pub mod export;
 
 // Public re-exports for a compact external API
 #[cfg(feature = "fft")]
-pub use fft::FftWindow;
+pub use fft::FFTWindow;
 pub use config::{LivePlotConfig, XDateFormat};
-pub use controllers::{FftController, FftPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FftRawData, FftDataRequest};
+pub use controllers::{FFTController, FFTPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FFTRawData, FFTDataRequest};
 pub use controllers::{TracesController, TracesInfo, TraceInfo};
 pub use sink::{channel_plot, PlotSink, PlotPoint, PlotCommand, Trace, TraceId};
 pub use scope_multi_mod::{run_liveplot, ScopeAppMulti};

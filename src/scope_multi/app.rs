@@ -5,12 +5,12 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
-use crate::controllers::{FftController, TracesController, UiActionController, WindowController};
+use crate::controllers::{FFTController, TracesController, UiActionController, WindowController};
 #[cfg(feature = "fft")]
-pub use crate::fft::FftWindow;
+pub use crate::fft::FFTWindow;
 #[cfg(not(feature = "fft"))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum FftWindow {
+pub enum FFTWindow {
     Rect,
     Hann,
     Hamming,
@@ -32,7 +32,7 @@ use crate::sink::PlotCommand;
 use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState};
 
 #[cfg(feature = "fft")]
-use super::fft_panel::FftPanel;
+use super::fft_panel::FFTPanel;
 use super::math_ui::MathPanel;
 use super::thresholds_ui::ThresholdsPanel;
 use super::traces_ui::TracesPanel;
@@ -67,7 +67,7 @@ pub struct ScopeAppMulti {
     /// Optional controller to let external code get/set/listen to window info.
     pub window_controller: Option<WindowController>,
     /// Optional controller to get/set/listen to FFT panel info
-    pub fft_controller: Option<FftController>,
+    pub fft_controller: Option<FFTController>,
     /// Optional controller for high-level UI actions (pause/resume/screenshot)
     pub ui_action_controller: Option<UiActionController>,
     /// Optional controller to observe and modify trace colors/visibility/marker selection
@@ -75,7 +75,7 @@ pub struct ScopeAppMulti {
     // FFT related
     pub show_fft: bool,
     pub fft_size: usize,
-    pub fft_window: FftWindow,
+    pub fft_window: FFTWindow,
     pub fft_last_compute: std::time::Instant,
     pub fft_db: bool,
     pub fft_fit_view: bool,
@@ -130,7 +130,7 @@ pub struct ScopeAppMulti {
     pub(super) thresholds_panel: ThresholdsPanel,
     pub(super) traces_panel: TracesPanel,
     #[cfg(feature = "fft")]
-    pub(super) fft_panel: FftPanel,
+    pub(super) fft_panel: FFTPanel,
 }
 
 impl ScopeAppMulti {
@@ -160,7 +160,7 @@ impl ScopeAppMulti {
             paused: false,
             show_fft: false,
             fft_size: 1024,
-            fft_window: FftWindow::Hann,
+            fft_window: FFTWindow::Hann,
             fft_last_compute: std::time::Instant::now(),
             fft_db: false,
             fft_fit_view: false,
@@ -197,7 +197,7 @@ impl ScopeAppMulti {
             thresholds_panel: ThresholdsPanel::default(),
             traces_panel: TracesPanel::default(),
             #[cfg(feature = "fft")]
-            fft_panel: FftPanel::default(),
+            fft_panel: FFTPanel::default(),
         }
     }
 }
