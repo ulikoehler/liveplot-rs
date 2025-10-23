@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  quick-check:
+    name: Quick cargo check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config build-essential ca-certificates \
+            libx11-dev libxcb1-dev libx11-xcb-dev \
+            libxi-dev libxtst-dev libxrandr-dev libxinerama-dev \
+            libxkbcommon-dev libwayland-dev \
+            libgl1-mesa-dev libegl1-mesa
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+
+      - name: cargo check
+        run: cargo check
+
+  examples-check:
+    name: Check all examples
+    runs-on: ubuntu-latest
+    needs: quick-check
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (incl. protoc for grpc)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config build-essential ca-certificates \
+            protobuf-compiler \
+            libx11-dev libxcb1-dev libx11-xcb-dev \
+            libxi-dev libxtst-dev libxrandr-dev libxinerama-dev \
+            libxkbcommon-dev libwayland-dev \
+            libgl1-mesa-dev libegl1-mesa
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+
+      - name: cargo check --examples (no features)
+        run: cargo check --examples
+
+      - name: cargo check --examples --features grpc
+        run: cargo check --examples --features grpc
+
+      - name: cargo check --examples --features parquet
+        run: cargo check --examples --features parquet
+
+      - name: cargo check --examples --features window_control_display_info
+        run: cargo check --examples --features window_control_display_info
