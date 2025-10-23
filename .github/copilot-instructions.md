@@ -3,7 +3,7 @@
 After writing code, you MUST check if it compiles by running:
 
 ```bash
-cargo check
+cargo check --all-features --all-targets --examples
 ```
 
 If that produces any errors, you MUST fix before proceeding.
