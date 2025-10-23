@@ -91,16 +91,16 @@ impl ScopeAppMulti {
 
     /// Render export buttons (Save PNG screenshot and raw data export) into the given Ui.
     pub(super) fn render_export_buttons(&mut self, ui: &mut egui::Ui) {
-        if ui.button("Save PNG").on_hover_text("Take an egui viewport screenshot").clicked() {
+        if ui.button("📷 Save PNG").on_hover_text("Take a screenshot of the entire window").clicked() {
             self.request_window_shot = true;
         }
-        ui.menu_button("Export", |ui| {
+        ui.menu_button("📤 Export", |ui| {
             let hover_text_traces: &str = {
                 #[cfg(feature = "parquet")] { "Export all traces as CSV or Parquet" }
                 #[cfg(not(feature = "parquet"))] { "Export all traces as CSV" }
             };
-            if ui.button("Traces…").on_hover_text(hover_text_traces).clicked() { ui.close(); self.prompt_and_save_raw_data(); }
-            if ui.button("Threshold events…").on_hover_text("Export filtered or all threshold events as CSV").clicked() { ui.close(); self.prompt_and_save_threshold_events(); }
+            if ui.button("📈 Traces").on_hover_text(hover_text_traces).clicked() { ui.close(); self.prompt_and_save_raw_data(); }
+            if ui.button("⚠️ Threshold events").on_hover_text("Export filtered or all threshold events as CSV").clicked() { ui.close(); self.prompt_and_save_threshold_events(); }
         });
     }
 
