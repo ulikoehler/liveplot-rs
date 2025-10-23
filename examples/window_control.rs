@@ -1,3 +1,15 @@
+//! Example: Use WindowController to observe and control the plot window
+//!
+//! What it demonstrates
+//! - Attaching a `WindowController` to the UI to request window size/position changes
+//!   and receive updates about the actual window state.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example window_control
+//! ```
+//! The example streams a sine wave and logs window state changes to stderr.
+
 use liveplot::{channel_plot, run_liveplot, WindowController, LivePlotConfig, PlotPoint};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

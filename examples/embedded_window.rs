@@ -1,3 +1,15 @@
+//! Example: Embedding LivePlot into your own egui application window
+//!
+//! What it demonstrates
+//! - How to embed the `ScopeAppMulti` UI inside an existing `eframe`/`egui` application window.
+//! - Feeding data from the main app into the embedded plot via `PlotSink` and `Trace` handles.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example embedded_window
+//! ```
+//! Click "Open Plot Window" in the demo UI to show the embedded LivePlot view.
+
 use std::time::Duration;
 
 use eframe::{egui, NativeOptions};

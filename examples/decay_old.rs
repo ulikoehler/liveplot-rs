@@ -1,3 +1,17 @@
+//! Example: Gradually decay (shrink) older parts of a trace
+//!
+//! What it demonstrates
+//! - Streaming a single sine trace into the UI.
+//! - Applying a repeated multiplicative transform to an X-range using `apply_y_fn_in_x_range`.
+//! - Use of `f64::NAN` as a shorthand for the start/end of the trace buffer (see docs).
+//!
+//! How to run
+//! ```bash
+//! cargo run --example decay_old
+//! ```
+//! The example repeatedly multiplies all samples older than 3 seconds by 0.9, so older
+//! regions of the trace visually shrink over time.
+
 use liveplot::{channel_plot, run_liveplot, LivePlotConfig, PlotPoint};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

@@ -1,3 +1,15 @@
+//! Example: Display fixed (precomputed) trace data
+//!
+//! What it demonstrates
+//! - Loading and showing static time-series data using `ScopeAppMulti::set_trace_data`.
+//! - Pausing the UI and auto-fitting to the provided dataset.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example fixed_data
+//! ```
+//! This example preloads 10 periods of a 1 Hz sine and cosine, then displays them as paused traces.
+
 use eframe::{egui, NativeOptions};
 use liveplot::{channel_plot, ScopeAppMulti};
 

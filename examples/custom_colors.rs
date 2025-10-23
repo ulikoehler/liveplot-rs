@@ -1,3 +1,14 @@
+//! Example: Set custom colors for traces via `TracesController`
+//!
+//! What it demonstrates
+//! - Using `TracesController` to change trace colors programmatically after traces are registered.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example custom_colors
+//! ```
+//! The example streams two signals and sets custom RGB colors for the `sine` and `cosine` traces.
+
 use liveplot::{channel_plot, run_liveplot, LivePlotConfig, TracesController, PlotPoint};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

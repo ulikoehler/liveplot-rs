@@ -5,24 +5,23 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-// Simple CSV tailer and visualizer.
+// Example: Tail a CSV file and stream columns as traces
 //
-// CSV format expected:
-//   header: index,timestamp_micros,<trace1>,<trace2>,...
-//   data:   <u64>,<i64>,<f64>,<f64>,...
+// What it demonstrates
+// - How to monitor a growing CSV file (like tail -f), parse lines, and forward columns
+//   as separate traces into LivePlot.
+// - Handling header detection, truncation/rotation of the file, and partial-line buffering.
 //
-// - Lines without a full set of columns are ignored.
-// - Empty lines are ignored.
-// - Non-numeric fields in data lines cause that trace sample to be skipped.
-// - If timestamp parsing fails, current time is used.
+// Expected CSV format
+// - Header: index,timestamp_micros,<trace1>,<trace2>,...
+// - Data:   <u64>,<i64>,<f64>,<f64>,...
 //
-// Usage:
-//   cargo run --example csv_tail -- [--from-start] [path/to/live_data.csv]
-//
-// By default it starts reading at the end (like `tail -f`).
-// Pass --from-start to read existing data first.
-//
-// See examples/csv_writer.py for a companion 1 kHz CSV writer.
+// Usage
+// ```bash
+// cargo run --example csv_tail -- [--from-start] [path/to/live_data.csv]
+// ```
+// By default the program starts tailing at the end of the file. Use `--from-start` to
+// consume existing contents first. See `examples/csv_writer.py` for a companion generator.
 
 fn main() -> eframe::Result<()> {
     // Parse simple CLI args: optional --from-start and optional path

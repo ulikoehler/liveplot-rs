@@ -1,3 +1,16 @@
+//! Example: Threshold detection on a live sine trace
+//!
+//! What it demonstrates
+//! - Using `ThresholdController` to define thresholds (e.g. greater-than) and receiving
+//!   threshold events for traces streamed into LivePlot.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example thresholds_sine
+//! ```
+//! The example streams a sine wave and prints threshold events to stderr when the
+//! configured condition is met.
+
 use liveplot::{channel_plot, run_liveplot, ThresholdController, ThresholdDef, ThresholdKind, TraceRef, LivePlotConfig, PlotPoint};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

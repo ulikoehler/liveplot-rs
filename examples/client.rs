@@ -1,3 +1,22 @@
+//! Example: gRPC client that forwards samples into LivePlot
+//!
+//! What it demonstrates
+//! - Connecting to a gRPC server that publishes samples and forwarding them into the
+//!   multi-trace UI by sending `PlotCommand` messages over a channel.
+//!
+//! How to run
+//! 1. Start the gRPC example server (`examples/grpc-server.rs`) in another terminal:
+//!
+//! ```bash
+//! cargo run --example grpc-server
+//! ```
+//!
+//! 2. Run this client example:
+//!
+//! ```bash
+//! cargo run --example client
+//! ```
+//!
 use tonic::Request;
 use std::sync::mpsc;
 
@@ -17,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Spawn the UI on a separate thread because eframe runs a native event loop
     let ui_handle = std::thread::spawn(move || {
         // Run the UI until the window is closed (single trace labeled "signal")
-    if let Err(e) = run_liveplot(rx, LivePlotConfig::default()) {
+        if let Err(e) = run_liveplot(rx, LivePlotConfig::default()) {
             eprintln!("UI error: {e}");
         }
     });

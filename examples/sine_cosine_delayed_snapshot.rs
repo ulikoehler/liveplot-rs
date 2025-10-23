@@ -1,21 +1,17 @@
-// Example: sine_cosine_delayed_snapshot
-//
-// This example streams two traces (`sine` and `cosine`) at 1 kHz and opens
-// the multi-trace UI. After 5 seconds it will:
-//  1) Pause the UI (take a time-domain snapshot)
-//  2) Save a PNG screenshot to `./snapshot.png`
-//  3) Save the raw time-domain data for all traces to `./snapshot.parquet`
-//     (note: Parquet currently falls back to CSV; filename is used to choose format)
-//  4) Resume the UI after a short delay
-//
-// Files written to the current directory by default:
-//  - snapshot.png        (viewport screenshot)
-//  - snapshot.parquet    (raw time-domain points for all traces; CSV fallback)
-//
-// Run with:
-//
-//   cargo run --example sine_cosine_delayed_snapshot
-//
+//! Example: Take a delayed snapshot (screenshot + raw export)
+//!
+//! What it demonstrates
+//! - Streaming two traces into the UI and using `UiActionController` to programmatically
+//!   pause the UI, save a screenshot and raw time-domain data, and resume.
+//!
+//! Outputs (written to current working directory):
+//! - `snapshot.png` — PNG screenshot of the viewport
+//! - `snapshot.parquet` — raw exported data (parquet; may fall back to CSV)
+//!
+//! How to run
+//! ```bash
+//! cargo run --example sine_cosine_delayed_snapshot
+//! ```
 use liveplot::{channel_plot, run_liveplot, UiActionController, RawExportFormat, LivePlotConfig, PlotPoint};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

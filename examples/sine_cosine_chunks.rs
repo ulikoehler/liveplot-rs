@@ -1,3 +1,15 @@
+//! Example: Sending sample chunks for efficiency
+//!
+//! What it demonstrates
+//! - Producing and sending chunks of `PlotPoint` entries via `send_points` for better throughput.
+//! - How to timestamp samples within a chunk so x-values remain monotonic.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example sine_cosine_chunks
+//! ```
+//! The UI renders two traces (`sine` and `cosine`) where each update sends a 200-sample chunk.
+
 use liveplot::{channel_plot, run_liveplot, LivePlotConfig, PlotPoint};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 

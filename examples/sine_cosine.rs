@@ -1,3 +1,15 @@
+//! Example: Sine and cosine live traces
+//!
+//! What it demonstrates
+//! - Streaming two traces concurrently into the multi-trace UI.
+//! - Visual comparison of phase between two signals.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example sine_cosine
+//! ```
+//! The UI shows two traces (`sine` and `cosine`) updated at 1 kHz.
+
 use liveplot::{channel_plot, run_liveplot, LivePlotConfig, PlotPoint};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
