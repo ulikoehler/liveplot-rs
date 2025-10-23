@@ -2,6 +2,11 @@
 
 mod types;
 mod app;
+mod data;
+mod ui;
+mod plot;
+mod math;
+mod thresholds;
 mod math_ui;
 mod traces_ui;
 mod thresholds_ui;
