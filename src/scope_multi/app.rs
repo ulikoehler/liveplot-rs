@@ -243,60 +243,6 @@ impl ScopeAppMulti {
             fft_panel: FftPanel::default(),
         }
     }
-
-    // moved: ui_embed
-
-    // moved: bottom_panels
-
-    // Update any external controllers about attached bottom-panel visibility (e.g., FFT).
-    // moved: update_bottom_panels_controller_visibility
-
-    // Call a closure with the bottom panel at the given index temporarily moved out,
-    // then put it back. The index corresponds to the order returned by `bottom_panels()`.
-    // moved: with_bottom_panel_at
-
-    // (take/put helper no longer needed here; side/bottom panels are handled inline like sidebar)
-
-    // Render the bottom panel container if any attached bottom panel is visible; includes header and body.
-    // moved: render_bottom_panel
-
-    // moved: add_math_trace_internal
-
-    // moved: remove_math_trace_internal
-
-    // moved: add_math_trace
-
-    // moved: remove_math_trace
-
-    // moved: math_traces
-
-    // moved: recompute_math_traces
-
-    // moved: reset_all_math_storage
-
-    // moved: reset_math_storage
-
-    // moved: math_formula_string
-
-    // moved: process_thresholds
-
-    // moved: add_threshold_internal
-
-    // moved: clear_all_threshold_events
-
-    // moved: clear_threshold_events
-
-    // moved: remove_threshold_event
-
-    // moved: remove_threshold_internal
-
-    // moved: public threshold APIs
-
-    // moved: update_math_trace
-
-    // moved: apply_add_or_edit
-
-    // moved: alloc_color
 }
 
 impl eframe::App for ScopeAppMulti {
