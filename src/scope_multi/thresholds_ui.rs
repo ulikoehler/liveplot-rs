@@ -26,7 +26,7 @@ pub struct ThresholdsPanel {
 impl Default for ThresholdsPanel {
     fn default() -> Self {
         Self {
-            dock: DockState::new("Thresholds"),
+            dock: DockState::new("⚠️ Thresholds"),
             builder: super::types::ThresholdBuilderState::default(),
             editing: None,
             error: None,

@@ -19,7 +19,8 @@ pub struct MathPanel {
 impl Default for MathPanel {
     fn default() -> Self {
         Self {
-            dock: DockState::new("Math"),
+            dock: DockState::new("∫ Math"),
+            // Prepend an integral symbol to the Math panel title for clarity
             builder: MathBuilderState::default(),
             editing: None,
             error: None,

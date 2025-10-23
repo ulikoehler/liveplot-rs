@@ -16,7 +16,7 @@ pub struct FFTPanel {
 
 impl Default for FFTPanel {
     fn default() -> Self {
-        Self { dock: DockState::new("FFT") }
+        Self { dock: DockState::new("📊 FFT") }
     }
 }
 
