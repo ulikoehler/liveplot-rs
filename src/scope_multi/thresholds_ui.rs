@@ -1,4 +1,4 @@
-use eframe::egui;
+use egui;
 use egui::Color32;
 use std::collections::HashMap;
 use super::panel::{DockPanel, DockState};

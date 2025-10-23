@@ -430,7 +430,7 @@ impl ScopeAppMulti {
     /// Publish current window info and apply any pending viewport requests from the window controller.
     pub(super) fn handle_window_controller_requests(&mut self, ctx: &egui::Context) {
         if let Some(ctrl) = &self.window_controller {
-            let rect = ctx.input(|i| i.screen_rect);
+            let rect = ctx.input(|i| i.content_rect());
             let ppp = ctx.pixels_per_point();
             let mut inner = ctrl.inner.lock().unwrap();
             let size_pts = rect.size();
