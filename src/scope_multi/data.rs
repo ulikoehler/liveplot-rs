@@ -8,11 +8,11 @@
 //! - convenience setters for fixed datasets
 
 use egui::Color32;
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::time::Duration;
 
-use crate::controllers::{TraceInfo, TracesController, TracesInfo};
-use crate::sink::MultiSample;
+use crate::controllers::{TraceInfo, TracesInfo};
+use crate::sink::PlotCommand;
 
 use super::traceslook_ui::TraceLook;
 use super::types::TraceState;
@@ -67,37 +67,139 @@ impl ScopeAppMulti {
         self.pending_auto_y = true;
     }
 
-    /// Drain incoming samples and append to per-trace buffers. Create traces on first sighting.
+    /// Drain incoming commands and append to per-trace buffers. Create traces on registration.
     pub(super) fn drain_rx_and_update_traces(&mut self) {
-        while let Ok(s) = self.rx.try_recv() {
-            let is_new = !self.traces.contains_key(&s.trace);
-            let entry = self.traces.entry(s.trace.clone()).or_insert_with(|| {
-                let idx = self.trace_order.len();
-                self.trace_order.push(s.trace.clone());
-                let mut look = TraceLook::default();
-                look.color = Self::alloc_color(idx);
-                TraceState {
-                    name: s.trace.clone(),
-                    look,
-                    offset: 0.0,
-                    live: VecDeque::new(),
-                    snap: None,
-                    last_fft: None,
-                    is_math: false,
-                    info: String::new(),
+        while let Ok(cmd) = self.rx.try_recv() {
+            match cmd {
+                PlotCommand::RegisterTrace { id, name, info } => {
+                    // Map ID to name for future lookups
+                    self.id_to_name.insert(id, name.clone());
+                    // Create trace state if missing
+                    let is_new = !self.traces.contains_key(&name);
+                    let entry = self.traces.entry(name.clone()).or_insert_with(|| {
+                        let idx = self.trace_order.len();
+                        self.trace_order.push(name.clone());
+                        let mut look = TraceLook::default();
+                        look.color = Self::alloc_color(idx);
+                        TraceState {
+                            name: name.clone(),
+                            look,
+                            offset: 0.0,
+                            live: VecDeque::new(),
+                            snap: None,
+                            last_fft: None,
+                            is_math: false,
+                            info: String::new(),
+                        }
+                    });
+                    if let Some(inf) = info.as_ref() {
+                        entry.info = inf.clone();
+                    }
+                    if is_new && self.selection_trace.is_none() {
+                        self.selection_trace = Some(name);
+                    }
                 }
-            });
-            if is_new && self.selection_trace.is_none() {
-                self.selection_trace = Some(s.trace.clone());
-            }
-            let t = s.timestamp_micros as f64 * 1e-6;
-            entry.live.push_back([t, s.value]);
-            // Set/refresh info if provided by producer
-            if let Some(info) = s.info.as_ref() {
-                entry.info = info.clone();
-            }
-            if entry.live.len() > self.max_points {
-                entry.live.pop_front();
+                PlotCommand::Point { trace_id, point } => {
+                    if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                        let entry = self.traces.entry(name.clone()).or_insert_with(|| {
+                            let idx = self.trace_order.len();
+                            self.trace_order.push(name.clone());
+                            let mut look = TraceLook::default();
+                            look.color = Self::alloc_color(idx);
+                            TraceState {
+                                name: name.clone(),
+                                look,
+                                offset: 0.0,
+                                live: VecDeque::new(),
+                                snap: None,
+                                last_fft: None,
+                                is_math: false,
+                                info: String::new(),
+                            }
+                        });
+                        entry.live.push_back([point.x, point.y]);
+                        if entry.live.len() > self.max_points {
+                            entry.live.pop_front();
+                        }
+                    } else {
+                        // If not registered, synthesize a name and register implicitly
+                        let name = format!("trace-{}", trace_id);
+                        self.id_to_name.insert(trace_id, name.clone());
+                        let idx = self.trace_order.len();
+                        self.trace_order.push(name.clone());
+                        let mut look = TraceLook::default();
+                        look.color = Self::alloc_color(idx);
+                        let mut state = TraceState {
+                            name: name.clone(),
+                            look,
+                            offset: 0.0,
+                            live: VecDeque::new(),
+                            snap: None,
+                            last_fft: None,
+                            is_math: false,
+                            info: String::new(),
+                        };
+                        state.live.push_back([point.x, point.y]);
+                        self.traces.insert(name.clone(), state);
+                        if self.selection_trace.is_none() {
+                            self.selection_trace = Some(name);
+                        }
+                    }
+                }
+                PlotCommand::Points { trace_id, points } => {
+                    if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                        let entry = self.traces.entry(name.clone()).or_insert_with(|| {
+                            let idx = self.trace_order.len();
+                            self.trace_order.push(name.clone());
+                            let mut look = TraceLook::default();
+                            look.color = Self::alloc_color(idx);
+                            TraceState {
+                                name: name.clone(),
+                                look,
+                                offset: 0.0,
+                                live: VecDeque::new(),
+                                snap: None,
+                                last_fft: None,
+                                is_math: false,
+                                info: String::new(),
+                            }
+                        });
+                        for p in points {
+                            entry.live.push_back([p.x, p.y]);
+                            if entry.live.len() > self.max_points {
+                                entry.live.pop_front();
+                            }
+                        }
+                    } else {
+                        // Implicit registration path
+                        let name = format!("trace-{}", trace_id);
+                        self.id_to_name.insert(trace_id, name.clone());
+                        let idx = self.trace_order.len();
+                        self.trace_order.push(name.clone());
+                        let mut look = TraceLook::default();
+                        look.color = Self::alloc_color(idx);
+                        let mut state = TraceState {
+                            name: name.clone(),
+                            look,
+                            offset: 0.0,
+                            live: VecDeque::new(),
+                            snap: None,
+                            last_fft: None,
+                            is_math: false,
+                            info: String::new(),
+                        };
+                        for p in points {
+                            state.live.push_back([p.x, p.y]);
+                            if state.live.len() > self.max_points {
+                                state.live.pop_front();
+                            }
+                        }
+                        self.traces.insert(name.clone(), state);
+                        if self.selection_trace.is_none() {
+                            self.selection_trace = Some(name);
+                        }
+                    }
+                }
             }
         }
     }

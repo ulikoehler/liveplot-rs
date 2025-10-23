@@ -1,5 +1,5 @@
 use eframe::{egui, NativeOptions};
-use liveplot::{channel_multi, ScopeAppMulti};
+use liveplot::{channel_plot, ScopeAppMulti};
 
 fn make_fixed_waves() -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
     // 10 periods of a 1 Hz sine and cosine wave.
@@ -34,7 +34,7 @@ struct FixedDataApp {
 impl FixedDataApp {
     fn new() -> Self {
         // Create a plot app with an unused channel (no live data needed)
-        let (_sink, rx) = channel_multi();
+    let (_sink, rx) = channel_plot();
         let mut plot = ScopeAppMulti::new(rx);
         plot.time_window = 10.0;
         plot.max_points = 10_000;

@@ -31,7 +31,7 @@ pub use fft::FftWindow;
 pub use config::{LivePlotConfig, XDateFormat};
 pub use controllers::{FftController, FftPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FftRawData, FftDataRequest};
 pub use controllers::{TracesController, TracesInfo, TraceInfo};
-pub use sink::{channel_multi, MultiPlotSink, MultiSample};
+pub use sink::{channel_plot, PlotSink, PlotPoint, PlotCommand, Trace, TraceId};
 pub use scope_multi_mod::{run_liveplot, ScopeAppMulti};
 pub use math::{MathTraceDef, MathKind, FilterKind, TraceRef};
 pub use thresholds::{ThresholdDef, ThresholdKind, ThresholdEvent, ThresholdController};

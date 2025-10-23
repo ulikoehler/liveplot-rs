@@ -28,7 +28,7 @@ pub enum ZoomMode {
 use crate::config::XDateFormat;
 use crate::math::{MathRuntimeState, MathTraceDef};
 use crate::point_selection::PointSelection;
-use crate::sink::MultiSample;
+use crate::sink::PlotCommand;
 use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState};
 
 #[cfg(feature = "fft")]
@@ -48,7 +48,9 @@ pub(super) enum ControlsMode {
 
 /// Egui app that displays multiple traces and supports point selection and FFT.
 pub struct ScopeAppMulti {
-    pub rx: Receiver<MultiSample>,
+    pub rx: Receiver<PlotCommand>,
+    /// Map of trace ID -> trace name (for resolving incoming data to existing name-keyed storage)
+    pub(super) id_to_name: std::collections::HashMap<crate::sink::TraceId, String>,
     pub(super) traces: HashMap<String, TraceState>,
     pub trace_order: Vec<String>,
     pub max_points: usize,
@@ -185,9 +187,10 @@ impl ScopeAppMulti {
     // moved: handle_plot_click
 
     // moved: controls_ui
-    pub fn new(rx: Receiver<MultiSample>) -> Self {
+    pub fn new(rx: Receiver<PlotCommand>) -> Self {
         Self {
             rx,
+            id_to_name: std::collections::HashMap::new(),
             traces: HashMap::new(),
             trace_order: Vec::new(),
             max_points: 10_000,
@@ -337,7 +340,7 @@ impl eframe::App for ScopeAppMulti {
 /// Run the multi-trace plotting UI with default window title and size.
 /// Unified entry point to run the LivePlot multi-trace UI.
 pub fn run_liveplot(
-    rx: Receiver<MultiSample>,
+    rx: Receiver<PlotCommand>,
     cfg: crate::config::LivePlotConfig,
 ) -> eframe::Result<()> {
     let mut options = cfg

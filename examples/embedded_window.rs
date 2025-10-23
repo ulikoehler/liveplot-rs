@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use eframe::{egui, NativeOptions};
-use liveplot::{channel_multi, MultiPlotSink, MultiSample, ScopeAppMulti};
+use liveplot::{channel_plot, PlotSink, PlotPoint, ScopeAppMulti, Trace};
 
 #[derive(Clone, Copy, PartialEq)]
 enum WaveKind { Sine, Cosine }
@@ -9,7 +9,9 @@ enum WaveKind { Sine, Cosine }
 struct DemoApp {
     kind: WaveKind,
     // data feed
-    sink: MultiPlotSink,
+    sink: PlotSink,
+    trace_sine: Trace,
+    trace_cos: Trace,
     // embedded plot app
     plot: ScopeAppMulti,
     // show window flag
@@ -18,11 +20,13 @@ struct DemoApp {
 
 impl DemoApp {
     fn new() -> Self {
-        let (sink, rx) = channel_multi();
+        let (sink, rx) = channel_plot();
+        let trace_sine = sink.create_trace("sine", None);
+        let trace_cos = sink.create_trace("cosine", None);
         let mut plot = ScopeAppMulti::new(rx);
         plot.time_window = 10.0;
         plot.max_points = 10_000;
-        Self { kind: WaveKind::Sine, sink, plot, show_plot_window: false }
+        Self { kind: WaveKind::Sine, sink, trace_sine, trace_cos, plot, show_plot_window: false }
     }
 }
 
@@ -62,8 +66,8 @@ impl eframe::App for DemoApp {
         let t = (now_us as f64) * 1e-6;
         let phase = t * 2.0 * std::f64::consts::PI;
         let val = match self.kind { WaveKind::Sine => phase.sin(), WaveKind::Cosine => phase.cos() };
-        let trace = match self.kind { WaveKind::Sine => "sine", WaveKind::Cosine => "cosine" };
-    let _ = self.sink.send(MultiSample { index: 0, value: val, timestamp_micros: now_us, trace: trace.to_string(), info: None });
+        let tr = match self.kind { WaveKind::Sine => &self.trace_sine, WaveKind::Cosine => &self.trace_cos };
+        let _ = self.sink.send_point(tr, PlotPoint { x: t, y: val });
 
         ctx.request_repaint_after(Duration::from_millis(16));
     }

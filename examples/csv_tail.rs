@@ -1,4 +1,5 @@
-use liveplot::{channel_multi, run_liveplot, LivePlotConfig};
+use liveplot::{channel_plot, run_liveplot, LivePlotConfig, PlotPoint, Trace};
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
@@ -38,7 +39,7 @@ fn main() -> eframe::Result<()> {
 
     eprintln!("[csv_tail] Monitoring {:?} (from_start={})", csv_path, from_start);
 
-    let (sink, rx) = channel_multi();
+    let (sink, rx) = channel_plot();
 
     // Reader thread: poll file every 20 ms, read any newly appended bytes,
     // parse complete lines, and send samples to the plot sink.
@@ -70,8 +71,10 @@ fn main() -> eframe::Result<()> {
 
         // Accumulator for partial last line across polls
         let mut carry = String::new();
-        // Header-derived trace names (columns after index + timestamp)
-        let mut trace_names: Option<Vec<String>> = None;
+    // Header-derived trace names (columns after index + timestamp)
+    let mut trace_names: Option<Vec<String>> = None;
+    // Created traces by name
+    let mut traces: HashMap<String, Trace> = HashMap::new();
 
         const POLL_MS: u64 = 20; // 50 Hz updates
 
@@ -114,13 +117,13 @@ fn main() -> eframe::Result<()> {
                 if last_was_newline {
                     // All lines are complete; process all
                     for line in parts.into_iter() {
-                        process_line(line, &mut trace_names, &sink);
+                        process_line(line, &mut trace_names, &mut traces, &sink);
                     }
                     // `carry` remains empty
                 } else if !parts.is_empty() {
                     // Last element is partial; keep it in `carry`
                     for line in parts[..parts.len() - 1].iter().copied() {
-                        process_line(line, &mut trace_names, &sink);
+                        process_line(line, &mut trace_names, &mut traces, &sink);
                     }
                     carry.push_str(parts[parts.len() - 1]);
                 }
@@ -133,7 +136,12 @@ fn main() -> eframe::Result<()> {
     run_liveplot(rx, LivePlotConfig::default())
 }
 
-fn process_line(line: &str, trace_names: &mut Option<Vec<String>>, sink: &liveplot::sink::MultiPlotSink) {
+fn process_line(
+    line: &str,
+    trace_names: &mut Option<Vec<String>>,
+    traces: &mut HashMap<String, Trace>,
+    sink: &liveplot::sink::PlotSink,
+) {
     let line = line.trim();
     if line.is_empty() { return; }
 
@@ -159,10 +167,10 @@ fn process_line(line: &str, trace_names: &mut Option<Vec<String>>, sink: &livepl
     let cols: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
     if cols.len() < 3 { return; } // incomplete
 
-    let idx = match cols[0].parse::<u64>() { Ok(v) => v, Err(_) => return };
-    let ts = match cols[1].parse::<i64>() {
-        Ok(v) => v,
-        Err(_) => SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0),
+    let _idx = match cols[0].parse::<u64>() { Ok(v) => v, Err(_) => return };
+    let t_s = match cols[1].parse::<i64>() {
+        Ok(v) => (v as f64) * 1e-6,
+        Err(_) => SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0),
     };
 
     // Determine trace names: if not set, synthesize generic names based on column index
@@ -175,7 +183,9 @@ fn process_line(line: &str, trace_names: &mut Option<Vec<String>>, sink: &livepl
     let n_traces = names.len().min(value_cols);
     for i in 0..n_traces {
         if let Ok(val) = cols[2 + i].parse::<f64>() {
-            let _ = sink.send_value(idx, val, ts, names[i].as_str());
+            // Ensure trace exists
+            let tr = traces.entry(names[i].clone()).or_insert_with(|| sink.create_trace(names[i].clone(), None));
+            let _ = sink.send_point(tr, PlotPoint { x: t_s, y: val });
         }
     }
 }

@@ -1,73 +1,88 @@
-//! Data source types and channels for feeding samples into the plotter UIs.
+//! Data source types and channels for feeding points into the plotter UI.
 //!
-//! This module provides the lightweight data structures used to represent
-//! time-stamped samples (single trace and multi-trace) and convenience
-//! senders for pushing those samples to the UI through standard mpsc
-//! channels.
+//! New API (breaking change):
+//! - First create a `Trace` (with name and optional info). The library assigns a numeric ID.
+//! - Send `PlotPoint { x, y }` to a given trace, either singly or in chunks for efficiency.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 
-// Single-trace API removed: use multi-trace `MultiSample`/`MultiPlotSink` instead.
+/// Numeric identifier for a trace, assigned by the library when creating a `Trace`.
+pub type TraceId = u32;
 
-/// Multi-trace input sample with an associated trace label.
-///
-/// For multi-trace plotting, every sample carries a `trace` name which maps to
-/// a unique series (color) in the UI.
+/// A single point on a plot: x is typically time (in seconds), y is the value.
+#[derive(Debug, Clone, Copy)]
+pub struct PlotPoint {
+    pub x: f64,
+    pub y: f64,
+}
+
+/// Declaration of a trace; returned to the caller after registration.
 #[derive(Debug, Clone)]
-pub struct MultiSample {
-    /// Monotonic sample index (producer-defined).
-    pub index: u64,
-    /// Measurement value for this trace at the given time.
-    pub value: f64,
-    /// Timestamp in microseconds since UNIX epoch (UTC).
-    pub timestamp_micros: i64,
-    /// Name of the trace this sample belongs to. A new name creates a new
-    /// series automatically.
-    pub trace: String,
-    /// Optional metadata string shown in UI (e.g., appended to legend if enabled).
+pub struct Trace {
+    pub id: TraceId,
+    pub name: String,
     pub info: Option<String>,
 }
 
-/// Convenience sender for feeding `MultiSample`s into the multi-trace plotter.
+/// Messages sent over the channel to drive the UI.
+#[derive(Debug, Clone)]
+pub enum PlotCommand {
+    /// Register a new trace with a numeric ID and optional info string.
+    RegisterTrace { id: TraceId, name: String, info: Option<String> },
+    /// Append a single point to the given trace ID.
+    Point { trace_id: TraceId, point: PlotPoint },
+    /// Append a chunk of points to the given trace ID.
+    Points { trace_id: TraceId, points: Vec<PlotPoint> },
+}
+
+/// Convenience sender for feeding points into the multi-trace plotter.
 #[derive(Clone)]
-pub struct MultiPlotSink {
-    tx: Sender<MultiSample>,
+pub struct PlotSink {
+    tx: Sender<PlotCommand>,
 }
 
-impl MultiPlotSink {
-    /// Send a `MultiSample` to the plotter.
-    pub fn send(&self, sample: MultiSample) -> Result<(), std::sync::mpsc::SendError<MultiSample>> {
-        self.tx.send(sample)
+impl PlotSink {
+    /// Create and register a new `Trace` with a unique numeric ID.
+    pub fn create_trace<S: Into<String>>(&self, name: S, info: Option<S>) -> Trace {
+        static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let name = name.into();
+        let info_str = info.map(|s| s.into());
+        // Inform the UI about the new trace
+        let _ = self.tx.send(PlotCommand::RegisterTrace { id, name: name.clone(), info: info_str.clone() });
+        Trace { id, name, info: info_str }
     }
 
-    /// Convenience helper to send using raw fields.
-    pub fn send_value<S: Into<String>>(
-        &self,
-        index: u64,
-        value: f64,
-        timestamp_micros: i64,
-        trace: S,
-    ) -> Result<(), std::sync::mpsc::SendError<MultiSample>> {
-        let s = MultiSample { index, value, timestamp_micros, trace: trace.into(), info: None };
-        self.send(s)
+    /// Send a single `PlotPoint` for a given `Trace`.
+    pub fn send_point(&self, trace: &Trace, point: PlotPoint) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::Point { trace_id: trace.id, point })
     }
 
-    /// Convenience helper to send using raw fields with optional info metadata.
-    pub fn send_value_with_info<S: Into<String>, I: Into<String>>(
-        &self,
-        index: u64,
-        value: f64,
-        timestamp_micros: i64,
-        trace: S,
-        info: I,
-    ) -> Result<(), std::sync::mpsc::SendError<MultiSample>> {
-        let s = MultiSample { index, value, timestamp_micros, trace: trace.into(), info: Some(info.into()) };
-        self.send(s)
+    /// Send a single `PlotPoint` for a given trace ID.
+    pub fn send_point_by_id(&self, trace_id: TraceId, point: PlotPoint) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::Point { trace_id, point })
+    }
+
+    /// Send a chunk of points for a given `Trace` (more efficient than point-by-point).
+    pub fn send_points<I>(&self, trace: &Trace, points: I) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    where
+        I: Into<Vec<PlotPoint>>,
+    {
+        self.tx.send(PlotCommand::Points { trace_id: trace.id, points: points.into() })
+    }
+
+    /// Send a chunk of points for a given trace ID (more efficient than point-by-point).
+    pub fn send_points_by_id<I>(&self, trace_id: TraceId, points: I) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    where
+        I: Into<Vec<PlotPoint>>,
+    {
+        self.tx.send(PlotCommand::Points { trace_id, points: points.into() })
     }
 }
 
-/// Create a new channel pair for multi-trace plotting: `(MultiPlotSink, Receiver<MultiSample>)`.
-pub fn channel_multi() -> (MultiPlotSink, Receiver<MultiSample>) {
+/// Create a new channel pair for plotting: `(PlotSink, Receiver<PlotCommand>)`.
+pub fn channel_plot() -> (PlotSink, Receiver<PlotCommand>) {
     let (tx, rx) = std::sync::mpsc::channel();
-    (MultiPlotSink { tx }, rx)
+    (PlotSink { tx }, rx)
 }
