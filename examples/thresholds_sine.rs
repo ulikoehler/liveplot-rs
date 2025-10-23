@@ -47,6 +47,7 @@ fn main() -> eframe::Result<()> {
         kind: ThresholdKind::GreaterThan { value: 0.8 },
         min_duration_s: 0.002,
         max_events: 100,
+        ..Default::default()
     });
 
     // Run the UI with the controller attached via config
