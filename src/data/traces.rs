@@ -39,4 +39,14 @@ impl TraceData {
     pub fn get_last_snapshot_timestamp(&self) -> Option<f64> {
         self.snap.as_ref().and_then(|s| s.back().map(|p| p[0]))
     }
+
+    pub fn cap_by_x_bounds(pts: &VecDeque<[f64; 2]>, bounds: (f64, f64)) -> VecDeque<[f64; 2]> {
+        let capped: VecDeque<[f64; 2]> = pts
+            .iter()
+            .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
+            .cloned()
+            .collect();
+
+        capped
+    }
 }

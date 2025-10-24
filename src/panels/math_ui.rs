@@ -1,42 +1,41 @@
+use crate::data::math::{FilterKind, MathKind, MathTrace, MinMaxMode, TraceRef};
 use eframe::egui;
 use egui::{Color32, Ui};
-
-use crate::data::math::{FilterKind, MathKind, MathTraceDef, MinMaxMode, TraceRef, MathRuntimeState};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 //use super::app::ScopeAppMulti;
-use crate::data::{trace_look::TraceLook, scope::ScopeData};
+use crate::data::{scope::ScopeData, trace_look::TraceLook};
 use crate::panels::panel_trait::{Panel, PanelState};
+use crate::panels::trace_look_ui::render_trace_look_editor;
 //use super::types::MathBuilderState;
 
-#[derive(Debug, Clone)]^pub struct MathPanel {
+#[derive(Debug, Clone)]
+pub struct MathPanel {
     pub state: PanelState,
-    pub builder: MathBuilderState,
+    builder: MathBuilderState,
     pub editing: Option<String>,
     pub error: Option<String>,
-    pub creating: bool,
+    creating: bool,
 
-    math_defs: Vec<MathTraceDef>,
-    math_states: HashMap<String, MathRuntimeState>,
+    math_traces: Vec<MathTrace>,
 }
 
 impl Default for MathPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Math"),
+            state: PanelState::new("∫ Math"),
             builder: MathBuilderState::default(),
             editing: None,
             error: None,
             creating: false,
 
-            math_defs: Vec::new(),
-            math_states: HashMap::new(),
+            math_traces: Vec::new(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct MathBuilderState {
+struct MathBuilderState {
     pub name: String,
     pub kind_idx: usize,
     pub add_inputs: Vec<(usize, f64)>,
@@ -73,7 +72,7 @@ impl Default for MathBuilderState {
 }
 
 impl MathBuilderState {
-    pub(super) fn from_def(def: &MathTraceDef, trace_order: &Vec<String>) -> Self {
+    pub(super) fn from_def(def: &MathTrace, trace_order: &Vec<String>) -> Self {
         //use crate::math::{FilterKind, MathKind, MinMaxMode};
         let mut b = Self::default();
         b.name = def.name.clone();
@@ -176,6 +175,29 @@ impl Panel for MathPanel {
         &mut self.state
     }
 
+    fn update_data(&mut self, _data: &mut ScopeData) {
+        let mut sources: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
+        for (name, _) in &_data.traces {
+            sources.insert(
+                name.clone(),
+                _data.get_drawn_points(name.as_str()).unwrap().into(),
+            );
+        }
+
+        for def in self.math_traces.iter_mut() {
+            let out = def.compute_math_trace(sources.clone());
+
+            let paused = _data.paused;
+            let tr = _data.get_trace_or_new(def.name.as_str());
+            if paused {
+                tr.snap = Some(out.iter().copied().collect());
+            } else {
+                tr.live = out.iter().copied().collect();
+            }
+            sources.insert(def.name.clone(), out);
+        }
+    }
+
     fn render_panel(&mut self, ui: &mut Ui, data: &mut ScopeData) {
         ui.label("Create virtual traces from existing ones.");
         if let Some(err) = &self.error {
@@ -190,14 +212,18 @@ impl Panel for MathPanel {
                 .on_hover_text("Reset integrators, filters, min/max for all math traces")
                 .clicked()
             {
-                app.reset_all_math_storage();
+                for def in self.math_traces.iter_mut() {
+                    def.reset_math_storage();
+                    data.clear_trace(&def.name);
+                }
             }
         });
         ui.add_space(6.0);
         // Existing math traces list with color editor, name, info, and Remove (right-aligned)
         // Reset hover before drawing; rows will set it when hovered
-        let mut hover_trace = None;
-        for def in app.math_defs.clone().iter() {
+
+        let mut hover_trace_intern = None;
+        for def in self.math_traces.clone().iter_mut() {
             let row = ui.horizontal(|ui| {
                 // Color editor like in traces_ui
                 if let Some(tr) = data.traces.get_mut(&def.name) {
@@ -206,7 +232,7 @@ impl Panel for MathPanel {
                         .color_edit_button_srgba(&mut c)
                         .on_hover_text("Change trace color");
                     if resp.hovered() {
-                        hover_trace = Some(def.name.clone());
+                        hover_trace_intern = Some(def.name.clone());
                     }
                     if resp.changed() {
                         tr.look.color = c;
@@ -223,7 +249,7 @@ impl Panel for MathPanel {
                         .sense(egui::Sense::click()),
                 );
                 if name_resp.hovered() {
-                    hover_trace = Some(def.name.clone());
+                    hover_trace_intern = Some(def.name.clone());
                 }
                 if name_resp.clicked() {
                     self.builder = MathBuilderState::from_def(def, &data.trace_order);
@@ -245,7 +271,7 @@ impl Panel for MathPanel {
                         .sense(egui::Sense::click()),
                 );
                 if info_resp.hovered() {
-                    hover_trace = Some(def.name.clone());
+                    hover_trace_intern = Some(def.name.clone());
                 }
                 if info_resp.clicked() {
                     self.builder = MathBuilderState::from_def(def, &data.trace_order);
@@ -258,11 +284,12 @@ impl Panel for MathPanel {
                     // Remove button with hover highlight
                     let remove_resp = ui.button("Remove");
                     if remove_resp.hovered() {
-                        hover_trace = Some(def.name.clone());
+                        hover_trace_intern = Some(def.name.clone());
                     }
                     if remove_resp.clicked() {
                         let removing = def.name.clone();
-                        app.remove_math_trace_internal(&removing);
+                        data.remove_trace(&removing);
+                        self.math_traces.retain(|d| d.name != removing);
                         if self.editing.as_deref() == Some(&removing) {
                             self.editing = None;
                             self.creating = false;
@@ -282,18 +309,21 @@ impl Panel for MathPanel {
                             .button("Reset")
                             .on_hover_text("Reset integrator/filter/min/max state for this trace");
                         if reset_resp.hovered() {
-                            hover_trace = Some(def.name.clone());
+                            hover_trace_intern = Some(def.name.clone());
                         }
                         if reset_resp.clicked() {
-                            let nm = def.name.clone();
-                            app.reset_math_storage(&nm);
+                            def.reset_math_storage();
+                            data.clear_trace(&def.name);
                         }
                     }
                 });
             });
             if row.response.hovered() {
-                hover_trace = Some(def.name.clone());
+                hover_trace_intern = Some(def.name.clone());
             }
+        }
+        if let Some(nm) = hover_trace_intern {
+            data.hover_trace = Some(nm);
         }
 
         // Style popup removed; the editor is part of the new/edit dialog above
@@ -353,40 +383,18 @@ impl Panel for MathPanel {
                 let future_idx = if data.traces.contains_key(&self.builder.name) {
                     // if name exists, keep current
                     None
-                } else if self.builder.name.is_empty() {
-                    None
                 } else {
                     Some(data.trace_order.len())
                 };
                 if let Some(idx) = future_idx {
-                    // Set default color only if look color is still default white to avoid clobbering user choice
-                    if self.builder.look.color == egui::Color32::WHITE {
-                        // Reuse the same palette as alloc_color
-                        const PALETTE: [egui::Color32; 10] = [
-                            egui::Color32::LIGHT_BLUE,
-                            egui::Color32::LIGHT_RED,
-                            egui::Color32::LIGHT_GREEN,
-                            egui::Color32::GOLD,
-                            egui::Color32::from_rgb(0xAA, 0x55, 0xFF),
-                            egui::Color32::from_rgb(0xFF, 0xAA, 0x00),
-                            egui::Color32::from_rgb(0x00, 0xDD, 0xDD),
-                            egui::Color32::from_rgb(0xDD, 0x00, 0xDD),
-                            egui::Color32::from_rgb(0x66, 0xCC, 0x66),
-                            egui::Color32::from_rgb(0xCC, 0x66, 0x66),
-                        ];
-                        self.builder.look.color = PALETTE[idx % PALETTE.len()];
-                    }
+                    self.builder.look.color = TraceLook::alloc_color(idx);
                 }
             }
-
-            // (Style editor moved to appear just before the Add/Save button per kind)
 
             match self.builder.kind_idx {
                 0 => {
                     // Add/Sub
-                    for (idx, (sel, gain)) in
-                        self.builder.add_inputs.iter_mut().enumerate()
-                    {
+                    for (idx, (sel, gain)) in self.builder.add_inputs.iter_mut().enumerate() {
                         ui.horizontal(|ui| {
                             egui::ComboBox::from_id_salt(format!("add_sel_{}", idx))
                                 .selected_text(trace_names.get(*sel).cloned().unwrap_or_default())
@@ -409,71 +417,6 @@ impl Panel for MathPanel {
                             }
                         }
                     });
-                    // Style editor just before Save/Add
-                    ui.add_space(5.0);
-                    egui::CollapsingHeader::new("Style")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            if is_editing {
-                                if let Some(editing_name) = self.editing.clone() {
-                                    if let Some(tr) = data.traces.get_mut(&editing_name) {
-                                        tr.look.render_editor(ui, true, None, false, None);
-                                    } else {
-                                        ui.label("Trace not found.");
-                                    }
-                                }
-                            } else {
-                                self
-                                    .builder
-                                    .look
-                                    .render_editor(ui, true, None, false, None);
-                            }
-                        });
-                    ui.add_space(10.0);
-                    ui.horizontal(|ui| {
-                        let save_label = if is_editing { "Save" } else { "Add trace" };
-                        let save_clicked = ui.button(save_label).clicked();
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Cancel").clicked() {
-                                self.editing = None;
-                                self.creating = false;
-                                self.builder = MathBuilderState::default();
-                                self.error = None;
-                            }
-                        });
-                        if save_clicked {
-                            let inputs = app
-                                .math_panel
-                                .builder
-                                .add_inputs
-                                .iter()
-                                .filter_map(|(i, g)| {
-                                    trace_names.get(*i).cloned().map(|n| (TraceRef(n), *g))
-                                })
-                                .collect();
-                            if !self.builder.name.is_empty() {
-                                let def = MathTraceDef {
-                                    name: self.builder.name.clone(),
-                                    color_hint: None,
-                                    kind: MathKind::Add { inputs },
-                                };
-                                // Apply and then set created/edited look
-                                app.apply_add_or_edit(def);
-                                if self.error.is_none() {
-                                    if let Some(tr) =
-                                        data.traces.get_mut(&self.builder.name)
-                                    {
-                                        if is_creating {
-                                            tr.look = self.builder.look.clone();
-                                        }
-                                    }
-                                }
-                                if self.error.is_none() {
-                                    self.creating = false;
-                                }
-                            }
-                        }
-                    });
                 }
                 1 | 2 => {
                     // Multiply/Divide
@@ -487,11 +430,7 @@ impl Panel for MathPanel {
                             )
                             .show_ui(ui, |ui| {
                                 for (i, n) in trace_names.iter().enumerate() {
-                                    ui.selectable_value(
-                                        &mut self.builder.mul_a_idx,
-                                        i,
-                                        n,
-                                    );
+                                    ui.selectable_value(&mut self.builder.mul_a_idx, i, n);
                                 }
                             });
                         egui::ComboBox::from_label("B")
@@ -503,85 +442,9 @@ impl Panel for MathPanel {
                             )
                             .show_ui(ui, |ui| {
                                 for (i, n) in trace_names.iter().enumerate() {
-                                    ui.selectable_value(
-                                        &mut self.builder.mul_b_idx,
-                                        i,
-                                        n,
-                                    );
+                                    ui.selectable_value(&mut self.builder.mul_b_idx, i, n);
                                 }
                             });
-                    });
-                    ui.add_space(10.0);
-                    // Style editor just before Save/Add
-                    ui.add_space(8.0);
-                    egui::CollapsingHeader::new("Style")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            if is_editing {
-                                if let Some(editing_name) = self.editing.clone() {
-                                    if let Some(tr) = data.traces.get_mut(&editing_name) {
-                                        tr.look.render_editor(ui, true, None, false, None);
-                                    } else {
-                                        ui.label("Trace not found.");
-                                    }
-                                }
-                            } else {
-                                self
-                                    .builder
-                                    .look
-                                    .render_editor(ui, true, None, false, None);
-                            }
-                        });
-                    ui.horizontal(|ui| {
-                        let save_label = if is_editing { "Save" } else { "Add trace" };
-                        let mut save_clicked = false;
-                        if ui.button(save_label).clicked() {
-                            save_clicked = true;
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Cancel").clicked() {
-                                self.editing = None;
-                                self.creating = false;
-                                self.builder = MathBuilderState::default();
-                                self.error = None;
-                            }
-                        });
-                        if save_clicked {
-                            if let (Some(a), Some(b)) = (
-                                trace_names.get(self.builder.mul_a_idx),
-                                trace_names.get(self.builder.mul_b_idx),
-                            ) {
-                                let kind = if self.builder.kind_idx == 1 {
-                                    MathKind::Multiply {
-                                        a: TraceRef(a.clone()),
-                                        b: TraceRef(b.clone()),
-                                    }
-                                } else {
-                                    MathKind::Divide {
-                                        a: TraceRef(a.clone()),
-                                        b: TraceRef(b.clone()),
-                                    }
-                                };
-                                if !self.builder.name.is_empty() {
-                                    let def = MathTraceDef {
-                                        name: self.builder.name.clone(),
-                                        color_hint: None,
-                                        kind,
-                                    };
-                                    app.apply_add_or_edit(def);
-                                    if self.error.is_none() {
-                                        if let Some(tr) =
-                                            data.traces.get_mut(&self.builder.name)
-                                        {
-                                            if is_creating {
-                                                tr.look = self.builder.look.clone();
-                                            }
-                                        }
-                                        self.creating = false;
-                                    }
-                                }
-                            }
-                        }
                     });
                 }
                 3 => {
@@ -598,66 +461,6 @@ impl Panel for MathPanel {
                                 ui.selectable_value(&mut self.builder.single_idx, i, n);
                             }
                         });
-                    ui.add_space(10.0);
-                    // Style editor just before Save/Add
-                    ui.add_space(8.0);
-                    egui::CollapsingHeader::new("Style")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            if is_editing {
-                                if let Some(editing_name) = self.editing.clone() {
-                                    if let Some(tr) = data.traces.get_mut(&editing_name) {
-                                        tr.look.render_editor(ui, true, None, false, None);
-                                    } else {
-                                        ui.label("Trace not found.");
-                                    }
-                                }
-                            } else {
-                                self
-                                    .builder
-                                    .look
-                                    .render_editor(ui, true, None, false, None);
-                            }
-                        });
-                    ui.horizontal(|ui| {
-                        let save_label = if is_editing { "Save" } else { "Add trace" };
-                        let mut save_clicked = false;
-                        if ui.button(save_label).clicked() {
-                            save_clicked = true;
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Cancel").clicked() {
-                                self.editing = None;
-                                self.creating = false;
-                                self.builder = MathBuilderState::default();
-                                self.error = None;
-                            }
-                        });
-                        if save_clicked {
-                            if let Some(nm) = trace_names.get(self.builder.single_idx) {
-                                if !self.builder.name.is_empty() {
-                                    let def = MathTraceDef {
-                                        name: self.builder.name.clone(),
-                                        color_hint: None,
-                                        kind: MathKind::Differentiate {
-                                            input: TraceRef(nm.clone()),
-                                        },
-                                    };
-                                    app.apply_add_or_edit(def);
-                                    if self.error.is_none() {
-                                        if let Some(tr) =
-                                            data.traces.get_mut(&self.builder.name)
-                                        {
-                                            if is_creating {
-                                                tr.look = self.builder.look.clone();
-                                            }
-                                        }
-                                        self.creating = false;
-                                    }
-                                }
-                            }
-                        }
-                    });
                 }
                 4 => {
                     // Integrate
@@ -675,70 +478,7 @@ impl Panel for MathPanel {
                         });
                     ui.horizontal(|ui| {
                         ui.label("y0");
-                        ui.add(
-                            egui::DragValue::new(&mut self.builder.integ_y0).speed(0.1),
-                        );
-                    });
-                    ui.add_space(10.0);
-                    // Style editor just before Save/Add
-                    ui.add_space(8.0);
-                    egui::CollapsingHeader::new("Style")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            if is_editing {
-                                if let Some(editing_name) = self.editing.clone() {
-                                    if let Some(tr) = data.traces.get_mut(&editing_name) {
-                                        tr.look.render_editor(ui, true, None, false, None);
-                                    } else {
-                                        ui.label("Trace not found.");
-                                    }
-                                }
-                            } else {
-                                self
-                                    .builder
-                                    .look
-                                    .render_editor(ui, true, None, false, None);
-                            }
-                        });
-                    ui.horizontal(|ui| {
-                        let save_label = if is_editing { "Save" } else { "Add trace" };
-                        let mut save_clicked = false;
-                        if ui.button(save_label).clicked() {
-                            save_clicked = true;
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Cancel").clicked() {
-                                self.editing = None;
-                                self.creating = false;
-                                self.builder = MathBuilderState::default();
-                                self.error = None;
-                            }
-                        });
-                        if save_clicked {
-                            if let Some(nm) = trace_names.get(self.builder.single_idx) {
-                                if !self.builder.name.is_empty() {
-                                    let def = MathTraceDef {
-                                        name: self.builder.name.clone(),
-                                        color_hint: None,
-                                        kind: MathKind::Integrate {
-                                            input: TraceRef(nm.clone()),
-                                            y0: self.builder.integ_y0,
-                                        },
-                                    };
-                                    app.apply_add_or_edit(def);
-                                    if self.error.is_none() {
-                                        if let Some(tr) =
-                                            data.traces.get_mut(&self.builder.name)
-                                        {
-                                            if is_creating {
-                                                tr.look = self.builder.look.clone();
-                                            }
-                                        }
-                                        self.creating = false;
-                                    }
-                                }
-                            }
-                        }
+                        ui.add(egui::DragValue::new(&mut self.builder.integ_y0).speed(0.1));
                     });
                 }
                 5 => {
@@ -767,11 +507,7 @@ impl Panel for MathPanel {
                         .selected_text(fk[self.builder.filter_which])
                         .show_ui(ui, |ui| {
                             for (i, n) in fk.iter().enumerate() {
-                                ui.selectable_value(
-                                    &mut self.builder.filter_which,
-                                    i,
-                                    *n,
-                                );
+                                ui.selectable_value(&mut self.builder.filter_which, i, *n);
                             }
                         });
                     match self.builder.filter_which {
@@ -779,8 +515,7 @@ impl Panel for MathPanel {
                             ui.horizontal(|ui| {
                                 ui.label("Cutoff Hz");
                                 ui.add(
-                                    egui::DragValue::new(&mut self.builder.filter_f1)
-                                        .speed(0.1),
+                                    egui::DragValue::new(&mut self.builder.filter_f1).speed(0.1),
                                 );
                             });
                         }
@@ -788,15 +523,13 @@ impl Panel for MathPanel {
                             ui.horizontal(|ui| {
                                 ui.label("Low cut Hz");
                                 ui.add(
-                                    egui::DragValue::new(&mut self.builder.filter_f1)
-                                        .speed(0.1),
+                                    egui::DragValue::new(&mut self.builder.filter_f1).speed(0.1),
                                 );
                             });
                             ui.horizontal(|ui| {
                                 ui.label("High cut Hz");
                                 ui.add(
-                                    egui::DragValue::new(&mut self.builder.filter_f2)
-                                        .speed(0.1),
+                                    egui::DragValue::new(&mut self.builder.filter_f2).speed(0.1),
                                 );
                             });
                         }
@@ -808,56 +541,132 @@ impl Panel for MathPanel {
                             ui.horizontal(|ui| {
                                 ui.label(label);
                                 ui.add(
-                                    egui::DragValue::new(&mut self.builder.filter_f1)
-                                        .speed(0.1),
+                                    egui::DragValue::new(&mut self.builder.filter_f1).speed(0.1),
                                 );
                             });
                             ui.horizontal(|ui| {
                                 ui.label("Q");
                                 ui.add(
-                                    egui::DragValue::new(&mut self.builder.filter_q)
-                                        .speed(0.01),
+                                    egui::DragValue::new(&mut self.builder.filter_q).speed(0.01),
                                 );
                             });
                         }
                         _ => {}
                     }
-                    ui.add_space(10.0);
-                    // Style editor just before Save/Add
-                    ui.add_space(8.0);
-                    egui::CollapsingHeader::new("Style")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            if is_editing {
-                                if let Some(editing_name) = self.editing.clone() {
-                                    if let Some(tr) = data.traces.get_mut(&editing_name) {
-                                        tr.look.render_editor(ui, true, None, false, None);
-                                    } else {
-                                        ui.label("Trace not found.");
-                                    }
-                                }
-                            } else {
-                                self
-                                    .builder
-                                    .look
-                                    .render_editor(ui, true, None, false, None);
+                }
+                6 | 7 => {
+                    // Min/Max
+                    egui::ComboBox::from_label("Input")
+                        .selected_text(
+                            trace_names
+                                .get(self.builder.single_idx)
+                                .cloned()
+                                .unwrap_or_default(),
+                        )
+                        .show_ui(ui, |ui| {
+                            for (i, n) in trace_names.iter().enumerate() {
+                                ui.selectable_value(&mut self.builder.single_idx, i, n);
                             }
                         });
                     ui.horizontal(|ui| {
-                        let save_label = if is_editing { "Save" } else { "Add trace" };
-                        let mut save_clicked = false;
-                        if ui.button(save_label).clicked() {
-                            save_clicked = true;
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Cancel").clicked() {
-                                self.editing = None;
-                                self.creating = false;
-                                self.builder = MathBuilderState::default();
-                                self.error = None;
+                        ui.label("Decay (1/s, 0=none)");
+                        ui.add(egui::DragValue::new(&mut self.builder.minmax_decay).speed(0.1));
+                    });
+                }
+                _ => {}
+            }
+
+            // Unified Style and Save section
+            ui.add_space(8.0);
+            egui::CollapsingHeader::new("Style")
+                .default_open(false)
+                .show(ui, |ui| {
+                    if is_editing {
+                        if let Some(editing_name) = self.editing.clone() {
+                            if let Some(tr) = data.traces.get_mut(&editing_name) {
+                                render_trace_look_editor(&mut tr.look, ui, true);
+                            } else {
+                                ui.label("Trace not found.");
                             }
-                        });
-                        if save_clicked {
+                        }
+                    } else {
+                        render_trace_look_editor(&mut self.builder.look, ui, true);
+                    }
+                });
+
+            ui.horizontal(|ui| {
+                let save_label = if is_editing { "Save" } else { "Add trace" };
+                if ui
+                    .add_enabled(!self.builder.name.is_empty(), egui::Button::new(save_label))
+                    .clicked()
+                {
+                    // Handle save logic
+                    let mut new_trace: Option<MathTrace> = None;
+                    match self.builder.kind_idx {
+                        0 => {
+                            let inputs = self
+                                .builder
+                                .add_inputs
+                                .iter()
+                                .filter_map(|(i, g)| {
+                                    trace_names.get(*i).cloned().map(|n| (TraceRef(n), *g))
+                                })
+                                .collect();
+                            if !self.builder.name.is_empty() {
+                                new_trace = Some(MathTrace::new(
+                                    self.builder.name.clone(),
+                                    MathKind::Add { inputs },
+                                ));
+                            }
+                        }
+                        1 | 2 => {
+                            if let (Some(a), Some(b)) = (
+                                trace_names.get(self.builder.mul_a_idx),
+                                trace_names.get(self.builder.mul_b_idx),
+                            ) {
+                                let kind = if self.builder.kind_idx == 1 {
+                                    MathKind::Multiply {
+                                        a: TraceRef(a.clone()),
+                                        b: TraceRef(b.clone()),
+                                    }
+                                } else {
+                                    MathKind::Divide {
+                                        a: TraceRef(a.clone()),
+                                        b: TraceRef(b.clone()),
+                                    }
+                                };
+                                if !self.builder.name.is_empty() {
+                                    new_trace =
+                                        Some(MathTrace::new(self.builder.name.clone(), kind));
+                                }
+                            }
+                        }
+                        3 => {
+                            if let Some(nm) = trace_names.get(self.builder.single_idx) {
+                                if !self.builder.name.is_empty() {
+                                    new_trace = Some(MathTrace::new(
+                                        self.builder.name.clone(),
+                                        MathKind::Differentiate {
+                                            input: TraceRef(nm.clone()),
+                                        },
+                                    ));
+                                }
+                            }
+                        }
+                        4 => {
+                            if let Some(nm) = trace_names.get(self.builder.single_idx) {
+                                if !self.builder.name.is_empty() {
+                                    new_trace = Some(MathTrace::new(
+                                        self.builder.name.clone(),
+                                        MathKind::Integrate {
+                                            input: TraceRef(nm.clone()),
+                                            y0: self.builder.integ_y0,
+                                        },
+                                    ));
+                                }
+                            }
+                        }
+                        5 => {
                             if let Some(nm) = trace_names.get(self.builder.single_idx) {
                                 if !self.builder.name.is_empty() {
                                     let kind = match self.builder.filter_which {
@@ -894,132 +703,85 @@ impl Panel for MathPanel {
                                                 q: self.builder.filter_q,
                                             },
                                         },
-                                        _ => MathKind::Filter {
+                                        5 => MathKind::Filter {
                                             input: TraceRef(nm.clone()),
                                             kind: FilterKind::BiquadBandpass {
                                                 center_hz: self.builder.filter_f1,
                                                 q: self.builder.filter_q,
                                             },
                                         },
+                                        _ => return,
                                     };
-                                    let def = MathTraceDef {
-                                        name: self.builder.name.clone(),
-                                        color_hint: None,
-                                        kind,
-                                    };
-                                    app.apply_add_or_edit(def);
-                                    if self.error.is_none() {
-                                        if let Some(tr) =
-                                            data.traces.get_mut(&self.builder.name)
-                                        {
-                                            if is_creating {
-                                                tr.look = self.builder.look.clone();
-                                            }
-                                        }
-                                        self.creating = false;
-                                    }
+                                    new_trace =
+                                        Some(MathTrace::new(self.builder.name.clone(), kind));
                                 }
                             }
                         }
-                    });
-                }
-                6 | 7 => {
-                    // Min/Max
-                    egui::ComboBox::from_label("Input")
-                        .selected_text(
-                            trace_names
-                                .get(self.builder.single_idx)
-                                .cloned()
-                                .unwrap_or_default(),
-                        )
-                        .show_ui(ui, |ui| {
-                            for (i, n) in trace_names.iter().enumerate() {
-                                ui.selectable_value(&mut self.builder.single_idx, i, n);
-                            }
-                        });
-                    ui.horizontal(|ui| {
-                        ui.label("Decay (1/s, 0=none)");
-                        ui.add(
-                            egui::DragValue::new(&mut self.builder.minmax_decay)
-                                .speed(0.1),
-                        );
-                    });
-                    // Style editor just before Save/Add
-                    ui.add_space(8.0);
-                    egui::CollapsingHeader::new("Style")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            if is_editing {
-                                if let Some(editing_name) = self.editing.clone() {
-                                    if let Some(tr) = data.traces.get_mut(&editing_name) {
-                                        tr.look.render_editor(ui, true, None, false, None);
-                                    } else {
-                                        ui.label("Trace not found.");
-                                    }
-                                }
-                            } else {
-                                self
-                                    .builder
-                                    .look
-                                    .render_editor(ui, true, None, false, None);
-                            }
-                        });
-                    ui.horizontal(|ui| {
-                        let save_label = if is_editing { "Save" } else { "Add trace" };
-                        let mut save_clicked = false;
-                        if ui.button(save_label).clicked() {
-                            save_clicked = true;
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Cancel").clicked() {
-                                self.editing = None;
-                                self.creating = false;
-                                self.builder = MathBuilderState::default();
-                                self.error = None;
-                            }
-                        });
-                        if save_clicked {
+                        6 | 7 => {
                             if let Some(nm) = trace_names.get(self.builder.single_idx) {
                                 if !self.builder.name.is_empty() {
-                                    let mode = if self.builder.kind_idx == 6 {
-                                        MinMaxMode::Min
-                                    } else {
-                                        MinMaxMode::Max
-                                    };
-                                    let decay_opt = if self.builder.minmax_decay > 0.0 {
-                                        Some(self.builder.minmax_decay)
-                                    } else {
-                                        None
-                                    };
-                                    let def = MathTraceDef {
-                                        name: self.builder.name.clone(),
-                                        color_hint: None,
-                                        kind: MathKind::MinMax {
+                                    new_trace = Some(MathTrace::new(
+                                        self.builder.name.clone(),
+                                        MathKind::MinMax {
                                             input: TraceRef(nm.clone()),
-                                            decay_per_sec: decay_opt,
-                                            mode,
+                                            decay_per_sec: Some(self.builder.minmax_decay),
+                                            mode: if self.builder.kind_idx == 6 {
+                                                MinMaxMode::Min
+                                            } else {
+                                                MinMaxMode::Max
+                                            },
                                         },
-                                    };
-                                    app.apply_add_or_edit(def);
-                                    if self.error.is_none() {
-                                        if let Some(tr) =
-                                            data.traces.get_mut(&self.builder.name)
-                                        {
-                                            if is_creating {
-                                                tr.look = self.builder.look.clone();
-                                            }
-                                        }
-                                        self.creating = false;
-                                    }
+                                    ));
                                 }
                             }
                         }
-                    });
+                        _ => {}
+                    }
+
+                    // if self.error.is_none() {
+                    //     if let Some(tr) = data.traces.get_mut(&self.builder.name) {
+                    //         if is_creating {
+                    //             tr.look = self.builder.look.clone();
+                    //         }
+                    //     }
+                    //     self.creating = false;
+                    // }
+                    if self.error.is_none() {
+                        if let Some(tr) = new_trace {
+                            if !is_creating {
+                                if let Some(tr) = data.traces.get_mut(&self.builder.name) {
+                                    self.builder.look = tr.look.clone();
+                                }
+                                data.remove_trace(self.editing.as_ref().unwrap());
+                            }
+                            let trace = data.get_trace_or_new(&self.builder.name);
+
+                            trace.look = self.builder.look.clone();
+                            trace.info = tr.math_formula_string();
+
+                            if is_creating {
+                                self.math_traces.push(tr.clone());
+                            } else if let Some(editing_name) = self.editing.clone() {
+                                // Replace existing
+                                self.math_traces.retain(|d| d.name != editing_name);
+                                self.math_traces.push(tr.clone());
+                            }
+                            self.editing = None;
+                            self.builder = MathBuilderState::default();
+                            self.error = None;
+                        }
+                    }
                 }
-                _ => {}
-            }
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.editing = None;
+                        self.creating = false;
+                        self.builder = MathBuilderState::default();
+                        self.error = None;
+                    }
+                });
+            });
         }
     }
-
-    // Removed unused show_math_dialog helper; dialogs are shown via DockPanel::show_detached_dialog
 }

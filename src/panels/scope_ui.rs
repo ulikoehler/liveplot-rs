@@ -109,7 +109,6 @@ impl ScopePanel {
 
             ui.strong("X-Axis");
             if self.data.scope_type == ScopeType::TimeScope {
-
                 ui.label("Time Window:");
                 let mut tw = self.data.time_window.max(1e-9);
                 if !self.time_slider_dragging {
@@ -122,23 +121,25 @@ impl ScopePanel {
                     }
                 }
 
-                let slider = egui::Slider::new(&mut tw, self.time_window_bounds.0..=self.time_window_bounds.1)
-                    .logarithmic(true)
-                    .smart_aim(true)
-                    .show_value(true)
-                    .clamping(egui::SliderClamping::Edits)
-                    .suffix(format!(
-                        " {}",
-                        self.data.x_axis.unit.as_deref().unwrap_or("s")
-                    ));
+                let slider = egui::Slider::new(
+                    &mut tw,
+                    self.time_window_bounds.0..=self.time_window_bounds.1,
+                )
+                .logarithmic(true)
+                .smart_aim(true)
+                .show_value(true)
+                .clamping(egui::SliderClamping::Edits)
+                .suffix(format!(
+                    " {}",
+                    self.data.x_axis.unit.as_deref().unwrap_or("s")
+                ));
 
-                    let sresp = ui.add(slider);
+                let sresp = ui.add(slider);
                 if sresp.changed() {
                     self.data.time_window = tw;
                 }
 
                 self.time_slider_dragging = sresp.is_pointer_button_down_on();
-
             } else {
                 let mut x_min_tmp = self.data.x_axis.bounds.0;
                 let mut x_max_tmp = self.data.x_axis.bounds.1;
@@ -332,16 +333,9 @@ impl ScopePanel {
                     if !tr.look.visible {
                         continue;
                     }
-                    let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.data.paused {
-                        if let Some(snap) = &tr.snap {
-                            Box::new(snap.iter())
-                        } else {
-                            Box::new(tr.live.iter())
-                        }
-                    } else {
-                        Box::new(tr.live.iter())
-                    };
-                    let pts_vec: Vec<[f64; 2]> = iter
+                    let shown_pts = self.data.get_drawn_points(&tr.name).unwrap();
+                    let pts_vec: Vec<[f64; 2]> = shown_pts
+                        .into_iter()
                         .map(|p| {
                             let y_lin = p[1] + tr.offset;
                             let y = if self.data.y_axis.log_scale {

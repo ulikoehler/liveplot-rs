@@ -245,4 +245,44 @@ impl ScopeData {
             }
         })
     }
+
+    pub fn remove_trace(&mut self, name: &str) {
+        self.traces.remove(name);
+        self.trace_order.retain(|n| n != name);
+    }
+
+    pub fn clear_trace(&mut self, name: &str) {
+        if let Some(trace) = self.traces.get_mut(name) {
+            trace.clear_all();
+        }
+    }
+
+    pub fn get_drawn_points(&self, name: &str) -> Option<VecDeque<[f64; 2]>> {
+        if let Some(trace) = self.traces.get(name) {
+            if self.paused {
+                if let Some(snap) = &trace.snap {
+                    if self.scope_type == ScopeType::XYScope {
+                        Some(snap.clone())
+                    } else {
+                        Some(TraceData::cap_by_x_bounds(snap, self.x_axis.bounds))
+                    }
+                } else {
+                    if self.scope_type == ScopeType::XYScope {
+                        Some(trace.live.clone())
+                    } else {
+                        Some(TraceData::cap_by_x_bounds(&trace.live, self.x_axis.bounds))
+                    }
+                }
+            } else {
+                if self.scope_type == ScopeType::XYScope {
+                    Some(trace.live.clone())
+                } else {
+                    Some(TraceData::cap_by_x_bounds(&trace.live, self.x_axis.bounds))
+                }
+            }
+        } else {
+            None
+        }
+    }
+
 }
