@@ -133,8 +133,16 @@ impl LivePlotApp {
                         for (j, p) in panels.iter_mut().enumerate() {
                             let d = p.dock_mut();
                             if j == i {
-                                d.detached = false;
-                                d.show_dialog = true;
+                                let was_attached_shown = !d.detached && d.show_dialog;
+                                if was_attached_shown {
+                                    // Hide if it was already shown and attached
+                                    d.show_dialog = false;
+                                } else {
+                                    // Show (and attach) otherwise
+                                    d.detached = false;
+                                    d.show_dialog = true;
+                                    d.focus_dock = true;
+                                }
                             } else if !d.detached {
                                 d.show_dialog = false;
                             }
@@ -540,12 +548,20 @@ impl LivePlotApp {
                     for (j, p) in panels.iter_mut().enumerate() {
                         let d = p.dock_mut();
                         if j == i {
-                            d.show_dialog = true;
-                            d.detached = false;
+                            let was_attached_shown = !d.detached && d.show_dialog;
+                            if was_attached_shown {
+                                // Hide if already shown and attached
+                                d.show_dialog = false;
+                            } else {
+                                d.show_dialog = true;
+                                d.detached = false;
+                            }
                         } else if !d.detached {
                             d.show_dialog = false;
                         }
                     }
+                    // Notify controllers about bottom-panel visibility changes
+                    self.update_bottom_panels_controller_visibility();
                 }
                 ui.separator();
                 let active_idx: Option<usize> = {

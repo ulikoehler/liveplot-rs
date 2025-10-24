@@ -332,7 +332,10 @@ impl LivePlotApp {
             let d = self.math_panel.dock_mut();
             d.show_dialog = !d.show_dialog;
             d.detached = false;
-            d.focus_dock = true;
+            // Only request focus when showing the panel; if we just hid it, don't force reopen via focus request
+            if d.show_dialog {
+                d.focus_dock = true;
+            }
         }
 
         // Fit view (one-shot)
@@ -354,7 +357,9 @@ impl LivePlotApp {
             let d = self.traces_panel.dock_mut();
             d.show_dialog = !d.show_dialog;
             d.detached = false;
-            d.focus_dock = true;
+            if d.show_dialog {
+                d.focus_dock = true;
+            }
         }
 
         // Thresholds panel
@@ -362,7 +367,9 @@ impl LivePlotApp {
             let d = self.thresholds_panel.dock_mut();
             d.show_dialog = !d.show_dialog;
             d.detached = false;
-            d.focus_dock = true;
+            if d.show_dialog {
+                d.focus_dock = true;
+            }
         }
 
         // Save PNG

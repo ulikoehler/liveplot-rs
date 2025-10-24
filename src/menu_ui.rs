@@ -123,7 +123,7 @@ impl LivePlotApp {
                         // no extra action required
                     }
                 });
-                ui.menu_button("📈 Traces", |ui| {
+                ui.menu_button("⚫ Markers", |ui| {
                     if ui.button("⊗ Clear markers").clicked() {
                         self.point_selection.clear();
                         ui.close();
@@ -136,10 +136,16 @@ impl LivePlotApp {
                         for p in panels.iter_mut() {
                             let title = { p.dock_mut().title };
                             if ui.button(title).clicked() {
+                                // Toggle: if attached & shown -> hide, otherwise show (attach)
                                 let d = p.dock_mut();
-                                d.show_dialog = true;
-                                d.detached = false;
-                                d.focus_dock = true;
+                                let was_attached_shown = !d.detached && d.show_dialog;
+                                if was_attached_shown {
+                                    d.show_dialog = false;
+                                } else {
+                                    d.show_dialog = true;
+                                    d.detached = false;
+                                    d.focus_dock = true;
+                                }
                                 did_toggle_bottom_panel = true;
                                 ui.close();
                             }
@@ -152,9 +158,17 @@ impl LivePlotApp {
                         for p in panels.iter_mut() {
                             let title = { p.dock_mut().title };
                             if ui.button(title).clicked() {
+                                // Toggle: if attached & shown -> hide, otherwise show (attach)
                                 let d = p.dock_mut();
-                                d.show_dialog = true;
-                                if !d.detached { d.focus_dock = true; }
+                                let was_attached_shown = !d.detached && d.show_dialog;
+                                if was_attached_shown {
+                                    d.show_dialog = false;
+                                } else {
+                                    d.show_dialog = true;
+                                    if !d.detached {
+                                        d.focus_dock = true;
+                                    }
+                                }
                                 ui.close();
                             }
                         }
