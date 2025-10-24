@@ -54,7 +54,12 @@ pub struct LivePlotConfig {
     /// to the plotted values; axis tick labels show the corresponding linear values.
     pub y_log: bool,
     /// Optional window title (default: None)
-    pub title: Option<String>,
+    /// Window title shown on the native window chrome. This is always present and
+    /// defaults to "LivePlot".
+    pub title: String,
+    /// Optional headline rendered inside the UI (e.g. large heading). If None,
+    /// no headline is shown.
+    pub headline: Option<String>,
     /// Optional eframe/native window options. If not provided, sensible defaults are used.
     pub native_options: Option<eframe::NativeOptions>,
     /// Optional controllers to attach.
@@ -75,7 +80,8 @@ impl Default for LivePlotConfig {
             x_date_format: XDateFormat::default(),
             y_unit: None,
             y_log: false,
-            title: None,
+            title: "LivePlot".to_string(),
+            headline: None,
             native_options: None,
             window_controller: None,
             fft_controller: None,

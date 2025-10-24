@@ -66,7 +66,7 @@ fn main() -> eframe::Result<()> {
 
     // Run the UI with the controller attached via config
     let mut cfg = LivePlotConfig::default();
-    cfg.title = Some("LivePlot (thresholds)".into());
+    cfg.title = "LivePlot (thresholds)".into();
     cfg.native_options = Some(eframe::NativeOptions::default());
     cfg.threshold_controller = Some(thr_ctrl);
     run_liveplot(rx, cfg)

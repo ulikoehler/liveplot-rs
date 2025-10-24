@@ -202,9 +202,9 @@ impl LivePlotApp {
     }
 
     /// Compose toolbar and controls; used by both main and embedded variants.
-    pub(super) fn controls_ui(&mut self, ui: &mut egui::Ui, mode: super::app::ControlsMode) {
-        // Render an optional title coming from LivePlotConfig. If no title is set, render nothing.
-        if let Some(title) = &self.title {
+    pub(super) fn controls_ui(&mut self, ui: &mut egui::Ui, _mode: super::app::ControlsMode) {
+        // Render an optional headline coming from LivePlotConfig. If no headline is set, render nothing.
+        if let Some(title) = &self.headline {
             ui.heading(title);
         }
     }
@@ -378,7 +378,7 @@ impl LivePlotApp {
     pub fn ui_embed(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.tick_non_ui();
-        ui.vertical(|ui| { self.controls_ui(ui, super::app::ControlsMode::Embedded); });
+    ui.vertical(|ui| { self.controls_ui(ui, super::app::ControlsMode::Embedded); });
         self.show_dialogs_shared(&ctx);
         let plot_response = self.plot_traces_common(ui, &ctx, "liveplot_embedded");
         self.pause_on_click(&plot_response);

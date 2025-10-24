@@ -134,8 +134,8 @@ pub struct LivePlotApp {
     // Settings / Hotkeys dialog
     pub hotkeys_dialog_open: bool,
     pub hotkeys: Hotkeys,
-    /// Optional title to show in the UI (from LivePlotConfig). If None, no title is rendered.
-    pub title: Option<String>,
+    /// Optional headline to show in the UI (from LivePlotConfig). If None, no headline is rendered.
+    pub headline: Option<String>,
     /// If Some(name) the hotkeys dialog is currently listening for a key press to assign.
     pub capturing_hotkey: Option<HotkeyName>,
 }
@@ -207,7 +207,7 @@ impl LivePlotApp {
             fft_panel: FFTPanel::default(),
             hotkeys_dialog_open: false,
             hotkeys: Hotkeys::default(),
-            title: None,
+            headline: None,
             capturing_hotkey: None,
         }
     }
@@ -365,10 +365,8 @@ pub fn run_liveplot(
         .native_options
         .unwrap_or_else(eframe::NativeOptions::default);
     options.viewport = egui::ViewportBuilder::default().with_inner_size([1600.0, 900.0]);
-    let title = cfg
-        .title
-        .clone()
-        .unwrap_or_else(|| "LivePlot".to_string());
+    // Window title comes from config.title (always present)
+    let title = cfg.title.clone();
     eframe::run_native(
         &title,
         options,
@@ -381,8 +379,8 @@ pub fn run_liveplot(
                 app.x_date_format = cfg.x_date_format;
                 app.y_unit = cfg.y_unit.clone();
                 app.y_log = cfg.y_log;
-                // Set optional UI title from config
-                app.title = cfg.title.clone();
+                // Set optional UI headline from config
+                app.headline = cfg.headline.clone();
                     // Try to load persisted hotkeys from disk; fall back to defaults on error.
                     match Hotkeys::load_from_default_path() {
                         Ok(hk) => { app.hotkeys = hk; }
