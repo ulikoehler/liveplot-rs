@@ -1,18 +1,54 @@
 //! Math traces: virtual signals derived from existing traces (oscilloscope-like "Math").
 //!
-//! This module defines serde-serializable data structures that describe math traces
-//! and provides the computation engine to derive a time-series from existing input
-//! traces. Math traces are recomputed on UI updates and behave like regular traces.
+//! This module exposes the data structures used to describe math traces (serializable via
+//! serde) and a computation engine that derives new time-series from existing input traces.
+//!
+//! Design goals and behavior summary:
+//! - Math traces are virtual and appear like regular traces in the UI. They can be
+//!   recomputed on-demand (for stateless operations) or updated incrementally (for
+//!   stateful operations like IIR filters, integrators and min/max trackers).
+//! - Input traces are represented as time/value pairs with strictly non-decreasing
+//!   timestamps. When combining multiple inputs we evaluate the result on the union of
+//!   timestamps, using a last-sample-hold behaviour for channels that don't have a value
+//!   exactly at a given timestamp.
+//! - Stateful operations keep their state in `MathRuntimeState` and are updated only for
+//!   the newly appended input samples to avoid reprocessing the full buffer on every UI
+//!   refresh. Stateless operations (Add/Multiply/Divide/Differentiate) recompute fully on
+//!   the union grid.
+//!
+//! Numerical notes and conventions:
+//! - Small epsilons (1e-9 .. 1e-15 depending on context) are used to avoid division by
+//!   zero or degenerate comparator behavior for floating point timestamps.
+//! - The biquad and first-order filters are implemented in Direct Form I and normalized
+//!   by a0 when required. The RBJ cookbook formulas are used for the biquad sections.
+//!
+//! See individual functions and types for more detailed documentation and per-line notes.
 
 use std::collections::{HashMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
 /// Identifier of a source trace by name.
+///
+/// This is just a thin wrapper around `String` used to make math trace definitions
+/// more explicit. The inner string must match a key present in the `sources` map
+/// passed to computation routines.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TraceRef(pub String);
 
-/// Simple low-order IIR filter parameters (biquad-like in direct form I).
+/// Parameters describing a biquad / low-order IIR filter in direct form I.
+///
+/// The coefficients are stored as arrays following the conventional biquad
+/// notation: feedforward numerator b = [b0, b1, b2] and feedback denominator
+/// a = [a0, a1, a2]. Implementations using these parameters must divide the
+/// b- and a-coefficients by a0 (if a0 != 1.0) before evaluating the filter to
+/// obtain the normalized difference equation:
+///
+/// y[n] = (b0/a0)*x[n] + (b1/a0)*x[n-1] + (b2/a0)*x[n-2] - (a1/a0)*y[n-1] - (a2/a0)*y[n-2]
+///
+/// We intentionally keep the raw a0 here since some generator formulas (RBJ
+/// cookbook) produce a0 != 1.0 and it is numerically preferable to normalize
+/// in the step function rather than in each generator.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BiquadParams {
     /// Feedforward coefficients b0,b1,b2
@@ -21,7 +57,12 @@ pub struct BiquadParams {
     pub a: [f64; 3],
 }
 
-/// Filter kind presets. When using a preset, parameters are derived per-sample-time.
+/// Filter kind presets and custom option.
+///
+/// Presets are higher-level descriptions (cutoff frequency, Q, etc.) that are
+/// translated to `BiquadParams` at runtime using the current sampling interval
+/// (dt). This allows the same semantic filter (e.g. lowpass at 5 Hz) to work on
+/// variable-rate input streams by recomputing coefficients per-sample.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FilterKind {
     /// First-order lowpass with cutoff Hz
@@ -40,7 +81,12 @@ pub enum FilterKind {
     Custom { params: BiquadParams },
 }
 
-/// Math operation description.
+/// Mathematical operation that defines how a math trace is computed from inputs.
+///
+/// Each variant describes a different computation. Note which kinds are
+/// stateless and can be fully recomputed on the union grid (Add, Multiply,
+/// Divide, Differentiate) versus which require persistent runtime state and
+/// incremental processing (Integrate, Filter, MinMax).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MathKind {
     /// Sum or difference of N traces: sum_i (sign_i * x_i)
@@ -65,6 +111,10 @@ pub enum MathKind {
 }
 
 /// Fully-defined math trace configuration.
+///
+/// This is the serializable description exposed to UI and persisted state. It
+/// contains a human-facing name, an optional color hint and the `MathKind`
+/// which specifies the actual computation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MathTraceDef {
     pub name: String,
@@ -72,26 +122,36 @@ pub struct MathTraceDef {
     pub kind: MathKind,
 }
 
-/// Helper struct so the UI can hold runtime state for integrators/filters.
+/// Runtime state for stateful math traces.
+///
+/// Integrators, IIR filters and min/max trackers need to persist a small amount
+/// of state between successive recomputations so that they can be updated
+/// incrementally when new samples arrive. This struct holds that state and is
+/// stored per-math-trace in `LivePlotApp::math_states`.
 #[derive(Debug, Default, Clone)]
 pub struct MathRuntimeState {
+    /// Timestamp of the last processed input sample (or None if no samples yet).
     pub last_t: Option<f64>,
+    /// Accumulator for the integrator (running integral value).
     pub accum: f64,
-    // For biquad: x[n-1], x[n-2], y[n-1], y[n-2]
+    // For biquad: previous two input samples x[n-1], x[n-2] and previous two
+    // output samples y[n-1], y[n-2]. These are used to implement Direct Form I.
     pub x1: f64,
     pub x2: f64,
     pub y1: f64,
     pub y2: f64,
-    // Second section for cascades (e.g., bandpass)
+    // Secondary section for cascade filters (used by Bandpass implementation).
     pub x1b: f64,
     pub x2b: f64,
     pub y1b: f64,
     pub y2b: f64,
-    // For min/max
+    // For MinMax tracker: running min and max. Initialized to infinities so the
+    // first real sample sets them properly.
     pub min_val: f64,
     pub max_val: f64,
+    /// Timestamp where decay was last applied for the min/max exponential decay.
     pub last_decay_t: Option<f64>,
-    // Previous input sample (for incremental processing)
+    // Previous input sample used for incremental algorithms like integrate.
     pub prev_in_t: Option<f64>,
     pub prev_in_v: f64,
 }
@@ -121,6 +181,28 @@ impl MathRuntimeState {
 /// Compute a math trace given source traces. Each source trace is provided as a slice of
 /// monotonically increasing [t, y]. The result is densely sampled at the union of timestamps
 /// across inputs, using last-sample hold for absent channels at a time.
+/// Compute a math trace from the provided `sources`.
+///
+/// Arguments:
+/// - `def`: math trace definition describing name and operation.
+/// - `sources`: mapping from trace name to a slice of `[t, y]` pairs. Timestamps must
+///   be monotone non-decreasing per trace.
+/// - `prev_output`: optional reference to previously computed output points for this
+///   math trace; used to keep previously computed values when only appending new
+///   samples for stateful operations.
+/// - `prune_before`: optional timestamp cutoff; output points strictly earlier than
+///   this value should be discarded. This is used to cap memory usage when the
+///   display window slides forward.
+/// - `state`: mutable runtime state for stateful math kinds (filters, integrators,
+///   min/max). The function will update this state to reflect processed inputs.
+///
+/// Behavior summary:
+/// - Stateless operations (Add/Multiply/Divide/Differentiate) are computed on the
+///   union of timestamps from relevant inputs and recomputed fully each call.
+/// - Stateful operations (Filter/Integrate/MinMax) will attempt to process only new
+///   samples since `state.prev_in_t` to avoid reprocessing older data. To force a
+///   complete reset, call `MathRuntimeState::new()` for the trace and clear the
+///   associated output buffer.
 pub fn compute_math_trace(
     def: &MathTraceDef,
     sources: &std::collections::HashMap<String, Vec<[f64; 2]>>,
@@ -130,9 +212,13 @@ pub fn compute_math_trace(
 ) -> Vec<[f64; 2]> {
     use MathKind::*;
 
-    // Helper: prune an existing output by time cutoff
+    // Start with optionally keeping previously computed output points. This is
+    // important for incremental stateful algorithms, where we append new samples
+    // instead of recomputing the whole series. We still apply `prune_before` to
+    // drop aged points to limit buffer growth.
     let mut out: Vec<[f64; 2]> = if let Some(prev) = prev_output {
         if let Some(cut) = prune_before {
+            // Keep only points at or after the cutoff.
             prev.iter().copied().filter(|p| p[0] >= cut).collect()
         } else {
             prev.to_vec()
@@ -141,25 +227,40 @@ pub fn compute_math_trace(
         Vec::new()
     };
 
-    // For stateless ops we recompute fully on the union grid; for stateful (filter/integrate/minmax)
-    // we process incrementally using state's last processed input sample.
+    // Decide how to process based on math kind. Stateless operations use a union
+    // grid and last-sample-hold interpolation to compute values at every
+    // timestamp that appears in their inputs. Stateful operations update
+    // internal state incrementally by walking new samples only.
     match &def.kind {
         Add { inputs } => {
             // Build union grid across inputs
+            // Build the union of timestamps across all referenced inputs. Sorting
+            // and deduping produces a deterministic evaluation grid. We use a
+            // small tolerance when deduping to account for floating-point
+            // representations of equal timestamps.
             let mut grid: Vec<f64> = union_times(inputs.iter().map(|(r, _)| r), sources);
             grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            // Consider timestamps equal if they differ by < 1e-15.
             grid.dedup_by(|a, b| (*a - *b).abs() < 1e-15);
-            // Value getter with last-sample hold
+
+            // The `get_val` closure implements last-sample hold (stepwise
+            // interpolation) per-channel. It maintains a small cache of the
+            // previous index per source to allow linear-time evaluation over the
+            // sorted grid instead of binary-searching each time.
             let mut caches: std::collections::HashMap<String, (usize, f64)> = Default::default();
             let mut get_val = |name: &str, t: f64| -> Option<f64> {
                 let data = sources.get(name)?;
                 let (idx, last) = caches.entry(name.to_string()).or_insert((0, f64::NAN));
+                // Advance cached index while the next sample time is <= t.
                 while *idx + 1 < data.len() && data[*idx + 1][0] <= t {
                     *idx += 1;
                 }
+                // Save the last-observed value for this source at time t.
                 *last = data[*idx][1];
                 Some(*last)
             };
+
+            // Recompute output from scratch for stateless Add operation.
             out.clear();
             for &t in &grid {
                 let mut sum = 0.0;
@@ -171,6 +272,7 @@ pub fn compute_math_trace(
                     }
                 }
                 if any {
+                    // Respect pruning cutoff if requested.
                     if let Some(cut) = prune_before {
                         if t < cut {
                             continue;
@@ -181,6 +283,10 @@ pub fn compute_math_trace(
             }
         }
         Multiply { a, b } => {
+            // Multiply: similar union-grid evaluation as Add, but only produce
+            // a result when both operands have a defined last-sample value at
+            // the time t. Note that if one trace doesn't exist in `sources` we
+            // return an empty output (handled earlier by the data lookup).
             let mut grid: Vec<f64> = union_times([a, b].into_iter(), sources);
             grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             grid.dedup_by(|x, y| (*x - *y).abs() < 1e-15);
@@ -207,6 +313,10 @@ pub fn compute_math_trace(
             }
         }
         Divide { a, b } => {
+            // Divide: same union-grid approach but guard against tiny
+            // denominators. We treat |b| < 1e-12 as effectively zero and skip
+            // that sample to avoid large spurious results. This threshold is a
+            // pragmatic choice balancing numerical stability and dynamic range.
             let mut grid: Vec<f64> = union_times([a, b].into_iter(), sources);
             grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
             grid.dedup_by(|x, y| (*x - *y).abs() < 1e-15);
@@ -235,6 +345,11 @@ pub fn compute_math_trace(
             }
         }
         Differentiate { input } => {
+            // Numerical differentiation implemented using two-point forward
+            // difference using successive samples: dy/dt ~ (v1 - v0)/(t1 - t0).
+            // We skip the very first sample since no previous point exists. If
+            // timestamps are equal or dt <= 0 the sample is skipped to avoid
+            // division by zero.
             let data = match sources.get(&input.0) {
                 Some(v) => v,
                 None => return out,
@@ -244,6 +359,9 @@ pub fn compute_math_trace(
             for &p in data.iter() {
                 let t = p[0];
                 let v = p[1];
+                // If we're asked to prune old samples, we still advance the
+                // `prev` pointer so the next kept sample will be differentiated
+                // against the most recent pruned point.
                 if let Some(cut) = prune_before {
                     if t < cut {
                         prev = Some((t, v));
@@ -260,27 +378,39 @@ pub fn compute_math_trace(
             }
         }
         Integrate { input, y0 } => {
+            // Numerical integration using the trapezoidal rule. The integrator is
+            // stateful: `state.accum` holds the running integral and
+            // `state.prev_in_t`/`state.prev_in_v` remember the last processed
+            // input sample. This allows us to append only newly arrived samples
+            // without touching older results.
             let data = match sources.get(&input.0) {
                 Some(v) => v,
                 None => return out,
             };
+
+            // If we have never processed this integrator before, initialize the
+            // accumulator with the provided y0. Otherwise keep the stored value.
             let mut accum = if state.prev_in_t.is_none() {
                 *y0
             } else {
                 state.accum
             };
+            // Start `prev_t`/`prev_v` from stored state so we can integrate from
+            // the last processed point.
             let mut prev_t = state.prev_in_t;
             let mut prev_v = if state.prev_in_t.is_none() {
                 None
             } else {
                 Some(state.prev_in_v)
             };
-            // start by keeping existing out (already pruned above)
+
+            // Compute the index from which we need to process new samples. If
+            // state.prev_in_t exists, find the first sample strictly after it.
             let mut start_idx = 0usize;
             if let Some(t0) = state.prev_in_t {
-                // find first new sample strictly after t0
                 start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
                     Ok(mut i) => {
+                        // advance past all samples <= t0
                         while i < data.len() && data[i][0] <= t0 {
                             i += 1;
                         }
@@ -289,6 +419,8 @@ pub fn compute_math_trace(
                     Err(i) => i,
                 };
             }
+
+            // Process new samples using the trapezoid rule and append outputs.
             for p in data.iter().skip(start_idx) {
                 let t = p[0];
                 let v = p[1];
@@ -300,6 +432,7 @@ pub fn compute_math_trace(
                 if let (Some(t0), Some(v0)) = (prev_t, prev_v) {
                     let dt = t - t0;
                     if dt > 0.0 {
+                        // Trapezoidal increment: 0.5*(v + v0) * dt
                         accum += 0.5 * (v + v0) * dt;
                     }
                 }
@@ -307,25 +440,41 @@ pub fn compute_math_trace(
                 prev_v = Some(v);
                 out.push([t, accum]);
             }
+
+            // Update persistent state so subsequent calls continue from here.
             state.accum = accum;
             state.last_t = prev_t;
             state.prev_in_t = prev_t;
             state.prev_in_v = prev_v.unwrap_or(state.prev_in_v);
         }
         Filter { input, kind } => {
-            let data = match sources.get(&input.0) {
+            // IIR filter processing. We treat several FilterKind variants by
+            // converting them to `BiquadParams` on a per-sample basis because
+            // the sample interval `dt` may vary between successive samples.
+            //
+            // State variables are taken from `state` so that we can continue
+            // filtering across function calls without reinitializing the
+            // filter buffers.
+            let data: &Vec<[f64; 2]> = match sources.get(&input.0) {
                 Some(v) => v,
                 None => return out,
             };
+            // Local copies of the filter delay elements. We'll write back into
+            // `state` after processing new samples.
             let mut x1 = state.x1;
             let mut x2 = state.x2;
             let mut y1 = state.y1;
             let mut y2 = state.y2;
             let mut last_t = state.prev_in_t;
+            // Secondary section state used for cascaded implementations (bandpass)
             let mut x1b = state.x1b;
             let mut x2b = state.x2b;
             let mut y1b = state.y1b;
             let mut y2b = state.y2b;
+
+            // Find where to start processing new input samples; if we've
+            // processed samples before, skip to the first sample strictly after
+            // the last processed timestamp.
             let mut start_idx = 0usize;
             if let Some(t0) = state.prev_in_t {
                 start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
@@ -338,6 +487,7 @@ pub fn compute_math_trace(
                     Err(i) => i,
                 };
             }
+
             for p in data.iter().skip(start_idx) {
                 let t = p[0];
                 let x = p[1];
@@ -346,11 +496,22 @@ pub fn compute_math_trace(
                         continue;
                     }
                 }
+
+                // Derive dt from last processed timestamp; if none exists use
+                // a small default dt to avoid divide-by-zero. We clamp dt to a
+                // minimum of 1e-9 to avoid super-large computed coefficients on
+                // nearly-zero intervals.
                 let dt = if let Some(t0) = last_t {
                     (t - t0).max(1e-9)
                 } else {
+                    // Reasonable small dt for the first sample; exact value
+                    // isn't critical because the first output is primarily
+                    // driven by initial conditions.
                     1e-3
                 };
+
+                // Compute filter coefficients for the current dt and run one
+                // step of the direct-form I biquad.
                 let y = match kind {
                     FilterKind::Lowpass { cutoff_hz } => {
                         let p = first_order_lowpass(*cutoff_hz, dt);
@@ -360,10 +521,8 @@ pub fn compute_math_trace(
                         let p = first_order_highpass(*cutoff_hz, dt);
                         biquad_step(p, x, x1, x2, y1, y2)
                     }
-                    FilterKind::Bandpass {
-                        low_cut_hz,
-                        high_cut_hz,
-                    } => {
+                    FilterKind::Bandpass { low_cut_hz, high_cut_hz } => {
+                        // Implement bandpass as cascade: highpass -> lowpass.
                         let p1 = first_order_highpass(*low_cut_hz, dt);
                         let z1 = biquad_step(p1, x, x1, x2, y1, y2);
                         let p2 = first_order_lowpass(*high_cut_hz, dt);
@@ -383,9 +542,15 @@ pub fn compute_math_trace(
                     }
                     FilterKind::Custom { params } => biquad_step(*params, x, x1, x2, y1, y2),
                 };
+
+                // Advance delay-line state. Bandpass uses a cascade so we must
+                // update both primary and secondary sections using the
+                // intermediate z1 value computed above.
                 match kind {
                     FilterKind::Bandpass { .. } => {
-                        // update primary section state using x->z1
+                        // Recompute the first section step to obtain the z1 used
+                        // as input to the second section when updating the
+                        // internal delay elements.
                         let p1 = if let FilterKind::Bandpass { low_cut_hz, .. } = kind {
                             first_order_highpass(*low_cut_hz, dt)
                         } else {
@@ -408,9 +573,13 @@ pub fn compute_math_trace(
                         y1 = y;
                     }
                 }
+
                 last_t = Some(t);
                 out.push([t, y]);
             }
+
+            // Persist updated filter state so next invocation continues where
+            // we left off.
             state.x1 = x1;
             state.x2 = x2;
             state.y1 = y1;
@@ -432,6 +601,11 @@ pub fn compute_math_trace(
             decay_per_sec,
             mode,
         } => {
+            // Min/Max tracker: maintain running min or max value with optional
+            // exponential decay. When `decay_per_sec` is specified, we decay the
+            // stored min/max exponentially towards the current value between
+            // processed timestamps. This implements a leaky min/max useful for
+            // highlighting recent extrema while letting older extremes fade.
             let data = match sources.get(&input.0) {
                 Some(v) => v,
                 None => return out,
@@ -451,6 +625,7 @@ pub fn compute_math_trace(
                     Err(i) => i,
                 };
             }
+
             for p in data.iter().skip(start_idx) {
                 let t = p[0];
                 let v = p[1];
@@ -459,6 +634,11 @@ pub fn compute_math_trace(
                         continue;
                     }
                 }
+
+                // Apply exponential decay to previous min/max between the
+                // stored last_decay_t and the current timestamp. The decay
+                // factor k = exp(-decay * dt) multiplicatively reduces the
+                // influence of the historic extremum.
                 if let Some(decay) = decay_per_sec {
                     if let Some(t0) = last_decay_t {
                         let dt = (t - t0).max(0.0);
@@ -469,6 +649,9 @@ pub fn compute_math_trace(
                         }
                     }
                 }
+
+                // If we have infinities (initial state) set them from the
+                // current value to bootstrap the running min/max.
                 if min_v.is_infinite() {
                     min_v = v;
                 }
@@ -484,6 +667,8 @@ pub fn compute_math_trace(
                 };
                 out.push([t, y]);
             }
+
+            // Persist state after processing.
             state.min_val = min_v;
             state.max_val = max_v;
             state.last_decay_t = last_decay_t;
@@ -507,6 +692,11 @@ fn union_times<'a>(
     v
 }
 
+/// Collect timestamps from the provided trace refs.
+///
+/// Returns a vector with all timestamps from the referenced traces. The
+/// caller is responsible for sorting and deduping the returned vector.
+
 #[inline]
 fn first_order_lowpass(fc: f64, dt: f64) -> BiquadParams {
     // Bilinear transform of RC lowpass: alpha = dt / (RC + dt), with RC = 1/(2*pi*fc)
@@ -519,6 +709,12 @@ fn first_order_lowpass(fc: f64, dt: f64) -> BiquadParams {
         a: [1.0, -(1.0 - alpha), 0.0],
     }
 }
+
+/// First-order highpass mapped to a biquad-like parameterization.
+///
+/// The transform derives a simple one-pole highpass performed via a direct-form
+/// I biquad with the returned coefficients. `fc` is the cutoff frequency in Hz
+/// and `dt` the sample interval in seconds.
 
 #[inline]
 fn first_order_highpass(fc: f64, dt: f64) -> BiquadParams {
@@ -543,6 +739,14 @@ fn biquad_step(p: BiquadParams, x0: f64, x1: f64, x2: f64, y1: f64, y2: f64) -> 
     y0
 }
 
+/// Evaluate one sample of a biquad (Direct Form I) given parameters and
+/// previous delay-line values.
+///
+/// The function normalizes by `a0` (unless it is extremely close to zero) to
+/// produce the standard difference equation. The caller is responsible for
+/// shifting delay-line values after calling this function (i.e. updating x1,
+/// x2, y1, y2 as appropriate).
+
 // RBJ audio EQ cookbook biquad coefficients (dt -> fs)
 #[inline]
 fn biquad_lowpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
@@ -564,6 +768,12 @@ fn biquad_lowpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
     }
 }
 
+/// RBJ biquad highpass coefficient generator.
+///
+/// Uses the RBJ audio EQ cookbook formula adapted to a sampling rate derived
+/// from `dt` (fs = 1/dt). The returned coefficients are in the same [b,a]
+/// layout as `BiquadParams` and should be normalized by a0 when used.
+
 #[inline]
 fn biquad_highpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
     let fs = (1.0 / dt).max(1.0);
@@ -583,6 +793,12 @@ fn biquad_highpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
         a: [a0, a1, a2],
     }
 }
+
+/// RBJ biquad bandpass coefficient generator.
+///
+/// Produces coefficients that implement a band-pass with center frequency `fc`
+/// and quality factor `q` (constant skirt gain, peak gain = Q). As with the
+/// other biquad generators the caller should normalize the coefficients by a0.
 
 #[inline]
 fn biquad_bandpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
