@@ -17,7 +17,7 @@ use super::panel::DockPanel;
 use super::LivePlotApp;
 
 impl LivePlotApp {
-    /// Render the X-Axis time window control (moved to the View menu).
+    /// Render the X-Axis time window control
     pub(super) fn render_time_window_control(&mut self, ui: &mut egui::Ui) {
         ui.label("🕓 X-Axis time window:");
         let mut tw = self.time_window;

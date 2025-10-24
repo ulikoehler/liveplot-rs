@@ -335,8 +335,6 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
             }
         }
 
-        // (Style editor moved to appear just before the Add/Save button per kind)
-
         match app.math_panel.builder.kind_idx {
             0 => {
                 // Add/Sub
