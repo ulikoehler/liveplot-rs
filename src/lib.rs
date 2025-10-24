@@ -13,6 +13,10 @@ mod trace_look;
 mod app;
 mod plot;
 mod menu_ui;
+mod math_ui;
+mod thresholds_ui;
+mod traces_ui;
+mod hotkeys;
 mod ui;
 mod panel;
 mod export_helpers;
@@ -21,6 +25,9 @@ pub mod sink;
 pub mod controllers;
 pub mod config;
 pub mod export;
+
+#[cfg(feature = "fft")]
+mod fft_panel;
 
 // Public re-exports for a compact external API
 #[cfg(feature = "fft")]

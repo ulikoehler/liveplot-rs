@@ -32,13 +32,13 @@ use crate::sink::PlotCommand;
 use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState};
 
 #[cfg(feature = "fft")]
-use super::fft_panel::FFTPanel;
-use super::math_ui::MathPanel;
-use super::thresholds_ui::ThresholdsPanel;
-use super::traces_ui::TracesPanel;
-use super::hotkeys::{Hotkeys, HotkeyName};
-use super::panel::DockPanel;
-use super::types::TraceState;
+use crate::fft_panel::FFTPanel;
+use crate::math_ui::MathPanel;
+use crate::thresholds_ui::ThresholdsPanel;
+use crate::traces_ui::TracesPanel;
+use crate::hotkeys::{Hotkeys, HotkeyName};
+use crate::panel::DockPanel;
+use crate::types::TraceState;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub(super) enum ControlsMode {
