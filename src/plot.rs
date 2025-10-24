@@ -15,7 +15,7 @@ impl LivePlotApp {
     /// Render the central plot inside the default central panel and apply interactions.
     pub(super) fn render_central_plot_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            let plot_response = self.plot_traces_common(ui, ctx, "scope_plot_multi");
+            let plot_response = self.plot_traces_common(ui, ctx, "liveplot_plot");
             self.pause_on_click(&plot_response);
             self.apply_zoom(&plot_response);
             self.handle_plot_click(&plot_response);

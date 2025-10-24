@@ -380,7 +380,7 @@ impl LivePlotApp {
         self.tick_non_ui();
         ui.vertical(|ui| { self.controls_ui(ui, super::app::ControlsMode::Embedded); });
         self.show_dialogs_shared(&ctx);
-        let plot_response = self.plot_traces_common(ui, &ctx, "scope_plot_multi_embedded");
+        let plot_response = self.plot_traces_common(ui, &ctx, "liveplot_embedded");
         self.pause_on_click(&plot_response);
         self.apply_zoom(&plot_response);
         self.handle_plot_click(&plot_response);

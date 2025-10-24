@@ -33,6 +33,15 @@ impl LivePlotApp {
                     }
                 });
                 ui.menu_button("👁 View", |ui| {
+                    if ui.button(if self.paused { "⏵ Resume" } else { "◼ Pause" }).clicked() {
+                        if self.paused {
+                            self.paused = false;
+                            for tr in self.traces.values_mut() { tr.snap = None; }
+                        } else {
+                            for tr in self.traces.values_mut() { tr.snap = Some(tr.live.clone()); }
+                            self.paused = true;
+                        }
+                    }
                     // Zoom mode moved from controls into the View menu as a single-line picker
                     use super::app::ZoomMode;
                     ui.horizontal(|ui| {
@@ -57,16 +66,6 @@ impl LivePlotApp {
                         }
 
                         ui.separator();
-
-                        if ui.button(if self.paused { "⏵ Resume" } else { "◼ Pause" }).clicked() {
-                            if self.paused {
-                                self.paused = false;
-                                for tr in self.traces.values_mut() { tr.snap = None; }
-                            } else {
-                                for tr in self.traces.values_mut() { tr.snap = Some(tr.live.clone()); }
-                                self.paused = true;
-                            }
-                        }
                     });
 
                     ui.separator();
