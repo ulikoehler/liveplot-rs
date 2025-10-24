@@ -1,11 +1,11 @@
 //! Hotkeys representation and parsing for LivePlot UI.
 
-use std::fmt;
-use std::str::FromStr;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::fmt;
 use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 /// Modifier keys (combinations) used for hotkeys.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,12 +57,19 @@ impl FromStr for Hotkey {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
-        if s.is_empty() { return Err("empty hotkey".to_string()); }
+        if s.is_empty() {
+            return Err("empty hotkey".to_string());
+        }
         // Accept formats like "Ctrl+F" or "F" or "Ctrl+Alt+X"
         let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
-        if parts.is_empty() { return Err("invalid hotkey".to_string()); }
+        if parts.is_empty() {
+            return Err("invalid hotkey".to_string());
+        }
         let last = parts.last().unwrap();
-        let ch = last.chars().next().ok_or_else(|| "no key char".to_string())?;
+        let ch = last
+            .chars()
+            .next()
+            .ok_or_else(|| "no key char".to_string())?;
         // modifiers are all but last
         let mods = &parts[..parts.len().saturating_sub(1)];
         let modifier = match mods.len() {
@@ -76,16 +83,24 @@ impl FromStr for Hotkey {
             2 => {
                 let a = mods[0].to_lowercase();
                 let b = mods[1].to_lowercase();
-                if (a == "ctrl" && b == "alt") || (a == "alt" && b == "ctrl") { Modifier::CtrlAlt }
-                else if (a == "ctrl" && b == "shift") || (a == "shift" && b == "ctrl") { Modifier::CtrlShift }
-                else if (a == "alt" && b == "shift") || (a == "shift" && b == "alt") { Modifier::AltShift }
-                else { return Err(format!("unknown modifier combo '{:?}'", mods)); }
+                if (a == "ctrl" && b == "alt") || (a == "alt" && b == "ctrl") {
+                    Modifier::CtrlAlt
+                } else if (a == "ctrl" && b == "shift") || (a == "shift" && b == "ctrl") {
+                    Modifier::CtrlShift
+                } else if (a == "alt" && b == "shift") || (a == "shift" && b == "alt") {
+                    Modifier::AltShift
+                } else {
+                    return Err(format!("unknown modifier combo '{:?}'", mods));
+                }
             }
             3 => {
                 let mut lowers: Vec<String> = mods.iter().map(|m| m.to_lowercase()).collect();
                 lowers.sort();
-                if lowers == ["alt".to_string(), "ctrl".to_string(), "shift".to_string()] { Modifier::CtrlAltShift }
-                else { return Err(format!("unknown modifier combo '{:?}'", mods)); }
+                if lowers == ["alt".to_string(), "ctrl".to_string(), "shift".to_string()] {
+                    Modifier::CtrlAltShift
+                } else {
+                    return Err(format!("unknown modifier combo '{:?}'", mods));
+                }
             }
             _ => return Err(format!("too many modifiers: {:?}", mods)),
         };
@@ -94,7 +109,9 @@ impl FromStr for Hotkey {
 }
 
 impl Hotkey {
-    pub fn new(modifier: Modifier, key: char) -> Self { Self { modifier, key } }
+    pub fn new(modifier: Modifier, key: char) -> Self {
+        Self { modifier, key }
+    }
 }
 
 /// Container for all configurable hotkeys.
@@ -126,17 +143,23 @@ impl Default for Hotkeys {
 }
 
 impl Hotkeys {
-    pub fn reset_defaults(&mut self) { *self = Hotkeys::default(); }
+    pub fn reset_defaults(&mut self) {
+        *self = Hotkeys::default();
+    }
 
     /// Save hotkeys to the default path `~/.liveplot/hotkeys.yaml`.
     pub fn save_to_default_path(&self) -> Result<(), String> {
         let home = std::env::var("HOME").map_err(|e| format!("HOME env var not set: {}", e))?;
         let dir = PathBuf::from(home).join(".liveplot");
-        if let Err(e) = fs::create_dir_all(&dir) { return Err(format!("Failed to create dir {:?}: {}", dir, e)); }
+        if let Err(e) = fs::create_dir_all(&dir) {
+            return Err(format!("Failed to create dir {:?}: {}", dir, e));
+        }
         let path = dir.join("hotkeys.yaml");
         let s = serde_yaml::to_string(self).map_err(|e| format!("Serialization error: {}", e))?;
-        let mut f = fs::File::create(&path).map_err(|e| format!("Failed to create file {:?}: {}", path, e))?;
-        f.write_all(s.as_bytes()).map_err(|e| format!("Failed to write file {:?}: {}", path, e))?;
+        let mut f = fs::File::create(&path)
+            .map_err(|e| format!("Failed to create file {:?}: {}", path, e))?;
+        f.write_all(s.as_bytes())
+            .map_err(|e| format!("Failed to write file {:?}: {}", path, e))?;
         Ok(())
     }
 
@@ -144,9 +167,13 @@ impl Hotkeys {
     pub fn load_from_default_path() -> Result<Hotkeys, String> {
         let home = std::env::var("HOME").map_err(|e| format!("HOME env var not set: {}", e))?;
         let path = PathBuf::from(home).join(".liveplot").join("hotkeys.yaml");
-        if !path.exists() { return Err(format!("Hotkeys file {:?} does not exist", path)); }
-        let s = fs::read_to_string(&path).map_err(|e| format!("Failed to read {:?}: {}", path, e))?;
-        let hk: Hotkeys = serde_yaml::from_str(&s).map_err(|e| format!("Deserialization error: {}", e))?;
+        if !path.exists() {
+            return Err(format!("Hotkeys file {:?} does not exist", path));
+        }
+        let s =
+            fs::read_to_string(&path).map_err(|e| format!("Failed to read {:?}: {}", path, e))?;
+        let hk: Hotkeys =
+            serde_yaml::from_str(&s).map_err(|e| format!("Deserialization error: {}", e))?;
         Ok(hk)
     }
 }

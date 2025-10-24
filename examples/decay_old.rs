@@ -53,12 +53,17 @@ fn main() -> eframe::Result<()> {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs_f64())
                 .unwrap_or(0.0);
-                // Define the range: everything strictly older than 3 seconds
+            // Define the range: everything strictly older than 3 seconds
             let x_max = now_s - 3.0;
             if x_max.is_finite() {
                 // Apply multiplicative decay to older samples; repeated application makes older segments fade
                 // Use NaN as the lower bound to mean "start of data" (see docs)
-                let _ = sink_decay.apply_y_fn_in_x_range(&trace_decay, f64::NAN, x_max, Box::new(|y| y * 0.9));
+                let _ = sink_decay.apply_y_fn_in_x_range(
+                    &trace_decay,
+                    f64::NAN,
+                    x_max,
+                    Box::new(|y| y * 0.9),
+                );
             }
             // Prevent too frequent updates if system clock jumps
             let _ = &mut last_tick;

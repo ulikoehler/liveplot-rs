@@ -12,8 +12,8 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_stream::try_stream;
-use tonic::{Request, Response, Status};
 use tokio::time::interval;
+use tonic::{Request, Response, Status};
 
 pub mod sine {
     pub mod v1 {
@@ -21,13 +21,16 @@ pub mod sine {
     }
 }
 
-use sine::v1::{sine_wave_server::{SineWave, SineWaveServer}, Sample, SubscribeRequest};
+use sine::v1::{
+    sine_wave_server::{SineWave, SineWaveServer},
+    Sample, SubscribeRequest,
+};
 
 #[derive(Default)]
 struct SineSvc;
 
-use std::pin::Pin;
 use futures_core::Stream;
+use std::pin::Pin;
 
 #[tonic::async_trait]
 impl SineWave for SineSvc {
@@ -38,8 +41,8 @@ impl SineWave for SineSvc {
         _request: Request<SubscribeRequest>,
     ) -> Result<Response<Self::SubscribeStream>, Status> {
         // Signal params
-        const F_HZ: f64 = 5.0;         // 5 Hz
-        const FS_HZ: f64 = 1000.0;     // 1 kHz -> 1 ms per sample
+        const F_HZ: f64 = 5.0; // 5 Hz
+        const FS_HZ: f64 = 1000.0; // 1 kHz -> 1 ms per sample
         const DT: Duration = Duration::from_millis(1);
 
         let mut n: i64 = 0;

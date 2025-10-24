@@ -9,7 +9,7 @@
 //! ```
 //! The example streams two signals and sets custom RGB colors for the `sine` and `cosine` traces.
 
-use liveplot::{channel_plot, run_liveplot, LivePlotConfig, TracesController, PlotPoint};
+use liveplot::{channel_plot, run_liveplot, LivePlotConfig, PlotPoint, TracesController};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {

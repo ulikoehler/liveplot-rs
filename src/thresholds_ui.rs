@@ -1,7 +1,7 @@
+use super::panel::{DockPanel, DockState};
 use egui;
 use egui::Color32;
 use std::collections::HashMap;
-use super::panel::{DockPanel, DockState};
 // use egui_plot::{LineStyle, MarkerShape};
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 
@@ -40,7 +40,9 @@ impl Default for ThresholdsPanel {
 }
 
 impl DockPanel for ThresholdsPanel {
-    fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
+    fn dock_mut(&mut self) -> &mut DockState {
+        &mut self.dock
+    }
     fn panel_contents(&mut self, app: &mut LivePlotApp, ui: &mut egui::Ui) {
         // (no-op)
         ui.label("Detect and log when a trace exceeds a condition.");
@@ -56,11 +58,7 @@ impl DockPanel for ThresholdsPanel {
         for def in app.threshold_defs.clone().iter() {
             let row = ui.horizontal(|ui| {
                 // Threshold line color editor (from per-threshold look)
-                let mut line_look = self
-                    .looks
-                    .get(&def.name)
-                    .cloned()
-                    .unwrap_or_default();
+                let mut line_look = self.looks.get(&def.name).cloned().unwrap_or_default();
                 let mut col = line_look.color;
                 let color_resp = ui
                     .color_edit_button_srgba(&mut col)
@@ -70,9 +68,7 @@ impl DockPanel for ThresholdsPanel {
                 }
                 if color_resp.changed() {
                     line_look.color = col;
-                    self
-                        .looks
-                        .insert(def.name.clone(), line_look);
+                    self.looks.insert(def.name.clone(), line_look);
                     // Keep event colors in sync with the line color
                     if let Some(le) = self.start_looks.get_mut(&def.name) {
                         le.color = col;
@@ -134,7 +130,9 @@ impl DockPanel for ThresholdsPanel {
 
                 // Info text like math traces: target + condition; hover highlights target trace
                 let info_text = match &def.kind {
-                    ThresholdKind::GreaterThan { value } => format!("{} > {:.3}", def.target.0, value),
+                    ThresholdKind::GreaterThan { value } => {
+                        format!("{} > {:.3}", def.target.0, value)
+                    }
                     ThresholdKind::LessThan { value } => format!("{} < {:.3}", def.target.0, value),
                     ThresholdKind::InRange { low, high } => {
                         format!("{} in [{:.3}, {:.3}]", def.target.0, low, high)
@@ -351,16 +349,24 @@ impl DockPanel for ThresholdsPanel {
             egui::CollapsingHeader::new("Style: Event start")
                 .default_open(false)
                 .show(ui, |ui| {
-                    self.builder
-                        .look_start_events
-                        .render_editor(ui, true, None, true, Some(self.builder.look.color));
+                    self.builder.look_start_events.render_editor(
+                        ui,
+                        true,
+                        None,
+                        true,
+                        Some(self.builder.look.color),
+                    );
                 });
             egui::CollapsingHeader::new("Style: Event stop")
                 .default_open(false)
                 .show(ui, |ui| {
-                    self.builder
-                        .look_stop_events
-                        .render_editor(ui, true, None, true, Some(self.builder.look.color));
+                    self.builder.look_stop_events.render_editor(
+                        ui,
+                        true,
+                        None,
+                        true,
+                        Some(self.builder.look.color),
+                    );
                 });
 
             ui.add_space(10.0);
@@ -410,17 +416,17 @@ impl DockPanel for ThresholdsPanel {
                                 let orig = self.editing.clone().unwrap();
                                 app.remove_threshold_internal(&orig);
                                 app.add_threshold_internal(def.clone());
-                                self
-                                    .looks
+                                self.looks
                                     .insert(def.name.clone(), self.builder.look.clone());
                                 // Save start/stop looks (colors are already synced to line color)
                                 self.start_looks.insert(
                                     def.name.clone(),
                                     self.builder.look_start_events.clone(),
                                 );
-                                self
-                                    .stop_looks
-                                    .insert(def.name.clone(), self.builder.look_stop_events.clone());
+                                self.stop_looks.insert(
+                                    def.name.clone(),
+                                    self.builder.look_stop_events.clone(),
+                                );
                                 self.editing = None;
                                 self.creating = false;
                                 self.builder = ThresholdBuilderState::default();
@@ -431,8 +437,7 @@ impl DockPanel for ThresholdsPanel {
                                         Some("A threshold with this name already exists".into());
                                 } else {
                                     app.add_threshold_internal(def.clone());
-                                    self
-                                        .looks
+                                    self.looks
                                         .insert(def.name.clone(), self.builder.look.clone());
                                     self.start_looks.insert(
                                         def.name.clone(),
@@ -458,7 +463,8 @@ impl DockPanel for ThresholdsPanel {
         ui.horizontal(|ui| {
             ui.label("Filter:");
             // Build list of names from current thresholds and from the log
-            let mut names: Vec<String> = app.threshold_defs.iter().map(|d| d.name.clone()).collect();
+            let mut names: Vec<String> =
+                app.threshold_defs.iter().map(|d| d.name.clone()).collect();
             for e in app.threshold_event_log.iter() {
                 if !names.iter().any(|n| n == &e.threshold) {
                     names.push(e.threshold.clone());
@@ -503,7 +509,9 @@ impl DockPanel for ThresholdsPanel {
                         .add_filter("CSV", &["csv"])
                         .save_file()
                     {
-                        if let Err(e) = super::export_helpers::save_threshold_events_csv(&path, &evts) {
+                        if let Err(e) =
+                            super::export_helpers::save_threshold_events_csv(&path, &evts)
+                        {
                             eprintln!("Failed to export events CSV: {e}");
                         }
                     }
@@ -640,5 +648,3 @@ impl DockPanel for ThresholdsPanel {
     }
 }
 // Removed unused show_thresholds_dialog helper; dialogs are shown via DockPanel::show_detached_dialog
-
-

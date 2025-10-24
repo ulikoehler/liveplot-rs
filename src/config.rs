@@ -1,9 +1,9 @@
 //! Configuration types shared across the live plot UIs.
 
-use crate::controllers::{FFTController, UiActionController, WindowController};
 use crate::controllers::TracesController;
-use crate::thresholds::ThresholdController;
+use crate::controllers::{FFTController, UiActionController, WindowController};
 use crate::hotkeys::Hotkeys;
+use crate::thresholds::ThresholdController;
 use chrono::Local;
 
 /// Formatting options for the x-value (time) shown in point labels.

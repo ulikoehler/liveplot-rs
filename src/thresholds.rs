@@ -9,8 +9,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 
 use std::collections::HashMap;
 
@@ -39,25 +39,50 @@ impl LivePlotApp {
                 let removes: Vec<String> = inner.remove_requests.drain(..).collect();
                 (adds, removes)
             };
-            for def in adds { self.add_threshold_internal(def); }
-            for name in removes { self.remove_threshold_internal(&name); }
+            for def in adds {
+                self.add_threshold_internal(def);
+            }
+            for name in removes {
+                self.remove_threshold_internal(&name);
+            }
         }
     }
 
     pub(super) fn process_thresholds(&mut self) {
-        if self.threshold_defs.is_empty() { return; }
+        if self.threshold_defs.is_empty() {
+            return;
+        }
         let mut sources: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
         for (name, tr) in &self.traces {
-            let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused { if let Some(s) = &tr.snap { Box::new(s.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
+            let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
+                if let Some(s) = &tr.snap {
+                    Box::new(s.iter())
+                } else {
+                    Box::new(tr.live.iter())
+                }
+            } else {
+                Box::new(tr.live.iter())
+            };
             sources.insert(name.clone(), iter.cloned().collect());
         }
         for def in self.threshold_defs.clone().iter() {
-            let state = self.threshold_states.entry(def.name.clone()).or_insert_with(ThresholdRuntimeState::new);
-            let data = match sources.get(&def.target.0) { Some(v) => v, None => continue };
+            let state = self
+                .threshold_states
+                .entry(def.name.clone())
+                .or_insert_with(ThresholdRuntimeState::new);
+            let data = match sources.get(&def.target.0) {
+                Some(v) => v,
+                None => continue,
+            };
             let mut start_idx = 0usize;
             if let Some(t0) = state.prev_in_t {
                 start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
-                    Ok(mut i) => { while i < data.len() && data[i][0] <= t0 { i += 1; } i }
+                    Ok(mut i) => {
+                        while i < data.len() && data[i][0] <= t0 {
+                            i += 1;
+                        }
+                        i
+                    }
                     Err(i) => i,
                 };
             }
@@ -67,20 +92,37 @@ impl LivePlotApp {
                 let e = def.kind.excess(v);
                 if let Some(t0) = state.last_t {
                     let dt = (t - t0).max(0.0);
-                    if state.active || e > 0.0 { state.accum_area += 0.5 * (state.last_excess + e) * dt; }
+                    if state.active || e > 0.0 {
+                        state.accum_area += 0.5 * (state.last_excess + e) * dt;
+                    }
                 }
                 if !state.active && e > 0.0 {
-                    state.active = true; state.start_t = t;
+                    state.active = true;
+                    state.start_t = t;
                 } else if state.active && e == 0.0 {
-                    let end_t = t; let dur = end_t - state.start_t;
+                    let end_t = t;
+                    let dur = end_t - state.start_t;
                     if dur >= def.min_duration_s {
-                        let evt = ThresholdEvent { threshold: def.name.clone(), trace: def.target.0.clone(), start_t: state.start_t, end_t, duration: dur, area: state.accum_area };
+                        let evt = ThresholdEvent {
+                            threshold: def.name.clone(),
+                            trace: def.target.0.clone(),
+                            start_t: state.start_t,
+                            end_t,
+                            duration: dur,
+                            area: state.accum_area,
+                        };
                         state.push_event_capped(evt.clone(), def.max_events);
                         self.threshold_event_log.push_back(evt.clone());
-                        while self.threshold_event_log.len() > self.threshold_event_log_cap { self.threshold_event_log.pop_front(); }
-                        if let Some(ctrl) = &self.threshold_controller { let mut inner = ctrl.inner.lock().unwrap(); inner.listeners.retain(|s| s.send(evt.clone()).is_ok()); }
+                        while self.threshold_event_log.len() > self.threshold_event_log_cap {
+                            self.threshold_event_log.pop_front();
+                        }
+                        if let Some(ctrl) = &self.threshold_controller {
+                            let mut inner = ctrl.inner.lock().unwrap();
+                            inner.listeners.retain(|s| s.send(evt.clone()).is_ok());
+                        }
                     }
-                    state.active = false; state.accum_area = 0.0;
+                    state.active = false;
+                    state.accum_area = 0.0;
                 }
                 state.last_t = Some(t);
                 state.last_excess = e;
@@ -90,32 +132,53 @@ impl LivePlotApp {
     }
 
     pub(crate) fn add_threshold_internal(&mut self, def: ThresholdDef) {
-        if self.threshold_defs.iter().any(|d| d.name == def.name) { return; }
-        self.threshold_states.entry(def.name.clone()).or_insert_with(ThresholdRuntimeState::new);
+        if self.threshold_defs.iter().any(|d| d.name == def.name) {
+            return;
+        }
+        self.threshold_states
+            .entry(def.name.clone())
+            .or_insert_with(ThresholdRuntimeState::new);
         self.threshold_defs.push(def);
     }
 
     /// Clear all threshold events from the global log and from each threshold's runtime state.
     pub(crate) fn clear_all_threshold_events(&mut self) {
         self.threshold_event_log.clear();
-        for (_name, st) in self.threshold_states.iter_mut() { st.events.clear(); }
+        for (_name, st) in self.threshold_states.iter_mut() {
+            st.events.clear();
+        }
     }
 
     /// Clear all events for a specific threshold: removes from its buffer and from the global log.
     pub(crate) fn clear_threshold_events(&mut self, name: &str) {
-        if let Some(st) = self.threshold_states.get_mut(name) { st.events.clear(); }
+        if let Some(st) = self.threshold_states.get_mut(name) {
+            st.events.clear();
+        }
         self.threshold_event_log.retain(|e| e.threshold != name);
     }
 
     /// Remove a specific threshold event from the global log and the corresponding threshold's buffer.
     pub(crate) fn remove_threshold_event(&mut self, event: &ThresholdEvent) {
         if let Some(pos) = self.threshold_event_log.iter().position(|e| {
-            e.threshold == event.threshold && e.trace == event.trace && e.start_t == event.start_t && e.end_t == event.end_t && e.duration == event.duration && e.area == event.area
-        }) { self.threshold_event_log.remove(pos); }
+            e.threshold == event.threshold
+                && e.trace == event.trace
+                && e.start_t == event.start_t
+                && e.end_t == event.end_t
+                && e.duration == event.duration
+                && e.area == event.area
+        }) {
+            self.threshold_event_log.remove(pos);
+        }
         if let Some(st) = self.threshold_states.get_mut(&event.threshold) {
             if let Some(pos) = st.events.iter().position(|e| {
-                e.trace == event.trace && e.start_t == event.start_t && e.end_t == event.end_t && e.duration == event.duration && e.area == event.area
-            }) { st.events.remove(pos); }
+                e.trace == event.trace
+                    && e.start_t == event.start_t
+                    && e.end_t == event.end_t
+                    && e.duration == event.duration
+                    && e.area == event.area
+            }) {
+                st.events.remove(pos);
+            }
         }
     }
 
@@ -128,11 +191,19 @@ impl LivePlotApp {
     }
 
     /// Public API: add/remove/list thresholds; get events for a threshold (clone).
-    pub fn add_threshold(&mut self, def: ThresholdDef) { self.add_threshold_internal(def); }
-    pub fn remove_threshold(&mut self, name: &str) { self.remove_threshold_internal(name); }
-    pub fn thresholds(&self) -> &[ThresholdDef] { &self.threshold_defs }
+    pub fn add_threshold(&mut self, def: ThresholdDef) {
+        self.add_threshold_internal(def);
+    }
+    pub fn remove_threshold(&mut self, name: &str) {
+        self.remove_threshold_internal(name);
+    }
+    pub fn thresholds(&self) -> &[ThresholdDef] {
+        &self.threshold_defs
+    }
     pub fn threshold_events(&self, name: &str) -> Option<Vec<ThresholdEvent>> {
-        self.threshold_states.get(name).map(|s| s.events.iter().cloned().collect())
+        self.threshold_states
+            .get(name)
+            .map(|s| s.events.iter().cloned().collect())
     }
 }
 
@@ -145,14 +216,20 @@ impl ThresholdKind {
             ThresholdKind::GreaterThan { value } => (v - *value).max(0.0),
             ThresholdKind::LessThan { value } => (*value - v).max(0.0),
             ThresholdKind::InRange { low, high } => {
-                if v >= *low && v <= *high { (v - *low).max(0.0) } else { 0.0 }
+                if v >= *low && v <= *high {
+                    (v - *low).max(0.0)
+                } else {
+                    0.0
+                }
             }
         }
     }
 
     /// Whether the condition holds at value v
     #[inline]
-    pub fn is_active(&self, v: f64) -> bool { self.excess(v) > 0.0 }
+    pub fn is_active(&self, v: f64) -> bool {
+        self.excess(v) > 0.0
+    }
 }
 
 /// Definition of a threshold.
@@ -216,13 +293,23 @@ pub struct ThresholdRuntimeState {
 
 impl ThresholdRuntimeState {
     pub fn new() -> Self {
-        Self { active: false, start_t: 0.0, last_t: None, last_excess: 0.0, accum_area: 0.0, prev_in_t: None, events: VecDeque::new() }
+        Self {
+            active: false,
+            start_t: 0.0,
+            last_t: None,
+            last_excess: 0.0,
+            accum_area: 0.0,
+            prev_in_t: None,
+            events: VecDeque::new(),
+        }
     }
 
     /// Push, enforcing a cap.
     pub fn push_event_capped(&mut self, evt: ThresholdEvent, cap: usize) {
         self.events.push_back(evt);
-        while self.events.len() > cap { self.events.pop_front(); }
+        while self.events.len() > cap {
+            self.events.pop_front();
+        }
     }
 }
 
@@ -240,7 +327,13 @@ pub(crate) struct ThresholdCtrlInner {
 
 impl ThresholdController {
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(ThresholdCtrlInner { add_requests: Vec::new(), remove_requests: Vec::new(), listeners: Vec::new() })) }
+        Self {
+            inner: Arc::new(Mutex::new(ThresholdCtrlInner {
+                add_requests: Vec::new(),
+                remove_requests: Vec::new(),
+                listeners: Vec::new(),
+            })),
+        }
     }
 
     /// Request adding a new threshold (applied by the UI thread on next frame).

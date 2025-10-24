@@ -11,7 +11,10 @@
 //! The example streams a sine wave and prints threshold events to stderr when the
 //! configured condition is met.
 
-use liveplot::{channel_plot, run_liveplot, ThresholdController, ThresholdDef, ThresholdKind, TraceRef, LivePlotConfig, PlotPoint};
+use liveplot::{
+    channel_plot, run_liveplot, LivePlotConfig, PlotPoint, ThresholdController, ThresholdDef,
+    ThresholdKind, TraceRef,
+};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {

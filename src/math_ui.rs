@@ -30,7 +30,9 @@ impl Default for MathPanel {
 }
 
 impl DockPanel for MathPanel {
-    fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
+    fn dock_mut(&mut self) -> &mut DockState {
+        &mut self.dock
+    }
     fn panel_contents(&mut self, app: &mut LivePlotApp, ui: &mut egui::Ui) {
         math_panel_contents(app, ui);
     }
@@ -216,14 +218,14 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                 if remove_resp.hovered() {
                     app.hover_trace = Some(def.name.clone());
                 }
-                    if remove_resp.clicked() {
+                if remove_resp.clicked() {
                     let removing = def.name.clone();
                     app.remove_math_trace_internal(&removing);
-                        if app.math_panel.editing.as_deref() == Some(&removing) {
-                            app.math_panel.editing = None;
-                            app.math_panel.creating = false;
-                            app.math_panel.builder = MathBuilderState::default();
-                            app.math_panel.error = None;
+                    if app.math_panel.editing.as_deref() == Some(&removing) {
+                        app.math_panel.editing = None;
+                        app.math_panel.creating = false;
+                        app.math_panel.builder = MathBuilderState::default();
+                        app.math_panel.error = None;
                     }
                 }
                 // Show Reset for kinds that have internal storage
@@ -277,7 +279,10 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
             ui.strong("New math trace");
         }
         // Name first, then Operation (no label; tooltip on combobox)
-        ui.horizontal(|ui| { ui.label("Name"); ui.text_edit_singleline(&mut app.math_panel.builder.name); });
+        ui.horizontal(|ui| {
+            ui.label("Name");
+            ui.text_edit_singleline(&mut app.math_panel.builder.name);
+        });
         let kinds = [
             "Add/Subtract",
             "Multiply",
@@ -291,7 +296,9 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
         let ir = egui::ComboBox::from_id_salt("math_op")
             .selected_text(kinds[app.math_panel.builder.kind_idx])
             .show_ui(ui, |ui| {
-                for (i, k) in kinds.iter().enumerate() { ui.selectable_value(&mut app.math_panel.builder.kind_idx, i, *k); }
+                for (i, k) in kinds.iter().enumerate() {
+                    ui.selectable_value(&mut app.math_panel.builder.kind_idx, i, *k);
+                }
             });
         ir.response.on_hover_text("Operation");
         let trace_names: Vec<String> = app.trace_order.clone();
@@ -347,8 +354,14 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                     });
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("Add input").clicked() { app.math_panel.builder.add_inputs.push((0, 1.0)); }
-                    if ui.button("Remove input").clicked() { if app.math_panel.builder.add_inputs.len() > 1 { app.math_panel.builder.add_inputs.pop(); } }
+                    if ui.button("Add input").clicked() {
+                        app.math_panel.builder.add_inputs.push((0, 1.0));
+                    }
+                    if ui.button("Remove input").clicked() {
+                        if app.math_panel.builder.add_inputs.len() > 1 {
+                            app.math_panel.builder.add_inputs.pop();
+                        }
+                    }
                 });
                 // Style editor just before Save/Add
                 ui.add_space(5.0);
@@ -364,7 +377,10 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                                 }
                             }
                         } else {
-                            app.math_panel.builder.look.render_editor(ui, true, None, false, None);
+                            app.math_panel
+                                .builder
+                                .look
+                                .render_editor(ui, true, None, false, None);
                         }
                     });
                 ui.add_space(10.0);
@@ -443,20 +459,23 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                 // Style editor just before Save/Add
                 ui.add_space(8.0);
                 egui::CollapsingHeader::new("Style")
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            if is_editing {
-                                if let Some(editing_name) = app.math_panel.editing.clone() {
-                                    if let Some(tr) = app.traces.get_mut(&editing_name) {
-                                        tr.look.render_editor(ui, true, None, false, None);
-                                    } else {
-                                        ui.label("Trace not found.");
-                                    }
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        if is_editing {
+                            if let Some(editing_name) = app.math_panel.editing.clone() {
+                                if let Some(tr) = app.traces.get_mut(&editing_name) {
+                                    tr.look.render_editor(ui, true, None, false, None);
+                                } else {
+                                    ui.label("Trace not found.");
                                 }
-                            } else {
-                                app.math_panel.builder.look.render_editor(ui, true, None, false, None);
                             }
-                        });
+                        } else {
+                            app.math_panel
+                                .builder
+                                .look
+                                .render_editor(ui, true, None, false, None);
+                        }
+                    });
                 ui.horizontal(|ui| {
                     let save_label = if is_editing { "Save" } else { "Add trace" };
                     let mut save_clicked = false;
@@ -495,7 +514,9 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                                 };
                                 app.apply_add_or_edit(def);
                                 if app.math_panel.error.is_none() {
-                                    if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
+                                    if let Some(tr) =
+                                        app.traces.get_mut(&app.math_panel.builder.name)
+                                    {
                                         if is_creating {
                                             tr.look = app.math_panel.builder.look.clone();
                                         }
@@ -568,7 +589,9 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                                 };
                                 app.apply_add_or_edit(def);
                                 if app.math_panel.error.is_none() {
-                                    if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
+                                    if let Some(tr) =
+                                        app.traces.get_mut(&app.math_panel.builder.name)
+                                    {
                                         if is_creating {
                                             tr.look = app.math_panel.builder.look.clone();
                                         }
@@ -646,7 +669,9 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                                 };
                                 app.apply_add_or_edit(def);
                                 if app.math_panel.error.is_none() {
-                                    if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
+                                    if let Some(tr) =
+                                        app.traces.get_mut(&app.math_panel.builder.name)
+                                    {
                                         if is_creating {
                                             tr.look = app.math_panel.builder.look.clone();
                                         }
@@ -692,7 +717,8 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                         ui.horizontal(|ui| {
                             ui.label("Cutoff Hz");
                             ui.add(
-                                egui::DragValue::new(&mut app.math_panel.builder.filter_f1).speed(0.1),
+                                egui::DragValue::new(&mut app.math_panel.builder.filter_f1)
+                                    .speed(0.1),
                             );
                         });
                     }
@@ -700,13 +726,15 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                         ui.horizontal(|ui| {
                             ui.label("Low cut Hz");
                             ui.add(
-                                egui::DragValue::new(&mut app.math_panel.builder.filter_f1).speed(0.1),
+                                egui::DragValue::new(&mut app.math_panel.builder.filter_f1)
+                                    .speed(0.1),
                             );
                         });
                         ui.horizontal(|ui| {
                             ui.label("High cut Hz");
                             ui.add(
-                                egui::DragValue::new(&mut app.math_panel.builder.filter_f2).speed(0.1),
+                                egui::DragValue::new(&mut app.math_panel.builder.filter_f2)
+                                    .speed(0.1),
                             );
                         });
                     }
@@ -718,13 +746,15 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                         ui.horizontal(|ui| {
                             ui.label(label);
                             ui.add(
-                                egui::DragValue::new(&mut app.math_panel.builder.filter_f1).speed(0.1),
+                                egui::DragValue::new(&mut app.math_panel.builder.filter_f1)
+                                    .speed(0.1),
                             );
                         });
                         ui.horizontal(|ui| {
                             ui.label("Q");
                             ui.add(
-                                egui::DragValue::new(&mut app.math_panel.builder.filter_q).speed(0.01),
+                                egui::DragValue::new(&mut app.math_panel.builder.filter_q)
+                                    .speed(0.01),
                             );
                         });
                     }
@@ -817,7 +847,9 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                                 };
                                 app.apply_add_or_edit(def);
                                 if app.math_panel.error.is_none() {
-                                    if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
+                                    if let Some(tr) =
+                                        app.traces.get_mut(&app.math_panel.builder.name)
+                                    {
                                         if is_creating {
                                             tr.look = app.math_panel.builder.look.clone();
                                         }
@@ -845,7 +877,9 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                     });
                 ui.horizontal(|ui| {
                     ui.label("Decay (1/s, 0=none)");
-                    ui.add(egui::DragValue::new(&mut app.math_panel.builder.minmax_decay).speed(0.1));
+                    ui.add(
+                        egui::DragValue::new(&mut app.math_panel.builder.minmax_decay).speed(0.1),
+                    );
                 });
                 // Style editor just before Save/Add
                 ui.add_space(8.0);
@@ -905,7 +939,9 @@ pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                                 };
                                 app.apply_add_or_edit(def);
                                 if app.math_panel.error.is_none() {
-                                    if let Some(tr) = app.traces.get_mut(&app.math_panel.builder.name) {
+                                    if let Some(tr) =
+                                        app.traces.get_mut(&app.math_panel.builder.name)
+                                    {
                                         if is_creating {
                                             tr.look = app.math_panel.builder.look.clone();
                                         }

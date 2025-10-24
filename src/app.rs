@@ -33,11 +33,11 @@ use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, Thres
 
 #[cfg(feature = "fft")]
 use crate::fft_panel::FFTPanel;
+use crate::hotkeys::{HotkeyName, Hotkeys};
 use crate::math_ui::MathPanel;
+use crate::panel::DockPanel;
 use crate::thresholds_ui::ThresholdsPanel;
 use crate::traces_ui::TracesPanel;
-use crate::hotkeys::{Hotkeys, HotkeyName};
-use crate::panel::DockPanel;
 use crate::types::TraceState;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -215,13 +215,17 @@ impl LivePlotApp {
     /// Handle configured hotkeys by inspecting input events and current modifier state.
     pub fn handle_hotkeys(&mut self, ctx: &egui::Context) {
         // Do not trigger hotkeys while the hotkeys dialog is open (to avoid race with editing)
-        if self.hotkeys_dialog_open { return; }
+        if self.hotkeys_dialog_open {
+            return;
+        }
 
-    use super::hotkeys::{Hotkey as HK, Modifier as HM};
+        use super::hotkeys::{Hotkey as HK, Modifier as HM};
 
         // Snapshot input (events + modifiers)
         let input = ctx.input(|i| i.clone());
-        if input.events.is_empty() { return; }
+        if input.events.is_empty() {
+            return;
+        }
 
         // Helper: check whether the given Hotkey was pressed in the recent events
         let pressed = |hk: &HK| -> bool {
@@ -238,14 +242,18 @@ impl LivePlotApp {
                 HM::AltShift => mods.alt && mods.shift,
                 HM::CtrlAltShift => mods.ctrl && mods.alt && mods.shift,
             };
-            if !mods_ok { return false; }
+            if !mods_ok {
+                return false;
+            }
 
             // Look for a Text event matching the key character (case-insensitive)
             for ev in input.events.iter().rev() {
                 match ev {
                     egui::Event::Text(text) => {
                         if let Some(c) = text.chars().next() {
-                            if c.to_ascii_lowercase() == hk.key.to_ascii_lowercase() { return true; }
+                            if c.to_ascii_lowercase() == hk.key.to_ascii_lowercase() {
+                                return true;
+                            }
                         }
                     }
                     _ => {}
@@ -280,7 +288,9 @@ impl LivePlotApp {
         // Fit view continuously (toggle auto_zoom_y)
         if pressed(&self.hotkeys.fit_view_cont) {
             self.auto_zoom_y = !self.auto_zoom_y;
-            if self.auto_zoom_y { self.pending_auto_y = true; }
+            if self.auto_zoom_y {
+                self.pending_auto_y = true;
+            }
         }
 
         // Traces panel
@@ -320,7 +330,9 @@ impl eframe::App for LivePlotApp {
         self.process_focus_requests();
 
         // Top-left application menu bar: File and Functions
-        if self.render_menu_bar(ctx) { self.update_bottom_panels_controller_visibility(); }
+        if self.render_menu_bar(ctx) {
+            self.update_bottom_panels_controller_visibility();
+        }
 
         // Controls
         egui::TopBottomPanel::top("controls_multi").show(ctx, |ui| {
@@ -331,9 +343,9 @@ impl eframe::App for LivePlotApp {
         self.render_right_sidebar_panel(ctx);
 
         // Shared dialogs
-    self.show_dialogs_shared(ctx);
-    // Hotkeys dialog
-    self.show_hotkeys_dialog(ctx);
+        self.show_dialogs_shared(ctx);
+        // Hotkeys dialog
+        self.show_hotkeys_dialog(ctx);
 
         // Bottom dock panels (FFT etc.)
         self.render_bottom_panel(ctx);
@@ -381,11 +393,15 @@ pub fn run_liveplot(
                 app.y_log = cfg.y_log;
                 // Set optional UI headline from config
                 app.headline = cfg.headline.clone();
-                    // Try to load persisted hotkeys from disk; fall back to defaults on error.
-                    match Hotkeys::load_from_default_path() {
-                        Ok(hk) => { app.hotkeys = hk; }
-                        Err(e) => { eprintln!("Hotkeys load: {}", e); }
+                // Try to load persisted hotkeys from disk; fall back to defaults on error.
+                match Hotkeys::load_from_default_path() {
+                    Ok(hk) => {
+                        app.hotkeys = hk;
                     }
+                    Err(e) => {
+                        eprintln!("Hotkeys load: {}", e);
+                    }
+                }
                 // Attach optional controllers
                 app.window_controller = cfg.window_controller.clone();
                 app.fft_controller = cfg.fft_controller.clone();

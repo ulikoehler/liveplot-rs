@@ -46,7 +46,7 @@ struct FixedDataApp {
 impl FixedDataApp {
     fn new() -> Self {
         // Create a plot app with an unused channel (no live data needed)
-    let (_sink, rx) = channel_plot();
+        let (_sink, rx) = channel_plot();
         let mut plot = LivePlotApp::new(rx);
         plot.time_window = 10.0;
         plot.max_points = 10_000;

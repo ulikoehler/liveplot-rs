@@ -92,13 +92,16 @@ impl LivePlotApp {
             if is_zooming_with_wheel {
                 let mut zoom_factor = egui::Vec2::new(1.0, 1.0);
                 if scroll_data.y != 0.0
-                    && (self.zoom_mode == super::app::ZoomMode::X || self.zoom_mode == super::app::ZoomMode::Both)
+                    && (self.zoom_mode == super::app::ZoomMode::X
+                        || self.zoom_mode == super::app::ZoomMode::Both)
                 {
                     zoom_factor.x = 1.0 + scroll_data.y * 0.001;
                 } else if scroll_data.x != 0.0 {
                     zoom_factor.x = 1.0 - scroll_data.x * 0.001;
                 }
-                if self.zoom_mode == super::app::ZoomMode::Y || self.zoom_mode == super::app::ZoomMode::Both {
+                if self.zoom_mode == super::app::ZoomMode::Y
+                    || self.zoom_mode == super::app::ZoomMode::Both
+                {
                     zoom_factor.y = 1.0 + scroll_data.y * 0.001;
                 }
 
@@ -173,14 +176,30 @@ impl LivePlotApp {
             // Lines
             for name in self.trace_order.clone().into_iter() {
                 if let Some(tr) = self.traces.get(&name) {
-                    if !tr.look.visible { continue; }
+                    if !tr.look.visible {
+                        continue;
+                    }
                     let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
-                        if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
-                    } else { Box::new(tr.live.iter()) };
+                        if let Some(snap) = &tr.snap {
+                            Box::new(snap.iter())
+                        } else {
+                            Box::new(tr.live.iter())
+                        }
+                    } else {
+                        Box::new(tr.live.iter())
+                    };
                     let pts_vec: Vec<[f64; 2]> = iter
                         .map(|p| {
                             let y_lin = p[1] + tr.offset;
-                            let y = if self.y_log { if y_lin > 0.0 { y_lin.log10() } else { f64::NAN } } else { y_lin };
+                            let y = if self.y_log {
+                                if y_lin > 0.0 {
+                                    y_lin.log10()
+                                } else {
+                                    f64::NAN
+                                }
+                            } else {
+                                y_lin
+                            };
                             [p[0], y]
                         })
                         .collect();
@@ -189,7 +208,12 @@ impl LivePlotApp {
                     let style = tr.look.style;
                     if let Some(hov) = &self.hover_trace {
                         if &tr.name != hov {
-                            color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 40);
+                            color = Color32::from_rgba_unmultiplied(
+                                color.r(),
+                                color.g(),
+                                color.b(),
+                                40,
+                            );
                         } else {
                             width = (width * 1.6).max(width + 1.0);
                         }
@@ -200,7 +224,9 @@ impl LivePlotApp {
                         .style(style);
                     let legend_label = if self.show_info_in_legend && !tr.info.is_empty() {
                         format!("{} — {}", tr.name, tr.info)
-                    } else { tr.name.clone() };
+                    } else {
+                        tr.name.clone()
+                    };
                     line = line.name(legend_label);
                     plot_ui.line(line);
 
@@ -228,57 +254,130 @@ impl LivePlotApp {
                 let xmax = *xr.end();
                 for def in &self.threshold_defs {
                     if let Some(tr) = self.traces.get(&def.target.0) {
-                        if !tr.look.visible { continue; }
-                        let thr_look = self.thresholds_panel.looks.get(&def.name).cloned().unwrap_or_else(|| {
-                            let mut l = super::trace_look::TraceLook::default();
-                            if let Some(rgb) = def.color_hint { l.color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]); } else { l.color = tr.look.color; }
-                            l.width = 1.5; l
-                        });
-                        let ev_start_look = self.thresholds_panel.start_looks.get(&def.name).cloned().unwrap_or_else(|| {
-                            let mut l = super::trace_look::TraceLook::default();
-                            l.color = thr_look.color; l.width = 2.0; l
-                        });
-                        let ev_stop_look = self.thresholds_panel.stop_looks.get(&def.name).cloned().unwrap_or_else(|| {
-                            let mut l = super::trace_look::TraceLook::default();
-                            l.color = thr_look.color; l.width = 2.0; l
-                        });
+                        if !tr.look.visible {
+                            continue;
+                        }
+                        let thr_look = self
+                            .thresholds_panel
+                            .looks
+                            .get(&def.name)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                let mut l = super::trace_look::TraceLook::default();
+                                if let Some(rgb) = def.color_hint {
+                                    l.color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                                } else {
+                                    l.color = tr.look.color;
+                                }
+                                l.width = 1.5;
+                                l
+                            });
+                        let ev_start_look = self
+                            .thresholds_panel
+                            .start_looks
+                            .get(&def.name)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                let mut l = super::trace_look::TraceLook::default();
+                                l.color = thr_look.color;
+                                l.width = 2.0;
+                                l
+                            });
+                        let ev_stop_look = self
+                            .thresholds_panel
+                            .stop_looks
+                            .get(&def.name)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                let mut l = super::trace_look::TraceLook::default();
+                                l.color = thr_look.color;
+                                l.width = 2.0;
+                                l
+                            });
                         let mut thr_color = thr_look.color;
                         let mut thr_width = thr_look.width.max(0.1);
                         if let Some(hov_thr) = &self.hover_threshold {
                             if &def.name != hov_thr {
-                                thr_color = Color32::from_rgba_unmultiplied(thr_color.r(), thr_color.g(), thr_color.b(), 60);
+                                thr_color = Color32::from_rgba_unmultiplied(
+                                    thr_color.r(),
+                                    thr_color.g(),
+                                    thr_color.b(),
+                                    60,
+                                );
                             } else {
                                 thr_width = (thr_width * 1.6).max(thr_width + 1.0);
                             }
                         }
                         let ev_base = thr_look.color;
                         let ev_color = if let Some(hov_thr) = &self.hover_threshold {
-                            if &def.name != hov_thr { Color32::from_rgba_unmultiplied(ev_base.r(), ev_base.g(), ev_base.b(), 60) } else { ev_base }
-                        } else { ev_base };
+                            if &def.name != hov_thr {
+                                Color32::from_rgba_unmultiplied(
+                                    ev_base.r(),
+                                    ev_base.g(),
+                                    ev_base.b(),
+                                    60,
+                                )
+                            } else {
+                                ev_base
+                            }
+                        } else {
+                            ev_base
+                        };
 
                         let mut draw_hline = |id: &str, label: Option<String>, y_world: f64| {
                             let y_lin = y_world + tr.offset;
-                            let y_plot = if self.y_log { if y_lin > 0.0 { y_lin.log10() } else { f64::NAN } } else { y_lin };
+                            let y_plot = if self.y_log {
+                                if y_lin > 0.0 {
+                                    y_lin.log10()
+                                } else {
+                                    f64::NAN
+                                }
+                            } else {
+                                y_lin
+                            };
                             if y_plot.is_finite() {
-                                let mut h = HLine::new(id.to_string(), y_plot).color(thr_color).width(thr_width).style(thr_look.style);
-                                if let Some(lbl) = &label { h = h.name(lbl.clone()); } else { h = h.name(""); }
+                                let mut h = HLine::new(id.to_string(), y_plot)
+                                    .color(thr_color)
+                                    .width(thr_width)
+                                    .style(thr_look.style);
+                                if let Some(lbl) = &label {
+                                    h = h.name(lbl.clone());
+                                } else {
+                                    h = h.name("");
+                                }
                                 plot_ui.hline(h);
                             }
                         };
 
                         let expr = match &def.kind {
                             crate::thresholds::ThresholdKind::GreaterThan { value } => {
-                                if let Some(u) = &self.y_unit { format!("> {:.3} {}", value, u) } else { format!("> {:.3}", value) }
+                                if let Some(u) = &self.y_unit {
+                                    format!("> {:.3} {}", value, u)
+                                } else {
+                                    format!("> {:.3}", value)
+                                }
                             }
                             crate::thresholds::ThresholdKind::LessThan { value } => {
-                                if let Some(u) = &self.y_unit { format!("< {:.3} {}", value, u) } else { format!("< {:.3}", value) }
+                                if let Some(u) = &self.y_unit {
+                                    format!("< {:.3} {}", value, u)
+                                } else {
+                                    format!("< {:.3}", value)
+                                }
                             }
                             crate::thresholds::ThresholdKind::InRange { low, high } => {
-                                if let Some(u) = &self.y_unit { format!("[{:.3}, {:.3}] {}", low, high, u) } else { format!("[{:.3}, {:.3}]", low, high) }
+                                if let Some(u) = &self.y_unit {
+                                    format!("[{:.3}, {:.3}] {}", low, high, u)
+                                } else {
+                                    format!("[{:.3}, {:.3}]", low, high)
+                                }
                             }
                         };
                         let thr_info = format!("{} {}", def.target.0, expr);
-                        let legend_label = if self.show_info_in_legend { format!("{} — {}", def.name, thr_info) } else { def.name.clone() };
+                        let legend_label = if self.show_info_in_legend {
+                            format!("{} — {}", def.name, thr_info)
+                        } else {
+                            def.name.clone()
+                        };
 
                         match def.kind {
                             crate::thresholds::ThresholdKind::GreaterThan { value } => {
@@ -300,33 +399,57 @@ impl LivePlotApp {
                         if let Some(state) = self.threshold_states.get(&def.name) {
                             if ev_start_look.show_points || ev_stop_look.show_points {
                                 let marker_y_world = match def.kind {
-                                    crate::thresholds::ThresholdKind::GreaterThan { value } => value,
+                                    crate::thresholds::ThresholdKind::GreaterThan { value } => {
+                                        value
+                                    }
                                     crate::thresholds::ThresholdKind::LessThan { value } => value,
-                                    crate::thresholds::ThresholdKind::InRange { low, high } => (low + high) * 0.5,
+                                    crate::thresholds::ThresholdKind::InRange { low, high } => {
+                                        (low + high) * 0.5
+                                    }
                                 };
                                 let y_lin = marker_y_world + tr.offset;
-                                let marker_y_plot = if self.y_log { if y_lin > 0.0 { y_lin.log10() } else { f64::NAN } } else { y_lin };
+                                let marker_y_plot = if self.y_log {
+                                    if y_lin > 0.0 {
+                                        y_lin.log10()
+                                    } else {
+                                        f64::NAN
+                                    }
+                                } else {
+                                    y_lin
+                                };
                                 if marker_y_plot.is_finite() {
                                     for ev in state.events.iter() {
-                                        if ev.end_t < xmin || ev.start_t > xmax { continue; }
+                                        if ev.end_t < xmin || ev.start_t > xmax {
+                                            continue;
+                                        }
                                         if ev_start_look.show_points {
-                                            let p = Points::new("", vec![[ev.start_t, marker_y_plot]])
-                                                .radius(ev_start_look.point_size.max(0.5))
-                                                .shape(ev_start_look.marker)
-                                                .color(ev_color);
+                                            let p =
+                                                Points::new("", vec![[ev.start_t, marker_y_plot]])
+                                                    .radius(ev_start_look.point_size.max(0.5))
+                                                    .shape(ev_start_look.marker)
+                                                    .color(ev_color);
                                             plot_ui.points(p);
                                         } else {
-                                            let s = VLine::new("", ev.start_t).color(ev_color).width(ev_start_look.width.max(0.1)).style(ev_start_look.style).name("");
+                                            let s = VLine::new("", ev.start_t)
+                                                .color(ev_color)
+                                                .width(ev_start_look.width.max(0.1))
+                                                .style(ev_start_look.style)
+                                                .name("");
                                             plot_ui.vline(s);
                                         }
                                         if ev_stop_look.show_points {
-                                            let p = Points::new("", vec![[ev.end_t, marker_y_plot]])
-                                                .radius(ev_stop_look.point_size.max(0.5))
-                                                .shape(ev_stop_look.marker)
-                                                .color(ev_color);
+                                            let p =
+                                                Points::new("", vec![[ev.end_t, marker_y_plot]])
+                                                    .radius(ev_stop_look.point_size.max(0.5))
+                                                    .shape(ev_stop_look.marker)
+                                                    .color(ev_color);
                                             plot_ui.points(p);
                                         } else {
-                                            let e = VLine::new("", ev.end_t).color(ev_color).width(ev_stop_look.width.max(0.1)).style(ev_stop_look.style).name("");
+                                            let e = VLine::new("", ev.end_t)
+                                                .color(ev_color)
+                                                .width(ev_stop_look.width.max(0.1))
+                                                .style(ev_stop_look.style)
+                                                .name("");
                                             plot_ui.vline(e);
                                         }
                                     }
@@ -335,23 +458,33 @@ impl LivePlotApp {
                                         let end_t = state.last_t.unwrap_or(start_t);
                                         if !(end_t < xmin || start_t > xmax) {
                                             if ev_start_look.show_points {
-                                                let p = Points::new("", vec![[start_t, marker_y_plot]])
-                                                    .radius(ev_start_look.point_size.max(0.5))
-                                                    .shape(ev_start_look.marker)
-                                                    .color(ev_color);
+                                                let p =
+                                                    Points::new("", vec![[start_t, marker_y_plot]])
+                                                        .radius(ev_start_look.point_size.max(0.5))
+                                                        .shape(ev_start_look.marker)
+                                                        .color(ev_color);
                                                 plot_ui.points(p);
                                             } else {
-                                                let s = VLine::new("", start_t).color(ev_color).width(ev_start_look.width.max(0.1)).style(ev_start_look.style).name("");
+                                                let s = VLine::new("", start_t)
+                                                    .color(ev_color)
+                                                    .width(ev_start_look.width.max(0.1))
+                                                    .style(ev_start_look.style)
+                                                    .name("");
                                                 plot_ui.vline(s);
                                             }
                                             if ev_stop_look.show_points {
-                                                let p = Points::new("", vec![[end_t, marker_y_plot]])
-                                                    .radius(ev_stop_look.point_size.max(0.5))
-                                                    .shape(ev_stop_look.marker)
-                                                    .color(ev_color);
+                                                let p =
+                                                    Points::new("", vec![[end_t, marker_y_plot]])
+                                                        .radius(ev_stop_look.point_size.max(0.5))
+                                                        .shape(ev_stop_look.marker)
+                                                        .color(ev_color);
                                                 plot_ui.points(p);
                                             } else {
-                                                let e = VLine::new("", end_t).color(ev_color).width(ev_stop_look.width.max(0.1)).style(ev_stop_look.style).name("");
+                                                let e = VLine::new("", end_t)
+                                                    .color(ev_color)
+                                                    .width(ev_stop_look.width.max(0.1))
+                                                    .style(ev_stop_look.style)
+                                                    .name("");
                                                 plot_ui.vline(e);
                                             }
                                         }
@@ -359,19 +492,37 @@ impl LivePlotApp {
                                 }
                             } else {
                                 for ev in state.events.iter() {
-                                    if ev.end_t < xmin || ev.start_t > xmax { continue; }
-                                    let ls = VLine::new("", ev.start_t).color(ev_color).width(ev_start_look.width.max(0.1)).style(ev_start_look.style).name("");
+                                    if ev.end_t < xmin || ev.start_t > xmax {
+                                        continue;
+                                    }
+                                    let ls = VLine::new("", ev.start_t)
+                                        .color(ev_color)
+                                        .width(ev_start_look.width.max(0.1))
+                                        .style(ev_start_look.style)
+                                        .name("");
                                     plot_ui.vline(ls);
-                                    let le = VLine::new("", ev.end_t).color(ev_color).width(ev_stop_look.width.max(0.1)).style(ev_stop_look.style).name("");
+                                    let le = VLine::new("", ev.end_t)
+                                        .color(ev_color)
+                                        .width(ev_stop_look.width.max(0.1))
+                                        .style(ev_stop_look.style)
+                                        .name("");
                                     plot_ui.vline(le);
                                 }
                                 if state.active {
                                     let start_t = state.start_t;
                                     let end_t = state.last_t.unwrap_or(start_t);
                                     if !(end_t < xmin || start_t > xmax) {
-                                        let s = VLine::new("", start_t).color(ev_color).width(ev_start_look.width.max(0.1)).style(ev_start_look.style).name("");
+                                        let s = VLine::new("", start_t)
+                                            .color(ev_color)
+                                            .width(ev_start_look.width.max(0.1))
+                                            .style(ev_start_look.style)
+                                            .name("");
                                         plot_ui.vline(s);
-                                        let e = VLine::new("", end_t).color(ev_color).width(ev_stop_look.width.max(0.1)).style(ev_stop_look.style).name("");
+                                        let e = VLine::new("", end_t)
+                                            .color(ev_color)
+                                            .width(ev_stop_look.width.max(0.1))
+                                            .style(ev_stop_look.style)
+                                            .name("");
                                         plot_ui.vline(e);
                                     }
                                 }
@@ -388,31 +539,72 @@ impl LivePlotApp {
             let ox = 0.01 * self.time_window;
             let oy = 0.01 * (self.y_max - self.y_min);
 
-            let (dx, dy) = if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) { (p2[0] - p1[0], p2[1] - p1[1]) } else { (0.0, 0.0) };
+            let (dx, dy) = if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
+                (p2[0] - p1[0], p2[1] - p1[1])
+            } else {
+                (0.0, 0.0)
+            };
 
-            let label_pos = |dx: f64, dy: f64, p: &[f64; 2], ox: f64, oy: f64| -> (Align2, egui::Align, PlotPoint) {
-                let slope = if dx != 0.0 || oy != 0.0 || ox != 0.0 { (dy / oy) / (dx / ox) } else { 0.0 };
+            let label_pos = |dx: f64,
+                             dy: f64,
+                             p: &[f64; 2],
+                             ox: f64,
+                             oy: f64|
+             -> (Align2, egui::Align, PlotPoint) {
+                let slope = if dx != 0.0 || oy != 0.0 || ox != 0.0 {
+                    (dy / oy) / (dx / ox)
+                } else {
+                    0.0
+                };
                 if dx <= 0.0 || slope.abs() > 8.0 {
                     if dy >= 0.0 || slope.abs() < 0.2 {
-                        (Align2::LEFT_TOP, egui::Align::LEFT, PlotPoint::new(p[0] + ox, p[1] - oy))
+                        (
+                            Align2::LEFT_TOP,
+                            egui::Align::LEFT,
+                            PlotPoint::new(p[0] + ox, p[1] - oy),
+                        )
                     } else {
-                        (Align2::LEFT_BOTTOM, egui::Align::LEFT, PlotPoint::new(p[0] + ox, p[1] + oy))
+                        (
+                            Align2::LEFT_BOTTOM,
+                            egui::Align::LEFT,
+                            PlotPoint::new(p[0] + ox, p[1] + oy),
+                        )
                     }
                 } else {
                     if dy >= 0.0 || slope.abs() < 0.2 {
-                        (Align2::RIGHT_TOP, egui::Align::RIGHT, PlotPoint::new(p[0] - ox, p[1] - oy))
+                        (
+                            Align2::RIGHT_TOP,
+                            egui::Align::RIGHT,
+                            PlotPoint::new(p[0] - ox, p[1] - oy),
+                        )
                     } else {
-                        (Align2::RIGHT_BOTTOM, egui::Align::RIGHT, PlotPoint::new(p[0] - ox, p[1] + oy))
+                        (
+                            Align2::RIGHT_BOTTOM,
+                            egui::Align::RIGHT,
+                            PlotPoint::new(p[0] - ox, p[1] + oy),
+                        )
                     }
                 }
             };
 
             if let Some(p) = p1_opt {
-                plot_ui.points(Points::new("Measurement", vec![p]).radius(5.0).color(Color32::YELLOW));
+                plot_ui.points(
+                    Points::new("Measurement", vec![p])
+                        .radius(5.0)
+                        .color(Color32::YELLOW),
+                );
                 let (halign_anchor, text_align, base) = label_pos(dx, dy, &p, ox, oy);
                 let y_lin = if self.y_log { 10f64.powf(p[1]) } else { p[1] };
-                let ytxt = if let Some(u) = &self.y_unit { format!("{:.6} {}", y_lin, u) } else { format!("{:.6}", y_lin) };
-                let txt = format!("P1\nx = {}\ny = {}", self.x_date_format.format_value(p[0]), ytxt);
+                let ytxt = if let Some(u) = &self.y_unit {
+                    format!("{:.6} {}", y_lin, u)
+                } else {
+                    format!("{:.6}", y_lin)
+                };
+                let txt = format!(
+                    "P1\nx = {}\ny = {}",
+                    self.x_date_format.format_value(p[0]),
+                    ytxt
+                );
                 let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
                 egui::RichText::new(txt)
@@ -422,17 +614,34 @@ impl LivePlotApp {
                 plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
             }
             if let Some(p) = p2_opt {
-                plot_ui.points(Points::new("Measurement", vec![p]).radius(5.0).color(Color32::LIGHT_BLUE));
+                plot_ui.points(
+                    Points::new("Measurement", vec![p])
+                        .radius(5.0)
+                        .color(Color32::LIGHT_BLUE),
+                );
                 let (halign_anchor, text_align, base) = label_pos(-dx, -dy, &p, ox, oy);
                 let y_lin = if self.y_log { 10f64.powf(p[1]) } else { p[1] };
-                let ytxt = if let Some(u) = &self.y_unit { format!("{:.6} {}", y_lin, u) } else { format!("{:.6}", y_lin) };
-                let txt = format!("P2\nx = {}\ny = {}", self.x_date_format.format_value(p[0]), ytxt);
+                let ytxt = if let Some(u) = &self.y_unit {
+                    format!("{:.6} {}", y_lin, u)
+                } else {
+                    format!("{:.6}", y_lin)
+                };
+                let txt = format!(
+                    "P2\nx = {}\ny = {}",
+                    self.x_date_format.format_value(p[0]),
+                    ytxt
+                );
                 let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
                 egui::RichText::new(txt)
                     .size(marker_font_size)
                     .color(Color32::LIGHT_BLUE)
-                    .append_to(&mut job, &style, egui::FontSelection::Default, egui::Align::LEFT);
+                    .append_to(
+                        &mut job,
+                        &style,
+                        egui::FontSelection::Default,
+                        egui::Align::LEFT,
+                    );
                 plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
             }
             if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
@@ -441,11 +650,27 @@ impl LivePlotApp {
                 let y1 = if self.y_log { 10f64.powf(p1[1]) } else { p1[1] };
                 let y2 = if self.y_log { 10f64.powf(p2[1]) } else { p2[1] };
                 let dy_lin = y2 - y1;
-                let slope = if dx.abs() > 1e-12 { dy_lin / dx } else { f64::INFINITY };
+                let slope = if dx.abs() > 1e-12 {
+                    dy_lin / dx
+                } else {
+                    f64::INFINITY
+                };
                 let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
-                let dy_txt = if let Some(u) = &self.y_unit { format!("{:.6} {}", dy_lin, u) } else { format!("{:.6}", dy_lin) };
-                let txt = if slope.is_finite() { format!("Δx={:.6}\nΔy={}\nslope={:.4}", dx, dy_txt, slope) } else { format!("Δx=0\nΔy={}\nslope=∞", dy_txt) };
-                let slope_plot = if dx != 0.0 || oy != 0.0 || ox != 0.0 { (dy / oy) / (dx / ox) } else { 0.0 };
+                let dy_txt = if let Some(u) = &self.y_unit {
+                    format!("{:.6} {}", dy_lin, u)
+                } else {
+                    format!("{:.6}", dy_lin)
+                };
+                let txt = if slope.is_finite() {
+                    format!("Δx={:.6}\nΔy={}\nslope={:.4}", dx, dy_txt, slope)
+                } else {
+                    format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
+                };
+                let slope_plot = if dx != 0.0 || oy != 0.0 || ox != 0.0 {
+                    (dy / oy) / (dx / ox)
+                } else {
+                    0.0
+                };
                 let (halign_anchor, base) = if slope_plot.abs() > 8.0 {
                     (Align2::RIGHT_CENTER, PlotPoint::new(mid[0] - ox, mid[1]))
                 } else if slope_plot.abs() < 0.2 {
@@ -453,14 +678,22 @@ impl LivePlotApp {
                 } else if slope_plot >= 0.0 {
                     (Align2::LEFT_TOP, PlotPoint::new(mid[0] + ox, mid[1] - oy))
                 } else {
-                    (Align2::LEFT_BOTTOM, PlotPoint::new(mid[0] + ox, mid[1] + oy))
+                    (
+                        Align2::LEFT_BOTTOM,
+                        PlotPoint::new(mid[0] + ox, mid[1] + oy),
+                    )
                 };
                 let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
                 egui::RichText::new(txt)
                     .size(marker_font_size)
                     .color(Color32::LIGHT_GREEN)
-                    .append_to(&mut job, &style, egui::FontSelection::Default, egui::Align::LEFT);
+                    .append_to(
+                        &mut job,
+                        &style,
+                        egui::FontSelection::Default,
+                        egui::Align::LEFT,
+                    );
                 plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
             }
 
@@ -471,7 +704,9 @@ impl LivePlotApp {
 
     pub(super) fn pause_on_click(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
         if plot_response.response.clicked()
-            || plot_response.response.dragged_by(egui::PointerButton::Secondary)
+            || plot_response
+                .response
+                .dragged_by(egui::PointerButton::Secondary)
         {
             if !self.paused {
                 self.paused = true;
@@ -491,7 +726,10 @@ impl LivePlotApp {
                 let (a, b) = (*r.start(), *r.end());
                 (b - a).abs()
             };
-            if w.is_finite() && w > 0.0 && (w - self.time_window).abs() / self.time_window.max(1e-6) > 0.02 {
+            if w.is_finite()
+                && w > 0.0
+                && (w - self.time_window).abs() / self.time_window.max(1e-6) > 0.02
+            {
                 self.time_window = w;
             }
             let r = bounds.range_y();
@@ -509,17 +747,39 @@ impl LivePlotApp {
             let rx = act_bounds.range_x();
             let (xmin, xmax) = (*rx.start(), *rx.end());
             for tr in self.traces.values() {
-                if !tr.look.visible { continue; }
+                if !tr.look.visible {
+                    continue;
+                }
                 let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
-                    if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
-                } else { Box::new(tr.live.iter()) };
+                    if let Some(snap) = &tr.snap {
+                        Box::new(snap.iter())
+                    } else {
+                        Box::new(tr.live.iter())
+                    }
+                } else {
+                    Box::new(tr.live.iter())
+                };
                 for p in iter {
                     let x = p[0];
-                    if !(x >= xmin && x <= xmax) { continue; }
+                    if !(x >= xmin && x <= xmax) {
+                        continue;
+                    }
                     let y_lin = p[1] + tr.offset;
-                    let y = if self.y_log { if y_lin > 0.0 { y_lin.log10() } else { continue; } } else { y_lin };
-                    if y < ymin { ymin = y; }
-                    if y > ymax { ymax = y; }
+                    let y = if self.y_log {
+                        if y_lin > 0.0 {
+                            y_lin.log10()
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        y_lin
+                    };
+                    if y < ymin {
+                        ymin = y;
+                    }
+                    if y > ymax {
+                        ymax = y;
+                    }
                 }
             }
             self.y_min = ymin;
@@ -535,14 +795,23 @@ impl LivePlotApp {
                 let transform = plot_response.transform;
                 let plot_pos = transform.value_from_position(screen_pos);
                 let selected_trace_name = self.selection_trace.clone();
-                let sel_data_points: Option<Vec<[f64; 2]>> = if let Some(name) = &selected_trace_name {
-                    self.traces.get(name).map(|tr| {
-                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
-                            if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
-                        } else { Box::new(tr.live.iter()) };
-                        iter.cloned().collect()
-                    })
-                } else { None };
+                let sel_data_points: Option<Vec<[f64; 2]>> =
+                    if let Some(name) = &selected_trace_name {
+                        self.traces.get(name).map(|tr| {
+                            let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
+                                if let Some(snap) = &tr.snap {
+                                    Box::new(snap.iter())
+                                } else {
+                                    Box::new(tr.live.iter())
+                                }
+                            } else {
+                                Box::new(tr.live.iter())
+                            };
+                            iter.cloned().collect()
+                        })
+                    } else {
+                        None
+                    };
                 match (&selected_trace_name, &sel_data_points) {
                     (Some(name), Some(data_points)) if !data_points.is_empty() => {
                         let off = self.traces.get(name).map(|t| t.offset).unwrap_or(0.0);
@@ -551,11 +820,22 @@ impl LivePlotApp {
                         for (i, p) in data_points.iter().enumerate() {
                             let x = p[0];
                             let y_lin = p[1] + off;
-                            let y_plot = if self.y_log { if y_lin > 0.0 { y_lin.log10() } else { continue; } } else { y_lin };
+                            let y_plot = if self.y_log {
+                                if y_lin > 0.0 {
+                                    y_lin.log10()
+                                } else {
+                                    continue;
+                                }
+                            } else {
+                                y_lin
+                            };
                             let dx = x - plot_pos.x;
                             let dy = y_plot - plot_pos.y;
                             let d2 = dx * dx + dy * dy;
-                            if d2 < best_d2 { best_d2 = d2; best_i = Some(i); }
+                            if d2 < best_d2 {
+                                best_d2 = d2;
+                                best_i = Some(i);
+                            }
                         }
                         if let Some(i) = best_i {
                             let p = data_points[i];
@@ -565,7 +845,8 @@ impl LivePlotApp {
                         }
                     }
                     _ => {
-                        self.point_selection.handle_click_point([plot_pos.x, plot_pos.y]);
+                        self.point_selection
+                            .handle_click_point([plot_pos.x, plot_pos.y]);
                     }
                 }
             }

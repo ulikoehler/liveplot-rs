@@ -28,21 +28,45 @@ pub struct Trace {
 /// Messages sent over the channel to drive the UI.
 pub enum PlotCommand {
     /// Register a new trace with a numeric ID and optional info string.
-    RegisterTrace { id: TraceId, name: String, info: Option<String> },
+    RegisterTrace {
+        id: TraceId,
+        name: String,
+        info: Option<String>,
+    },
     /// Append a single point to the given trace ID.
     Point { trace_id: TraceId, point: PlotPoint },
     /// Append a chunk of points to the given trace ID.
-    Points { trace_id: TraceId, points: Vec<PlotPoint> },
+    Points {
+        trace_id: TraceId,
+        points: Vec<PlotPoint>,
+    },
     /// Set the Y value for specific points identified by their exact X coordinates.
-    SetPointsY { trace_id: TraceId, xs: Vec<f64>, y: f64 },
+    SetPointsY {
+        trace_id: TraceId,
+        xs: Vec<f64>,
+        y: f64,
+    },
     /// Delete specific points identified by their exact X coordinates.
     DeletePointsX { trace_id: TraceId, xs: Vec<f64> },
     /// Delete all points within the inclusive X range [x_min, x_max].
-    DeleteXRange { trace_id: TraceId, x_min: f64, x_max: f64 },
+    DeleteXRange {
+        trace_id: TraceId,
+        x_min: f64,
+        x_max: f64,
+    },
     /// Apply a Y-transform function to specific points (by exact X coordinates).
-    ApplyYFnAtX { trace_id: TraceId, xs: Vec<f64>, f: YTransform },
+    ApplyYFnAtX {
+        trace_id: TraceId,
+        xs: Vec<f64>,
+        f: YTransform,
+    },
     /// Apply a Y-transform function to all points within an inclusive X range.
-    ApplyYFnInXRange { trace_id: TraceId, x_min: f64, x_max: f64, f: YTransform },
+    ApplyYFnInXRange {
+        trace_id: TraceId,
+        x_min: f64,
+        x_max: f64,
+        f: YTransform,
+    },
 }
 
 /// Convenience sender for feeding points into the multi-trace plotter.
@@ -64,94 +88,191 @@ impl PlotSink {
         let name = name.into();
         let info_str = info.map(|s| s.into());
         // Inform the UI about the new trace
-        let _ = self.tx.send(PlotCommand::RegisterTrace { id, name: name.clone(), info: info_str.clone() });
-        Trace { id, name, info: info_str }
+        let _ = self.tx.send(PlotCommand::RegisterTrace {
+            id,
+            name: name.clone(),
+            info: info_str.clone(),
+        });
+        Trace {
+            id,
+            name,
+            info: info_str,
+        }
     }
 
     /// Send a single `PlotPoint` for a given `Trace`.
-    pub fn send_point(&self, trace: &Trace, point: PlotPoint) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::Point { trace_id: trace.id, point })
+    pub fn send_point(
+        &self,
+        trace: &Trace,
+        point: PlotPoint,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::Point {
+            trace_id: trace.id,
+            point,
+        })
     }
 
     /// Send a single `PlotPoint` for a given trace ID.
-    pub fn send_point_by_id(&self, trace_id: TraceId, point: PlotPoint) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+    pub fn send_point_by_id(
+        &self,
+        trace_id: TraceId,
+        point: PlotPoint,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
         self.tx.send(PlotCommand::Point { trace_id, point })
     }
 
     /// Send a chunk of points for a given `Trace` (more efficient than point-by-point).
-    pub fn send_points<I>(&self, trace: &Trace, points: I) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    pub fn send_points<I>(
+        &self,
+        trace: &Trace,
+        points: I,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
     where
         I: Into<Vec<PlotPoint>>,
     {
-        self.tx.send(PlotCommand::Points { trace_id: trace.id, points: points.into() })
+        self.tx.send(PlotCommand::Points {
+            trace_id: trace.id,
+            points: points.into(),
+        })
     }
 
     /// Send a chunk of points for a given trace ID (more efficient than point-by-point).
-    pub fn send_points_by_id<I>(&self, trace_id: TraceId, points: I) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    pub fn send_points_by_id<I>(
+        &self,
+        trace_id: TraceId,
+        points: I,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
     where
         I: Into<Vec<PlotPoint>>,
     {
-        self.tx.send(PlotCommand::Points { trace_id, points: points.into() })
+        self.tx.send(PlotCommand::Points {
+            trace_id,
+            points: points.into(),
+        })
     }
 
     /// Set the Y value for a specific point (by exact X) on a given `Trace`.
     #[inline]
-    pub fn set_point_y(&self, trace: &Trace, x: f64, y: f64) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::SetPointsY { trace_id: trace.id, xs: vec![x], y })
+    pub fn set_point_y(
+        &self,
+        trace: &Trace,
+        x: f64,
+        y: f64,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::SetPointsY {
+            trace_id: trace.id,
+            xs: vec![x],
+            y,
+        })
     }
 
     /// Set the Y value for a specific point (by exact X) by trace ID.
     #[inline]
-    pub fn set_point_y_by_id(&self, trace_id: TraceId, x: f64, y: f64) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::SetPointsY { trace_id, xs: vec![x], y })
+    pub fn set_point_y_by_id(
+        &self,
+        trace_id: TraceId,
+        x: f64,
+        y: f64,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::SetPointsY {
+            trace_id,
+            xs: vec![x],
+            y,
+        })
     }
 
     /// Set the Y value for multiple specific points (by exact X) on a given `Trace`.
     #[inline]
-    pub fn set_points_y<I>(&self, trace: &Trace, xs: I, y: f64) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    pub fn set_points_y<I>(
+        &self,
+        trace: &Trace,
+        xs: I,
+        y: f64,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
     where
         I: Into<Vec<f64>>,
     {
-        self.tx.send(PlotCommand::SetPointsY { trace_id: trace.id, xs: xs.into(), y })
+        self.tx.send(PlotCommand::SetPointsY {
+            trace_id: trace.id,
+            xs: xs.into(),
+            y,
+        })
     }
 
     /// Set the Y value for multiple specific points (by exact X) by trace ID.
     #[inline]
-    pub fn set_points_y_by_id<I>(&self, trace_id: TraceId, xs: I, y: f64) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    pub fn set_points_y_by_id<I>(
+        &self,
+        trace_id: TraceId,
+        xs: I,
+        y: f64,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
     where
         I: Into<Vec<f64>>,
     {
-        self.tx.send(PlotCommand::SetPointsY { trace_id, xs: xs.into(), y })
+        self.tx.send(PlotCommand::SetPointsY {
+            trace_id,
+            xs: xs.into(),
+            y,
+        })
     }
 
     /// Delete a specific point (by exact X) on a given `Trace`.
     #[inline]
-    pub fn delete_point_x(&self, trace: &Trace, x: f64) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::DeletePointsX { trace_id: trace.id, xs: vec![x] })
+    pub fn delete_point_x(
+        &self,
+        trace: &Trace,
+        x: f64,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::DeletePointsX {
+            trace_id: trace.id,
+            xs: vec![x],
+        })
     }
 
     /// Delete a specific point (by exact X) by trace ID.
     #[inline]
-    pub fn delete_point_x_by_id(&self, trace_id: TraceId, x: f64) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::DeletePointsX { trace_id, xs: vec![x] })
+    pub fn delete_point_x_by_id(
+        &self,
+        trace_id: TraceId,
+        x: f64,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::DeletePointsX {
+            trace_id,
+            xs: vec![x],
+        })
     }
 
     /// Delete multiple specific points (by exact X) on a given `Trace`.
     #[inline]
-    pub fn delete_points_x<I>(&self, trace: &Trace, xs: I) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    pub fn delete_points_x<I>(
+        &self,
+        trace: &Trace,
+        xs: I,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
     where
         I: Into<Vec<f64>>,
     {
-        self.tx.send(PlotCommand::DeletePointsX { trace_id: trace.id, xs: xs.into() })
+        self.tx.send(PlotCommand::DeletePointsX {
+            trace_id: trace.id,
+            xs: xs.into(),
+        })
     }
 
     /// Delete multiple specific points (by exact X) by trace ID.
     #[inline]
-    pub fn delete_points_x_by_id<I>(&self, trace_id: TraceId, xs: I) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    pub fn delete_points_x_by_id<I>(
+        &self,
+        trace_id: TraceId,
+        xs: I,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
     where
         I: Into<Vec<f64>>,
     {
-        self.tx.send(PlotCommand::DeletePointsX { trace_id, xs: xs.into() })
+        self.tx.send(PlotCommand::DeletePointsX {
+            trace_id,
+            xs: xs.into(),
+        })
     }
 
     /// Delete all points in the inclusive X range [x_min, x_max] on a given `Trace`.
@@ -159,44 +280,98 @@ impl PlotSink {
     /// Special values: pass `f64::NAN` for `x_min` or `x_max` to mean the start or end of the
     /// trace's current data vector respectively (i.e. `x_min = NaN` → earliest sample, `x_max = NaN` → latest sample).
     #[inline]
-    pub fn delete_x_range(&self, trace: &Trace, x_min: f64, x_max: f64) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::DeleteXRange { trace_id: trace.id, x_min, x_max })
+    pub fn delete_x_range(
+        &self,
+        trace: &Trace,
+        x_min: f64,
+        x_max: f64,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::DeleteXRange {
+            trace_id: trace.id,
+            x_min,
+            x_max,
+        })
     }
 
     /// Delete all points in the inclusive X range [x_min, x_max] by trace ID.
     #[inline]
-    pub fn delete_x_range_by_id(&self, trace_id: TraceId, x_min: f64, x_max: f64) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::DeleteXRange { trace_id, x_min, x_max })
+    pub fn delete_x_range_by_id(
+        &self,
+        trace_id: TraceId,
+        x_min: f64,
+        x_max: f64,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::DeleteXRange {
+            trace_id,
+            x_min,
+            x_max,
+        })
     }
 
     /// Apply a Y-transform function to a specific point (by exact X) on a given `Trace`.
     #[inline]
-    pub fn apply_y_fn_at_x(&self, trace: &Trace, x: f64, f: YTransform) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::ApplyYFnAtX { trace_id: trace.id, xs: vec![x], f })
+    pub fn apply_y_fn_at_x(
+        &self,
+        trace: &Trace,
+        x: f64,
+        f: YTransform,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::ApplyYFnAtX {
+            trace_id: trace.id,
+            xs: vec![x],
+            f,
+        })
     }
 
     /// Apply a Y-transform function to a specific point (by exact X) by trace ID.
     #[inline]
-    pub fn apply_y_fn_at_x_by_id(&self, trace_id: TraceId, x: f64, f: YTransform) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::ApplyYFnAtX { trace_id, xs: vec![x], f })
+    pub fn apply_y_fn_at_x_by_id(
+        &self,
+        trace_id: TraceId,
+        x: f64,
+        f: YTransform,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::ApplyYFnAtX {
+            trace_id,
+            xs: vec![x],
+            f,
+        })
     }
 
     /// Apply a Y-transform function to multiple specific points (by exact X) on a given `Trace`.
     #[inline]
-    pub fn apply_y_fn_at_xs<I>(&self, trace: &Trace, xs: I, f: YTransform) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    pub fn apply_y_fn_at_xs<I>(
+        &self,
+        trace: &Trace,
+        xs: I,
+        f: YTransform,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
     where
         I: Into<Vec<f64>>,
     {
-        self.tx.send(PlotCommand::ApplyYFnAtX { trace_id: trace.id, xs: xs.into(), f })
+        self.tx.send(PlotCommand::ApplyYFnAtX {
+            trace_id: trace.id,
+            xs: xs.into(),
+            f,
+        })
     }
 
     /// Apply a Y-transform function to multiple specific points (by exact X) by trace ID.
     #[inline]
-    pub fn apply_y_fn_at_xs_by_id<I>(&self, trace_id: TraceId, xs: I, f: YTransform) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    pub fn apply_y_fn_at_xs_by_id<I>(
+        &self,
+        trace_id: TraceId,
+        xs: I,
+        f: YTransform,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
     where
         I: Into<Vec<f64>>,
     {
-        self.tx.send(PlotCommand::ApplyYFnAtX { trace_id, xs: xs.into(), f })
+        self.tx.send(PlotCommand::ApplyYFnAtX {
+            trace_id,
+            xs: xs.into(),
+            f,
+        })
     }
 
     /// Apply a Y-transform function to all points in the inclusive X range [x_min, x_max] on a given `Trace`.
@@ -204,14 +379,36 @@ impl PlotSink {
     /// Special values: pass `f64::NAN` for `x_min` or `x_max` to mean the start or end of the
     /// trace's current data vector respectively (i.e. `x_min = NaN` → earliest sample, `x_max = NaN` → latest sample).
     #[inline]
-    pub fn apply_y_fn_in_x_range(&self, trace: &Trace, x_min: f64, x_max: f64, f: YTransform) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::ApplyYFnInXRange { trace_id: trace.id, x_min, x_max, f })
+    pub fn apply_y_fn_in_x_range(
+        &self,
+        trace: &Trace,
+        x_min: f64,
+        x_max: f64,
+        f: YTransform,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::ApplyYFnInXRange {
+            trace_id: trace.id,
+            x_min,
+            x_max,
+            f,
+        })
     }
 
     /// Apply a Y-transform function to all points in the inclusive X range [x_min, x_max] by trace ID.
     #[inline]
-    pub fn apply_y_fn_in_x_range_by_id(&self, trace_id: TraceId, x_min: f64, x_max: f64, f: YTransform) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
-        self.tx.send(PlotCommand::ApplyYFnInXRange { trace_id, x_min, x_max, f })
+    pub fn apply_y_fn_in_x_range_by_id(
+        &self,
+        trace_id: TraceId,
+        x_min: f64,
+        x_max: f64,
+        f: YTransform,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+        self.tx.send(PlotCommand::ApplyYFnInXRange {
+            trace_id,
+            x_min,
+            x_max,
+            f,
+        })
     }
 }
 

@@ -200,13 +200,22 @@ impl LivePlotApp {
                         }
                     }
                 }
-                PlotCommand::SetPointsY { trace_id, mut xs, y } => {
+                PlotCommand::SetPointsY {
+                    trace_id,
+                    mut xs,
+                    y,
+                } => {
                     if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                         if let Some(entry) = self.traces.get_mut(&name) {
                             // Sort X list for binary search membership checks
-                            xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                            xs.sort_by(|a, b| {
+                                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                            });
                             for p in entry.live.iter_mut() {
-                                if xs.binary_search_by(|probe| probe.partial_cmp(&p[0]).unwrap()).is_ok() {
+                                if xs
+                                    .binary_search_by(|probe| probe.partial_cmp(&p[0]).unwrap())
+                                    .is_ok()
+                                {
                                     p[1] = y;
                                 }
                             }
@@ -216,12 +225,21 @@ impl LivePlotApp {
                 PlotCommand::DeletePointsX { trace_id, mut xs } => {
                     if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                         if let Some(entry) = self.traces.get_mut(&name) {
-                            xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                            entry.live.retain(|p| xs.binary_search_by(|probe| probe.partial_cmp(&p[0]).unwrap()).is_err());
+                            xs.sort_by(|a, b| {
+                                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                            });
+                            entry.live.retain(|p| {
+                                xs.binary_search_by(|probe| probe.partial_cmp(&p[0]).unwrap())
+                                    .is_err()
+                            });
                         }
                     }
                 }
-                PlotCommand::DeleteXRange { trace_id, x_min, x_max } => {
+                PlotCommand::DeleteXRange {
+                    trace_id,
+                    x_min,
+                    x_max,
+                } => {
                     if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                         if let Some(entry) = self.traces.get_mut(&name) {
                             // If either bound is NaN, interpret as start/end of the data vector.
@@ -232,24 +250,42 @@ impl LivePlotApp {
                             let max_x = entry.live.back().map(|p| p[0]).unwrap();
                             let lo_in = if x_min.is_nan() { min_x } else { x_min };
                             let hi_in = if x_max.is_nan() { max_x } else { x_max };
-                            let (lo, hi) = if lo_in <= hi_in { (lo_in, hi_in) } else { (hi_in, lo_in) };
+                            let (lo, hi) = if lo_in <= hi_in {
+                                (lo_in, hi_in)
+                            } else {
+                                (hi_in, lo_in)
+                            };
                             entry.live.retain(|p| p[0] < lo || p[0] > hi);
                         }
                     }
                 }
-                PlotCommand::ApplyYFnAtX { trace_id, mut xs, f } => {
+                PlotCommand::ApplyYFnAtX {
+                    trace_id,
+                    mut xs,
+                    f,
+                } => {
                     if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                         if let Some(entry) = self.traces.get_mut(&name) {
-                            xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                            xs.sort_by(|a, b| {
+                                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                            });
                             for p in entry.live.iter_mut() {
-                                if xs.binary_search_by(|probe| probe.partial_cmp(&p[0]).unwrap()).is_ok() {
+                                if xs
+                                    .binary_search_by(|probe| probe.partial_cmp(&p[0]).unwrap())
+                                    .is_ok()
+                                {
                                     p[1] = f(p[1]);
                                 }
                             }
                         }
                     }
                 }
-                PlotCommand::ApplyYFnInXRange { trace_id, x_min, x_max, f } => {
+                PlotCommand::ApplyYFnInXRange {
+                    trace_id,
+                    x_min,
+                    x_max,
+                    f,
+                } => {
                     if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                         if let Some(entry) = self.traces.get_mut(&name) {
                             if entry.live.is_empty() {
@@ -259,7 +295,11 @@ impl LivePlotApp {
                             let max_x = entry.live.back().map(|p| p[0]).unwrap();
                             let lo_in = if x_min.is_nan() { min_x } else { x_min };
                             let hi_in = if x_max.is_nan() { max_x } else { x_max };
-                            let (lo, hi) = if lo_in <= hi_in { (lo_in, hi_in) } else { (hi_in, lo_in) };
+                            let (lo, hi) = if lo_in <= hi_in {
+                                (lo_in, hi_in)
+                            } else {
+                                (hi_in, lo_in)
+                            };
                             for p in entry.live.iter_mut() {
                                 if p[0] >= lo && p[0] <= hi {
                                     p[1] = f(p[1]);
@@ -308,7 +348,11 @@ impl LivePlotApp {
                 }
             }
         }
-        if t_latest_overall.is_finite() { Some(t_latest_overall) } else { None }
+        if t_latest_overall.is_finite() {
+            Some(t_latest_overall)
+        } else {
+            None
+        }
     }
 
     /// Apply trace controller requests and publish snapshot to listeners.

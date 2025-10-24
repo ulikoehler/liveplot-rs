@@ -1,5 +1,5 @@
-use eframe::egui;
 use super::app::LivePlotApp;
+use eframe::egui;
 
 /// Shared docking state for dockable panels (Traces, Math, Thresholds).
 #[derive(Debug, Clone)]
@@ -16,9 +16,13 @@ pub struct DockState {
 
 impl DockState {
     pub fn new(title: &'static str) -> Self {
-        Self { detached: false, show_dialog: false, focus_dock: false, title }
+        Self {
+            detached: false,
+            show_dialog: false,
+            focus_dock: false,
+            title,
+        }
     }
-
 }
 
 // Per-panel state structs are defined in their respective modules (math_ui, traces_ui, thresholds_ui)

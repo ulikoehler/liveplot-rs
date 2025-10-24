@@ -1,42 +1,44 @@
 //! LivePlot crate root: re-exports and module wiring.
 
-mod point_selection;
+mod app;
+mod data;
+mod export_helpers;
 #[cfg(feature = "fft")]
 mod fft;
+mod hotkeys;
+mod hotkeys_ui;
 mod line_draw;
 mod math;
-mod thresholds;
-mod types;
-mod data;
-mod hotkeys_ui;
-mod trace_look;
-mod app;
-mod plot;
-mod menu_ui;
 mod math_ui;
-mod thresholds_ui;
-mod traces_ui;
-mod hotkeys;
-mod ui;
+mod menu_ui;
 mod panel;
-mod export_helpers;
+mod plot;
+mod point_selection;
+mod thresholds;
+mod thresholds_ui;
+mod trace_look;
+mod traces_ui;
+mod types;
+mod ui;
 
-pub mod sink;
-pub mod controllers;
 pub mod config;
+pub mod controllers;
 pub mod export;
+pub mod sink;
 
 #[cfg(feature = "fft")]
 mod fft_panel;
 
 // Public re-exports for a compact external API
+pub use app::{run_liveplot, LivePlotApp};
+pub use config::{LivePlotConfig, XDateFormat};
+pub use controllers::{
+    FFTController, FFTDataRequest, FFTPanelInfo, FFTRawData, RawExportFormat, UiActionController,
+    WindowController, WindowInfo,
+};
+pub use controllers::{TraceInfo, TracesController, TracesInfo};
 #[cfg(feature = "fft")]
 pub use fft::FFTWindow;
-pub use config::{LivePlotConfig, XDateFormat};
-pub use controllers::{FFTController, FFTPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FFTRawData, FFTDataRequest};
-pub use controllers::{TracesController, TracesInfo, TraceInfo};
-pub use sink::{channel_plot, PlotSink, PlotPoint, PlotCommand, Trace, TraceId};
-pub use app::{run_liveplot, LivePlotApp};
-pub use math::{MathTraceDef, MathKind, FilterKind, TraceRef};
-pub use thresholds::{ThresholdDef, ThresholdKind, ThresholdEvent, ThresholdController};
-
+pub use math::{FilterKind, MathKind, MathTraceDef, TraceRef};
+pub use sink::{channel_plot, PlotCommand, PlotPoint, PlotSink, Trace, TraceId};
+pub use thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdKind};
