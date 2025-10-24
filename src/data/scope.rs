@@ -1,5 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
+use egui_plot::Axis;
+
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceData;
 use crate::sink::MultiSample;
@@ -24,6 +26,20 @@ impl Default for AxisSettings {
             auto_fit: false,
         }
     }
+}
+
+impl AxisSettings { // TODO
+    pub fn format_value(&self, v: f64, dec_pl: usize, sci: bool) -> String {
+        if let Some(unit) = &self.unit {
+            format!("{:.2} {}", v, unit)
+        } else {
+            format!("{:.2}", v)
+        }
+    }
+
+    
+
+     
 }
 
 #[derive(PartialEq, Eq)]

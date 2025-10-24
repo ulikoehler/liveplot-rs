@@ -5,7 +5,7 @@ use crate::panels::panel_trait::Panel;
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
 //     thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,
 // };
-use crate::panels::{scope_ui::ScopePanel, traces_ui::TracesPanel, math_ui::MathPanel};
+use crate::panels::{scope_ui::ScopePanel, traces_ui::TracesPanel, math_ui::MathPanel, thresholds_ui::ThresholdsPanel};
 
 pub struct MainPanel {
     // Panels
@@ -21,7 +21,7 @@ impl MainPanel {
     pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
         Self {
             scope_panel: ScopePanel::new(rx),
-            right_side_panels: vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default())], 
+            right_side_panels: vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default()), Box::new(ThresholdsPanel::default())], 
             //vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default()), Box::new(ThresholdsPanel::default()), Box::new(TriggersPanel::default()), Box::new(ExportPanel::default())],
             left_side_panels: vec![],
             bottom_panels: vec![], //vec![Box::new(FftPanel::default())],

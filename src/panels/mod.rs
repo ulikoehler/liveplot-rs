@@ -3,7 +3,7 @@ pub mod scope_ui;
 pub mod panel_trait;
 pub mod traces_ui;
 pub mod math_ui;
-// pub mod thresholds_ui;
+pub mod thresholds_ui;
 // pub mod triggers_ui;
 // pub mod fft_ui;
 // pub mod export_ui;
