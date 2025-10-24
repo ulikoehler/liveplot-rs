@@ -100,7 +100,7 @@ pub(super) fn traces_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                         let mut a = arr.borrow_mut();
                         if (a[col] - w).abs() > 0.5 {
                             a[col] = w;
-                            traces_debug!("[traces_ui] header col{} width={:.1}", col, w);
+                            //traces_debug!("[traces_ui] header col{} width={:.1}", col, w);
                         }
                     });
                     let text = match col {
@@ -150,7 +150,7 @@ pub(super) fn traces_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
                             let mut a = arr.borrow_mut();
                             if (a[col] - w).abs() > 0.5 {
                                 a[col] = w;
-                                traces_debug!("[traces_ui] row0 col{} width={:.1}", col, w);
+                                //traces_debug!("[traces_ui] row0 col{} width={:.1}", col, w);
                             }
                         });
                     }
