@@ -14,8 +14,6 @@ use std::sync::mpsc::Sender;
 
 use std::collections::HashMap;
 
-use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState};
-
 use crate::LivePlotApp;
 
 use crate::math::TraceRef;
