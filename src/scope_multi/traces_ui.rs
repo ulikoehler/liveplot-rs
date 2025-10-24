@@ -22,9 +22,9 @@ thread_local! {
     static LAST_COL_ROW0_W: RefCell<[f32; 6]> = RefCell::new([0.0; 6]);
 }
 
-use super::app::ScopeAppMulti;
+use super::app::LivePlotApp;
 
-pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+pub(super) fn traces_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
     ui.label("Configure traces: marker selection, visibility, colors, offsets, Y axis options, and legend info.");
     ui.horizontal(|ui| {
         let mut v = app.show_info_in_legend;
@@ -79,7 +79,7 @@ pub(super) fn traces_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) 
 
     // Delegate for table rendering
     struct TracesDelegate<'a> {
-        app: &'a mut ScopeAppMulti,
+        app: &'a mut LivePlotApp,
         rows: Vec<Row>,
         col_w: [f32; 6],
     }
@@ -428,7 +428,7 @@ impl Default for TracesPanel {
 
 impl DockPanel for TracesPanel {
     fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
-    fn panel_contents(&mut self, app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+    fn panel_contents(&mut self, app: &mut LivePlotApp, ui: &mut egui::Ui) {
         traces_panel_contents(app, ui);
     }
 }

@@ -1,4 +1,4 @@
-//! Threshold processing and event bookkeeping for `ScopeAppMulti`.
+//! Threshold processing and event bookkeeping for `LivePlotApp`.
 //!
 //! Responsibilities:
 //! - Apply add/remove requests from the `ThresholdController`
@@ -10,9 +10,9 @@ use std::collections::HashMap;
 
 use crate::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdRuntimeState};
 
-use super::ScopeAppMulti;
+use super::LivePlotApp;
 
-impl ScopeAppMulti {
+impl LivePlotApp {
     /// Apply threshold controller add/remove requests.
     pub(super) fn apply_threshold_controller_requests(&mut self) {
         if let Some(ctrl) = &self.threshold_controller {

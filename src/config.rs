@@ -3,6 +3,7 @@
 use crate::controllers::{FFTController, UiActionController, WindowController};
 use crate::controllers::TracesController;
 use crate::thresholds::ThresholdController;
+use crate::scope_multi_mod::hotkeys::Hotkeys;
 use chrono::Local;
 
 /// Formatting options for the x-value (time) shown in point labels.
@@ -38,6 +39,7 @@ impl XDateFormat {
 }
 
 /// Configuration options for the live plot runtime (single- and multi-trace).
+#[derive(Clone)]
 pub struct LivePlotConfig {
     /// Rolling time window in seconds that is kept in memory and shown on X axis.
     pub time_window_secs: f64,
@@ -51,7 +53,7 @@ pub struct LivePlotConfig {
     /// Show the Y axis using a base-10 logarithmic scale. The transform is applied
     /// to the plotted values; axis tick labels show the corresponding linear values.
     pub y_log: bool,
-    /// Optional window title. Defaults to "LivePlot (multi)".
+    /// Optional window title (default: None)
     pub title: Option<String>,
     /// Optional eframe/native window options. If not provided, sensible defaults are used.
     pub native_options: Option<eframe::NativeOptions>,
@@ -61,6 +63,8 @@ pub struct LivePlotConfig {
     pub ui_action_controller: Option<UiActionController>,
     pub threshold_controller: Option<ThresholdController>,
     pub traces_controller: Option<TracesController>,
+    /// Optional hotkeys configuration (if present overrides defaults)
+    pub hotkeys: Option<Hotkeys>,
 }
 
 impl Default for LivePlotConfig {
@@ -78,6 +82,7 @@ impl Default for LivePlotConfig {
             ui_action_controller: None,
             threshold_controller: None,
             traces_controller: None,
+            hotkeys: None,
         }
     }
 }

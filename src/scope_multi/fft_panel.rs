@@ -6,7 +6,7 @@ use egui_plot::{Line, Legend, Plot, PlotPoints};
 use crate::controllers::FFTPanelInfo;
 use crate::fft;
 
-use super::app::{FFTWindow, ScopeAppMulti};
+use super::app::{FFTWindow, LivePlotApp};
 use super::panel::{DockPanel, DockState};
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ impl Default for FFTPanel {
 impl DockPanel for FFTPanel {
     fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
 
-    fn panel_contents(&mut self, app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+    fn panel_contents(&mut self, app: &mut LivePlotApp, ui: &mut egui::Ui) {
         // Publish current size to controller (physical px)
         if let Some(ctrl) = &app.fft_controller {
             let size_pts = ui.available_size();

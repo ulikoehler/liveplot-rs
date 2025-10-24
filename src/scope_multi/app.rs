@@ -36,6 +36,8 @@ use super::fft_panel::FFTPanel;
 use super::math_ui::MathPanel;
 use super::thresholds_ui::ThresholdsPanel;
 use super::traces_ui::TracesPanel;
+use super::hotkeys::Hotkeys;
+use super::panel::DockPanel;
 use super::types::TraceState;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -47,7 +49,7 @@ pub(super) enum ControlsMode {
 // Removed RightTab enum: sidebar visibility and active tab are derived from per-panel DockState
 
 /// Egui app that displays multiple traces and supports point selection and FFT.
-pub struct ScopeAppMulti {
+pub struct LivePlotApp {
     pub rx: Receiver<PlotCommand>,
     /// Map of trace ID -> trace name (for resolving incoming data to existing name-keyed storage)
     pub(super) id_to_name: std::collections::HashMap<crate::sink::TraceId, String>,
@@ -131,9 +133,14 @@ pub struct ScopeAppMulti {
     pub(super) traces_panel: TracesPanel,
     #[cfg(feature = "fft")]
     pub(super) fft_panel: FFTPanel,
+    // Settings / Hotkeys dialog
+    pub hotkeys_dialog_open: bool,
+    pub hotkeys: Hotkeys,
+    /// Optional title to show in the UI (from LivePlotConfig). If None, no title is rendered.
+    pub title: Option<String>,
 }
 
-impl ScopeAppMulti {
+impl LivePlotApp {
     /// One-shot shared update: ingest -> prune -> recompute math -> thresholds -> traces publish
     pub(super) fn tick_non_ui(&mut self) {
         self.drain_rx_and_update_traces();
@@ -198,11 +205,113 @@ impl ScopeAppMulti {
             traces_panel: TracesPanel::default(),
             #[cfg(feature = "fft")]
             fft_panel: FFTPanel::default(),
+            hotkeys_dialog_open: false,
+            hotkeys: Hotkeys::default(),
+            title: None,
+        }
+    }
+
+    /// Handle configured hotkeys by inspecting input events and current modifier state.
+    pub fn handle_hotkeys(&mut self, ctx: &egui::Context) {
+        // Do not trigger hotkeys while the hotkeys dialog is open (to avoid race with editing)
+        if self.hotkeys_dialog_open { return; }
+
+    use super::hotkeys::{Hotkey as HK, Modifier as HM};
+
+        // Snapshot input (events + modifiers)
+        let input = ctx.input(|i| i.clone());
+        if input.events.is_empty() { return; }
+
+        // Helper: check whether the given Hotkey was pressed in the recent events
+        let pressed = |hk: &HK| -> bool {
+            // Check modifier presence first
+            let mods = input.modifiers;
+            let req = hk.modifier;
+            let mods_ok = match req {
+                HM::None => !mods.ctrl && !mods.alt && !mods.shift,
+                HM::Ctrl => mods.ctrl,
+                HM::Alt => mods.alt,
+                HM::Shift => mods.shift,
+                HM::CtrlAlt => mods.ctrl && mods.alt,
+                HM::CtrlShift => mods.ctrl && mods.shift,
+                HM::AltShift => mods.alt && mods.shift,
+                HM::CtrlAltShift => mods.ctrl && mods.alt && mods.shift,
+            };
+            if !mods_ok { return false; }
+
+            // Look for a Text event matching the key character (case-insensitive)
+            for ev in input.events.iter().rev() {
+                match ev {
+                    egui::Event::Text(text) => {
+                        if let Some(c) = text.chars().next() {
+                            if c.to_ascii_lowercase() == hk.key.to_ascii_lowercase() { return true; }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            false
+        };
+
+        // FFT toggle
+        #[cfg(feature = "fft")]
+        if pressed(&self.hotkeys.fft) {
+            let d = &mut self.fft_panel.dock;
+            d.show_dialog = !d.show_dialog;
+            d.detached = false;
+            self.update_bottom_panels_controller_visibility();
+        }
+
+        // Math panel
+        if pressed(&self.hotkeys.math) {
+            let d = self.math_panel.dock_mut();
+            d.show_dialog = !d.show_dialog;
+            d.detached = false;
+            d.focus_dock = true;
+        }
+
+        // Fit view (one-shot)
+        if pressed(&self.hotkeys.fit_view) {
+            self.pending_auto_x = true;
+            self.pending_auto_y = true;
+        }
+
+        // Fit view continuously (toggle auto_zoom_y)
+        if pressed(&self.hotkeys.fit_view_cont) {
+            self.auto_zoom_y = !self.auto_zoom_y;
+            if self.auto_zoom_y { self.pending_auto_y = true; }
+        }
+
+        // Traces panel
+        if pressed(&self.hotkeys.traces) {
+            let d = self.traces_panel.dock_mut();
+            d.show_dialog = !d.show_dialog;
+            d.detached = false;
+            d.focus_dock = true;
+        }
+
+        // Thresholds panel
+        if pressed(&self.hotkeys.thresholds) {
+            let d = self.thresholds_panel.dock_mut();
+            d.show_dialog = !d.show_dialog;
+            d.detached = false;
+            d.focus_dock = true;
+        }
+
+        // Save PNG
+        if pressed(&self.hotkeys.save_png) {
+            self.request_window_shot = true;
+        }
+
+        // Export data
+        if pressed(&self.hotkeys.export_data) {
+            // Call prompt; run in a short-lived borrow
+            self.prompt_and_save_raw_data();
         }
     }
 }
 
-impl eframe::App for ScopeAppMulti {
+impl eframe::App for LivePlotApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Shared non-UI tick
         self.tick_non_ui();
@@ -236,11 +345,104 @@ impl eframe::App for ScopeAppMulti {
                     use super::app::ZoomMode;
                     ui.horizontal(|ui| {
                         ui.label("Zoom mode:");
-                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "Off").clicked() { ui.close(); }
-                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "X-Axis").clicked() { ui.close(); }
-                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "Y-Axis").clicked() { ui.close(); }
-                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::Both, "Both").clicked() { ui.close(); }
+                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "⊗ Off").clicked() { ui.close(); }
+                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "⬌ X-Axis").clicked() { ui.close(); }
+                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "⬍ Y-Axis").clicked() { ui.close(); }
+                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::Both, "🕂 Both").clicked() { ui.close(); }
                     });
+
+                    ui.separator();
+                    // Render the time-window control (was in the main toolbar)
+                    self.render_time_window_control(ui);
+
+                    // Points / Fit (X) / Pause controls: moved from the main toolbar into the View menu
+                    ui.horizontal(|ui| {
+                        ui.label("〰 Points:");
+                        ui.add(egui::Slider::new(&mut self.max_points, 1000..=200_000));
+
+                        if ui.button("Fit").on_hover_text("Fit the X-axis to the visible data").clicked() {
+                            self.pending_auto_x = true;
+                        }
+
+                        ui.separator();
+
+                        if ui.button(if self.paused { "⏵ Resume" } else { "◼ Pause" }).clicked() {
+                            if self.paused {
+                                self.paused = false;
+                                for tr in self.traces.values_mut() { tr.snap = None; }
+                            } else {
+                                for tr in self.traces.values_mut() { tr.snap = Some(tr.live.clone()); }
+                                self.paused = true;
+                            }
+                        }
+                    });
+
+                    ui.separator();
+                    // Y-axis controls moved here (as-is from controls_ui)
+                    let mut y_min_tmp = self.y_min;
+                    let mut y_max_tmp = self.y_max;
+                    let y_range = y_max_tmp - y_min_tmp;
+
+                    ui.horizontal(|ui| {
+                        ui.label("⬍ Y-Axis Min:");
+                        let r1 = ui.add(egui::DragValue::new(&mut y_min_tmp).speed(0.1).custom_formatter(|n, _| {
+                            if let Some(unit) = &self.y_unit {
+                                if y_range.abs() < 0.001 { let exponent = y_range.log10().floor() + 1.0; format!("{:.1}e{} {}", n / 10f64.powf(exponent), exponent, unit) } else { format!("{:.3} {}", n, unit) }
+                            } else {
+                                if y_range.abs() < 0.001 { let exponent = y_range.log10().floor() + 1.0; format!("{:.1}e{}", n / 10f64.powf(exponent), exponent) } else { format!("{:.3}", n) }
+                            }
+                        }));
+
+                        ui.separator();
+
+                        ui.label("Max:");
+                        let r2 = ui.add(egui::DragValue::new(&mut y_max_tmp).speed(0.1).custom_formatter(|n, _| {
+                            if let Some(unit) = &self.y_unit {
+                                if y_range.abs() < 0.001 { let exponent = y_range.log10().floor() + 1.0; format!("{:.1}e{} {}", n / 10f64.powf(exponent), exponent, unit) } else { format!("{:.3} {}", n, unit) }
+                            } else {
+                                if y_range.abs() < 0.001 { let exponent = y_range.log10().floor() + 1.0; format!("{:.1}e{}", n / 10f64.powf(exponent), exponent) } else { format!("{:.3}", n) }
+                            }
+                        }));
+
+                        if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
+                            self.y_min = y_min_tmp;
+                            self.y_max = y_max_tmp;
+                            self.pending_auto_y = false;
+                        }
+                    });
+
+                    if ui.button("⬍ Fit Y-Axis").on_hover_text("Fit the Y-axis to the visible data").clicked() { self.pending_auto_y = true; }
+
+                    ui.separator();
+
+                    let mut az = self.auto_zoom_y;
+                    if ui.checkbox(&mut az, "🕂 Fit to view continously").on_hover_text("Continuously fit the Y-axis to the currently visible data range").changed() {
+                        self.auto_zoom_y = az;
+                        if self.auto_zoom_y { self.pending_auto_y = true; }
+                    }
+
+                    if ui.button("🕂 Fit to View").on_hover_text("Fit the view to the available data").clicked() {
+                        self.pending_auto_x = true;
+                        self.pending_auto_y = true;
+                        ui.close();
+                    }
+                    ui.separator();
+                    // Legend toggle moved from controls into View menu
+                    if ui.checkbox(&mut self.show_legend, "Legend").on_hover_text("Show legend").changed() {
+                        // no extra action required
+                    }
+                });
+                    ui.menu_button("📈 Traces", |ui| {
+                        if ui.button("⊗ Clear markers").clicked() {
+                            self.point_selection.clear();
+                            ui.close();
+                        }
+                    });
+                ui.menu_button("⚙ Settings", |ui| {
+                    if ui.button("Hotkeys").on_hover_text("Configure keyboard shortcuts").clicked() {
+                        self.hotkeys_dialog_open = true;
+                        ui.close();
+                    }
                 });
                 ui.menu_button("☆ Functions", |ui| {
                     // Bottom panels (e.g., FFT)
@@ -273,6 +475,15 @@ impl eframe::App for ScopeAppMulti {
                         }
                     }
                 });
+                    ui.menu_button("➰ Extras", |ui| {
+                        if ui.button("⊗ Clear all traces").on_hover_text("Clear all trace data, math computations, point selections, and threshold events").clicked() {
+                            for tr in self.traces.values_mut() { tr.live.clear(); if let Some(s) = &mut tr.snap { s.clear(); } }
+                            self.reset_all_math_storage();
+                            self.point_selection.clear();
+                            self.clear_all_threshold_events();
+                            ui.close();
+                        }
+                    });
             });
         });
         if did_toggle_bottom_panel { self.update_bottom_panels_controller_visibility(); }
@@ -286,7 +497,9 @@ impl eframe::App for ScopeAppMulti {
         self.render_right_sidebar_panel(ctx);
 
         // Shared dialogs
-        self.show_dialogs_shared(ctx);
+    self.show_dialogs_shared(ctx);
+    // Hotkeys dialog
+    self.show_hotkeys_dialog(ctx);
 
         // Bottom dock panels (FFT etc.)
         self.render_bottom_panel(ctx);
@@ -327,13 +540,15 @@ pub fn run_liveplot(
         options,
         Box::new(move |_cc| {
             Ok(Box::new({
-                let mut app = ScopeAppMulti::new(rx);
+                let mut app = LivePlotApp::new(rx);
                 // Set config-derived values
                 app.time_window = cfg.time_window_secs;
                 app.max_points = cfg.max_points;
                 app.x_date_format = cfg.x_date_format;
                 app.y_unit = cfg.y_unit.clone();
                 app.y_log = cfg.y_log;
+                // Set optional UI title from config
+                app.title = cfg.title.clone();
                 // Attach optional controllers
                 app.window_controller = cfg.window_controller.clone();
                 app.fft_controller = cfg.fft_controller.clone();

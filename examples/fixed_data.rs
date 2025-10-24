@@ -1,7 +1,7 @@
 //! Example: Display fixed (precomputed) trace data
 //!
 //! What it demonstrates
-//! - Loading and showing static time-series data using `ScopeAppMulti::set_trace_data`.
+//! - Loading and showing static time-series data using `LivePlotApp::set_trace_data`.
 //! - Pausing the UI and auto-fitting to the provided dataset.
 //!
 //! How to run
@@ -11,7 +11,7 @@
 //! This example preloads 10 periods of a 1 Hz sine and cosine, then displays them as paused traces.
 
 use eframe::{egui, NativeOptions};
-use liveplot::{channel_plot, ScopeAppMulti};
+use liveplot::{channel_plot, LivePlotApp};
 
 fn make_fixed_waves() -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
     // 10 periods of a 1 Hz sine and cosine wave.
@@ -40,14 +40,14 @@ fn make_fixed_waves() -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
 }
 
 struct FixedDataApp {
-    plot: ScopeAppMulti,
+    plot: LivePlotApp,
 }
 
 impl FixedDataApp {
     fn new() -> Self {
         // Create a plot app with an unused channel (no live data needed)
     let (_sink, rx) = channel_plot();
-        let mut plot = ScopeAppMulti::new(rx);
+        let mut plot = LivePlotApp::new(rx);
         plot.time_window = 10.0;
         plot.max_points = 10_000;
         plot.show_legend = true;

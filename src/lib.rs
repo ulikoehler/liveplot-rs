@@ -32,7 +32,7 @@ pub use config::{LivePlotConfig, XDateFormat};
 pub use controllers::{FFTController, FFTPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FFTRawData, FFTDataRequest};
 pub use controllers::{TracesController, TracesInfo, TraceInfo};
 pub use sink::{channel_plot, PlotSink, PlotPoint, PlotCommand, Trace, TraceId};
-pub use scope_multi_mod::{run_liveplot, ScopeAppMulti};
+pub use scope_multi_mod::{run_liveplot, LivePlotApp};
 pub use math::{MathTraceDef, MathKind, FilterKind, TraceRef};
 pub use thresholds::{ThresholdDef, ThresholdKind, ThresholdEvent, ThresholdController};
 

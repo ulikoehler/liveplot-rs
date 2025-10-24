@@ -156,8 +156,8 @@ Math traces auto-update as input traces change and behave like normal traces (le
 Programmatic API is also available if you build your own UI around the library. For example:
 
 ```rust
-use liveplot::{MathTraceDef, MathKind, FilterKind, TraceRef, ScopeAppMulti};
-// assuming you have a ScopeAppMulti `app`
+use liveplot::{MathTraceDef, MathKind, FilterKind, TraceRef, LivePlotApp};
+// assuming you have a LivePlotApp `app`
 let def = MathTraceDef { name: "sum".into(), color_hint: None, kind: MathKind::Add { inputs: vec![(TraceRef("a".into()), 1.0), (TraceRef("b".into()), -1.0)] } };
 // app.add_math_trace(def);
 ```

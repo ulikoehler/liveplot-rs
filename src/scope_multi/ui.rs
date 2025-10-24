@@ -1,4 +1,4 @@
-//! UI composition and top-level controls for `ScopeAppMulti`.
+//! UI composition and top-level controls for `LivePlotApp`.
 //!
 //! This module contains the egui widget layout for the toolbar/panels and utility handlers
 //! for dialogs, screenshots, window controller updates, and controller-driven actions.
@@ -13,9 +13,26 @@ use crate::controllers::{FFTDataRequest, FFTRawData, RawExportFormat, WindowInfo
 use crate::thresholds::ThresholdEvent;
 
 use super::panel::DockPanel;
-use super::ScopeAppMulti;
+use super::LivePlotApp;
+use super::hotkeys::Hotkey;
 
-impl ScopeAppMulti {
+impl LivePlotApp {
+
+    /// Render the X-Axis time window control (moved to the View menu).
+    pub(super) fn render_time_window_control(&mut self, ui: &mut egui::Ui) {
+        ui.label("🕓 X-Axis time window:");
+        let mut tw = self.time_window;
+        if !self.time_slider_dragging {
+            if tw <= self.time_window_min { self.time_window_min = self.time_window_min / 10.0; self.time_window_max = self.time_window_max / 10.0; }
+            else if tw >= self.time_window_max { self.time_window_min = self.time_window_min * 10.0; self.time_window_max = self.time_window_max * 10.0; }
+        }
+        let slider = egui::Slider::new(&mut tw, self.time_window_min..=self.time_window_max)
+            .logarithmic(true).smart_aim(true).show_value(true).clamping(egui::SliderClamping::Edits).suffix(" s");
+        let sresp = ui.add(slider);
+        if sresp.changed() { self.time_window = tw; }
+        self.time_slider_dragging = sresp.is_pointer_button_down_on();
+    }
+
     /// Return references to right-side dockable panels.
     pub(super) fn side_panels(&mut self) -> Vec<&mut dyn DockPanel> {
         vec![&mut self.traces_panel, &mut self.math_panel, &mut self.thresholds_panel]
@@ -186,85 +203,10 @@ impl ScopeAppMulti {
 
     /// Compose toolbar and controls; used by both main and embedded variants.
     pub(super) fn controls_ui(&mut self, ui: &mut egui::Ui, mode: super::app::ControlsMode) {
-        match mode {
-            super::app::ControlsMode::Main => { ui.heading("LivePlot (multi)"); ui.label("Left mouse: pan  |  Right drag: zoom box"); }
-            super::app::ControlsMode::Embedded => { ui.label("LivePlot"); ui.label("Left mouse: pan  |  Right drag: zoom box"); }
+        // Render an optional title coming from LivePlotConfig. If no title is set, render nothing.
+        if let Some(title) = &self.title {
+            ui.heading(title);
         }
-        ui.horizontal(|ui| {
-            ui.label("X-Axis Time:");
-            let mut tw = self.time_window;
-            if !self.time_slider_dragging {
-                if tw <= self.time_window_min { self.time_window_min = self.time_window_min / 10.0; self.time_window_max = self.time_window_max / 10.0; }
-                else if tw >= self.time_window_max { self.time_window_min = self.time_window_min * 10.0; self.time_window_max = self.time_window_max * 10.0; }
-            }
-            let slider = egui::Slider::new(&mut tw, self.time_window_min..=self.time_window_max)
-                .logarithmic(true).smart_aim(true).show_value(true).clamping(egui::SliderClamping::Edits).suffix(" s");
-            let sresp = ui.add(slider);
-            if sresp.changed() { self.time_window = tw; }
-            self.time_slider_dragging = sresp.is_pointer_button_down_on();
-
-            ui.label("Points:");
-            ui.add(egui::Slider::new(&mut self.max_points, 5_000..=200_000));
-
-            if ui.button("Fit").on_hover_text("Fit the X-axis to the visible data").clicked() { self.pending_auto_x = true; }
-
-            ui.separator();
-
-            let mut y_min_tmp = self.y_min;
-            let mut y_max_tmp = self.y_max;
-            let y_range = y_max_tmp - y_min_tmp;
-
-            ui.label("Y-Axis Min:");
-            let r1 = ui.add(egui::DragValue::new(&mut y_min_tmp).speed(0.1).custom_formatter(|n, _| {
-                if let Some(unit) = &self.y_unit {
-                    if y_range.abs() < 0.001 { let exponent = y_range.log10().floor() + 1.0; format!("{:.1}e{} {}", n / 10f64.powf(exponent), exponent, unit) } else { format!("{:.3} {}", n, unit) }
-                } else {
-                    if y_range.abs() < 0.001 { let exponent = y_range.log10().floor() + 1.0; format!("{:.1}e{}", n / 10f64.powf(exponent), exponent) } else { format!("{:.3}", n) }
-                }
-            }));
-            ui.label("Max:");
-            let r2 = ui.add(egui::DragValue::new(&mut y_max_tmp).speed(0.1).custom_formatter(|n, _| {
-                if let Some(unit) = &self.y_unit {
-                    if y_range.abs() < 0.001 { let exponent = y_range.log10().floor() + 1.0; format!("{:.1}e{} {}", n / 10f64.powf(exponent), exponent, unit) } else { format!("{:.3} {}", n, unit) }
-                } else {
-                    if y_range.abs() < 0.001 { let exponent = y_range.log10().floor() + 1.0; format!("{:.1}e{}", n / 10f64.powf(exponent), exponent) } else { format!("{:.3}", n) }
-                }
-            }));
-            if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp { self.y_min = y_min_tmp; self.y_max = y_max_tmp; self.pending_auto_y = false; }
-
-            if ui.button("Fit").on_hover_text("Fit the Y-axis to the visible data").clicked() { self.pending_auto_y = true; }
-
-            ui.checkbox(&mut self.auto_zoom_y, "Auto Zoom").on_hover_text("Continuously fit the Y-axis to the currently visible data range");
-            if self.auto_zoom_y { self.pending_auto_y = true; }
-
-            ui.separator();
-
-            // Zoom mode moved to the top-left "View" menu
-
-            ui.separator();
-
-            if ui.button("🕂 Fit to View").on_hover_text("Fit the view to the available data").clicked() { self.pending_auto_x = true; self.pending_auto_y = true; }
-
-            ui.separator();
-
-            if ui.button(if self.paused { "⏵ Resume" } else { "◼ Pause" }).clicked() {
-                if self.paused { self.paused = false; for tr in self.traces.values_mut() { tr.snap = None; } }
-                else { for tr in self.traces.values_mut() { tr.snap = Some(tr.live.clone()); } self.paused = true; }
-            }
-
-            if ui.button("Clear Measurement").clicked() { self.point_selection.clear(); }
-
-            if ui.button("Clear All").clicked() {
-                for tr in self.traces.values_mut() { tr.live.clear(); if let Some(s) = &mut tr.snap { s.clear(); } }
-                self.reset_all_math_storage();
-                self.point_selection.clear();
-                self.clear_all_threshold_events();
-            }
-
-            ui.checkbox(&mut self.show_legend, "Legend").on_hover_text("Show legend");
-
-            // Panel openers and export actions moved to the main menu bar (File / Functions)
-        });
     }
 
     /// Render any open detached dialogs for right-side panels.
@@ -290,6 +232,125 @@ impl ScopeAppMulti {
             if { let d = panel.dock_mut(); d.detached && d.show_dialog } { panel.show_detached_dialog(self, ctx); }
             self.fft_panel = panel;
         }
+    }
+
+    /// Render the Hotkeys settings dialog when requested.
+    pub(super) fn show_hotkeys_dialog(&mut self, ctx: &egui::Context) {
+        if !self.hotkeys_dialog_open { return; }
+        egui::Window::new("Hotkeys")
+            .collapsible(false)
+            .resizable(true)
+            .default_width(420.0)
+            .show(ctx, |ui| {
+                ui.label("Configure keyboard shortcuts for common actions.");
+                ui.separator();
+                ui.vertical(|ui| {
+                    // We'll keep editing strings but map them to/from the Hotkeys container.
+                    // FFT
+                    {
+                        let mut s = self.hotkeys.fft.to_string();
+                        ui.horizontal(|ui| {
+                            ui.label("FFT:");
+                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
+                            let info = ui.label("ⓘ"); info.on_hover_text("Show / hide FFT panel");
+                            if te.changed() {
+                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.fft = h; }
+                            }
+                        });
+                    }
+                    // Math
+                    {
+                        let mut s = self.hotkeys.math.to_string();
+                        ui.horizontal(|ui| {
+                            ui.label("Math:");
+                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
+                            let info = ui.label("ⓘ"); info.on_hover_text("Show / hide Math panel");
+                            if te.changed() {
+                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.math = h; }
+                            }
+                        });
+                    }
+                    // Fit view
+                    {
+                        let mut s = self.hotkeys.fit_view.to_string();
+                        ui.horizontal(|ui| {
+                            ui.label("Fit view:");
+                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
+                            let info = ui.label("ⓘ"); info.on_hover_text("Fit the current view to visible data");
+                            if te.changed() {
+                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.fit_view = h; }
+                            }
+                        });
+                    }
+                    // Fit view continuously
+                    {
+                        let mut s = self.hotkeys.fit_view_cont.to_string();
+                        ui.horizontal(|ui| {
+                            ui.label("Fit view continously:");
+                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
+                            let info = ui.label("ⓘ"); info.on_hover_text("Toggle continuous fitting of the view");
+                            if te.changed() {
+                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.fit_view_cont = h; }
+                            }
+                        });
+                    }
+                    // Traces
+                    {
+                        let mut s = self.hotkeys.traces.to_string();
+                        ui.horizontal(|ui| {
+                            ui.label("Traces:");
+                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
+                            let info = ui.label("ⓘ"); info.on_hover_text("Show / hide the Traces panel");
+                            if te.changed() {
+                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.traces = h; }
+                            }
+                        });
+                    }
+                    // Thresholds
+                    {
+                        let mut s = self.hotkeys.thresholds.to_string();
+                        ui.horizontal(|ui| {
+                            ui.label("Thresholds:");
+                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
+                            let info = ui.label("ⓘ"); info.on_hover_text("Show / hide the Thresholds panel");
+                            if te.changed() {
+                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.thresholds = h; }
+                            }
+                        });
+                    }
+                    // Save PNG
+                    {
+                        let mut s = self.hotkeys.save_png.to_string();
+                        ui.horizontal(|ui| {
+                            ui.label("Save PNG:");
+                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
+                            let info = ui.label("ⓘ"); info.on_hover_text("Save a PNG screenshot of the window");
+                            if te.changed() {
+                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.save_png = h; }
+                            }
+                        });
+                    }
+                    // Export data
+                    {
+                        let mut s = self.hotkeys.export_data.to_string();
+                        ui.horizontal(|ui| {
+                            ui.label("Export data:");
+                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
+                            let info = ui.label("ⓘ"); info.on_hover_text("Export traces or threshold events to CSV/Parquet");
+                            if te.changed() {
+                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.export_data = h; }
+                            }
+                        });
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Reset to defaults").clicked() {
+                        self.hotkeys.reset_defaults();
+                    }
+                    if ui.button("Close").clicked() { self.hotkeys_dialog_open = false; }
+                });
+            });
     }
 
     /// Bottom panels accessor (FFT etc.).

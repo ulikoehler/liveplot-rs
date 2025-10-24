@@ -3,7 +3,7 @@ use egui::Color32;
 
 use crate::math::{FilterKind, MathKind, MathTraceDef, MinMaxMode, TraceRef};
 
-use super::app::ScopeAppMulti;
+use super::app::LivePlotApp;
 use super::panel::{DockPanel, DockState};
 use super::types::MathBuilderState;
 
@@ -31,7 +31,7 @@ impl Default for MathPanel {
 
 impl DockPanel for MathPanel {
     fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
-    fn panel_contents(&mut self, app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+    fn panel_contents(&mut self, app: &mut LivePlotApp, ui: &mut egui::Ui) {
         math_panel_contents(app, ui);
     }
 }
@@ -132,7 +132,7 @@ impl MathBuilderState {
     }
 }
 
-pub(super) fn math_panel_contents(app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+pub(super) fn math_panel_contents(app: &mut LivePlotApp, ui: &mut egui::Ui) {
     ui.label("Create virtual traces from existing ones.");
     if let Some(err) = &app.math_panel.error {
         ui.colored_label(Color32::LIGHT_RED, err);

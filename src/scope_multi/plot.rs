@@ -1,4 +1,4 @@
-//! Plotting logic for `ScopeAppMulti`.
+//! Plotting logic for `LivePlotApp`.
 //!
 //! This module encapsulates the central plot rendering and related interactions:
 //! - drawing traces, thresholds, and measurement overlays
@@ -9,9 +9,9 @@ use chrono::Local;
 use egui::{Align2, Color32};
 use egui_plot::{HLine, Line, Plot, PlotPoint, Points, Text, VLine};
 
-use super::ScopeAppMulti;
+use super::LivePlotApp;
 
-impl ScopeAppMulti {
+impl LivePlotApp {
     /// Render the central plot inside the default central panel and apply interactions.
     pub(super) fn render_central_plot_panel(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {

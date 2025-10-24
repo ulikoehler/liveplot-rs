@@ -1,7 +1,7 @@
 //! Example: Embedding LivePlot into your own egui application window
 //!
 //! What it demonstrates
-//! - How to embed the `ScopeAppMulti` UI inside an existing `eframe`/`egui` application window.
+//! - How to embed the `LivePlotApp` UI inside an existing `eframe`/`egui` application window.
 //! - Feeding data from the main app into the embedded plot via `PlotSink` and `Trace` handles.
 //!
 //! How to run
@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use eframe::{egui, NativeOptions};
-use liveplot::{channel_plot, PlotSink, PlotPoint, ScopeAppMulti, Trace};
+use liveplot::{channel_plot, PlotSink, PlotPoint, LivePlotApp, Trace};
 
 #[derive(Clone, Copy, PartialEq)]
 enum WaveKind { Sine, Cosine }
@@ -25,7 +25,7 @@ struct DemoApp {
     trace_sine: Trace,
     trace_cos: Trace,
     // embedded plot app
-    plot: ScopeAppMulti,
+    plot: LivePlotApp,
     // show window flag
     show_plot_window: bool,
 }
@@ -35,7 +35,7 @@ impl DemoApp {
         let (sink, rx) = channel_plot();
         let trace_sine = sink.create_trace("sine", None);
         let trace_cos = sink.create_trace("cosine", None);
-        let mut plot = ScopeAppMulti::new(rx);
+        let mut plot = LivePlotApp::new(rx);
         plot.time_window = 10.0;
         plot.max_points = 10_000;
         Self { kind: WaveKind::Sine, sink, trace_sine, trace_cos, plot, show_plot_window: false }

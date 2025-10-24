@@ -1,4 +1,4 @@
-//! Math trace management for `ScopeAppMulti`.
+//! Math trace management for `LivePlotApp`.
 //!
 //! Responsibilities:
 //! - add/remove/update math trace definitions
@@ -12,9 +12,9 @@ use crate::math::{compute_math_trace, MathRuntimeState, MathTraceDef};
 
 use super::traceslook_ui::TraceLook;
 use super::types::TraceState;
-use super::ScopeAppMulti;
+use super::LivePlotApp;
 
-impl ScopeAppMulti {
+impl LivePlotApp {
     pub(crate) fn add_math_trace_internal(&mut self, def: MathTraceDef) {
         if self.traces.contains_key(&def.name) { return; }
         let idx = self.trace_order.len();

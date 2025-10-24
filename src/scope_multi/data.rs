@@ -1,6 +1,6 @@
 //! Data ingestion and trace bookkeeping for the multi-trace oscilloscope.
 //!
-//! This module hosts the non-UI pieces of `ScopeAppMulti`:
+//! This module hosts the non-UI pieces of `LivePlotApp`:
 //! - receiving samples and maintaining per-trace buffers
 //! - creating traces on first sighting and assigning distinct colors
 //! - pruning by time window to keep memory bounded
@@ -16,9 +16,9 @@ use crate::sink::PlotCommand;
 
 use super::traceslook_ui::TraceLook;
 use super::types::TraceState;
-use super::ScopeAppMulti;
+use super::LivePlotApp;
 
-impl ScopeAppMulti {
+impl LivePlotApp {
     /// Directly set/replace the sample buffer for a named trace.
     ///
     /// The provided points are absolute `[t_seconds, value]` pairs. The trace is created if

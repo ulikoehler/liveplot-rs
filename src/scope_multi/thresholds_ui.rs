@@ -7,7 +7,7 @@ use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 
 use crate::thresholds::{ThresholdDef, ThresholdEvent, ThresholdKind};
 
-use super::app::ScopeAppMulti;
+use super::app::LivePlotApp;
 use super::types::ThresholdBuilderState;
 
 #[derive(Debug, Clone)]
@@ -41,7 +41,7 @@ impl Default for ThresholdsPanel {
 
 impl DockPanel for ThresholdsPanel {
     fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
-    fn panel_contents(&mut self, app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
+    fn panel_contents(&mut self, app: &mut LivePlotApp, ui: &mut egui::Ui) {
         // (no-op)
         ui.label("Detect and log when a trace exceeds a condition.");
         if let Some(err) = &self.error {
