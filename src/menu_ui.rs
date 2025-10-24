@@ -27,7 +27,7 @@ impl LivePlotApp {
                         self.prompt_and_save_raw_data();
                         ui.close();
                     }
-                    if ui.button("⚠️ Export threshold events…").on_hover_text("Export filtered or all threshold events as CSV").clicked() {
+                    if ui.button("⚠ Export threshold events…").on_hover_text("Export filtered or all threshold events as CSV").clicked() {
                         self.prompt_and_save_threshold_events();
                         ui.close();
                     }
