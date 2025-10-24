@@ -117,27 +117,27 @@ impl Hotkey {
 /// Container for all configurable hotkeys.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Hotkeys {
-    pub fft: Hotkey,
-    pub math: Hotkey,
-    pub fit_view: Hotkey,
-    pub fit_view_cont: Hotkey,
-    pub traces: Hotkey,
-    pub thresholds: Hotkey,
-    pub save_png: Hotkey,
-    pub export_data: Hotkey,
+    pub fft: Option<Hotkey>,
+    pub math: Option<Hotkey>,
+    pub fit_view: Option<Hotkey>,
+    pub fit_view_cont: Option<Hotkey>,
+    pub traces: Option<Hotkey>,
+    pub thresholds: Option<Hotkey>,
+    pub save_png: Option<Hotkey>,
+    pub export_data: Option<Hotkey>,
 }
 
 impl Default for Hotkeys {
     fn default() -> Self {
         Self {
-            fft: Hotkey::new(Modifier::Ctrl, 'F'),
-            math: Hotkey::new(Modifier::None, 'M'),
-            fit_view: Hotkey::new(Modifier::None, 'F'),
-            fit_view_cont: Hotkey::new(Modifier::None, 'C'),
-            traces: Hotkey::new(Modifier::None, 'T'),
-            thresholds: Hotkey::new(Modifier::Ctrl, 'T'),
-            save_png: Hotkey::new(Modifier::None, 'S'),
-            export_data: Hotkey::new(Modifier::None, 'E'),
+            fft: Some(Hotkey::new(Modifier::Ctrl, 'F')),
+            math: Some(Hotkey::new(Modifier::None, 'M')),
+            fit_view: Some(Hotkey::new(Modifier::None, 'F')),
+            fit_view_cont: Some(Hotkey::new(Modifier::None, 'C')),
+            traces: Some(Hotkey::new(Modifier::None, 'T')),
+            thresholds: Some(Hotkey::new(Modifier::Ctrl, 'T')),
+            save_png: Some(Hotkey::new(Modifier::None, 'S')),
+            export_data: Some(Hotkey::new(Modifier::None, 'E')),
         }
     }
 }

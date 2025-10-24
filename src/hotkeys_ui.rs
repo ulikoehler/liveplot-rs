@@ -100,82 +100,99 @@ impl LivePlotApp {
                             }
                         };
 
+                    // Snapshot current values to avoid borrow conflicts while the closure mutates state
+                    let current = self.hotkeys.clone();
+
                     // Small helper to render a row for a single hotkey and wire assign/capture logic
                     let mut render_row =
-                        |label: &str, name: HotkeyName, current: Hotkey, ui: &mut egui::Ui| {
+                        |label: &str, name: HotkeyName, current: Option<Hotkey>, ui: &mut egui::Ui| {
                             ui.horizontal(|ui| {
-                                ui.label(label);
-                                ui.label(current.to_string());
+                                // Label with inline help tooltip (avoid rendering a separate symbol which
+                                // looked broken on some platforms)
+                                let tip = match name {
+                                    HotkeyName::Fft => "Show / hide FFT panel",
+                                    HotkeyName::Math => "Show / hide Math panel",
+                                    HotkeyName::FitView => "Fit the current view to visible data",
+                                    HotkeyName::FitViewCont => "Toggle continuous fitting of the view",
+                                    HotkeyName::Traces => "Show / hide the Traces panel",
+                                    HotkeyName::Thresholds => "Show / hide the Thresholds panel",
+                                    HotkeyName::SavePng => "Save a PNG screenshot of the window",
+                                    HotkeyName::ExportData => "Export traces or threshold events to CSV/Parquet",
+                                };
+                                ui.label(label).on_hover_text(tip);
+
                                 let capturing_this = self.capturing_hotkey == Some(name);
-                                if capturing_this {
-                                    if ui
-                                        .button("⏺ Press keys...")
-                                        .on_hover_text(
-                                            "Press the desired key combination now; Esc to cancel",
-                                        )
-                                        .clicked()
-                                    {
-                                        // keep capturing (user clicked button again)
-                                    }
-                                    if ui.button("Cancel").clicked() {
-                                        self.capturing_hotkey = None;
-                                    }
+                                // Button shows current assignment; when clicked we start capturing.
+                                let btn_text = if capturing_this {
+                                    "⏺ Press keys...".to_owned()
                                 } else {
-                                    if ui.button("Assign").clicked() {
+                                    // Show the current keybinding right on the button
+                                    match current {
+                                        Some(h) => h.to_string(),
+                                        None => "None".to_string(),
+                                    }
+                                };
+
+                                if ui
+                                    .button(btn_text)
+                                    .on_hover_text("Click to assign; press desired keys; Esc to cancel")
+                                    .clicked()
+                                {
+                                    // Toggle capture for this entry
+                                    if capturing_this {
+                                        // clicking again keeps capturing – no-op
+                                    } else {
                                         self.capturing_hotkey = Some(name);
                                     }
                                 }
-                                let info = ui.label("ⓘ");
-                                // set hover text for help
-                                match name {
-                                    HotkeyName::Fft => info.on_hover_text("Show / hide FFT panel"),
-                                    HotkeyName::Math => {
-                                        info.on_hover_text("Show / hide Math panel")
+
+                                if capturing_this && ui.button("Cancel").clicked() {
+                                    self.capturing_hotkey = None;
+                                }
+
+                                // Provide a clear button to unset the hotkey
+                                if !capturing_this {
+                                    if ui.button("Clear").on_hover_text("Disable this hotkey").clicked() {
+                                        match name {
+                                            HotkeyName::Fft => self.hotkeys.fft = None,
+                                            HotkeyName::Math => self.hotkeys.math = None,
+                                            HotkeyName::FitView => self.hotkeys.fit_view = None,
+                                            HotkeyName::FitViewCont => self.hotkeys.fit_view_cont = None,
+                                            HotkeyName::Traces => self.hotkeys.traces = None,
+                                            HotkeyName::Thresholds => self.hotkeys.thresholds = None,
+                                            HotkeyName::SavePng => self.hotkeys.save_png = None,
+                                            HotkeyName::ExportData => self.hotkeys.export_data = None,
+                                        }
+                                        if let Err(e) = self.hotkeys.save_to_default_path() {
+                                            eprintln!("Failed to save hotkeys after clear: {}", e);
+                                        }
                                     }
-                                    HotkeyName::FitView => {
-                                        info.on_hover_text("Fit the current view to visible data")
-                                    }
-                                    HotkeyName::FitViewCont => {
-                                        info.on_hover_text("Toggle continuous fitting of the view")
-                                    }
-                                    HotkeyName::Traces => {
-                                        info.on_hover_text("Show / hide the Traces panel")
-                                    }
-                                    HotkeyName::Thresholds => {
-                                        info.on_hover_text("Show / hide the Thresholds panel")
-                                    }
-                                    HotkeyName::SavePng => {
-                                        info.on_hover_text("Save a PNG screenshot of the window")
-                                    }
-                                    HotkeyName::ExportData => info.on_hover_text(
-                                        "Export traces or threshold events to CSV/Parquet",
-                                    ),
-                                };
+                                }
                             });
                         };
 
                     // Render all rows
-                    render_row("FFT:", HotkeyName::Fft, self.hotkeys.fft, ui);
-                    render_row("Math:", HotkeyName::Math, self.hotkeys.math, ui);
-                    render_row("Fit view:", HotkeyName::FitView, self.hotkeys.fit_view, ui);
+                    render_row("FFT:", HotkeyName::Fft, current.fft, ui);
+                    render_row("Math:", HotkeyName::Math, current.math, ui);
+                    render_row("Fit view:", HotkeyName::FitView, current.fit_view, ui);
                     render_row(
                         "Fit view continously:",
                         HotkeyName::FitViewCont,
-                        self.hotkeys.fit_view_cont,
+                        current.fit_view_cont,
                         ui,
                     );
-                    render_row("Traces:", HotkeyName::Traces, self.hotkeys.traces, ui);
+                    render_row("Traces:", HotkeyName::Traces, current.traces, ui);
                     render_row(
                         "Thresholds:",
                         HotkeyName::Thresholds,
-                        self.hotkeys.thresholds,
+                        current.thresholds,
                         ui,
                     );
-                    render_row("Save PNG:", HotkeyName::SavePng, self.hotkeys.save_png, ui);
+                    render_row("Save PNG:", HotkeyName::SavePng, current.save_png, ui);
                     render_row(
                         "Export data:",
                         HotkeyName::ExportData,
-                        self.hotkeys.export_data,
+                        current.export_data,
                         ui,
                     );
 
@@ -186,14 +203,14 @@ impl LivePlotApp {
                             if let Some(hk) = event_to_hotkey(ev, input.modifiers) {
                                 // assign
                                 match target {
-                                    HotkeyName::Fft => self.hotkeys.fft = hk,
-                                    HotkeyName::Math => self.hotkeys.math = hk,
-                                    HotkeyName::FitView => self.hotkeys.fit_view = hk,
-                                    HotkeyName::FitViewCont => self.hotkeys.fit_view_cont = hk,
-                                    HotkeyName::Traces => self.hotkeys.traces = hk,
-                                    HotkeyName::Thresholds => self.hotkeys.thresholds = hk,
-                                    HotkeyName::SavePng => self.hotkeys.save_png = hk,
-                                    HotkeyName::ExportData => self.hotkeys.export_data = hk,
+                                    HotkeyName::Fft => self.hotkeys.fft = Some(hk),
+                                    HotkeyName::Math => self.hotkeys.math = Some(hk),
+                                    HotkeyName::FitView => self.hotkeys.fit_view = Some(hk),
+                                    HotkeyName::FitViewCont => self.hotkeys.fit_view_cont = Some(hk),
+                                    HotkeyName::Traces => self.hotkeys.traces = Some(hk),
+                                    HotkeyName::Thresholds => self.hotkeys.thresholds = Some(hk),
+                                    HotkeyName::SavePng => self.hotkeys.save_png = Some(hk),
+                                    HotkeyName::ExportData => self.hotkeys.export_data = Some(hk),
                                 }
                                 self.capturing_hotkey = None;
                                 // Persist change

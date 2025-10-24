@@ -231,7 +231,11 @@ impl LivePlotApp {
         }
 
         // Helper: check whether the given Hotkey was pressed in the recent events
-        let pressed = |hk: &HK| -> bool {
+        let pressed = |hk: Option<&HK>| -> bool {
+            let hk = match hk {
+                Some(h) => h,
+                None => return false,
+            };
             // Check modifier presence first
             let mods = input.modifiers;
             let req = hk.modifier;
@@ -259,6 +263,53 @@ impl LivePlotApp {
                             }
                         }
                     }
+                    egui::Event::Key { key, pressed: true, .. } => {
+                        use egui::Key;
+                        let ch_opt = match key {
+                            Key::A => Some('A'),
+                            Key::B => Some('B'),
+                            Key::C => Some('C'),
+                            Key::D => Some('D'),
+                            Key::E => Some('E'),
+                            Key::F => Some('F'),
+                            Key::G => Some('G'),
+                            Key::H => Some('H'),
+                            Key::I => Some('I'),
+                            Key::J => Some('J'),
+                            Key::K => Some('K'),
+                            Key::L => Some('L'),
+                            Key::M => Some('M'),
+                            Key::N => Some('N'),
+                            Key::O => Some('O'),
+                            Key::P => Some('P'),
+                            Key::Q => Some('Q'),
+                            Key::R => Some('R'),
+                            Key::S => Some('S'),
+                            Key::T => Some('T'),
+                            Key::U => Some('U'),
+                            Key::V => Some('V'),
+                            Key::W => Some('W'),
+                            Key::X => Some('X'),
+                            Key::Y => Some('Y'),
+                            Key::Z => Some('Z'),
+                            Key::Num0 => Some('0'),
+                            Key::Num1 => Some('1'),
+                            Key::Num2 => Some('2'),
+                            Key::Num3 => Some('3'),
+                            Key::Num4 => Some('4'),
+                            Key::Num5 => Some('5'),
+                            Key::Num6 => Some('6'),
+                            Key::Num7 => Some('7'),
+                            Key::Num8 => Some('8'),
+                            Key::Num9 => Some('9'),
+                            _ => None,
+                        };
+                        if let Some(c) = ch_opt {
+                            if c.to_ascii_lowercase() == hk.key.to_ascii_lowercase() {
+                                return true;
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -267,7 +318,7 @@ impl LivePlotApp {
 
         // FFT toggle
         #[cfg(feature = "fft")]
-        if pressed(&self.hotkeys.fft) {
+    if pressed(self.hotkeys.fft.as_ref()) {
             let d = &mut self.fft_panel.dock;
             d.show_dialog = !d.show_dialog;
             d.detached = false;
@@ -275,7 +326,7 @@ impl LivePlotApp {
         }
 
         // Math panel
-        if pressed(&self.hotkeys.math) {
+    if pressed(self.hotkeys.math.as_ref()) {
             let d = self.math_panel.dock_mut();
             d.show_dialog = !d.show_dialog;
             d.detached = false;
@@ -283,13 +334,13 @@ impl LivePlotApp {
         }
 
         // Fit view (one-shot)
-        if pressed(&self.hotkeys.fit_view) {
+    if pressed(self.hotkeys.fit_view.as_ref()) {
             self.pending_auto_x = true;
             self.pending_auto_y = true;
         }
 
         // Fit view continuously (toggle auto_zoom_y)
-        if pressed(&self.hotkeys.fit_view_cont) {
+    if pressed(self.hotkeys.fit_view_cont.as_ref()) {
             self.auto_zoom_y = !self.auto_zoom_y;
             if self.auto_zoom_y {
                 self.pending_auto_y = true;
@@ -297,7 +348,7 @@ impl LivePlotApp {
         }
 
         // Traces panel
-        if pressed(&self.hotkeys.traces) {
+    if pressed(self.hotkeys.traces.as_ref()) {
             let d = self.traces_panel.dock_mut();
             d.show_dialog = !d.show_dialog;
             d.detached = false;
@@ -305,7 +356,7 @@ impl LivePlotApp {
         }
 
         // Thresholds panel
-        if pressed(&self.hotkeys.thresholds) {
+    if pressed(self.hotkeys.thresholds.as_ref()) {
             let d = self.thresholds_panel.dock_mut();
             d.show_dialog = !d.show_dialog;
             d.detached = false;
@@ -313,12 +364,12 @@ impl LivePlotApp {
         }
 
         // Save PNG
-        if pressed(&self.hotkeys.save_png) {
+    if pressed(self.hotkeys.save_png.as_ref()) {
             self.request_window_shot = true;
         }
 
         // Export data
-        if pressed(&self.hotkeys.export_data) {
+    if pressed(self.hotkeys.export_data.as_ref()) {
             // Call prompt; run in a short-lived borrow
             self.prompt_and_save_raw_data();
         }
@@ -331,6 +382,9 @@ impl eframe::App for LivePlotApp {
         self.tick_non_ui();
         // Focus requests from detached windows
         self.process_focus_requests();
+
+        // Handle global hotkeys (no-op while the hotkeys dialog is open)
+        self.handle_hotkeys(ctx);
 
         // Top-left application menu bar: File and Functions
         if self.render_menu_bar(ctx) {
