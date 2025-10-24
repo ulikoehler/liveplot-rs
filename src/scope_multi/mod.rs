@@ -4,6 +4,7 @@ mod types;
 mod app;
 mod data;
 mod ui;
+mod hotkeys_ui;
 mod plot;
 mod math;
 mod thresholds;

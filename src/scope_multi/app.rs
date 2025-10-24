@@ -36,7 +36,7 @@ use super::fft_panel::FFTPanel;
 use super::math_ui::MathPanel;
 use super::thresholds_ui::ThresholdsPanel;
 use super::traces_ui::TracesPanel;
-use super::hotkeys::Hotkeys;
+use super::hotkeys::{Hotkeys, HotkeyName};
 use super::panel::DockPanel;
 use super::types::TraceState;
 
@@ -138,6 +138,8 @@ pub struct LivePlotApp {
     pub hotkeys: Hotkeys,
     /// Optional title to show in the UI (from LivePlotConfig). If None, no title is rendered.
     pub title: Option<String>,
+    /// If Some(name) the hotkeys dialog is currently listening for a key press to assign.
+    pub capturing_hotkey: Option<HotkeyName>,
 }
 
 impl LivePlotApp {
@@ -208,6 +210,7 @@ impl LivePlotApp {
             hotkeys_dialog_open: false,
             hotkeys: Hotkeys::default(),
             title: None,
+            capturing_hotkey: None,
         }
     }
 
@@ -438,12 +441,6 @@ impl eframe::App for LivePlotApp {
                             ui.close();
                         }
                     });
-                ui.menu_button("⚙ Settings", |ui| {
-                    if ui.button("Hotkeys").on_hover_text("Configure keyboard shortcuts").clicked() {
-                        self.hotkeys_dialog_open = true;
-                        ui.close();
-                    }
-                });
                 ui.menu_button("☆ Functions", |ui| {
                     // Bottom panels (e.g., FFT)
                     {
@@ -473,6 +470,12 @@ impl eframe::App for LivePlotApp {
                                 ui.close();
                             }
                         }
+                    }
+                });
+                ui.menu_button("⚙ Settings", |ui| {
+                    if ui.button("Hotkeys").on_hover_text("Configure keyboard shortcuts").clicked() {
+                        self.hotkeys_dialog_open = true;
+                        ui.close();
                     }
                 });
                     ui.menu_button("➰ Extras", |ui| {

@@ -14,7 +14,7 @@ use crate::thresholds::ThresholdEvent;
 
 use super::panel::DockPanel;
 use super::LivePlotApp;
-use super::hotkeys::Hotkey;
+use super::hotkeys::{Hotkey, HotkeyName};
 
 impl LivePlotApp {
 
@@ -235,123 +235,6 @@ impl LivePlotApp {
     }
 
     /// Render the Hotkeys settings dialog when requested.
-    pub(super) fn show_hotkeys_dialog(&mut self, ctx: &egui::Context) {
-        if !self.hotkeys_dialog_open { return; }
-        egui::Window::new("Hotkeys")
-            .collapsible(false)
-            .resizable(true)
-            .default_width(420.0)
-            .show(ctx, |ui| {
-                ui.label("Configure keyboard shortcuts for common actions.");
-                ui.separator();
-                ui.vertical(|ui| {
-                    // We'll keep editing strings but map them to/from the Hotkeys container.
-                    // FFT
-                    {
-                        let mut s = self.hotkeys.fft.to_string();
-                        ui.horizontal(|ui| {
-                            ui.label("FFT:");
-                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
-                            let info = ui.label("ⓘ"); info.on_hover_text("Show / hide FFT panel");
-                            if te.changed() {
-                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.fft = h; }
-                            }
-                        });
-                    }
-                    // Math
-                    {
-                        let mut s = self.hotkeys.math.to_string();
-                        ui.horizontal(|ui| {
-                            ui.label("Math:");
-                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
-                            let info = ui.label("ⓘ"); info.on_hover_text("Show / hide Math panel");
-                            if te.changed() {
-                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.math = h; }
-                            }
-                        });
-                    }
-                    // Fit view
-                    {
-                        let mut s = self.hotkeys.fit_view.to_string();
-                        ui.horizontal(|ui| {
-                            ui.label("Fit view:");
-                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
-                            let info = ui.label("ⓘ"); info.on_hover_text("Fit the current view to visible data");
-                            if te.changed() {
-                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.fit_view = h; }
-                            }
-                        });
-                    }
-                    // Fit view continuously
-                    {
-                        let mut s = self.hotkeys.fit_view_cont.to_string();
-                        ui.horizontal(|ui| {
-                            ui.label("Fit view continously:");
-                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
-                            let info = ui.label("ⓘ"); info.on_hover_text("Toggle continuous fitting of the view");
-                            if te.changed() {
-                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.fit_view_cont = h; }
-                            }
-                        });
-                    }
-                    // Traces
-                    {
-                        let mut s = self.hotkeys.traces.to_string();
-                        ui.horizontal(|ui| {
-                            ui.label("Traces:");
-                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
-                            let info = ui.label("ⓘ"); info.on_hover_text("Show / hide the Traces panel");
-                            if te.changed() {
-                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.traces = h; }
-                            }
-                        });
-                    }
-                    // Thresholds
-                    {
-                        let mut s = self.hotkeys.thresholds.to_string();
-                        ui.horizontal(|ui| {
-                            ui.label("Thresholds:");
-                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
-                            let info = ui.label("ⓘ"); info.on_hover_text("Show / hide the Thresholds panel");
-                            if te.changed() {
-                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.thresholds = h; }
-                            }
-                        });
-                    }
-                    // Save PNG
-                    {
-                        let mut s = self.hotkeys.save_png.to_string();
-                        ui.horizontal(|ui| {
-                            ui.label("Save PNG:");
-                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
-                            let info = ui.label("ⓘ"); info.on_hover_text("Save a PNG screenshot of the window");
-                            if te.changed() {
-                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.save_png = h; }
-                            }
-                        });
-                    }
-                    // Export data
-                    {
-                        let mut s = self.hotkeys.export_data.to_string();
-                        ui.horizontal(|ui| {
-                            ui.label("Export data:");
-                            let te = ui.add(egui::TextEdit::singleline(&mut s).desired_width(120.0));
-                            let info = ui.label("ⓘ"); info.on_hover_text("Export traces or threshold events to CSV/Parquet");
-                            if te.changed() {
-                                if let Ok(h) = s.parse::<Hotkey>() { self.hotkeys.export_data = h; }
-                            }
-                        });
-                    }
-                });
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button("Reset to defaults").clicked() {
-                        self.hotkeys.reset_defaults();
-                    }
-                    if ui.button("Close").clicked() { self.hotkeys_dialog_open = false; }
-                });
-            });
-    }
 
     /// Bottom panels accessor (FFT etc.).
     pub(super) fn bottom_panels(&mut self) -> Vec<&mut dyn super::panel::DockPanel> {
