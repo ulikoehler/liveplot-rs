@@ -422,7 +422,7 @@ pub struct TracesPanel {
 
 impl Default for TracesPanel {
     fn default() -> Self {
-        Self { dock: DockState::new("📈 Traces"), look_editor_trace: None }
+        Self { dock: DockState::new("🗠 Traces"), look_editor_trace: None }
     }
 }
 

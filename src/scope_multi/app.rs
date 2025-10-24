@@ -209,6 +209,74 @@ impl eframe::App for ScopeAppMulti {
         // Focus requests from detached windows
         self.process_focus_requests();
 
+        // Top-left application menu bar: File and Functions
+        let mut did_toggle_bottom_panel = false;
+        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                ui.menu_button("🗁 File", |ui| {
+                    if ui.button("🖼 Save PNG").on_hover_text("Take a screenshot of the entire window").clicked() {
+                        self.request_window_shot = true;
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("🗠 Export traces…").on_hover_text({
+                        #[cfg(feature = "parquet")] { "Export all traces as CSV or Parquet" }
+                        #[cfg(not(feature = "parquet"))] { "Export all traces as CSV" }
+                    }).clicked() {
+                        self.prompt_and_save_raw_data();
+                        ui.close();
+                    }
+                    if ui.button("⚠️ Export threshold events…").on_hover_text("Export filtered or all threshold events as CSV").clicked() {
+                        self.prompt_and_save_threshold_events();
+                        ui.close();
+                    }
+                });
+                ui.menu_button("👁 View", |ui| {
+                    // Zoom mode moved from controls into the View menu as a single-line picker
+                    use super::app::ZoomMode;
+                    ui.horizontal(|ui| {
+                        ui.label("Zoom mode:");
+                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "Off").clicked() { ui.close(); }
+                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "X-Axis").clicked() { ui.close(); }
+                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "Y-Axis").clicked() { ui.close(); }
+                        if ui.selectable_value(&mut self.zoom_mode, ZoomMode::Both, "Both").clicked() { ui.close(); }
+                    });
+                });
+                ui.menu_button("☆ Functions", |ui| {
+                    // Bottom panels (e.g., FFT)
+                    {
+                        let mut panels = self.bottom_panels();
+                        for p in panels.iter_mut() {
+                            let title = { p.dock_mut().title };
+                            if ui.button(title).clicked() {
+                                let d = p.dock_mut();
+                                d.show_dialog = true;
+                                d.detached = false;
+                                d.focus_dock = true;
+                                did_toggle_bottom_panel = true;
+                                ui.close();
+                            }
+                        }
+                    }
+                    ui.separator();
+                    // Right-side panels (Traces, Math, Thresholds)
+                    {
+                        let mut panels = self.side_panels();
+                        for p in panels.iter_mut() {
+                            let title = { p.dock_mut().title };
+                            if ui.button(title).clicked() {
+                                let d = p.dock_mut();
+                                d.show_dialog = true;
+                                if !d.detached { d.focus_dock = true; }
+                                ui.close();
+                            }
+                        }
+                    }
+                });
+            });
+        });
+        if did_toggle_bottom_panel { self.update_bottom_panels_controller_visibility(); }
+
         // Controls
         egui::TopBottomPanel::top("controls_multi").show(ctx, |ui| {
             self.controls_ui(ui, ControlsMode::Main);

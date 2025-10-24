@@ -89,7 +89,7 @@ impl ScopeAppMulti {
 
     /// Render export buttons (Save PNG screenshot and raw data export) into the given Ui.
     pub(super) fn render_export_buttons(&mut self, ui: &mut egui::Ui) {
-        if ui.button("📷 Save PNG").on_hover_text("Take a screenshot of the entire window").clicked() {
+        if ui.button("🖼 Save PNG").on_hover_text("Take a screenshot of the entire window").clicked() {
             self.request_window_shot = true;
         }
         ui.menu_button("📤 Export", |ui| {
@@ -97,7 +97,7 @@ impl ScopeAppMulti {
                 #[cfg(feature = "parquet")] { "Export all traces as CSV or Parquet" }
                 #[cfg(not(feature = "parquet"))] { "Export all traces as CSV" }
             };
-            if ui.button("📈 Traces").on_hover_text(hover_text_traces).clicked() { ui.close(); self.prompt_and_save_raw_data(); }
+            if ui.button("🗠 Traces").on_hover_text(hover_text_traces).clicked() { ui.close(); self.prompt_and_save_raw_data(); }
             if ui.button("⚠️ Threshold events").on_hover_text("Export filtered or all threshold events as CSV").clicked() { ui.close(); self.prompt_and_save_threshold_events(); }
         });
     }
@@ -239,21 +239,15 @@ impl ScopeAppMulti {
 
             ui.separator();
 
-            ui.horizontal(|ui| {
-                ui.label("Zoom:").on_hover_text("Select the zoom mode for mouse wheel zooming");
-                ui.selectable_value(&mut self.zoom_mode, super::app::ZoomMode::Off, "Off");
-                ui.selectable_value(&mut self.zoom_mode, super::app::ZoomMode::X, "X-Axis");
-                ui.selectable_value(&mut self.zoom_mode, super::app::ZoomMode::Y, "Y-Axis");
-                ui.selectable_value(&mut self.zoom_mode, super::app::ZoomMode::Both, "Both");
-            });
+            // Zoom mode moved to the top-left "View" menu
 
             ui.separator();
 
-            if ui.button("Fit to View").on_hover_text("Fit the view to the available data").clicked() { self.pending_auto_x = true; self.pending_auto_y = true; }
+            if ui.button("🕂 Fit to View").on_hover_text("Fit the view to the available data").clicked() { self.pending_auto_x = true; self.pending_auto_y = true; }
 
             ui.separator();
 
-            if ui.button(if self.paused { "Resume" } else { "Pause" }).clicked() {
+            if ui.button(if self.paused { "⏵ Resume" } else { "◼ Pause" }).clicked() {
                 if self.paused { self.paused = false; for tr in self.traces.values_mut() { tr.snap = None; } }
                 else { for tr in self.traces.values_mut() { tr.snap = Some(tr.live.clone()); } self.paused = true; }
             }
@@ -269,23 +263,7 @@ impl ScopeAppMulti {
 
             ui.checkbox(&mut self.show_legend, "Legend").on_hover_text("Show legend");
 
-            {
-                let mut panels = self.bottom_panels();
-                for p in panels.iter_mut() {
-                    let title = { p.dock_mut().title };
-                    if ui.button(format!("{}…", title)).clicked() {
-                        let d = p.dock_mut(); d.show_dialog = true; if !d.detached { d.focus_dock = true; }
-                    }
-                }
-            }
-            self.render_export_buttons(ui);
-            {
-                let mut panels = self.side_panels();
-                for p in panels.iter_mut() {
-                    let title = { p.dock_mut().title };
-                    if ui.button(format!("{}…", title)).clicked() { let d = p.dock_mut(); d.show_dialog = true; if !d.detached { d.focus_dock = true; } }
-                }
-            }
+            // Panel openers and export actions moved to the main menu bar (File / Functions)
         });
     }
 
