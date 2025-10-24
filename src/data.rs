@@ -308,6 +308,76 @@ impl LivePlotApp {
                         }
                     }
                 }
+                PlotCommand::ClearData { trace_id } => {
+                    if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                        if let Some(entry) = self.traces.get_mut(&name) {
+                            entry.live.clear();
+                            if let Some(s) = &mut entry.snap {
+                                s.clear();
+                            }
+                        }
+                    }
+                }
+                PlotCommand::SetData { trace_id, points } => {
+                    // Replace the entire buffer for this trace with the provided points.
+                    if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                        // Ensure the trace exists
+                        let idx = self.trace_order.len();
+                        let entry = self.traces.entry(name.clone()).or_insert_with(|| {
+                            self.trace_order.push(name.clone());
+                            let mut look = TraceLook::default();
+                            look.color = Self::alloc_color(idx);
+                            TraceState {
+                                name: name.clone(),
+                                look,
+                                offset: 0.0,
+                                live: VecDeque::new(),
+                                snap: None,
+                                last_fft: None,
+                                is_math: false,
+                                info: String::new(),
+                            }
+                        });
+                        entry.live.clear();
+                        entry.live.extend(points.iter().map(|p| [p.x, p.y]));
+                        entry.snap = Some(entry.live.clone());
+                        // Show fixed data without scrolling/pruning
+                        self.paused = true;
+                        // Request auto-fit to the provided data
+                        self.pending_auto_x = true;
+                        self.pending_auto_y = true;
+                        if self.selection_trace.is_none() {
+                            self.selection_trace = Some(name);
+                        }
+                    } else {
+                        // Implicit registration path: synthesize a name and register the id
+                        let name = format!("trace-{}", trace_id);
+                        self.id_to_name.insert(trace_id, name.clone());
+                        let idx = self.trace_order.len();
+                        self.trace_order.push(name.clone());
+                        let mut look = TraceLook::default();
+                        look.color = Self::alloc_color(idx);
+                        let mut state = TraceState {
+                            name: name.clone(),
+                            look,
+                            offset: 0.0,
+                            live: VecDeque::new(),
+                            snap: None,
+                            last_fft: None,
+                            is_math: false,
+                            info: String::new(),
+                        };
+                        state.live.extend(points.iter().map(|p| [p.x, p.y]));
+                        state.snap = Some(state.live.clone());
+                        self.traces.insert(name.clone(), state);
+                        if self.selection_trace.is_none() {
+                            self.selection_trace = Some(name);
+                        }
+                        self.paused = true;
+                        self.pending_auto_x = true;
+                        self.pending_auto_y = true;
+                    }
+                }
             }
         }
     }
