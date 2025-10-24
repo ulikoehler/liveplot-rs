@@ -10,7 +10,7 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::math::{compute_math_trace, MathRuntimeState, MathTraceDef};
 
-use super::traceslook_ui::TraceLook;
+use super::trace_look::TraceLook;
 use super::types::TraceState;
 use super::LivePlotApp;
 

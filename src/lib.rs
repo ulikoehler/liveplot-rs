@@ -1,15 +1,4 @@
 //! LivePlot crate root: re-exports and module wiring.
-//!
-//! This crate provides two ready-to-use plotting UIs built on egui/eframe:
-//! - Single-trace oscilloscope (`scope`)
-//! - Multi-trace oscilloscope (`scope_multi`)
-//!
-//! The monolithic implementation has been refactored into cohesive modules:
-//! - `sink`: data types and channels to feed samples
-//! - `controllers`: external control of window/FFT panel
-//! - `config`: shared configuration and time formatting
-//! - `scope`: single-trace UI and run helpers
-//! - `scope_multi`: multi-trace UI and run helpers
 
 mod point_selection;
 #[cfg(feature = "fft")]
@@ -17,12 +6,12 @@ mod fft;
 mod line_draw;
 mod math;
 mod thresholds;
+#[path = "mod.rs"]
+pub mod scope_multi_mod;
 
 pub mod sink;
 pub mod controllers;
 pub mod config;
-#[path = "scope_multi/mod.rs"]
-pub mod scope_multi_mod;
 pub mod export;
 
 // Public re-exports for a compact external API

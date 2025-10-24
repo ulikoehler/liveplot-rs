@@ -17,9 +17,9 @@ pub struct ThresholdsPanel {
     pub editing: Option<String>,
     pub error: Option<String>,
     pub creating: bool,
-    pub looks: HashMap<String, super::traceslook_ui::TraceLook>,
-    pub start_looks: HashMap<String, super::traceslook_ui::TraceLook>,
-    pub stop_looks: HashMap<String, super::traceslook_ui::TraceLook>,
+    pub looks: HashMap<String, super::trace_look::TraceLook>,
+    pub start_looks: HashMap<String, super::trace_look::TraceLook>,
+    pub stop_looks: HashMap<String, super::trace_look::TraceLook>,
     pub events_filter: Option<String>,
 }
 

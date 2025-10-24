@@ -1,4 +1,4 @@
-//! Hotkeys representation and parsing for LivePlot scope_multi UI.
+//! Hotkeys representation and parsing for LivePlot UI.
 
 use std::fmt;
 use std::str::FromStr;

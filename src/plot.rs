@@ -230,16 +230,16 @@ impl LivePlotApp {
                     if let Some(tr) = self.traces.get(&def.target.0) {
                         if !tr.look.visible { continue; }
                         let thr_look = self.thresholds_panel.looks.get(&def.name).cloned().unwrap_or_else(|| {
-                            let mut l = super::traceslook_ui::TraceLook::default();
+                            let mut l = super::trace_look::TraceLook::default();
                             if let Some(rgb) = def.color_hint { l.color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]); } else { l.color = tr.look.color; }
                             l.width = 1.5; l
                         });
                         let ev_start_look = self.thresholds_panel.start_looks.get(&def.name).cloned().unwrap_or_else(|| {
-                            let mut l = super::traceslook_ui::TraceLook::default();
+                            let mut l = super::trace_look::TraceLook::default();
                             l.color = thr_look.color; l.width = 2.0; l
                         });
                         let ev_stop_look = self.thresholds_panel.stop_looks.get(&def.name).cloned().unwrap_or_else(|| {
-                            let mut l = super::traceslook_ui::TraceLook::default();
+                            let mut l = super::trace_look::TraceLook::default();
                             l.color = thr_look.color; l.width = 2.0; l
                         });
                         let mut thr_color = thr_look.color;
