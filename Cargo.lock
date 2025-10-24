@@ -2550,7 +2550,7 @@ checksum = "f5e54036fe321fd421e10d732f155734c4e4afd610dd556d9a82833ab3ee0bed"
 
 [[package]]
 name = "liveplot"
-version = "0.3.0"
+version = "1.0.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
