@@ -338,6 +338,21 @@ impl LivePlotApp {
             }
         }
 
+        // Pause / Resume
+        if pressed(self.hotkeys.pause.as_ref()) {
+            if self.paused {
+                self.paused = false;
+                for tr in self.traces.values_mut() {
+                    tr.snap = None;
+                }
+            } else {
+                for tr in self.traces.values_mut() {
+                    tr.snap = Some(tr.live.clone());
+                }
+                self.paused = true;
+            }
+        }
+
         // Fit view (one-shot)
         if pressed(self.hotkeys.fit_view.as_ref()) {
             self.pending_auto_x = true;

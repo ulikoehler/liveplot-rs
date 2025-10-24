@@ -119,6 +119,7 @@ impl LivePlotApp {
                                     HotkeyName::FitViewCont => {
                                         "Toggle continuous fitting of the view"
                                     }
+                                    HotkeyName::Pause => "Pause / resume plotting",
                                     HotkeyName::Traces => "Show / hide the Traces panel",
                                     HotkeyName::Thresholds => "Show / hide the Thresholds panel",
                                     HotkeyName::SavePng => "Save a PNG screenshot of the window",
@@ -174,6 +175,7 @@ impl LivePlotApp {
                                             HotkeyName::FitViewCont => {
                                                 self.hotkeys.fit_view_cont = None
                                             }
+                                            HotkeyName::Pause => self.hotkeys.pause = None,
                                             HotkeyName::Traces => self.hotkeys.traces = None,
                                             HotkeyName::Thresholds => {
                                                 self.hotkeys.thresholds = None
@@ -205,6 +207,7 @@ impl LivePlotApp {
                         ui,
                     );
                     render_row("Traces:", HotkeyName::Traces, current.traces, ui);
+                    render_row("Pause:", HotkeyName::Pause, current.pause, ui);
                     render_row(
                         "Reset markers:",
                         HotkeyName::ResetMarkers,
@@ -238,6 +241,7 @@ impl LivePlotApp {
                                     HotkeyName::FitViewCont => {
                                         self.hotkeys.fit_view_cont = Some(hk)
                                     }
+                                    HotkeyName::Pause => self.hotkeys.pause = Some(hk),
                                     HotkeyName::Traces => self.hotkeys.traces = Some(hk),
                                     HotkeyName::Thresholds => self.hotkeys.thresholds = Some(hk),
                                     HotkeyName::SavePng => self.hotkeys.save_png = Some(hk),
