@@ -4,6 +4,8 @@
 //! and provides the computation engine to derive a time-series from existing input
 //! traces. Math traces are recomputed on UI updates and behave like regular traces.
 
+use std::collections::{HashMap, VecDeque};
+
 use serde::{Deserialize, Serialize};
 
 /// Identifier of a source trace by name.
@@ -544,7 +546,7 @@ impl LivePlotApp {
         } else {
             if self.traces.contains_key(&def.name) { self.math_panel.error = Some("A trace with this name already exists".into()); return; }
             self.add_math_trace_internal(def);
-            self.math_panel.builder = super::types::MathBuilderState::default();
+            self.math_panel.builder = crate::types::MathBuilderState::default();
         }
     }
 }

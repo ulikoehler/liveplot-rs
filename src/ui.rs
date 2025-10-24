@@ -257,7 +257,7 @@ impl LivePlotApp {
 
     /// Call a closure with the bottom panel at the given index temporarily moved out, then put it back.
     pub(super) fn with_bottom_panel_at<F>(&mut self, index: usize, mut f: F)
-    where F: FnMut(&mut dyn super::panel::DockPanel, &mut Self), {
+    where F: FnMut(&mut dyn crate::panel::DockPanel, &mut Self), {
         #[cfg(feature = "fft")] {
             if index == 0 {
                 let mut p = std::mem::take(&mut self.fft_panel);
@@ -332,7 +332,7 @@ impl LivePlotApp {
             }
             if let Some((fmt, path)) = inner.request_save_raw_to.take() {
                 drop(inner);
-                if let Err(e) = super::export_helpers::save_raw_data_to_path(fmt, &path, self.paused, &self.traces, &self.trace_order) {
+                if let Err(e) = crate::export_helpers::save_raw_data_to_path(fmt, &path, self.paused, &self.traces, &self.trace_order) {
                     eprintln!("Failed to save raw data: {e}");
                 }
                 inner = ctrl.inner.lock().unwrap();
