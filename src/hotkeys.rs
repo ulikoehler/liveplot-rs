@@ -116,6 +116,7 @@ impl Hotkey {
 
 /// Container for all configurable hotkeys.
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Hotkeys {
     pub fft: Option<Hotkey>,
     pub math: Option<Hotkey>,
@@ -125,6 +126,7 @@ pub struct Hotkeys {
     pub thresholds: Option<Hotkey>,
     pub save_png: Option<Hotkey>,
     pub export_data: Option<Hotkey>,
+    pub reset_markers: Option<Hotkey>,
 }
 
 impl Default for Hotkeys {
@@ -138,6 +140,7 @@ impl Default for Hotkeys {
             thresholds: Some(Hotkey::new(Modifier::Ctrl, 'T')),
             save_png: Some(Hotkey::new(Modifier::None, 'S')),
             export_data: Some(Hotkey::new(Modifier::None, 'E')),
+            reset_markers: Some(Hotkey::new(Modifier::None, 'R')),
         }
     }
 }
@@ -189,4 +192,5 @@ pub enum HotkeyName {
     Thresholds,
     SavePng,
     ExportData,
+    ResetMarkers,
 }

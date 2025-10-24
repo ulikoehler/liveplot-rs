@@ -263,7 +263,9 @@ impl LivePlotApp {
                             }
                         }
                     }
-                    egui::Event::Key { key, pressed: true, .. } => {
+                    egui::Event::Key {
+                        key, pressed: true, ..
+                    } => {
                         use egui::Key;
                         let ch_opt = match key {
                             Key::A => Some('A'),
@@ -318,7 +320,7 @@ impl LivePlotApp {
 
         // FFT toggle
         #[cfg(feature = "fft")]
-    if pressed(self.hotkeys.fft.as_ref()) {
+        if pressed(self.hotkeys.fft.as_ref()) {
             let d = &mut self.fft_panel.dock;
             d.show_dialog = !d.show_dialog;
             d.detached = false;
@@ -326,7 +328,7 @@ impl LivePlotApp {
         }
 
         // Math panel
-    if pressed(self.hotkeys.math.as_ref()) {
+        if pressed(self.hotkeys.math.as_ref()) {
             let d = self.math_panel.dock_mut();
             d.show_dialog = !d.show_dialog;
             d.detached = false;
@@ -334,13 +336,13 @@ impl LivePlotApp {
         }
 
         // Fit view (one-shot)
-    if pressed(self.hotkeys.fit_view.as_ref()) {
+        if pressed(self.hotkeys.fit_view.as_ref()) {
             self.pending_auto_x = true;
             self.pending_auto_y = true;
         }
 
         // Fit view continuously (toggle auto_zoom_y)
-    if pressed(self.hotkeys.fit_view_cont.as_ref()) {
+        if pressed(self.hotkeys.fit_view_cont.as_ref()) {
             self.auto_zoom_y = !self.auto_zoom_y;
             if self.auto_zoom_y {
                 self.pending_auto_y = true;
@@ -348,7 +350,7 @@ impl LivePlotApp {
         }
 
         // Traces panel
-    if pressed(self.hotkeys.traces.as_ref()) {
+        if pressed(self.hotkeys.traces.as_ref()) {
             let d = self.traces_panel.dock_mut();
             d.show_dialog = !d.show_dialog;
             d.detached = false;
@@ -356,7 +358,7 @@ impl LivePlotApp {
         }
 
         // Thresholds panel
-    if pressed(self.hotkeys.thresholds.as_ref()) {
+        if pressed(self.hotkeys.thresholds.as_ref()) {
             let d = self.thresholds_panel.dock_mut();
             d.show_dialog = !d.show_dialog;
             d.detached = false;
@@ -364,14 +366,19 @@ impl LivePlotApp {
         }
 
         // Save PNG
-    if pressed(self.hotkeys.save_png.as_ref()) {
+        if pressed(self.hotkeys.save_png.as_ref()) {
             self.request_window_shot = true;
         }
 
         // Export data
-    if pressed(self.hotkeys.export_data.as_ref()) {
+        if pressed(self.hotkeys.export_data.as_ref()) {
             // Call prompt; run in a short-lived borrow
             self.prompt_and_save_raw_data();
+        }
+
+        // Reset markers (clear point selection)
+        if pressed(self.hotkeys.reset_markers.as_ref()) {
+            self.point_selection.clear();
         }
     }
 }

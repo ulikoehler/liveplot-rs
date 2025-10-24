@@ -105,7 +105,10 @@ impl LivePlotApp {
 
                     // Small helper to render a row for a single hotkey and wire assign/capture logic
                     let mut render_row =
-                        |label: &str, name: HotkeyName, current: Option<Hotkey>, ui: &mut egui::Ui| {
+                        |label: &str,
+                         name: HotkeyName,
+                         current: Option<Hotkey>,
+                         ui: &mut egui::Ui| {
                             ui.horizontal(|ui| {
                                 // Label with inline help tooltip (avoid rendering a separate symbol which
                                 // looked broken on some platforms)
@@ -113,11 +116,16 @@ impl LivePlotApp {
                                     HotkeyName::Fft => "Show / hide FFT panel",
                                     HotkeyName::Math => "Show / hide Math panel",
                                     HotkeyName::FitView => "Fit the current view to visible data",
-                                    HotkeyName::FitViewCont => "Toggle continuous fitting of the view",
+                                    HotkeyName::FitViewCont => {
+                                        "Toggle continuous fitting of the view"
+                                    }
                                     HotkeyName::Traces => "Show / hide the Traces panel",
                                     HotkeyName::Thresholds => "Show / hide the Thresholds panel",
                                     HotkeyName::SavePng => "Save a PNG screenshot of the window",
-                                    HotkeyName::ExportData => "Export traces or threshold events to CSV/Parquet",
+                                    HotkeyName::ExportData => {
+                                        "Export traces or threshold events to CSV/Parquet"
+                                    }
+                                    HotkeyName::ResetMarkers => "Clear/reset selected markers",
                                 };
                                 ui.label(label).on_hover_text(tip);
 
@@ -135,7 +143,9 @@ impl LivePlotApp {
 
                                 if ui
                                     .button(btn_text)
-                                    .on_hover_text("Click to assign; press desired keys; Esc to cancel")
+                                    .on_hover_text(
+                                        "Click to assign; press desired keys; Esc to cancel",
+                                    )
                                     .clicked()
                                 {
                                     // Toggle capture for this entry
@@ -152,16 +162,29 @@ impl LivePlotApp {
 
                                 // Provide a clear button to unset the hotkey
                                 if !capturing_this {
-                                    if ui.button("Clear").on_hover_text("Disable this hotkey").clicked() {
+                                    if ui
+                                        .button("Clear")
+                                        .on_hover_text("Disable this hotkey")
+                                        .clicked()
+                                    {
                                         match name {
                                             HotkeyName::Fft => self.hotkeys.fft = None,
                                             HotkeyName::Math => self.hotkeys.math = None,
                                             HotkeyName::FitView => self.hotkeys.fit_view = None,
-                                            HotkeyName::FitViewCont => self.hotkeys.fit_view_cont = None,
+                                            HotkeyName::FitViewCont => {
+                                                self.hotkeys.fit_view_cont = None
+                                            }
                                             HotkeyName::Traces => self.hotkeys.traces = None,
-                                            HotkeyName::Thresholds => self.hotkeys.thresholds = None,
+                                            HotkeyName::Thresholds => {
+                                                self.hotkeys.thresholds = None
+                                            }
                                             HotkeyName::SavePng => self.hotkeys.save_png = None,
-                                            HotkeyName::ExportData => self.hotkeys.export_data = None,
+                                            HotkeyName::ExportData => {
+                                                self.hotkeys.export_data = None
+                                            }
+                                            HotkeyName::ResetMarkers => {
+                                                self.hotkeys.reset_markers = None
+                                            }
                                         }
                                         if let Err(e) = self.hotkeys.save_to_default_path() {
                                             eprintln!("Failed to save hotkeys after clear: {}", e);
@@ -182,6 +205,12 @@ impl LivePlotApp {
                         ui,
                     );
                     render_row("Traces:", HotkeyName::Traces, current.traces, ui);
+                    render_row(
+                        "Reset markers:",
+                        HotkeyName::ResetMarkers,
+                        current.reset_markers,
+                        ui,
+                    );
                     render_row(
                         "Thresholds:",
                         HotkeyName::Thresholds,
@@ -206,11 +235,16 @@ impl LivePlotApp {
                                     HotkeyName::Fft => self.hotkeys.fft = Some(hk),
                                     HotkeyName::Math => self.hotkeys.math = Some(hk),
                                     HotkeyName::FitView => self.hotkeys.fit_view = Some(hk),
-                                    HotkeyName::FitViewCont => self.hotkeys.fit_view_cont = Some(hk),
+                                    HotkeyName::FitViewCont => {
+                                        self.hotkeys.fit_view_cont = Some(hk)
+                                    }
                                     HotkeyName::Traces => self.hotkeys.traces = Some(hk),
                                     HotkeyName::Thresholds => self.hotkeys.thresholds = Some(hk),
                                     HotkeyName::SavePng => self.hotkeys.save_png = Some(hk),
                                     HotkeyName::ExportData => self.hotkeys.export_data = Some(hk),
+                                    HotkeyName::ResetMarkers => {
+                                        self.hotkeys.reset_markers = Some(hk)
+                                    }
                                 }
                                 self.capturing_hotkey = None;
                                 // Persist change
