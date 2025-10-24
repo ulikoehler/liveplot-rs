@@ -3,6 +3,9 @@
 use std::fmt;
 use std::str::FromStr;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::fs;
+use std::io::Write;
 
 /// Modifier keys (combinations) used for hotkeys.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +127,28 @@ impl Default for Hotkeys {
 
 impl Hotkeys {
     pub fn reset_defaults(&mut self) { *self = Hotkeys::default(); }
+
+    /// Save hotkeys to the default path `~/.liveplot/hotkeys.yaml`.
+    pub fn save_to_default_path(&self) -> Result<(), String> {
+        let home = std::env::var("HOME").map_err(|e| format!("HOME env var not set: {}", e))?;
+        let dir = PathBuf::from(home).join(".liveplot");
+        if let Err(e) = fs::create_dir_all(&dir) { return Err(format!("Failed to create dir {:?}: {}", dir, e)); }
+        let path = dir.join("hotkeys.yaml");
+        let s = serde_yaml::to_string(self).map_err(|e| format!("Serialization error: {}", e))?;
+        let mut f = fs::File::create(&path).map_err(|e| format!("Failed to create file {:?}: {}", path, e))?;
+        f.write_all(s.as_bytes()).map_err(|e| format!("Failed to write file {:?}: {}", path, e))?;
+        Ok(())
+    }
+
+    /// Load hotkeys from `~/.liveplot/hotkeys.yaml` if present.
+    pub fn load_from_default_path() -> Result<Hotkeys, String> {
+        let home = std::env::var("HOME").map_err(|e| format!("HOME env var not set: {}", e))?;
+        let path = PathBuf::from(home).join(".liveplot").join("hotkeys.yaml");
+        if !path.exists() { return Err(format!("Hotkeys file {:?} does not exist", path)); }
+        let s = fs::read_to_string(&path).map_err(|e| format!("Failed to read {:?}: {}", path, e))?;
+        let hk: Hotkeys = serde_yaml::from_str(&s).map_err(|e| format!("Deserialization error: {}", e))?;
+        Ok(hk)
+    }
 }
 
 /// Name of a hotkey entry to identify capture targets

@@ -119,6 +119,10 @@ impl LivePlotApp {
                                     HotkeyName::ExportData => self.hotkeys.export_data = hk,
                                 }
                                 self.capturing_hotkey = None;
+                                // Persist change
+                                if let Err(e) = self.hotkeys.save_to_default_path() {
+                                    eprintln!("Failed to save hotkeys after assignment: {}", e);
+                                }
                                 break;
                             }
                             // Allow Esc to cancel
@@ -130,8 +134,16 @@ impl LivePlotApp {
                 ui.horizontal(|ui| {
                     if ui.button("Reset to defaults").clicked() {
                         self.hotkeys.reset_defaults();
+                        if let Err(e) = self.hotkeys.save_to_default_path() {
+                            eprintln!("Failed to save hotkeys after reset: {}", e);
+                        }
                     }
-                    if ui.button("Close").clicked() { self.hotkeys_dialog_open = false; }
+                    if ui.button("Close").clicked() {
+                        self.hotkeys_dialog_open = false;
+                        if let Err(e) = self.hotkeys.save_to_default_path() {
+                            eprintln!("Failed to save hotkeys on close: {}", e);
+                        }
+                    }
                 });
             });
     }
