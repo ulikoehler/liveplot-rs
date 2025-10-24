@@ -1,5 +1,5 @@
+use super::app::LivePlotApp;
 use eframe::egui;
-use super::app::ScopeAppMulti;
 
 /// Shared docking state for dockable panels (Traces, Math, Thresholds).
 #[derive(Debug, Clone)]
@@ -16,9 +16,13 @@ pub struct DockState {
 
 impl DockState {
     pub fn new(title: &'static str) -> Self {
-        Self { detached: false, show_dialog: false, focus_dock: false, title }
+        Self {
+            detached: false,
+            show_dialog: false,
+            focus_dock: false,
+            title,
+        }
     }
-
 }
 
 // Per-panel state structs are defined in their respective modules (math_ui, traces_ui, thresholds_ui)
@@ -28,10 +32,10 @@ pub trait DockPanel {
     /// Access this panel's DockState through self
     fn dock_mut(&mut self) -> &mut DockState;
     /// Called when rendering the panel's content
-    fn panel_contents(&mut self, app: &mut ScopeAppMulti, ui: &mut egui::Ui);
+    fn panel_contents(&mut self, app: &mut LivePlotApp, ui: &mut egui::Ui);
 
     /// Generic renderer for a DockPanel's detached dialog.
-    fn show_detached_dialog(&mut self, app: &mut ScopeAppMulti, ctx: &egui::Context) {
+    fn show_detached_dialog(&mut self, app: &mut LivePlotApp, ctx: &egui::Context) {
         // Read minimal window state in a short borrow scope to avoid conflicts
         let (title, mut show_flag) = {
             let dock: &mut DockState = self.dock_mut();

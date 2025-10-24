@@ -26,11 +26,19 @@ fn save_as_csv(
     trace_order: &Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Build series map of the currently exported buffers (paused => snapshot if present)
-    let mut series: HashMap<String, Vec<[f64;2]>> = HashMap::new();
+    let mut series: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
     for name in trace_order.iter() {
         if let Some(tr) = traces.get(name) {
-            let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if paused { if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
-            let vec: Vec<[f64;2]> = iter.cloned().collect();
+            let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if paused {
+                if let Some(snap) = &tr.snap {
+                    Box::new(snap.iter())
+                } else {
+                    Box::new(tr.live.iter())
+                }
+            } else {
+                Box::new(tr.live.iter())
+            };
+            let vec: Vec<[f64; 2]> = iter.cloned().collect();
             series.insert(name.clone(), vec);
         }
     }
@@ -48,11 +56,19 @@ fn save_as_parquet(
     #[cfg(feature = "parquet")]
     {
         // Build series map of the currently exported buffers (paused => snapshot if present)
-        let mut series: HashMap<String, Vec<[f64;2]>> = HashMap::new();
+        let mut series: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
         for name in trace_order.iter() {
             if let Some(tr) = traces.get(name) {
-                let iter: Box<dyn Iterator<Item=&[f64;2]> + '_> = if paused { if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) } } else { Box::new(tr.live.iter()) };
-                let vec: Vec<[f64;2]> = iter.cloned().collect();
+                let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if paused {
+                    if let Some(snap) = &tr.snap {
+                        Box::new(snap.iter())
+                    } else {
+                        Box::new(tr.live.iter())
+                    }
+                } else {
+                    Box::new(tr.live.iter())
+                };
+                let vec: Vec<[f64; 2]> = iter.cloned().collect();
                 series.insert(name.clone(), vec);
             }
         }
@@ -68,12 +84,22 @@ fn save_as_parquet(
 
 /// Save a list of threshold events to a CSV file with columns:
 /// end_time_seconds,threshold,trace,start_time_seconds,duration_seconds,area
-pub(super) fn save_threshold_events_csv(path: &std::path::Path, events: &[&crate::thresholds::ThresholdEvent]) -> Result<(), Box<dyn std::error::Error>> {
+pub(super) fn save_threshold_events_csv(
+    path: &std::path::Path,
+    events: &[&crate::thresholds::ThresholdEvent],
+) -> Result<(), Box<dyn std::error::Error>> {
     use std::io::Write;
     let mut f = std::fs::File::create(path)?;
-    writeln!(f, "end_time_seconds,threshold,trace,start_time_seconds,duration_seconds,area")?;
+    writeln!(
+        f,
+        "end_time_seconds,threshold,trace,start_time_seconds,duration_seconds,area"
+    )?;
     for e in events {
-        writeln!(f, "{:.9},{},{},{:.9},{:.9},{:.9}", e.end_t, e.threshold, e.trace, e.start_t, e.duration, e.area)?;
+        writeln!(
+            f,
+            "{:.9},{},{},{:.9},{:.9},{:.9}",
+            e.end_t, e.threshold, e.trace, e.start_t, e.duration, e.area
+        )?;
     }
     Ok(())
 }

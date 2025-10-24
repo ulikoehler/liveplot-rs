@@ -45,15 +45,23 @@ impl TraceLook {
         hide_color: bool,
         lock_color: Option<egui::Color32>,
     ) {
-        if let Some(p) = label_prefix { ui.strong(p); }
+        if let Some(p) = label_prefix {
+            ui.strong(p);
+        }
         ui.horizontal(|ui| {
             if !hide_color {
                 ui.label("Color");
                 let mut c = self.color;
-                if ui.color_edit_button_srgba(&mut c).changed() { self.color = c; }
+                if ui.color_edit_button_srgba(&mut c).changed() {
+                    self.color = c;
+                }
             }
             ui.label("Width");
-            ui.add(egui::DragValue::new(&mut self.width).range(0.1..=10.0).speed(0.1));
+            ui.add(
+                egui::DragValue::new(&mut self.width)
+                    .range(0.1..=10.0)
+                    .speed(0.1),
+            );
         });
         egui::ComboBox::from_label("Line style")
             .selected_text(match self.style {
@@ -159,7 +167,9 @@ impl TraceLook {
             });
         }
 
-        if let Some(c) = lock_color { self.color = c; }
+        if let Some(c) = lock_color {
+            self.color = c;
+        }
     }
 }
 

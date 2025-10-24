@@ -2,9 +2,9 @@
 use tonic::Request;
 use std::sync::mpsc::Sender;
 use crate::sine::v1::{sine_wave_client::SineWaveClient, SubscribeRequest};
-use crate::MultiSample;
+use crate::sink::{PlotCommand, PlotPoint};
 
-pub fn spawn_grpc_client(tx: Sender<MultiSample>) {
+pub fn spawn_grpc_client(tx: Sender<PlotCommand>) {
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async move {
@@ -22,17 +22,11 @@ pub fn spawn_grpc_client(tx: Sender<MultiSample>) {
                     return;
                 }
             };
+            // Register a trace ID 1 named "signal" once
+            let _ = tx.send(PlotCommand::RegisterTrace { id: 1, name: "signal".to_string(), info: None });
             while let Ok(Some(sample)) = stream.message().await {
-                let sample = MultiSample {
-                    index: sample.index as u64,
-                    value: sample.value,
-                    timestamp_micros: sample.timestamp_micros,
-                    trace: "signal".to_string(),
-                    info: None,
-                };
-                if tx.send(sample).is_err() {
-                    break;
-                }
+                let t_s = (sample.timestamp_micros as f64) * 1e-6;
+                let _ = tx.send(PlotCommand::Point { trace_id: 1, point: PlotPoint { x: t_s, y: sample.value } });
             }
         });
     });

@@ -1,8 +1,6 @@
 use std::collections::VecDeque;
 
-pub(crate) use super::traceslook_ui::TraceLook;
-
-// TraceLook moved to traceslook_ui.rs
+pub(crate) use super::trace_look::TraceLook;
 
 /// Internal per-trace state (live buffer, optional snapshot, color, cached FFT).
 pub(crate) struct TraceState {

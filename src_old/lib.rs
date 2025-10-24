@@ -1,39 +1,44 @@
 //! LivePlot crate root: re-exports and module wiring.
-//!
-//! This crate provides two ready-to-use plotting UIs built on egui/eframe:
-//! - Single-trace oscilloscope (`scope`)
-//! - Multi-trace oscilloscope (`scope_multi`)
-//!
-//! The monolithic implementation has been refactored into cohesive modules:
-//! - `sink`: data types and channels to feed samples
-//! - `controllers`: external control of window/FFT panel
-//! - `config`: shared configuration and time formatting
-//! - `scope`: single-trace UI and run helpers
-//! - `scope_multi`: multi-trace UI and run helpers
 
-mod point_selection;
+mod app;
+mod data;
+mod export_helpers;
 #[cfg(feature = "fft")]
 mod fft;
+mod hotkeys;
+mod hotkeys_ui;
 mod line_draw;
 mod math;
+mod math_ui;
+mod menu_ui;
+mod panel;
+mod plot;
+mod point_selection;
 mod thresholds;
+mod thresholds_ui;
+mod trace_look;
+mod traces_ui;
+mod types;
+mod ui;
 
-pub mod sink;
-pub mod controllers;
 pub mod config;
-#[path = "scope_multi/mod.rs"]
-pub mod scope_multi_mod;
+pub mod controllers;
 pub mod export;
-pub mod scope_modular;
+pub mod sink;
+
+#[cfg(feature = "fft")]
+mod fft_panel;
 
 // Public re-exports for a compact external API
-#[cfg(feature = "fft")]
-pub use fft::FftWindow;
+pub use app::{run_liveplot, LivePlotApp};
 pub use config::{LivePlotConfig, XDateFormat};
-pub use controllers::{FftController, FftPanelInfo, WindowController, WindowInfo, UiActionController, RawExportFormat, FftRawData, FftDataRequest};
-pub use controllers::{TracesController, TracesInfo, TraceInfo};
-pub use sink::{channel_multi, MultiPlotSink, MultiSample};
-pub use scope_multi_mod::{run_liveplot, ScopeAppMulti};
-pub use math::{MathTraceDef, MathKind, FilterKind, TraceRef};
-pub use thresholds::{ThresholdDef, ThresholdKind, ThresholdEvent, ThresholdController};
-
+pub use controllers::{
+    FFTController, FFTDataRequest, FFTPanelInfo, FFTRawData, RawExportFormat, UiActionController,
+    WindowController, WindowInfo,
+};
+pub use controllers::{TraceInfo, TracesController, TracesInfo};
+#[cfg(feature = "fft")]
+pub use fft::FFTWindow;
+pub use math::{FilterKind, MathKind, MathTraceDef, TraceRef};
+pub use sink::{channel_plot, PlotCommand, PlotPoint, PlotSink, Trace, TraceId};
+pub use thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdKind};

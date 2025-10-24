@@ -1,7 +1,8 @@
 //! Configuration types shared across the live plot UIs.
 
-use crate::controllers::{FftController, UiActionController, WindowController};
 use crate::controllers::TracesController;
+use crate::controllers::{FFTController, UiActionController, WindowController};
+use crate::hotkeys::Hotkeys;
 use crate::thresholds::ThresholdController;
 use chrono::Local;
 
@@ -38,6 +39,7 @@ impl XDateFormat {
 }
 
 /// Configuration options for the live plot runtime (single- and multi-trace).
+#[derive(Clone)]
 pub struct LivePlotConfig {
     /// Rolling time window in seconds that is kept in memory and shown on X axis.
     pub time_window_secs: f64,
@@ -51,16 +53,26 @@ pub struct LivePlotConfig {
     /// Show the Y axis using a base-10 logarithmic scale. The transform is applied
     /// to the plotted values; axis tick labels show the corresponding linear values.
     pub y_log: bool,
-    /// Optional window title. Defaults to "LivePlot (multi)".
-    pub title: Option<String>,
+    /// Optional window title (default: None)
+    /// Window title shown on the native window chrome. This is always present and
+    /// defaults to "LivePlot".
+    pub title: String,
+    /// Optional headline rendered inside the UI (e.g. large heading). If None,
+    /// no headline is shown.
+    pub headline: Option<String>,
+    /// Optional subheadline rendered underneath the main headline (smaller).
+    /// If None, no subheadline is shown.
+    pub subheadline: Option<String>,
     /// Optional eframe/native window options. If not provided, sensible defaults are used.
     pub native_options: Option<eframe::NativeOptions>,
     /// Optional controllers to attach.
     pub window_controller: Option<WindowController>,
-    pub fft_controller: Option<FftController>,
+    pub fft_controller: Option<FFTController>,
     pub ui_action_controller: Option<UiActionController>,
     pub threshold_controller: Option<ThresholdController>,
     pub traces_controller: Option<TracesController>,
+    /// Optional hotkeys configuration (if present overrides defaults)
+    pub hotkeys: Option<Hotkeys>,
 }
 
 impl Default for LivePlotConfig {
@@ -71,13 +83,16 @@ impl Default for LivePlotConfig {
             x_date_format: XDateFormat::default(),
             y_unit: None,
             y_log: false,
-            title: None,
+            title: "LivePlot".to_string(),
+            headline: None,
+            subheadline: None,
             native_options: None,
             window_controller: None,
             fft_controller: None,
             ui_action_controller: None,
             threshold_controller: None,
             traces_controller: None,
+            hotkeys: None,
         }
     }
 }

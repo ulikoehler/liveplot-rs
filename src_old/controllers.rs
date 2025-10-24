@@ -4,8 +4,8 @@
 //! non-UI code can observe window/panel state and push simple requests (like
 //! toggling the FFT panel).
 
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 
 /// Current window information (physical pixels).
 #[derive(Debug, Clone)]
@@ -39,28 +39,36 @@ pub(crate) struct WindowCtrlInner {
 impl WindowController {
     /// Create a fresh controller.
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(WindowCtrlInner { current_size: None, current_pos: None, request_set_size: None, request_set_pos: None, listeners: Vec::new() })) }
+        Self {
+            inner: Arc::new(Mutex::new(WindowCtrlInner {
+                current_size: None,
+                current_pos: None,
+                request_set_size: None,
+                request_set_pos: None,
+                listeners: Vec::new(),
+            })),
+        }
     }
 
     /// Get the last observed window size in physical pixels (if known).
-    pub fn get_current_size(&self) -> Option<[f32;2]> {
+    pub fn get_current_size(&self) -> Option<[f32; 2]> {
         self.inner.lock().unwrap().current_size
     }
 
     /// Get the last observed window position in physical pixels (if known).
-    pub fn get_current_pos(&self) -> Option<[f32;2]> {
+    pub fn get_current_pos(&self) -> Option<[f32; 2]> {
         self.inner.lock().unwrap().current_pos
     }
 
     /// Request a window size change (physical pixels). The request is recorded and
     /// will be broadcast to listeners; whether the runtime honors it depends on the backend.
-    pub fn request_set_size(&self, size_px: [f32;2]) {
+    pub fn request_set_size(&self, size_px: [f32; 2]) {
         let mut inner = self.inner.lock().unwrap();
         inner.request_set_size = Some(size_px);
     }
 
     /// Request a window position change (physical pixels). Recorded and broadcast to listeners.
-    pub fn request_set_pos(&self, pos_px: [f32;2]) {
+    pub fn request_set_pos(&self, pos_px: [f32; 2]) {
         let mut inner = self.inner.lock().unwrap();
         inner.request_set_pos = Some(pos_px);
     }
@@ -76,7 +84,7 @@ impl WindowController {
 
 /// Information about the FFT bottom panel (shown + size in physical pixels)
 #[derive(Debug, Clone)]
-pub struct FftPanelInfo {
+pub struct FFTPanelInfo {
     /// Whether the FFT panel is currently shown
     pub shown: bool,
     /// Current panel size in physical pixels (width, height)
@@ -87,8 +95,8 @@ pub struct FftPanelInfo {
 
 /// Controller to get/set FFT panel visibility/size and subscribe to updates.
 #[derive(Clone)]
-pub struct FftController {
-    pub(crate) inner: Arc<Mutex<FftCtrlInner>>, // crate-visible for UI
+pub struct FFTController {
+    pub(crate) inner: Arc<Mutex<FFTCtrlInner>>, // crate-visible for UI
 }
 
 /// Controller for high-level UI actions like pause/resume and saving a PNG.
@@ -105,8 +113,8 @@ pub(crate) struct UiActionInner {
     pub(crate) request_pause: Option<bool>,
     pub(crate) request_screenshot: bool,
     pub(crate) request_save_raw: Option<RawExportFormat>,
-    pub(crate) fft_request: Option<FftDataRequest>,
-    pub(crate) fft_listeners: Vec<Sender<FftRawData>>,
+    pub(crate) fft_request: Option<FFTDataRequest>,
+    pub(crate) fft_listeners: Vec<Sender<FFTRawData>>,
     pub(crate) request_screenshot_to: Option<std::path::PathBuf>,
     pub(crate) request_save_raw_to: Option<(RawExportFormat, std::path::PathBuf)>,
 }
@@ -114,15 +122,17 @@ pub(crate) struct UiActionInner {
 impl UiActionController {
     /// Create a fresh UI action controller.
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(UiActionInner {
-            request_pause: None,
-            request_screenshot: false,
-            request_screenshot_to: None,
-            request_save_raw: None,
-            request_save_raw_to: None,
-            fft_request: None,
-            fft_listeners: Vec::new(),
-        })) }
+        Self {
+            inner: Arc::new(Mutex::new(UiActionInner {
+                request_pause: None,
+                request_screenshot: false,
+                request_screenshot_to: None,
+                request_save_raw: None,
+                request_save_raw_to: None,
+                fft_request: None,
+                fft_listeners: Vec::new(),
+            })),
+        }
     }
 
     /// Request the UI to pause (freeze) the time-domain display.
@@ -156,13 +166,17 @@ impl UiActionController {
     }
 
     /// Request saving raw data directly to the given path (non-interactive).
-    pub fn request_save_raw_to_path<P: Into<std::path::PathBuf>>(&self, fmt: RawExportFormat, path: P) {
+    pub fn request_save_raw_to_path<P: Into<std::path::PathBuf>>(
+        &self,
+        fmt: RawExportFormat,
+        path: P,
+    ) {
         let mut inner = self.inner.lock().unwrap();
         inner.request_save_raw_to = Some((fmt, path.into()));
     }
 
     /// Subscribe to receive the current raw FFT input data (time-domain) for a trace.
-    pub fn subscribe_fft_data(&self) -> std::sync::mpsc::Receiver<FftRawData> {
+    pub fn subscribe_fft_data(&self) -> std::sync::mpsc::Receiver<FFTRawData> {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut inner = self.inner.lock().unwrap();
         inner.fft_listeners.push(tx);
@@ -172,69 +186,90 @@ impl UiActionController {
     /// Request FFT input data for the currently selected trace (if any).
     pub fn request_fft_data_current(&self) {
         let mut inner = self.inner.lock().unwrap();
-        inner.fft_request = Some(FftDataRequest::CurrentTrace);
+        inner.fft_request = Some(FFTDataRequest::CurrentTrace);
     }
 
     /// Request FFT input data for a specific named trace.
     pub fn request_fft_data_for<S: Into<String>>(&self, name: S) {
         let mut inner = self.inner.lock().unwrap();
-        inner.fft_request = Some(FftDataRequest::NamedTrace(name.into()));
+        inner.fft_request = Some(FFTDataRequest::NamedTrace(name.into()));
     }
 }
 
 /// Raw export format for saving captured data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RawExportFormat { Csv, Parquet }
+pub enum RawExportFormat {
+    Csv,
+    Parquet,
+}
 
 /// Request for FFT raw input data.
 #[derive(Debug, Clone)]
-pub enum FftDataRequest { CurrentTrace, NamedTrace(String) }
+pub enum FFTDataRequest {
+    CurrentTrace,
+    NamedTrace(String),
+}
 
 /// Raw FFT input time-domain data for a single trace.
 #[derive(Debug, Clone)]
-pub struct FftRawData {
+pub struct FFTRawData {
     pub trace: String,
     /// Time-domain points [t_seconds, value]
-    pub data: Vec<[f64;2]>,
+    pub data: Vec<[f64; 2]>,
 }
 
-pub(crate) struct FftCtrlInner {
+pub(crate) struct FFTCtrlInner {
     pub(crate) show: bool,
     pub(crate) current_size: Option<[f32; 2]>,
     pub(crate) request_set_size: Option<[f32; 2]>,
-    pub(crate) listeners: Vec<Sender<FftPanelInfo>>,
+    pub(crate) listeners: Vec<Sender<FFTPanelInfo>>,
 }
 
-impl FftController {
+impl FFTController {
     /// Create a fresh controller.
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(FftCtrlInner { show: false, current_size: None, request_set_size: None, listeners: Vec::new() })) }
+        Self {
+            inner: Arc::new(Mutex::new(FFTCtrlInner {
+                show: false,
+                current_size: None,
+                request_set_size: None,
+                listeners: Vec::new(),
+            })),
+        }
     }
 
     /// Query whether the FFT panel is (last known) shown.
-    pub fn is_shown(&self) -> bool { self.inner.lock().unwrap().show }
+    pub fn is_shown(&self) -> bool {
+        self.inner.lock().unwrap().show
+    }
 
     /// Request that the FFT panel be shown/hidden. This records the request and
     /// notifies subscribers; whether the runtime honors it depends on the UI.
     pub fn set_shown(&self, show: bool) {
         let mut inner = self.inner.lock().unwrap();
         inner.show = show;
-        let info = FftPanelInfo { shown: inner.show, current_size: inner.current_size, requested_size: inner.request_set_size };
+        let info = FFTPanelInfo {
+            shown: inner.show,
+            current_size: inner.current_size,
+            requested_size: inner.request_set_size,
+        };
         inner.listeners.retain(|s| s.send(info.clone()).is_ok());
     }
 
     /// Get last observed panel size in physical pixels (if known).
-    pub fn get_current_size(&self) -> Option<[f32;2]> { self.inner.lock().unwrap().current_size }
+    pub fn get_current_size(&self) -> Option<[f32; 2]> {
+        self.inner.lock().unwrap().current_size
+    }
 
     /// Request a panel size change (physical pixels). Recorded and will be
     /// exposed to the UI which may choose to honor it.
-    pub fn request_set_size(&self, size_px: [f32;2]) {
+    pub fn request_set_size(&self, size_px: [f32; 2]) {
         let mut inner = self.inner.lock().unwrap();
         inner.request_set_size = Some(size_px);
     }
 
-    /// Subscribe to FFT panel updates. Returned receiver receives `FftPanelInfo` whenever the UI publishes it.
-    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<FftPanelInfo> {
+    /// Subscribe to FFT panel updates. Returned receiver receives `FFTPanelInfo` whenever the UI publishes it.
+    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<FFTPanelInfo> {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut inner = self.inner.lock().unwrap();
         inner.listeners.push(tx);
@@ -246,7 +281,7 @@ impl FftController {
 #[derive(Debug, Clone)]
 pub struct TraceInfo {
     pub name: String,
-    pub color_rgb: [u8;3],
+    pub color_rgb: [u8; 3],
     pub visible: bool,
     pub is_math: bool,
     /// Additive offset applied to Y before plotting or log-transform
@@ -269,7 +304,7 @@ pub struct TracesController {
 }
 
 pub(crate) struct TracesCtrlInner {
-    pub(crate) color_requests: Vec<(String, [u8;3])>,
+    pub(crate) color_requests: Vec<(String, [u8; 3])>,
     pub(crate) visible_requests: Vec<(String, bool)>,
     pub(crate) offset_requests: Vec<(String, f64)>,
     pub(crate) y_unit_request: Option<Option<String>>,
@@ -280,19 +315,21 @@ pub(crate) struct TracesCtrlInner {
 
 impl TracesController {
     pub fn new() -> Self {
-        Self { inner: Arc::new(Mutex::new(TracesCtrlInner {
-            color_requests: Vec::new(),
-            visible_requests: Vec::new(),
-            offset_requests: Vec::new(),
-            y_unit_request: None,
-            y_log_request: None,
-            selection_request: None,
-            listeners: Vec::new(),
-        })) }
+        Self {
+            inner: Arc::new(Mutex::new(TracesCtrlInner {
+                color_requests: Vec::new(),
+                visible_requests: Vec::new(),
+                offset_requests: Vec::new(),
+                y_unit_request: None,
+                y_log_request: None,
+                selection_request: None,
+                listeners: Vec::new(),
+            })),
+        }
     }
 
     /// Request setting the RGB color of a trace by name.
-    pub fn request_set_color<S: Into<String>>(&self, name: S, rgb: [u8;3]) {
+    pub fn request_set_color<S: Into<String>>(&self, name: S, rgb: [u8; 3]) {
         let mut inner = self.inner.lock().unwrap();
         inner.color_requests.push((name.into(), rgb));
     }

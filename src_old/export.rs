@@ -40,7 +40,9 @@ pub fn align_series(
                 }
             }
         }
-        let Some(t_ref) = t_min else { break; };
+        let Some(t_ref) = t_min else {
+            break;
+        };
 
         // For each trace, if the next sample is within tolerance, consume it into the row.
         let mut row_vals: Vec<Option<f64>> = Vec::with_capacity(trace_order.len());
@@ -78,7 +80,11 @@ pub fn write_aligned_rows_csv<W: Write>(
         // 9 decimal places as in previous CSV
         write!(w, "{:.9}", *t)?;
         for v in vals.iter() {
-            if let Some(y) = v { write!(w, ",{}", y)?; } else { write!(w, ",")?; }
+            if let Some(y) = v {
+                write!(w, ",{}", y)?;
+            } else {
+                write!(w, ",")?;
+            }
         }
         writeln!(w)?;
     }
@@ -107,8 +113,8 @@ pub fn write_parquet_aligned_path(
     series: &HashMap<String, Vec<[f64; 2]>>,
     tol: f64,
 ) -> io::Result<()> {
-    use arrow_array::{ArrayRef, Float64Array, RecordBatch};
     use arrow_array::builder::Float64Builder;
+    use arrow_array::{ArrayRef, Float64Array, RecordBatch};
     use arrow_schema::{DataType, Field, Schema};
     use parquet::arrow::arrow_writer::ArrowWriter;
     use parquet::file::properties::WriterProperties;
@@ -183,12 +189,12 @@ pub fn write_parquet_aligned_path(
 mod tests {
     use super::*;
 
-    fn mk_series(map: &[(&str, &[(f64, f64)])]) -> (Vec<String>, HashMap<String, Vec<[f64;2]>>) {
+    fn mk_series(map: &[(&str, &[(f64, f64)])]) -> (Vec<String>, HashMap<String, Vec<[f64; 2]>>) {
         let mut order = Vec::new();
-        let mut series: HashMap<String, Vec<[f64;2]>> = HashMap::new();
+        let mut series: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
         for (name, pts) in map {
             order.push((*name).to_string());
-            let vec: Vec<[f64;2]> = pts.iter().map(|(t, v)| [*t, *v]).collect();
+            let vec: Vec<[f64; 2]> = pts.iter().map(|(t, v)| [*t, *v]).collect();
             series.insert((*name).to_string(), vec);
         }
         (order, series)
@@ -199,8 +205,8 @@ mod tests {
         // Trace A and B have nearly matching timestamps within tol.
         let tol = 1e-9;
         let (order, series) = mk_series(&[
-            ("a", &[(0.0, 1.0), (1.0, 2.0)]) ,
-            ("b", &[(0.0 + 1e-10, 10.0), (2.0, 20.0)])
+            ("a", &[(0.0, 1.0), (1.0, 2.0)]),
+            ("b", &[(0.0 + 1e-10, 10.0), (2.0, 20.0)]),
         ]);
         let rows = align_series(&order, &series, tol);
         assert_eq!(rows.len(), 3);
@@ -219,8 +225,8 @@ mod tests {
     fn separates_beyond_tolerance() {
         let tol = 1e-9;
         let (order, series) = mk_series(&[
-            ("a", &[(3.0, 1.0)]) ,
-            ("b", &[(3.0 + 5e-9, 2.0)]) // beyond tol => separate row
+            ("a", &[(3.0, 1.0)]),
+            ("b", &[(3.0 + 5e-9, 2.0)]), // beyond tol => separate row
         ]);
         let rows = align_series(&order, &series, tol);
         assert_eq!(rows.len(), 2);
@@ -234,8 +240,8 @@ mod tests {
     fn writes_expected_csv() {
         let tol = 1e-9;
         let (order, series) = mk_series(&[
-            ("sine", &[(0.0, 0.1), (1.0, 0.2)]) ,
-            ("cos",  &[(0.0 + 5e-10, 1.1), (2.0, 1.2)])
+            ("sine", &[(0.0, 0.1), (1.0, 0.2)]),
+            ("cos", &[(0.0 + 5e-10, 1.1), (2.0, 1.2)]),
         ]);
         let rows = align_series(&order, &series, tol);
         let mut buf = Vec::new();
