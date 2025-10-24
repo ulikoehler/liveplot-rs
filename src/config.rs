@@ -60,6 +60,9 @@ pub struct LivePlotConfig {
     /// Optional headline rendered inside the UI (e.g. large heading). If None,
     /// no headline is shown.
     pub headline: Option<String>,
+    /// Optional subheadline rendered underneath the main headline (smaller).
+    /// If None, no subheadline is shown.
+    pub subheadline: Option<String>,
     /// Optional eframe/native window options. If not provided, sensible defaults are used.
     pub native_options: Option<eframe::NativeOptions>,
     /// Optional controllers to attach.
@@ -82,6 +85,7 @@ impl Default for LivePlotConfig {
             y_log: false,
             title: "LivePlot".to_string(),
             headline: None,
+            subheadline: None,
             native_options: None,
             window_controller: None,
             fft_controller: None,

@@ -136,6 +136,8 @@ pub struct LivePlotApp {
     pub hotkeys: Hotkeys,
     /// Optional headline to show in the UI (from LivePlotConfig). If None, no headline is rendered.
     pub headline: Option<String>,
+    /// Optional subheadline to render under the main headline (from LivePlotConfig).
+    pub subheadline: Option<String>,
     /// If Some(name) the hotkeys dialog is currently listening for a key press to assign.
     pub capturing_hotkey: Option<HotkeyName>,
 }
@@ -208,6 +210,7 @@ impl LivePlotApp {
             hotkeys_dialog_open: false,
             hotkeys: Hotkeys::default(),
             headline: None,
+            subheadline: None,
             capturing_hotkey: None,
         }
     }
@@ -336,7 +339,7 @@ impl eframe::App for LivePlotApp {
 
         // Controls
         egui::TopBottomPanel::top("controls_multi").show(ctx, |ui| {
-            self.controls_ui(ui, ControlsMode::Main);
+            self.header_ui(ui, ControlsMode::Main);
         });
 
         // Right-side panel
@@ -393,6 +396,8 @@ pub fn run_liveplot(
                 app.y_log = cfg.y_log;
                 // Set optional UI headline from config
                 app.headline = cfg.headline.clone();
+                // Optional subheadline from config
+                app.subheadline = cfg.subheadline.clone();
                 // Try to load persisted hotkeys from disk; fall back to defaults on error.
                 match Hotkeys::load_from_default_path() {
                     Ok(hk) => {

@@ -55,7 +55,9 @@ fn main() -> eframe::Result<()> {
             std::thread::sleep(dt);
         }
     });
-
     // Run the UI until closed. Uses the unified multi-trace engine.
-    run_liveplot(rx, LivePlotConfig::default())
+    let mut cfg = LivePlotConfig::default();
+    cfg.headline = Some("Sine/cosine example".to_string());
+    cfg.subheadline = Some("(with chunks)".to_string());
+    run_liveplot(rx, cfg)
 }
