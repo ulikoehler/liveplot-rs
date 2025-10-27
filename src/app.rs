@@ -37,19 +37,35 @@ impl MainPanel {
         self.render_menu(ui);
         self.render_panels(ui);
 
-        // let draw_objs: Vec<Box<dyn Panel>> = self
-        //     .right_side_panels
-        //     .iter_mut()
-        //     .chain(self.left_side_panels.iter_mut())
-        //     .chain(self.bottom_panels.iter_mut())
-        //     .chain(self.detached_panels.iter_mut())
-        //     .chain(self.empty_panels.iter_mut())
-        //     .map(|p| p.as_mut())
-        //     .collect();
-
-        // For now we don't draw additional overlay objects
+        // Draw additional overlay objects from other panels (e.g., thresholds)
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            self.scope_panel.render_panel(ui, vec![]);
+            // Temporarily take panel lists to build a local overlay drawer without borrowing self
+            let mut left = std::mem::take(&mut self.left_side_panels);
+            let mut right = std::mem::take(&mut self.right_side_panels);
+            let mut bottom = std::mem::take(&mut self.bottom_panels);
+            let mut detached = std::mem::take(&mut self.detached_panels);
+            let mut empty = std::mem::take(&mut self.empty_panels);
+
+            let mut draw_overlays = |plot_ui: &mut egui_plot::PlotUi, data: &crate::data::scope::ScopeData| {
+                for p in right
+                    .iter_mut()
+                    .chain(left.iter_mut())
+                    .chain(bottom.iter_mut())
+                    .chain(detached.iter_mut())
+                    .chain(empty.iter_mut())
+                {
+                    p.draw(plot_ui, data);
+                }
+            };
+
+            self.scope_panel.render_panel(ui, &mut draw_overlays);
+
+            // Return panel lists back to self
+            self.left_side_panels = left;
+            self.right_side_panels = right;
+            self.bottom_panels = bottom;
+            self.detached_panels = detached;
+            self.empty_panels = empty;
         });
     }
 

@@ -1,92 +1,22 @@
 use super::panel_trait::{Panel, PanelState};
-use crate::data::scope::ScopeData;
+use crate::data::scope::{AxisSettings, ScopeData};
 use crate::data::thresholds::{ThresholdDef, ThresholdEvent, ThresholdKind};
-use crate::data::trace_look::TraceLook;
 use crate::panels::trace_look_ui::render_trace_look_editor;
 use chrono::Local;
+use eframe::glow::COLOR;
 use egui;
 use egui::{Color32, Ui};
-use egui_plot::{LineStyle, MarkerShape};
+use egui_plot::{HLine, LineStyle, MarkerShape, Points, VLine};
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
-struct ThresholdBuilderState {
-    pub name: String,
-    pub target_idx: usize,
-    pub kind_idx: usize, // 0: >, 1: <, 2: in range
-    pub thr1: f64,
-    pub thr2: f64,
-    pub min_duration_ms: f64,
-    pub max_events: usize,
-    pub look: TraceLook,
-    pub look_start_events: TraceLook,
-    pub look_stop_events: TraceLook,
-}
-
-impl Default for ThresholdBuilderState {
-    fn default() -> Self {
-        let mut look = TraceLook::default();
-        look.style = LineStyle::Dashed { length: 6.0 };
-        let mut look_start = TraceLook::default();
-        look_start.show_points = true;
-        look_start.point_size = 6.0;
-        look_start.marker = MarkerShape::Diamond;
-        // Hide line by default for start/stop looks; rely on points
-        look_start.visible = true; // keep visible, but the renderer will use points setting
-        let mut look_stop = TraceLook::default();
-        look_stop.show_points = true;
-        look_stop.point_size = 6.0;
-        look_stop.marker = MarkerShape::Square;
-        Self {
-            name: String::new(),
-            target_idx: 0,
-            kind_idx: 0,
-            thr1: 0.0,
-            thr2: 1.0,
-            min_duration_ms: 2.0,
-            max_events: 100,
-            look,
-            look_start_events: look_start,
-            look_stop_events: look_stop,
-        }
-    }
-}
-
-impl ThresholdBuilderState {
-    fn new_from_def(def: &ThresholdDef, data: &ScopeData) -> Self {
-        let target_idx = data
-            .trace_order
-            .iter()
-            .position(|n| n == &def.target.0)
-            .unwrap_or(0);
-        let (kind_idx, thr1, thr2) = match &def.kind {
-            ThresholdKind::GreaterThan { value } => (0, *value, 0.0),
-            ThresholdKind::LessThan { value } => (1, *value, 0.0),
-            ThresholdKind::InRange { low, high } => (2, *low, *high),
-        };
-        let look = def.look.clone();
-        let look_start = def.start_look.clone();
-        let look_stop = def.stop_look.clone();
-        Self {
-            name: def.name.clone(),
-            target_idx,
-            kind_idx,
-            thr1,
-            thr2,
-            min_duration_ms: def.min_duration_s * 1000.0,
-            max_events: def.max_events,
-            look,
-            look_start_events: look_start,
-            look_stop_events: look_stop,
-        }
-    }
-}
+// Builder state removed; we edit a ThresholdDef directly
 
 #[derive(Debug, Clone)]
 pub struct ThresholdsPanel {
     pub state: PanelState,
-    builder: ThresholdBuilderState,
+    builder: ThresholdDef,
     pub editing: Option<String>,
     pub error: Option<String>,
     pub creating: bool,
@@ -99,7 +29,7 @@ impl Default for ThresholdsPanel {
     fn default() -> Self {
         Self {
             state: PanelState::new("⚠ Thresholds"),
-            builder: ThresholdBuilderState::default(),
+            builder: ThresholdDef::default(),
             editing: None,
             error: None,
             creating: false,
@@ -119,8 +49,164 @@ impl Panel for ThresholdsPanel {
         &mut self.state
     }
 
+    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, _data: &ScopeData) {
+        // Threshold overlays
+        if !self.thresholds.is_empty() {
+            let bounds = plot_ui.plot_bounds();
+            let xr = bounds.range_x();
+            let xmin = *xr.start();
+            let xmax = *xr.end();
+            for (_name, def) in &self.thresholds {
+                if let Some(tr) = _data.traces.get(&def.target.0) {
+                    if !tr.look.visible {
+                        continue;
+                    }
+                    let mut thr_color = def.look.color;
+                    let mut thr_expand_line = 1.0;
+                    let mut thr_expand_points = 1.0;
+                    if let Some(hov_thr) = &self.hover_threshold {
+                        if &def.name != hov_thr {
+                            thr_color = Color32::from_rgba_unmultiplied(
+                                thr_color.r(),
+                                thr_color.g(),
+                                thr_color.b(),
+                                60,
+                            );
+                        } else {
+                            thr_color = Color32::from_rgba_unmultiplied(
+                                thr_color.r(),
+                                thr_color.g(),
+                                thr_color.b(),
+                                255,
+                            );
+                            thr_expand_line = 1.6;
+                            thr_expand_points = 1.2;
+                        }
+                    }
+                    let ev_base = def.look.color;
+                    let ev_color = if let Some(hov_thr) = &self.hover_threshold {
+                        if &def.name != hov_thr {
+                            Color32::from_rgba_unmultiplied(
+                                ev_base.r(),
+                                ev_base.g(),
+                                ev_base.b(),
+                                60,
+                            )
+                        } else {
+                            ev_base
+                        }
+                    } else {
+                        ev_base
+                    };
+
+                    let mut draw_hline = |label: &str, y_world: f64| {
+                        let y_lin = y_world + tr.offset;
+                        let y_plot = if _data.y_axis.log_scale {
+                            if y_lin > 0.0 {
+                                y_lin.log10()
+                            } else {
+                                f64::NAN
+                            }
+                        } else {
+                            y_lin
+                        };
+                        if y_plot.is_finite() {
+                            let h = HLine::new(label, y_plot)
+                                .color(thr_color)
+                                .width(def.look.width * thr_expand_line)
+                                .style(def.look.style);
+                            plot_ui.hline(h);
+                        }
+                    };
+
+                    let thr_info = def.get_info(&_data.y_axis);
+                    let legend_label = if _data.show_info_in_legend {
+                        format!("{} — {}", def.name, thr_info)
+                    } else {
+                        def.name.clone()
+                    };
+
+                    match def.kind {
+                        ThresholdKind::GreaterThan { value } => {
+                            draw_hline(&legend_label, value);
+                        }
+                        ThresholdKind::LessThan { value } => {
+                            draw_hline(&legend_label, value);
+                        }
+                        ThresholdKind::InRange { low, high } => {
+                            draw_hline(&legend_label, low);
+                            draw_hline(&legend_label, high);
+                        }
+                    }
+
+                    let state = def.get_runtime_state();
+
+                    let marker_y_world = match def.kind {
+                        ThresholdKind::GreaterThan { value } => value,
+                        ThresholdKind::LessThan { value } => value,
+                        ThresholdKind::InRange { low, high } => (low + high) * 0.5,
+                    };
+                    let y_lin = marker_y_world + tr.offset;
+                    let marker_y_plot = if _data.y_axis.log_scale {
+                        if y_lin > 0.0 {
+                            y_lin.log10()
+                        } else {
+                            f64::NAN
+                        }
+                    } else {
+                        y_lin
+                    };
+                    if marker_y_plot.is_finite() {
+                        for ev in state.events.iter() {
+                            if ev.end_t < xmin || ev.start_t > xmax {
+                                continue;
+                            }
+                            if def.start_look.show_points {
+                                let p = Points::new(
+                                    legend_label.clone(),
+                                    vec![[ev.start_t, marker_y_plot]],
+                                )
+                                .radius(def.start_look.point_size * thr_expand_points)
+                                .shape(def.start_look.marker)
+                                .color(ev_color);
+                                plot_ui.points(p);
+                            } else {
+                                let s = VLine::new(legend_label.clone(), ev.start_t)
+                                    .color(ev_color)
+                                    .width(def.start_look.width * thr_expand_line)
+                                    .style(def.start_look.style);
+
+                                plot_ui.vline(s);
+                            }
+                            if def.stop_look.show_points {
+                                let p = Points::new(
+                                    legend_label.clone(),
+                                    vec![[ev.end_t, marker_y_plot]],
+                                )
+                                .radius(def.stop_look.point_size * thr_expand_points)
+                                .shape(def.stop_look.marker)
+                                .color(ev_color);
+                                plot_ui.points(p);
+                            } else {
+                                let e = VLine::new(legend_label.clone(), ev.end_t)
+                                    .color(ev_color)
+                                    .width(def.stop_look.width * thr_expand_line)
+                                    .style(def.stop_look.style);
+
+                                plot_ui.vline(e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn update_data(&mut self, _data: &mut ScopeData) {
-        // (no-op)
+        let sources = _data.get_all_drawn_points();
+        for def in self.thresholds.values_mut() {
+            def.process_threshold(sources.clone());
+        }
     }
 
     fn render_panel(&mut self, ui: &mut Ui, data: &mut ScopeData) {
@@ -133,11 +219,17 @@ impl Panel for ThresholdsPanel {
         // Existing thresholds list: color edit (threshold color), name/info, and Remove right-aligned
         // Reset hover highlights for this frame
         self.hover_threshold = None;
-        for (name, def) in self.thresholds.clone().iter() {
+        let names_snapshot: Vec<String> = self.thresholds.keys().cloned().collect();
+        for name in names_snapshot {
+            let mut action_remove = false;
+            let mut action_clear = false;
             let row = ui.horizontal(|ui| {
+                let def = self
+                    .thresholds
+                    .get_mut(&name)
+                    .expect("threshold existed in snapshot");
                 // Threshold line color editor (from per-threshold look)
-                let mut line_look = def.look.clone();
-                let mut col = line_look.color;
+                let mut col = def.look.color;
                 let color_resp = ui
                     .color_edit_button_srgba(&mut col)
                     .on_hover_text("Change threshold color");
@@ -161,22 +253,14 @@ impl Panel for ThresholdsPanel {
                     self.hover_threshold = Some(def.name.clone());
                 }
                 if name_resp.clicked() {
-                    self.builder = ThresholdBuilderState::new_from_def(&def, data);
+                    self.builder = def.clone();
                     self.editing = Some(def.name.clone());
                     self.error = None;
                     self.creating = false;
                 }
 
                 // Info text like math traces: target + condition; hover highlights target trace
-                let info_text = match &def.kind {
-                    ThresholdKind::GreaterThan { value } => {
-                        format!("{} > {:.3}", def.target.0, value)
-                    }
-                    ThresholdKind::LessThan { value } => format!("{} < {:.3}", def.target.0, value),
-                    ThresholdKind::InRange { low, high } => {
-                        format!("{} in [{:.3}, {:.3}]", def.target.0, low, high)
-                    }
-                };
+                let info_text = def.get_info(&data.y_axis);
                 let info_resp = ui.add(
                     egui::Label::new(info_text)
                         .truncate()
@@ -188,44 +272,52 @@ impl Panel for ThresholdsPanel {
                 }
                 if info_resp.clicked() {
                     // Same as clicking the name: open editor
-                    self.builder = ThresholdBuilderState::new_from_def(&def, data);
+                    self.builder = def.clone();
                     self.editing = Some(def.name.clone());
                     self.error = None;
                     self.creating = false;
                 }
 
                 // Right-aligned actions: Clear (events) and Remove (definition)
+                let removing_name = def.name.clone();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let remove_resp = ui.button("Remove");
                     if remove_resp.hovered() {
-                        self.hover_threshold = Some(def.name.clone());
+                        self.hover_threshold = Some(removing_name.clone());
                     }
                     if remove_resp.clicked() {
-                        let removing = def.name.clone();
-                        self.thresholds.remove(&removing);
-                        if self.editing.as_deref() == Some(&removing) {
-                            self.editing = None;
-                            self.creating = false;
-                            self.builder = ThresholdBuilderState::default();
-                            self.error = None;
-                        }
+                        action_remove = true;
                     }
                     let clear_resp = ui
                         .button("Clear")
                         .on_hover_text("Clear events for this threshold");
                     if clear_resp.hovered() {
-                        self.hover_threshold = Some(def.name.clone());
+                        self.hover_threshold = Some(removing_name.clone());
                     }
                     if clear_resp.clicked() {
-                        def.clear_threshold_events();
+                        action_clear = true;
                     }
                 });
             });
+            if action_remove {
+                let removing = name.clone();
+                self.thresholds.remove(&removing);
+                if self.editing.as_deref() == Some(&removing) {
+                    self.editing = None;
+                    self.creating = false;
+                    self.builder = ThresholdDef::default();
+                    self.error = None;
+                }
+            } else if action_clear {
+                if let Some(def) = self.thresholds.get_mut(&name) {
+                    def.clear_threshold_events();
+                }
+            }
             if row.response.hovered() {
-                self.hover_threshold = Some(def.name.clone());
+                self.hover_threshold = Some(name.clone());
             }
             // Optional short summary of recent events below each row
-            if let Some(st) = self.thresholds.get(&def.name) {
+            if let Some(st) = self.thresholds.get(&name) {
                 let cnt = st.count_threshold_events();
                 if let Some(last) = st.get_last_threshold_event() {
                     // Use the same time formatting as the events table
@@ -246,12 +338,12 @@ impl Panel for ThresholdsPanel {
                         format!("{:.4}", last.area)
                     ));
                     if resp.hovered() {
-                        self.hover_threshold = Some(def.name.clone());
+                        self.hover_threshold = Some(name.clone());
                     }
                 } else {
                     let resp = ui.label("Events: 0");
                     if resp.hovered() {
-                        self.hover_threshold = Some(def.name.clone());
+                        self.hover_threshold = Some(name.clone());
                     }
                 }
             }
@@ -264,7 +356,18 @@ impl Panel for ThresholdsPanel {
             .on_hover_text("Create a new threshold")
             .clicked();
         if new_clicked {
-            self.builder = ThresholdBuilderState::default();
+            self.builder = ThresholdDef::default();
+            // Apply previous builder-style defaults for looks
+            self.builder.look.style = LineStyle::Dashed { length: 6.0 };
+            self.builder.start_look.show_points = true;
+            self.builder.start_look.point_size = 6.0;
+            self.builder.start_look.marker = MarkerShape::Diamond;
+            self.builder.start_look.style = LineStyle::Dotted { spacing: 4.0 };
+            self.builder.start_look.visible = true;
+            self.builder.stop_look.show_points = true;
+            self.builder.stop_look.point_size = 6.0;
+            self.builder.stop_look.marker = MarkerShape::Square;
+            self.builder.stop_look.style = LineStyle::Dotted { spacing: 4.0 };
             self.editing = None;
             self.error = None;
             self.creating = true;
@@ -290,59 +393,135 @@ impl Panel for ThresholdsPanel {
                 ui.text_edit_singleline(&mut self.builder.name);
             });
             let trace_names: Vec<String> = data.trace_order.clone();
+            let mut target_idx = trace_names
+                .iter()
+                .position(|n| n == &self.builder.target.0)
+                .unwrap_or(0);
             egui::ComboBox::from_label("Trace")
-                .selected_text(
-                    trace_names
-                        .get(self.builder.target_idx)
-                        .cloned()
-                        .unwrap_or_default(),
-                )
+                .selected_text(trace_names.get(target_idx).cloned().unwrap_or_default())
                 .show_ui(ui, |ui| {
                     for (i, n) in trace_names.iter().enumerate() {
-                        ui.selectable_value(&mut self.builder.target_idx, i, n);
+                        if ui.selectable_label(target_idx == i, n).clicked() {
+                            target_idx = i;
+                        }
                     }
                 });
+            if let Some(sel_name) = trace_names.get(target_idx) {
+                self.builder.target.0 = sel_name.clone();
+            }
             // Default color when creating: use selected trace color at 75% alpha if not set by user yet
             if is_creating {
-                if let Some(sel_name) = trace_names.get(self.builder.target_idx) {
-                    if let Some(tr) = data.traces.get(sel_name) {
-                        if self.builder.look.color == egui::Color32::WHITE {
-                            let c = tr.look.color;
-                            self.builder.look.color =
-                                egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 191);
-                        }
+                if let Some(tr) = data.traces.get(&self.builder.target.0) {
+                    if self.builder.look.color == egui::Color32::WHITE {
+                        let c = tr.look.color;
+                        self.builder.look.color =
+                            egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 191);
                     }
                 }
             }
             let kinds = [">", "<", "in range"];
+            let mut kind_idx: usize = match &self.builder.kind {
+                ThresholdKind::GreaterThan { .. } => 0,
+                ThresholdKind::LessThan { .. } => 1,
+                ThresholdKind::InRange { .. } => 2,
+            };
             egui::ComboBox::from_label("Condition")
-                .selected_text(kinds[self.builder.kind_idx])
+                .selected_text(kinds[kind_idx])
                 .show_ui(ui, |ui| {
                     for (i, k) in kinds.iter().enumerate() {
-                        ui.selectable_value(&mut self.builder.kind_idx, i, *k);
+                        if ui.selectable_label(kind_idx == i, *k).clicked() {
+                            kind_idx = i;
+                        }
                     }
                 });
-            match self.builder.kind_idx {
-                0 | 1 => {
+            // Render and update threshold values according to selected kind
+            match (&mut self.builder.kind, kind_idx) {
+                (ThresholdKind::GreaterThan { value }, 0) => {
+                    let mut v = *value;
                     ui.horizontal(|ui| {
                         ui.label("Value");
-                        ui.add(egui::DragValue::new(&mut self.builder.thr1).speed(0.01));
+                        if ui.add(egui::DragValue::new(&mut v).speed(0.01)).changed() {
+                            *value = v;
+                        }
                     });
                 }
-                _ => {
+                (ThresholdKind::LessThan { value }, 1) => {
+                    let mut v = *value;
+                    ui.horizontal(|ui| {
+                        ui.label("Value");
+                        if ui.add(egui::DragValue::new(&mut v).speed(0.01)).changed() {
+                            *value = v;
+                        }
+                    });
+                }
+                (ThresholdKind::InRange { low, high }, 2) => {
+                    let mut lo = *low;
+                    let mut hi = *high;
                     ui.horizontal(|ui| {
                         ui.label("Low");
-                        ui.add(egui::DragValue::new(&mut self.builder.thr1).speed(0.01));
+                        ui.add(egui::DragValue::new(&mut lo).speed(0.01));
                     });
                     ui.horizontal(|ui| {
                         ui.label("High");
-                        ui.add(egui::DragValue::new(&mut self.builder.thr2).speed(0.01));
+                        ui.add(egui::DragValue::new(&mut hi).speed(0.01));
                     });
+                    if lo != *low || hi != *high {
+                        *low = lo.min(hi);
+                        *high = lo.max(hi);
+                    }
+                }
+                // Variant switch requested
+                (old_kind, new_idx) => {
+                    let (v1, v2) = match old_kind {
+                        ThresholdKind::GreaterThan { value } => (*value, *value),
+                        ThresholdKind::LessThan { value } => (*value, *value),
+                        ThresholdKind::InRange { low, high } => (*low, *high),
+                    };
+                    self.builder.kind = match new_idx {
+                        0 => ThresholdKind::GreaterThan { value: v1 },
+                        1 => ThresholdKind::LessThan { value: v1 },
+                        _ => ThresholdKind::InRange {
+                            low: v1.min(v2),
+                            high: v1.max(v2),
+                        },
+                    };
+                    // Render fields for new variant
+                    match &mut self.builder.kind {
+                        ThresholdKind::GreaterThan { value }
+                        | ThresholdKind::LessThan { value } => {
+                            let mut v = *value;
+                            ui.horizontal(|ui| {
+                                ui.label("Value");
+                                if ui.add(egui::DragValue::new(&mut v).speed(0.01)).changed() {
+                                    *value = v;
+                                }
+                            });
+                        }
+                        ThresholdKind::InRange { low, high } => {
+                            let mut lo = *low;
+                            let mut hi = *high;
+                            ui.horizontal(|ui| {
+                                ui.label("Low");
+                                ui.add(egui::DragValue::new(&mut lo).speed(0.01));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("High");
+                                ui.add(egui::DragValue::new(&mut hi).speed(0.01));
+                            });
+                            if lo != *low || hi != *high {
+                                *low = lo.min(hi);
+                                *high = lo.max(hi);
+                            }
+                        }
+                    }
                 }
             }
             ui.horizontal(|ui| {
                 ui.label("Min duration (ms)");
-                ui.add(egui::DragValue::new(&mut self.builder.min_duration_ms).speed(0.1));
+                let mut ms = self.builder.min_duration_s * 1000.0;
+                if ui.add(egui::DragValue::new(&mut ms).speed(0.1)).changed() {
+                    self.builder.min_duration_s = (ms / 1000.0).max(0.0);
+                }
             });
             ui.horizontal(|ui| {
                 ui.label("Max events");
@@ -360,12 +539,12 @@ impl Panel for ThresholdsPanel {
                     //     .render_editor(ui, false, None, false, None);
                 });
             // Keep event colors locked to the line color
-            self.builder.look_start_events.color = self.builder.look.color;
-            self.builder.look_stop_events.color = self.builder.look.color;
+            self.builder.start_look.color = self.builder.look.color;
+            self.builder.stop_look.color = self.builder.look.color;
             egui::CollapsingHeader::new("Style: Event start")
                 .default_open(false)
                 .show(ui, |ui| {
-                    render_trace_look_editor(&mut self.builder.look_start_events, ui, true);
+                    render_trace_look_editor(&mut self.builder.start_look, ui, true);
                     // self.builder.look_start_events.render_editor(
                     //     ui,
                     //     true,
@@ -377,7 +556,7 @@ impl Panel for ThresholdsPanel {
             egui::CollapsingHeader::new("Style: Event stop")
                 .default_open(false)
                 .show(ui, |ui| {
-                    render_trace_look_editor(&mut self.builder.look_stop_events, ui, true);
+                    render_trace_look_editor(&mut self.builder.stop_look, ui, true);
                     // self.builder.look_stop_events.render_editor(
                     //     ui,
                     //     true,
@@ -398,53 +577,34 @@ impl Panel for ThresholdsPanel {
                     if ui.button("Cancel").clicked() {
                         self.editing = None;
                         self.creating = false;
-                        self.builder = ThresholdBuilderState::default();
+                        self.builder = ThresholdDef::default();
                         self.error = None;
                     }
                 });
                 if save_clicked {
-                    if let Some(nm) = trace_names.get(self.builder.target_idx) {
-                        if !self.builder.name.is_empty() {
-                            let kind = match self.builder.kind_idx {
-                                0 => ThresholdKind::GreaterThan {
-                                    value: self.builder.thr1,
-                                },
-                                1 => ThresholdKind::LessThan {
-                                    value: self.builder.thr1,
-                                },
-                                _ => ThresholdKind::InRange {
-                                    low: self.builder.thr1.min(self.builder.thr2),
-                                    high: self.builder.thr1.max(self.builder.thr2),
-                                },
-                            };
-                            let mut def = ThresholdDef::default();
-                            def.name = self.builder.name.clone();
-                            def.target = crate::data::thresholds::TraceRef(nm.clone());
-                            def.kind = kind;
-                            def.look = self.builder.look.clone();
-                            def.start_look = self.builder.look_start_events.clone();
-                            def.stop_look = self.builder.look_stop_events.clone();
-                            def.min_duration_s = (self.builder.min_duration_ms / 1000.0).max(0.0);
-                            def.max_events = self.builder.max_events;
-
-                            if is_editing {
-                                let orig = self.editing.clone().unwrap();
-                                self.thresholds.insert(def.name.clone(), def);
-                                self.editing = None;
-                                self.creating = false;
-                                self.builder = ThresholdBuilderState::default();
-                                self.error = None;
+                    if !self.builder.name.is_empty() {
+                        if is_editing {
+                            // Insert/replace edited definition
+                            self.thresholds
+                                .insert(self.builder.name.clone(), self.builder.clone());
+                            self.editing = None;
+                            self.creating = false;
+                            self.builder = ThresholdDef::default();
+                            self.error = None;
+                        } else {
+                            if self
+                                .thresholds
+                                .iter()
+                                .any(|(_name, d)| d.name == self.builder.name)
+                            {
+                                self.error =
+                                    Some("A threshold with this name already exists".into());
                             } else {
-                                if self.thresholds.iter().any(|(name, d)| d.name == def.name) {
-                                    self.error =
-                                        Some("A threshold with this name already exists".into());
-                                } else {
-                                    self.thresholds.insert(def.name.clone(), def);
-
-                                    self.creating = false;
-                                    self.builder = ThresholdBuilderState::default();
-                                    self.error = None;
-                                }
+                                self.thresholds
+                                    .insert(self.builder.name.clone(), self.builder.clone());
+                                self.creating = false;
+                                self.builder = ThresholdDef::default();
+                                self.error = None;
                             }
                         }
                     }
@@ -455,18 +615,14 @@ impl Panel for ThresholdsPanel {
         ui.separator();
         ui.heading("Threshold events");
 
-        let threshold_event_log = self
-            .thresholds
-            .values()
-            .flat_map(|t| t.get_last_threshold_event().into_iter());
-
+        // Build list of names for filter first, without borrowing events
         ui.horizontal(|ui| {
             ui.label("Filter:");
             // Build list of names from current thresholds and from the log
             let mut names: Vec<String> = self
                 .thresholds
                 .iter()
-                .map(|(name, d)| d.name.clone())
+                .map(|(_name, d)| d.name.clone())
                 .collect();
 
             names.sort();
@@ -491,26 +647,13 @@ impl Panel for ThresholdsPanel {
                 self.events_filter = sel;
             }
             if ui.button("Export to CSV").clicked() {
-                // Collect filtered events (newest first as shown)
-                let evts: Vec<ThresholdEvent> = threshold_event_log
-                    .filter(|e| {
-                        self.events_filter
-                            .as_ref()
-                            .map_or(true, |f| &e.threshold == f)
-                    })
-                    .collect();
-
-                if !evts.is_empty() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .set_file_name("threshold_events.csv")
-                        .add_filter("CSV", &["csv"])
-                        .save_file()
-                    {
-                        if let Err(e) =
-                            super::export_helpers::save_threshold_events_csv(&path, &evts)
-                        {
-                            eprintln!("Failed to export events CSV: {e}");
-                        }
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name("threshold_events.csv")
+                    .add_filter("CSV", &["csv"])
+                    .save_file()
+                {
+                    if let Err(e) = self.save_threshold_events_csv(&path) {
+                        eprintln!("Failed to export events CSV: {e}");
                     }
                 }
             }
@@ -519,25 +662,34 @@ impl Panel for ThresholdsPanel {
                 .on_hover_text("Delete all threshold events (global log and per-threshold buffers)")
                 .clicked()
             {
-                for def in self.thresholds.values() {
+                for def in self.thresholds.values_mut() {
                     def.clear_threshold_events();
                 }
             }
         });
-        // Build filtered, newest-first slice indices for table
-        let filtered: Vec<ThresholdEvent> = threshold_event_log
+        // Build filtered, newest-first slice indices for table, after filter selection possibly changed
+        let mut filtered: Vec<ThresholdEvent> = self
+            .thresholds
+            .values()
+            .flat_map(|t| t.get_threshold_events().into_iter())
             .filter(|e| {
                 self.events_filter
                     .as_ref()
                     .map_or(true, |f| &e.threshold == f)
             })
             .collect();
+        // Sort by start time descending (latest first)
+        filtered.sort_by(|a, b| match b.start_t.partial_cmp(&a.start_t) {
+            Some(ord) => ord,
+            None => Ordering::Equal,
+        });
 
         // Delegate for rendering with egui_table
         struct EventsDelegate<'a> {
             items: &'a [&'a ThresholdEvent],
-            to_clear: Vec<ThresholdEvent>,
+            to_clear: Vec<String>,
             hover_threshold_out: &'a mut Option<String>,
+            axis: &'a AxisSettings,
         }
         impl<'a> TableDelegate for EventsDelegate<'a> {
             fn header_cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::HeaderCellInfo) {
@@ -573,10 +725,10 @@ impl Panel for ThresholdsPanel {
                             }
                         }
                         1 => {
-                            ui.label(self.fmt.format_value(e.start_t)); // formatted time
+                            ui.label(self.axis.format_value(e.start_t, 3, false));
                         }
                         2 => {
-                            ui.label(self.fmt.format_value(e.end_t));
+                            ui.label(self.axis.format_value(e.end_t, 3, false));
                         }
                         3 => {
                             ui.label(format!("{:.3}", e.duration * 1000.0));
@@ -595,7 +747,8 @@ impl Panel for ThresholdsPanel {
                                 *self.hover_threshold_out = Some(e.threshold.clone());
                             }
                             if ev_clear.clicked() {
-                                self.to_clear.push(e.clone());
+                                // Queue clearing the entire threshold events (filter must be set)
+                                self.to_clear.push(e.threshold.clone());
                             }
                         }
                         _ => {}
@@ -604,10 +757,13 @@ impl Panel for ThresholdsPanel {
             }
         }
 
+        // Build items slice with a longer-lived binding to avoid temporary drop issues
+        let items_vec: Vec<&ThresholdEvent> = filtered.iter().collect();
         let mut delegate = EventsDelegate {
-            items: filtered.iter().collect::<Vec<&ThresholdEvent>>().as_slice(),
+            items: items_vec.as_slice(),
             to_clear: Vec::new(),
             hover_threshold_out: &mut self.hover_threshold,
+            axis: &data.x_axis,
         };
         let cols = vec![
             egui_table::Column::new(152.0),
@@ -633,12 +789,49 @@ impl Panel for ThresholdsPanel {
             .columns(cols)
             .headers(vec![EgHeaderRow::new(24.0)])
             .show(&mut table_ui, &mut delegate);
-        // Apply row clears after rendering
+        // Apply row clears after rendering: only clear when a specific threshold is selected via the filter
         if !delegate.to_clear.is_empty() {
-            for ev in delegate.to_clear {
-                app.remove_threshold_event(&ev);
+            if let Some(ref thr) = self.events_filter {
+                if let Some(def) = self.thresholds.get_mut(thr) {
+                    def.clear_threshold_events();
+                }
             }
         }
+    }
+}
+
+impl ThresholdsPanel {
+    pub fn save_threshold_events_csv(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(path)?;
+        writeln!(
+            f,
+            "end_time_seconds,threshold,trace,start_time_seconds,duration_seconds,area"
+        )?;
+
+        let events: Vec<ThresholdEvent> = self
+            .thresholds
+            .values()
+            .flat_map(|t| t.get_threshold_events().into_iter())
+            .filter(|e| {
+                self.events_filter
+                    .as_ref()
+                    .map_or(true, |f| &e.threshold == f)
+            })
+            .collect();
+
+        for e in events {
+            writeln!(
+                f,
+                "{:.9},{},{},{:.9},{:.9},{:.9}",
+                e.end_t, e.threshold, e.trace, e.start_t, e.duration, e.area
+            )?;
+        }
+
+        Ok(())
     }
 }
 // Removed unused show_thresholds_dialog helper; dialogs are shown via DockPanel::show_detached_dialog

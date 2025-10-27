@@ -4,7 +4,7 @@ use egui_plot::{Legend, Line, Plot, Points};
 // no XDateFormat needed in this panel for now
 
 use crate::data::scope::{AxisSettings, ScopeData, ScopeType};
-use crate::panels::panel_trait::Panel;
+// no panel trait needed here; overlays are provided via closure from app
 
 use chrono::Local;
 
@@ -89,10 +89,13 @@ impl ScopePanel {
 
     pub fn render_menu(&mut self, _ui: &mut Ui) {}
 
-    pub fn render_panel(&mut self, ui: &mut Ui, draw_objs: Vec<Box<dyn Panel>>) {
+    pub fn render_panel<F>(&mut self, ui: &mut Ui, draw_overlays: F)
+    where
+        F: FnMut(&mut egui_plot::PlotUi, &ScopeData),
+    {
         self.render_controls(ui);
         ui.separator();
-        self.render_plot(ui, draw_objs);
+        self.render_plot(ui, draw_overlays);
     }
 
     fn render_controls(&mut self, ui: &mut Ui) {
@@ -245,7 +248,10 @@ impl ScopePanel {
         });
     }
 
-    fn render_plot(&mut self, ui: &mut Ui, mut draw_objs: Vec<Box<dyn Panel>>) {
+    fn render_plot<F>(&mut self, ui: &mut Ui, mut draw_overlays: F)
+    where
+        F: FnMut(&mut egui_plot::PlotUi, &ScopeData),
+    {
         // No extra controls in panel; top bar uses render_menu
         // Render plot directly here (for now). Later we can separate draw() if needed.
         let y_log = self.data.y_axis.log_scale;
@@ -407,9 +413,8 @@ impl ScopePanel {
                 }
             }
 
-            for draw_obj in draw_objs.iter_mut() {
-                draw_obj.draw(plot_ui, &self.data);
-            }
+            // Additional overlays provided by caller (e.g., thresholds, markers)
+            draw_overlays(plot_ui, &self.data);
 
             // Detect bounds changes via zoom box
             bounds_changed

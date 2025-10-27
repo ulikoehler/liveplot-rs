@@ -13,6 +13,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 use crate::data::trace_look::TraceLook;
+use crate::data::scope::AxisSettings;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,7 +77,7 @@ pub struct ThresholdDef {
     /// Maximum number of events to keep (oldest dropped). Default 100.
     pub max_events: usize,
 
-      #[serde(skip)]
+    #[serde(skip)]
     runtime_state: ThresholdRuntimeState,
 }
 
@@ -111,7 +112,7 @@ pub struct ThresholdEvent {
 /// Runtime state for evaluating a threshold incrementally.
 #[derive(Debug, Clone)]
 pub struct ThresholdRuntimeState {
-    pub active: bool,
+    active: bool,
     pub start_t: f64,
     pub last_t: Option<f64>,
     pub last_excess: f64,
@@ -146,6 +147,30 @@ impl ThresholdRuntimeState {
 }
 
 impl ThresholdDef {
+    pub fn get_info(&self, axis_setting: &AxisSettings) -> String {
+        let dec_pl = 4usize;
+        let min_threshold = 10f64.powi(-(dec_pl as i32)); // 1e-4
+        let needs_sci = |v: f64| v.abs() < min_threshold || v.abs() >= 1e4;
+        match &self.kind {
+            ThresholdKind::GreaterThan { value } => {
+                let sci = needs_sci(*value);
+                let v_fmt = axis_setting.format_value(*value, dec_pl, sci);
+                format!("{} > {}", self.target.0, v_fmt)
+            }
+            ThresholdKind::LessThan { value } => {
+                let sci = needs_sci(*value);
+                let v_fmt = axis_setting.format_value(*value, dec_pl, sci);
+                format!("{} < {}", self.target.0, v_fmt)
+            }
+            ThresholdKind::InRange { low, high } => {
+                let diff_small = (*high - *low).abs() < 1e-4;
+                let sci = diff_small || needs_sci(*low) || needs_sci(*high);
+                let lo = axis_setting.format_value(*low, dec_pl, sci);
+                let hi = axis_setting.format_value(*high, dec_pl, sci);
+                format!("{} in [{}, {}]", self.target.0, lo, hi)
+            }
+        }
+    }
 
     pub fn clear_threshold_events(&mut self) {
         self.runtime_state.events.clear();
@@ -163,9 +188,13 @@ impl ThresholdDef {
         self.runtime_state.events.iter().cloned().collect()
     }
 
-     /// Process new data points for this threshold, updating its runtime state and recording events.
+    pub fn get_runtime_state(&self) -> &ThresholdRuntimeState {
+        &self.runtime_state
+    }
 
-    pub fn process_threshold(&mut self, sources: HashMap<String, Vec<[f64; 2]>>) {
+    /// Process new data points for this threshold, updating its runtime state and recording events.
+
+    pub fn process_threshold(&mut self, sources: HashMap<String, VecDeque<[f64; 2]>>) {
         let data = sources.get(&self.target.0).unwrap();
 
         let mut start_idx = 0usize;
@@ -187,7 +216,8 @@ impl ThresholdDef {
             if let Some(t0) = self.runtime_state.last_t {
                 let dt = (t - t0).max(0.0);
                 if self.runtime_state.active || e > 0.0 {
-                    self.runtime_state.accum_area += 0.5 * (self.runtime_state.last_excess + e) * dt;
+                    self.runtime_state.accum_area +=
+                        0.5 * (self.runtime_state.last_excess + e) * dt;
                 }
             }
             if !self.runtime_state.active && e > 0.0 {
@@ -205,15 +235,16 @@ impl ThresholdDef {
                         duration: dur,
                         area: self.runtime_state.accum_area,
                     };
-                    self.runtime_state.push_event_capped(evt.clone(), self.max_events);
-                                // self.threshold_event_log.push_back(evt.clone());
-                                // while self.threshold_event_log.len() > self.threshold_event_log_cap {
-                                //     self.threshold_event_log.pop_front();
-                                // }
-                                // if let Some(ctrl) = &self.threshold_controller {
-                                //     let mut inner = ctrl.inner.lock().unwrap();
-                                //     inner.listeners.retain(|s| s.send(evt.clone()).is_ok());
-                                // }
+                    self.runtime_state
+                        .push_event_capped(evt.clone(), self.max_events);
+                    // self.threshold_event_log.push_back(evt.clone());
+                    // while self.threshold_event_log.len() > self.threshold_event_log_cap {
+                    //     self.threshold_event_log.pop_front();
+                    // }
+                    // if let Some(ctrl) = &self.threshold_controller {
+                    //     let mut inner = ctrl.inner.lock().unwrap();
+                    //     inner.listeners.retain(|s| s.send(evt.clone()).is_ok());
+                    // }
                 }
                 self.runtime_state.active = false;
                 self.runtime_state.accum_area = 0.0;
@@ -404,7 +435,6 @@ impl ThresholdDef {
 // }
 
 // One threshold event instance.
-
 
 // /// Controller to add/remove thresholds and subscribe to resulting events from outside the UI.
 // #[derive(Clone)]

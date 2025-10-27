@@ -30,10 +30,46 @@ impl Default for AxisSettings {
 
 impl AxisSettings { // TODO
     pub fn format_value(&self, v: f64, dec_pl: usize, sci: bool) -> String {
-        if let Some(unit) = &self.unit {
-            format!("{:.2} {}", v, unit)
+        // If a format string is provided, interpret it as a chrono DateTime format for
+        // Unix timestamp seconds (used for time axes) and ignore dec_pl/sci.
+        if let Some(fmt) = &self.format {
+            let secs = v.floor() as i64;
+            let nsecs = ((v - secs as f64) * 1e9) as u32;
+            let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
+                .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+            return dt_utc
+                .with_timezone(&chrono::Local)
+                .format(fmt.as_str())
+                .to_string();
+        }
+
+        // No explicit format: format number with either fixed decimals or scientific notation
+        // and optionally append unit.
+        let formatted = if sci {
+            if v == 0.0 || !v.is_finite() {
+                // Just show the value as-is with requested precision if zero/NaN/inf
+                format!("{:.*}", dec_pl, v)
+            } else {
+                // Create a compact scientific representation like 1.23e5 (no +00 padding)
+                let sign = if v.is_sign_negative() { -1.0 } else { 1.0 };
+                let av = v.abs();
+                let exp = av.log10().floor() as i32;
+                let pow = 10f64.powi(exp);
+                let mant = sign * (av / pow);
+                if exp == 0 {
+                    format!("{:.*}", dec_pl, mant)
+                } else {
+                    format!("{:.*}e{}", dec_pl, mant, exp)
+                }
+            }
         } else {
-            format!("{:.2}", v)
+            format!("{:.*}", dec_pl, v)
+        };
+
+        if let Some(unit) = &self.unit {
+            format!("{} {}", formatted, unit)
+        } else {
+            formatted
         }
     }
 
@@ -299,6 +335,16 @@ impl ScopeData {
         } else {
             None
         }
+    }
+
+    pub fn get_all_drawn_points(&self) -> HashMap<String, VecDeque<[f64; 2]>> {
+        let mut result = HashMap::new();
+        for (name, _) in self.traces.iter() {
+            if let Some(pts) = self.get_drawn_points(name) {
+                result.insert(name.clone(), pts);
+            }
+        }
+        result
     }
 
 }

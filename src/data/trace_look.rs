@@ -15,7 +15,7 @@ pub struct TraceLook {
 impl Default for TraceLook {
     fn default() -> Self {
         Self {
-            color: Color32::LIGHT_BLUE,
+            color: Color32::WHITE,
             visible: true,
             width: 1.5,
             show_points: false,
