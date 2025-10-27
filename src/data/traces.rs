@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
-
+use serde::{Deserialize, Serialize};
 use crate::data::trace_look::TraceLook;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraceRef(pub String);
 
 #[derive(Default)]
 pub struct TraceData {

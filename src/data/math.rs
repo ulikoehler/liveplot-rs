@@ -35,8 +35,7 @@ use serde::{Deserialize, Serialize};
 /// This is just a thin wrapper around `String` used to make math trace definitions
 /// more explicit. The inner string must match a key present in the `sources` map
 /// passed to computation routines.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct TraceRef(pub String);
+use crate::data::traces::TraceRef;
 
 /// Parameters describing a biquad / low-order IIR filter in direct form I.
 ///

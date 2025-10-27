@@ -1,4 +1,5 @@
-use crate::data::math::{FilterKind, MathKind, MathTrace, MinMaxMode, TraceRef};
+use crate::data::math::{FilterKind, MathKind, MathTrace, MinMaxMode};
+use crate::data::traces::TraceRef;
 use eframe::egui;
 use egui::{Color32, Ui};
 use std::collections::HashMap;

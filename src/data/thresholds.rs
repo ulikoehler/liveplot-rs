@@ -12,12 +12,10 @@ use std::collections::VecDeque;
 // use std::sync::mpsc::Sender;
 // use std::sync::{Arc, Mutex};
 
-use crate::data::trace_look::TraceLook;
 use crate::data::scope::AxisSettings;
+use crate::data::trace_look::TraceLook;
+use crate::data::traces::TraceRef;
 use std::collections::HashMap;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TraceRef(pub String);
 
 /// Threshold condition kind.
 #[derive(Debug, Clone, Serialize, Deserialize)]
