@@ -37,6 +37,7 @@ impl Default for ScopePanel {
 }
 
 impl ScopePanel {
+
     pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
         let mut instance = Self::default();
         instance.data.set_rx(rx);
@@ -210,8 +211,67 @@ impl ScopePanel {
                 self.data.clear_all();
             }
 
+            // Request a screenshot of the current viewport; the handler below
+            // will catch the Screenshot event and write it to disk.
+            if ui.button("Save Screenshot").on_hover_text("Take a screenshot of the entire window").clicked() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            }
+
             ui.separator();
         });
+    }
+
+    // Handle a completed screenshot event and write the PNG to disk.
+    // If an environment variable LIVEPLOT_SAVE_SCREENSHOT_TO is set, save there.
+    // Otherwise, prompt the user for a path.
+    fn handle_screenshot_result(&mut self, ui: &mut Ui) {
+        if let Some(image_arc) = ui.ctx().input(|i| {
+            i.events.iter().rev().find_map(|e| {
+                if let egui::Event::Screenshot { image, .. } = e {
+                    Some(image.clone())
+                } else {
+                    None
+                }
+            })
+        }) {
+            // Convert ColorImage to an image::RgbaImage
+            let img = &*image_arc;
+            let [w, h] = img.size;
+            let mut out = image::RgbaImage::new(w as u32, h as u32);
+            for y in 0..h {
+                for x in 0..w {
+                    let p = img.pixels[y * w + x];
+                    out.put_pixel(x as u32, y as u32, image::Rgba([p.r(), p.g(), p.b(), p.a()]));
+                }
+            }
+
+            // Determine path: env var or file dialog
+            if let Ok(path_str) = std::env::var("LIVEPLOT_SAVE_SCREENSHOT_TO") {
+                std::env::remove_var("LIVEPLOT_SAVE_SCREENSHOT_TO");
+                let path = std::path::PathBuf::from(path_str);
+                if let Err(e) = out.save(&path) {
+                    eprintln!("Failed to save viewport screenshot: {e}");
+                } else {
+                    eprintln!("Saved viewport screenshot to {:?}", path);
+                }
+            } else {
+                let default_name = format!(
+                    "viewport_{:.0}.png",
+                    chrono::Local::now().timestamp_millis()
+                );
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name(&default_name)
+                    .add_filter("PNG", &["png"])
+                    .save_file()
+                {
+                    if let Err(e) = out.save(&path) {
+                        eprintln!("Failed to save viewport screenshot: {e}");
+                    } else {
+                        eprintln!("Saved viewport screenshot to {:?}", path);
+                    }
+                }
+            }
+        }
     }
 
     fn render_plot<F>(&mut self, ui: &mut Ui, mut draw_overlays: F)
@@ -220,6 +280,9 @@ impl ScopePanel {
     {
         // No extra controls in panel; top bar uses render_menu
         // Render plot directly here (for now). Later we can separate draw() if needed.
+        // First, handle any completed screenshot events from the OS/windowing backend.
+        self.handle_screenshot_result(ui);
+
         let y_log = self.data.y_axis.log_scale;
         let x_log = self.data.x_axis.log_scale;
         let plot = Plot::new("scope_plot")
@@ -241,7 +304,7 @@ impl ScopePanel {
                     .format_value(y_value, 4, y.step_size.abs())
             });
 
-        let plot_resp = plot.show(ui, |plot_ui| {
+    let plot_resp = plot.show(ui, |plot_ui| {
             // Handle wheel zoom around hovered point
             let resp = plot_ui.response();
 

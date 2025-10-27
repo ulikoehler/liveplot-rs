@@ -5,7 +5,7 @@ use crate::panels::panel_trait::Panel;
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
 //     thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,
 // };
-use crate::panels::{scope_ui::ScopePanel, traces_ui::TracesPanel, math_ui::MathPanel, thresholds_ui::ThresholdsPanel};
+use crate::panels::{scope_ui::ScopePanel, traces_ui::TracesPanel, math_ui::MathPanel, thresholds_ui::ThresholdsPanel, export_ui::ExportPanel};
 
 pub struct MainPanel {
     // Panels
@@ -26,7 +26,7 @@ impl MainPanel {
             left_side_panels: vec![],
             bottom_panels: vec![], //vec![Box::new(FftPanel::default())],
             detached_panels: vec![],
-            empty_panels: vec![],
+            empty_panels: vec![Box::new(ExportPanel::default())],
         }
     }
 
