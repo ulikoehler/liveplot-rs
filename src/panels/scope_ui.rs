@@ -3,10 +3,8 @@ use egui_plot::{Legend, Line, Plot, Points};
 
 // no XDateFormat needed in this panel for now
 
-use crate::data::scope::{AxisSettings, ScopeData, ScopeType};
+use crate::data::scope::{ScopeData, ScopeType};
 // no panel trait needed here; overlays are provided via closure from app
-
-use chrono::Local;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum ZoomMode {

@@ -1,7 +1,5 @@
 use std::collections::{HashMap, VecDeque};
 
-use egui_plot::Axis;
-
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceData;
 use crate::sink::MultiSample;

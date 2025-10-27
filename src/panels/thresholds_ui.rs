@@ -3,7 +3,6 @@ use crate::data::scope::{AxisSettings, ScopeData};
 use crate::data::thresholds::{ThresholdDef, ThresholdEvent, ThresholdKind};
 use crate::panels::trace_look_ui::render_trace_look_editor;
 use chrono::Local;
-use eframe::glow::COLOR;
 use egui;
 use egui::{Color32, Ui};
 use egui_plot::{HLine, LineStyle, MarkerShape, Points, VLine};

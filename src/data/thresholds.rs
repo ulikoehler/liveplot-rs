@@ -9,8 +9,8 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+// use std::sync::mpsc::Sender;
+// use std::sync::{Arc, Mutex};
 
 use crate::data::trace_look::TraceLook;
 use crate::data::scope::AxisSettings;
@@ -149,8 +149,6 @@ impl ThresholdRuntimeState {
 impl ThresholdDef {
     pub fn get_info(&self, axis_setting: &AxisSettings) -> String {
         let dec_pl = 4usize;
-        let min_threshold = 10f64.powi(-(dec_pl as i32)); // 1e-4
-        let needs_sci = |v: f64| v.abs() < min_threshold || v.abs() >= 1e4;
         match &self.kind {
             ThresholdKind::GreaterThan { value } => {
                 let v_fmt = axis_setting.format_value(*value, dec_pl, value.abs());
