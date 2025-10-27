@@ -28,23 +28,19 @@ impl Default for AxisSettings {
     }
 }
 
-impl AxisSettings { // TODO
-    pub fn format_value(&self, v: f64, dec_pl: usize, sci: bool) -> String {
-        // If a format string is provided, interpret it as a chrono DateTime format for
-        // Unix timestamp seconds (used for time axes) and ignore dec_pl/sci.
-        if let Some(fmt) = &self.format {
-            let secs = v.floor() as i64;
-            let nsecs = ((v - secs as f64) * 1e9) as u32;
-            let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
-                .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
-            return dt_utc
-                .with_timezone(&chrono::Local)
-                .format(fmt.as_str())
-                .to_string();
-        }
+impl AxisSettings { 
 
-        // No explicit format: format number with either fixed decimals or scientific notation
-        // and optionally append unit.
+    pub fn format_value_with_unit(&self, v: f64, dec_pl: usize, step: f64) -> String {
+        // Decide scientific formatting based on step magnitude vs precision:
+        // - Use scientific if step < 10^-dec_pl (too fine to show with dec_pl)
+        // - Or if step >= 10^dec_pl (too large; many digits before decimal)
+        let sci = if step.is_finite() && step != 0.0 {
+            let exp = step.abs().log10().floor() as i32;
+            exp < -(dec_pl as i32) || exp >= dec_pl as i32
+        } else {
+            false
+        };
+
         let formatted = if sci {
             if v == 0.0 || !v.is_finite() {
                 // Just show the value as-is with requested precision if zero/NaN/inf
@@ -71,6 +67,23 @@ impl AxisSettings { // TODO
         } else {
             formatted
         }
+    }
+
+    pub fn format_value(&self, v: f64, dec_pl: usize, step: f64) -> String {
+        // If a format string is provided, interpret it as a chrono DateTime format for
+        // Unix timestamp seconds (used for time axes) and ignore dec_pl/sci.
+        if let Some(fmt) = &self.format {
+            let secs = v.floor() as i64;
+            let nsecs = ((v - secs as f64) * 1e9) as u32;
+            let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
+                .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+            return dt_utc
+                .with_timezone(&chrono::Local)
+                .format(fmt.as_str())
+                .to_string();
+        }
+
+        return self.format_value_with_unit(v, dec_pl, step);
     }
 
     

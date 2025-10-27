@@ -45,39 +45,6 @@ impl ScopePanel {
         instance
     }
 
-    fn format_sci(value: f64, step: f64, axis: &AxisSettings) -> String {
-        if value == 0.0 {
-            return "0".to_string();
-        }
-
-        let sci = step < 1e-3;
-        let label_val = if axis.log_scale {
-            10f64.powf(value)
-        } else {
-            value
-        };
-        if let Some(unit) = &axis.unit {
-            if sci {
-                let exponent = step.log10().floor() + 1.0;
-                format!(
-                    "{:.1}e{} {}",
-                    label_val / 10f64.powf(exponent),
-                    exponent,
-                    unit
-                )
-            } else {
-                format!("{:.3} {}", label_val, unit)
-            }
-        } else {
-            if sci {
-                let exponent = step.log10().floor() + 1.0;
-                format!("{:.1}e{}", label_val / 10f64.powf(exponent), exponent)
-            } else {
-                format!("{:.3}", label_val)
-            }
-        }
-    }
-
     pub fn update_data(&mut self) -> &mut ScopeData {
         self.data.update();
         &mut self.data
@@ -132,10 +99,11 @@ impl ScopePanel {
                 .smart_aim(true)
                 .show_value(true)
                 .clamping(egui::SliderClamping::Edits)
-                .suffix(format!(
-                    " {}",
-                    self.data.x_axis.unit.as_deref().unwrap_or("s")
-                ));
+                .custom_formatter(|n, _| {
+                    // Use the axis formatter with unit for the time window value
+                    // Use the current value as step heuristic for sci thresholding
+                    self.data.x_axis.format_value_with_unit(n, 4, n)
+                });
 
                 let sresp = ui.add(slider);
                 if sresp.changed() {
@@ -151,13 +119,13 @@ impl ScopePanel {
                 let r1 = ui.add(
                     egui::DragValue::new(&mut x_min_tmp)
                         .speed(0.1)
-                        .custom_formatter(|n, _| Self::format_sci(n, x_range, &self.data.x_axis)),
+                        .custom_formatter(|n, _| self.data.x_axis.format_value_with_unit(n, 4, x_range)),
                 );
                 ui.label("Max:");
                 let r2 = ui.add(
                     egui::DragValue::new(&mut x_max_tmp)
                         .speed(0.1)
-                        .custom_formatter(|n, _| Self::format_sci(n, x_range, &self.data.x_axis)),
+                        .custom_formatter(|n, _| self.data.x_axis.format_value_with_unit(n, 4, x_range)),
                 );
                 if (r1.changed() || r2.changed()) && x_min_tmp < x_max_tmp {
                     self.data.x_axis.bounds.0 = x_min_tmp;
@@ -187,13 +155,13 @@ impl ScopePanel {
             let r1 = ui.add(
                 egui::DragValue::new(&mut y_min_tmp)
                     .speed(0.1)
-                    .custom_formatter(|n, _| Self::format_sci(n, y_range, &self.data.y_axis)),
+                    .custom_formatter(|n, _| self.data.y_axis.format_value_with_unit(n, 4, y_range)),
             );
             ui.label("Max:");
             let r2 = ui.add(
                 egui::DragValue::new(&mut y_max_tmp)
                     .speed(0.1)
-                    .custom_formatter(|n, _| Self::format_sci(n, y_range, &self.data.y_axis)),
+                    .custom_formatter(|n, _| self.data.y_axis.format_value_with_unit(n, 4, y_range)),
             );
             if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
                 self.data.y_axis.bounds.0 = y_min_tmp;
@@ -262,26 +230,17 @@ impl ScopePanel {
             .allow_boxed_zoom(true)
             .legend(Legend::default())
             .x_axis_formatter(|x, _range| {
-                if self.data.scope_type == ScopeType::TimeScope {
-                    let val = x.value;
-                    let secs = val as i64;
-                    let nsecs = ((val - secs as f64) * 1e9) as u32;
-                    let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
-                        .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
-
-                    dt_utc
-                        .with_timezone(&Local)
-                        .format(self.data.x_axis.format.as_deref().unwrap_or("%H:%M:%S"))
-                        .to_string()
-                } else {
-                    let x_value = if x_log { 10f64.powf(x.value) } else { x.value };
-                    Self::format_sci(x_value, x.step_size.abs(), &self.data.x_axis)
-                }
+                let x_value = if x_log { 10f64.powf(x.value) } else { x.value };
+                self.data
+                    .x_axis
+                    .format_value(x_value, 4, x.step_size.abs())
             })
             .y_axis_formatter(|y, _range| {
                 // Scientific ticks with optional unit, apply inverse log mapping for display
                 let y_value = if y_log { 10f64.powf(y.value) } else { y.value };
-                Self::format_sci(y_value, y.step_size.abs(), &self.data.y_axis)
+                self.data
+                    .y_axis
+                    .format_value(y_value, 4, y.step_size.abs())
             });
 
         let plot_resp = plot.show(ui, |plot_ui| {

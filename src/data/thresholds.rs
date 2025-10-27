@@ -153,20 +153,17 @@ impl ThresholdDef {
         let needs_sci = |v: f64| v.abs() < min_threshold || v.abs() >= 1e4;
         match &self.kind {
             ThresholdKind::GreaterThan { value } => {
-                let sci = needs_sci(*value);
-                let v_fmt = axis_setting.format_value(*value, dec_pl, sci);
+                let v_fmt = axis_setting.format_value(*value, dec_pl, value.abs());
                 format!("{} > {}", self.target.0, v_fmt)
             }
             ThresholdKind::LessThan { value } => {
-                let sci = needs_sci(*value);
-                let v_fmt = axis_setting.format_value(*value, dec_pl, sci);
+                let v_fmt = axis_setting.format_value(*value, dec_pl, value.abs());
                 format!("{} < {}", self.target.0, v_fmt)
             }
             ThresholdKind::InRange { low, high } => {
-                let diff_small = (*high - *low).abs() < 1e-4;
-                let sci = diff_small || needs_sci(*low) || needs_sci(*high);
-                let lo = axis_setting.format_value(*low, dec_pl, sci);
-                let hi = axis_setting.format_value(*high, dec_pl, sci);
+                let diff = (*high - *low).abs();
+                let lo = axis_setting.format_value(*low, dec_pl, diff);
+                let hi = axis_setting.format_value(*high, dec_pl, diff);
                 format!("{} in [{}, {}]", self.target.0, lo, hi)
             }
         }
