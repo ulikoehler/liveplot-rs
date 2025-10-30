@@ -188,7 +188,7 @@ impl Panel for MathPanel {
         for def in self.math_traces.iter_mut() {
             let out = def.compute_math_trace(sources.clone());
 
-            let paused = _data.paused;
+            let paused = _data.is_paused();
             let tr = _data.get_trace_or_new(def.name.as_str());
             if paused {
                 tr.snap = Some(out.iter().copied().collect());
