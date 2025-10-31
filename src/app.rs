@@ -1,5 +1,8 @@
 use eframe::egui;
 
+use crate::controllers::{FftController, TracesController, UiActionController, WindowController};
+use crate::data::export;
+
 use crate::panels::panel_trait::Panel;
 // use crate::panels::{
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
@@ -368,22 +371,188 @@ impl MainPanel {
 
 pub struct MainApp {
     pub main_panel: MainPanel,
+    // Optional external controllers
+    pub window_ctrl: Option<WindowController>,
+    pub ui_ctrl: Option<UiActionController>,
+    pub traces_ctrl: Option<TracesController>,
+    pub fft_ctrl: Option<FftController>,
 }
 
 impl MainApp {
     pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
         Self {
             main_panel: MainPanel::new(rx),
+            window_ctrl: None,
+            ui_ctrl: None,
+            traces_ctrl: None,
+            fft_ctrl: None,
+        }
+    }
+
+    pub fn with_controllers(
+        rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>,
+        window_ctrl: Option<WindowController>,
+        ui_ctrl: Option<UiActionController>,
+        traces_ctrl: Option<TracesController>,
+        fft_ctrl: Option<FftController>,
+    ) -> Self {
+        Self {
+            main_panel: MainPanel::new(rx),
+            window_ctrl,
+            ui_ctrl,
+            traces_ctrl,
+            fft_ctrl,
+        }
+    }
+
+    fn apply_controllers(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // WindowController: apply requested size/pos; publish current size/pos
+        if let Some(ctrl) = &self.window_ctrl {
+            // Apply requests
+            let (req_size, req_pos) = {
+                let mut inner = ctrl.inner.lock().unwrap();
+                (inner.request_set_size.take(), inner.request_set_pos.take())
+            };
+            if let Some([w, h]) = req_size {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(w, h)));
+            }
+            // Positioning is not applied here due to API variability across platforms.
+            // Publish current info
+            let rect = ctx.input(|i| i.screen_rect());
+            let size = [rect.width(), rect.height()];
+            let pos = [rect.left(), rect.top()];
+            let info = crate::controllers::WindowInfo {
+                current_size: Some(size),
+                current_pos: Some(pos),
+                requested_size: req_size,
+                requested_pos: req_pos,
+            };
+            let mut inner = ctrl.inner.lock().unwrap();
+            inner.current_size = Some(size);
+            inner.current_pos = Some(pos);
+            inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+        }
+
+        // UiActionController: pause/resume, screenshot, exports, FFT requests (best-effort)
+        if let Some(ctrl) = &self.ui_ctrl {
+            let mut take_actions = {
+                let mut inner = ctrl.inner.lock().unwrap();
+                (
+                    inner.request_pause.take(),
+                    { let v = inner.request_screenshot; inner.request_screenshot = false; v },
+                    inner.request_screenshot_to.take(),
+                    inner.request_save_raw.take(),
+                    inner.request_save_raw_to.take(),
+                    inner.fft_request.take(),
+                )
+            };
+
+            let data = self.main_panel.scope_panel.get_data_mut();
+
+            // pause/resume
+            if let Some(p) = take_actions.0 {
+                if p { data.pause(); } else { data.resume(); }
+            }
+            // screenshot now
+            if take_actions.1 {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            }
+            // screenshot to path: set env var for scope handler and trigger capture
+            if let Some(path) = take_actions.2.take() {
+                std::env::set_var("LIVEPLOT_SAVE_SCREENSHOT_TO", path);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            }
+            // save raw aligned snapshot (CSV/Parquet) to path
+            if let Some((_fmt, path)) = take_actions.4.take() {
+                // Build aligned series from currently drawn points
+                let tol = 1e-9;
+                let order = data.trace_order.clone();
+                let series: std::collections::HashMap<String, Vec<[f64; 2]>> = order
+                    .iter()
+                    .filter_map(|name| data.get_drawn_points(name).map(|v| (name.clone(), v.into_iter().collect())))
+                    .collect();
+                let _ = if path.extension().and_then(|s| s.to_str()) == Some("csv") {
+                    export::write_csv_aligned_path(&path, &order, &series, tol)
+                } else {
+                    export::write_parquet_aligned_path(&path, &order, &series, tol)
+                };
+            }
+            // save raw without path not handled here (needs UI to ask for path)
+
+            // FFT requests not implemented in detail; clear them so callers don't block
+            if let Some(_req) = take_actions.5.take() {
+                // No-op: placeholder until FFT panel provides data pipeline
+            }
+        }
+
+        // TracesController: apply queued changes and publish snapshot info
+        if let Some(ctrl) = &self.traces_ctrl {
+            let mut inner = ctrl.inner.lock().unwrap();
+            let data = self.main_panel.scope_panel.get_data_mut();
+            for (name, rgb) in inner.color_requests.drain(..) {
+                if let Some(tr) = data.traces.get_mut(&name) {
+                    tr.look.color = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                }
+            }
+            for (name, vis) in inner.visible_requests.drain(..) {
+                if let Some(tr) = data.traces.get_mut(&name) {
+                    tr.look.visible = vis;
+                }
+            }
+            for (name, off) in inner.offset_requests.drain(..) {
+                if let Some(tr) = data.traces.get_mut(&name) {
+                    tr.offset = off;
+                }
+            }
+            if let Some(unit) = inner.y_unit_request.take() {
+                data.y_axis.unit = unit;
+            }
+            if let Some(ylog) = inner.y_log_request.take() {
+                data.y_axis.log_scale = ylog;
+            }
+            if let Some(sel) = inner.selection_request.take() {
+                data.selection_trace = sel;
+            }
+
+            // Publish current traces snapshot
+            let mut infos: Vec<crate::controllers::TraceInfo> = Vec::new();
+            for name in data.trace_order.iter() {
+                if let Some(tr) = data.traces.get(name) {
+                    infos.push(crate::controllers::TraceInfo {
+                        name: name.clone(),
+                        color_rgb: [tr.look.color.r(), tr.look.color.g(), tr.look.color.b()],
+                        visible: tr.look.visible,
+                        is_math: false, // no math differentiation here
+                        offset: tr.offset,
+                    });
+                }
+            }
+            let y_unit = data.y_axis.unit.clone();
+            let y_log = data.y_axis.log_scale;
+            let snapshot = crate::controllers::TracesInfo { traces: infos, marker_selection: data.selection_trace.clone(), y_unit, y_log };
+            inner.listeners.retain(|s| s.send(snapshot.clone()).is_ok());
+        }
+
+        // FftController: reflect desired show state if FFT panel exists; publish panel size if present
+        if let Some(ctrl) = &self.fft_ctrl {
+            // Try to find an FFT panel and set its visibility/size
+            // Currently not part of default layout; best-effort placeholder
+            let mut inner = ctrl.inner.lock().unwrap();
+            // We don't have actual panel size; set current_size to None for now
+            let info = crate::controllers::FftPanelInfo { shown: inner.show, current_size: None, requested_size: inner.request_set_size };
+            inner.listeners.retain(|s| s.send(info.clone()).is_ok());
         }
     }
 }
 
 impl eframe::App for MainApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Non-UI calculations first
             self.main_panel.update(ui);
         });
+        // Apply and publish controller requests after update
+        self.apply_controllers(ctx, frame);
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
     }
 }
@@ -396,5 +565,18 @@ pub fn run_liveplot(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> 
         // initial_window_size: Some(egui::vec2(1280.0, 720.0)),
         ..Default::default()
     };
+    eframe::run_native(&title, opts, Box::new(|_cc| Ok(Box::new(app))))
+}
+
+pub fn run_liveplot_with_controllers(
+    rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>,
+    window_ctrl: Option<WindowController>,
+    ui_ctrl: Option<UiActionController>,
+    traces_ctrl: Option<TracesController>,
+    fft_ctrl: Option<FftController>,
+) -> eframe::Result<()> {
+    let app = MainApp::with_controllers(rx, window_ctrl, ui_ctrl, traces_ctrl, fft_ctrl);
+    let title = "LivePlot".to_string();
+    let opts = eframe::NativeOptions { ..Default::default() };
     eframe::run_native(&title, opts, Box::new(|_cc| Ok(Box::new(app))))
 }

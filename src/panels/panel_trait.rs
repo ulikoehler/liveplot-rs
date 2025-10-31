@@ -33,7 +33,7 @@ pub trait Panel {
     // Optional hooks with default empty impls
     fn render_menu(&mut self, _ui: &mut Ui, _data: &mut ScopeData) {}
     fn render_panel(&mut self, _ui: &mut Ui, _data: &mut ScopeData) {}
-    fn draw(&mut self, plot_ui: &mut PlotUi, _data: &ScopeData) {}
+    fn draw(&mut self, _plot_ui: &mut PlotUi, _data: &ScopeData) {}
 
     fn update_data(&mut self, _data: &mut ScopeData) {}
 

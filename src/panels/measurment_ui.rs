@@ -1,9 +1,8 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::measurement::Measurement;
-use crate::data::scope::{AxisSettings, ScopeData};
-use crate::data::{self, measurement};
+use crate::data::scope::ScopeData;
 use egui::{Align2, Color32};
-use egui_plot::{HLine, Line, Plot, PlotPoint, Points, Text, VLine};
+use egui_plot::{Line, PlotPoint, Points, Text};
 
 pub struct MeasurementPanel {
     state: PanelState,
@@ -47,8 +46,15 @@ impl Panel for MeasurementPanel {
 
             // Choose target measurement index safely to avoid borrow conflicts
             let target_idx = if let Some(idx) = self.selected_measurement {
-                if idx < self.measurements.len() { idx } else { self.selected_measurement = None; 0 }
-            } else { 0 };
+                if idx < self.measurements.len() {
+                    idx
+                } else {
+                    self.selected_measurement = None;
+                    0
+                }
+            } else {
+                0
+            };
             let measurement = self.measurements.get_mut(target_idx).unwrap();
 
             if let Some(point_idx) = self.selected_point_index {
@@ -153,8 +159,16 @@ impl Panel for MeasurementPanel {
                         .color(Color32::YELLOW),
                 );
                 let (halign_anchor, text_align, base) = label_pos(dx, dy, &p, ox, oy);
-                let x_lin = if _data.x_axis.log_scale { 10f64.powf(p[0]) } else { p[0] };
-                let y_lin = if _data.y_axis.log_scale { 10f64.powf(p[1]) } else { p[1] };
+                let x_lin = if _data.x_axis.log_scale {
+                    10f64.powf(p[0])
+                } else {
+                    p[0]
+                };
+                let y_lin = if _data.y_axis.log_scale {
+                    10f64.powf(p[1])
+                } else {
+                    p[1]
+                };
                 let x_range = (x_max_lin - x_min_lin).abs();
                 let y_range = (y_max_lin - y_min_lin).abs();
                 let x_txt = _data.x_axis.format_value(x_lin, 6, x_range);
@@ -175,8 +189,16 @@ impl Panel for MeasurementPanel {
                         .color(Color32::LIGHT_BLUE),
                 );
                 let (halign_anchor, text_align, base) = label_pos(-dx, -dy, &p, ox, oy);
-                let x_lin = if _data.x_axis.log_scale { 10f64.powf(p[0]) } else { p[0] };
-                let y_lin = if _data.y_axis.log_scale { 10f64.powf(p[1]) } else { p[1] };
+                let x_lin = if _data.x_axis.log_scale {
+                    10f64.powf(p[0])
+                } else {
+                    p[0]
+                };
+                let y_lin = if _data.y_axis.log_scale {
+                    10f64.powf(p[1])
+                } else {
+                    p[1]
+                };
                 let x_range = (x_max_lin - x_min_lin).abs();
                 let y_range = (y_max_lin - y_min_lin).abs();
                 let x_txt = _data.x_axis.format_value(x_lin, 6, x_range);
@@ -187,21 +209,32 @@ impl Panel for MeasurementPanel {
                 egui::RichText::new(txt)
                     .size(marker_font_size)
                     .color(Color32::LIGHT_BLUE)
-                    .append_to(
-                        &mut job,
-                        &style,
-                        egui::FontSelection::Default,
-                        text_align,
-                    );
+                    .append_to(&mut job, &style, egui::FontSelection::Default, text_align);
                 plot_ui.text(Text::new("Measurement", base, job).anchor(halign_anchor));
             }
             if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
                 plot_ui.line(Line::new("Measurement", vec![p1, p2]).color(Color32::LIGHT_GREEN));
                 // Compute slope and delta in LINEAR units for readability
-                let x1_lin = if _data.x_axis.log_scale { 10f64.powf(p1[0]) } else { p1[0] };
-                let x2_lin = if _data.x_axis.log_scale { 10f64.powf(p2[0]) } else { p2[0] };
-                let y1_lin = if _data.y_axis.log_scale { 10f64.powf(p1[1]) } else { p1[1] };
-                let y2_lin = if _data.y_axis.log_scale { 10f64.powf(p2[1]) } else { p2[1] };
+                let x1_lin = if _data.x_axis.log_scale {
+                    10f64.powf(p1[0])
+                } else {
+                    p1[0]
+                };
+                let x2_lin = if _data.x_axis.log_scale {
+                    10f64.powf(p2[0])
+                } else {
+                    p2[0]
+                };
+                let y1_lin = if _data.y_axis.log_scale {
+                    10f64.powf(p1[1])
+                } else {
+                    p1[1]
+                };
+                let y2_lin = if _data.y_axis.log_scale {
+                    10f64.powf(p2[1])
+                } else {
+                    p2[1]
+                };
                 let dx_lin = x2_lin - x1_lin;
                 let dy_lin = y2_lin - y1_lin;
                 let slope = if dx_lin.abs() > 1e-12 {
@@ -255,7 +288,8 @@ impl Panel for MeasurementPanel {
         ui.horizontal(|ui| {
             if ui.button("Add").clicked() {
                 let idx = self.measurements.len() + 1;
-                self.measurements.push(Measurement::new(&format!("M{}", idx)));
+                self.measurements
+                    .push(Measurement::new(&format!("M{}", idx)));
             }
             if ui.button("Clear All").clicked() {
                 for m in &mut self.measurements {
@@ -272,13 +306,20 @@ impl Panel for MeasurementPanel {
             let mut remove_this = false;
             ui.horizontal(|ui| {
                 let selected = self.selected_measurement == Some(i);
-                if ui.selectable_label(selected, format!("#{}", i + 1)).clicked() {
+                if ui
+                    .selectable_label(selected, format!("#{}", i + 1))
+                    .clicked()
+                {
                     self.selected_measurement = Some(i);
                 }
                 let m = &mut self.measurements[i];
                 ui.text_edit_singleline(&mut m.name);
 
-                if ui.button("Pick").on_hover_text("Set next click to auto-advance P1/P2").clicked() {
+                if ui
+                    .button("Pick")
+                    .on_hover_text("Set next click to auto-advance P1/P2")
+                    .clicked()
+                {
                     self.selected_measurement = Some(i);
                     self.selected_point_index = None;
                 }
@@ -305,8 +346,16 @@ impl Panel for MeasurementPanel {
             let y_range = (data.y_axis.bounds.1 - data.y_axis.bounds.0).abs();
             ui.horizontal(|ui| {
                 if let Some(p) = p1 {
-                    let x_lin = if data.x_axis.log_scale { 10f64.powf(p[0]) } else { p[0] };
-                    let y_lin = if data.y_axis.log_scale { 10f64.powf(p[1]) } else { p[1] };
+                    let x_lin = if data.x_axis.log_scale {
+                        10f64.powf(p[0])
+                    } else {
+                        p[0]
+                    };
+                    let y_lin = if data.y_axis.log_scale {
+                        10f64.powf(p[1])
+                    } else {
+                        p[1]
+                    };
                     ui.colored_label(
                         Color32::YELLOW,
                         format!(
@@ -319,8 +368,16 @@ impl Panel for MeasurementPanel {
                     ui.label("P1: –");
                 }
                 if let Some(p) = p2 {
-                    let x_lin = if data.x_axis.log_scale { 10f64.powf(p[0]) } else { p[0] };
-                    let y_lin = if data.y_axis.log_scale { 10f64.powf(p[1]) } else { p[1] };
+                    let x_lin = if data.x_axis.log_scale {
+                        10f64.powf(p[0])
+                    } else {
+                        p[0]
+                    };
+                    let y_lin = if data.y_axis.log_scale {
+                        10f64.powf(p[1])
+                    } else {
+                        p[1]
+                    };
                     ui.colored_label(
                         Color32::LIGHT_BLUE,
                         format!(
@@ -334,13 +391,33 @@ impl Panel for MeasurementPanel {
                 }
             });
             if let (Some(p1), Some(p2)) = (p1, p2) {
-                let x1 = if data.x_axis.log_scale { 10f64.powf(p1[0]) } else { p1[0] };
-                let x2 = if data.x_axis.log_scale { 10f64.powf(p2[0]) } else { p2[0] };
-                let y1 = if data.y_axis.log_scale { 10f64.powf(p1[1]) } else { p1[1] };
-                let y2 = if data.y_axis.log_scale { 10f64.powf(p2[1]) } else { p2[1] };
+                let x1 = if data.x_axis.log_scale {
+                    10f64.powf(p1[0])
+                } else {
+                    p1[0]
+                };
+                let x2 = if data.x_axis.log_scale {
+                    10f64.powf(p2[0])
+                } else {
+                    p2[0]
+                };
+                let y1 = if data.y_axis.log_scale {
+                    10f64.powf(p1[1])
+                } else {
+                    p1[1]
+                };
+                let y2 = if data.y_axis.log_scale {
+                    10f64.powf(p2[1])
+                } else {
+                    p2[1]
+                };
                 let dx = x2 - x1;
                 let dy = y2 - y1;
-                let slope = if dx.abs() > 1e-12 { dy / dx } else { f64::INFINITY };
+                let slope = if dx.abs() > 1e-12 {
+                    dy / dx
+                } else {
+                    f64::INFINITY
+                };
                 ui.colored_label(
                     Color32::LIGHT_GREEN,
                     if slope.is_finite() {

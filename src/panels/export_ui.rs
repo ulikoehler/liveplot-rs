@@ -63,7 +63,7 @@ impl Panel for ExportPanel {
                         let mut series: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
                         for name in data.trace_order.iter() {
                             if let Some(tr) = data.traces.get(name) {
-                                let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if data.paused {
+                                let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if data.is_paused() {
                                     if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
                                 } else { Box::new(tr.live.iter()) };
                                 let vec: Vec<[f64; 2]> = iter.cloned().collect();
