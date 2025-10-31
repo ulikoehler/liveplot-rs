@@ -296,7 +296,8 @@ impl AppStateSerde {
 
 // ---------- Public API ----------
 
-pub fn save_mainpanel_to_path(ctx: &egui::Context, panel: &mut MainPanel, path: &Path) -> Result<(), String> {
+/// Capture the current application state into a serializable struct.
+pub fn save_mainpanel_to_struct(ctx: &egui::Context, panel: &mut MainPanel) -> AppStateSerde {
     // Capture last known window size and position (best-effort)
     let rect = ctx.input(|i| i.screen_rect());
     let win_size = Some([rect.width(), rect.height()]);
@@ -370,13 +371,35 @@ pub fn save_mainpanel_to_path(ctx: &egui::Context, panel: &mut MainPanel, path: 
     panel.detached_panels = detached;
     panel.empty_panels = empty;
 
-    let txt = serde_json::to_string_pretty(&state).map_err(|e| e.to_string())?;
+    state
+}
+
+/// Serialize the application state as pretty JSON.
+pub fn save_mainpanel_to_json(ctx: &egui::Context, panel: &mut MainPanel) -> Result<String, String> {
+    let state = save_mainpanel_to_struct(ctx, panel);
+    serde_json::to_string_pretty(&state).map_err(|e| e.to_string())
+}
+
+/// Save the application state to a JSON file at the given path.
+pub fn save_mainpanel_to_path(ctx: &egui::Context, panel: &mut MainPanel, path: &Path) -> Result<(), String> {
+    let txt = save_mainpanel_to_json(ctx, panel)?;
     std::fs::write(path, txt).map_err(|e| e.to_string())
 }
 
+/// Load the application state from a JSON file at the given path and apply it.
 pub fn load_mainpanel_from_path(ctx: &egui::Context, panel: &mut MainPanel, path: &Path) -> Result<(), String> {
     let txt = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let state: AppStateSerde = serde_json::from_str(&txt).map_err(|e| e.to_string())?;
+    load_mainpanel_from_json(ctx, panel, &txt)
+}
+
+/// Load the application state from a JSON string and apply it.
+pub fn load_mainpanel_from_json(ctx: &egui::Context, panel: &mut MainPanel, json: &str) -> Result<(), String> {
+    let state: AppStateSerde = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    load_mainpanel_from_struct(ctx, panel, state)
+}
+
+/// Apply a previously captured application state.
+pub fn load_mainpanel_from_struct(ctx: &egui::Context, panel: &mut MainPanel, state: AppStateSerde) -> Result<(), String> {
 
     // Apply window size (best-effort)
     if let Some([w, h]) = state.window_size {
