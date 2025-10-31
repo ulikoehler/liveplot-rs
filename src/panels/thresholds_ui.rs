@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct ThresholdsPanel {
-    pub state: PanelState,
+    state: PanelState,
     builder: ThresholdDef,
     pub editing: Option<String>,
     pub error: Option<String>,

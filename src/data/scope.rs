@@ -102,14 +102,15 @@ pub struct ScopeData {
     pub max_points: usize,
     pub time_window: f64,
     pub scope_type: ScopeType,
-    pub paused: bool,
+    paused: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
-    pub rx: Option<std::sync::mpsc::Receiver<MultiSample>>,
+    rx: Option<std::sync::mpsc::Receiver<MultiSample>>,
     pub traces: HashMap<String, TraceData>,
     pub trace_order: Vec<String>,
     pub hover_trace: Option<String>,
     pub selection_trace: Option<String>,
+    pub clicked_point: Option<[f64; 2]>,
 }
 
 impl Default for ScopeData {
@@ -132,6 +133,7 @@ impl Default for ScopeData {
             trace_order: Vec::new(),
             hover_trace: None,
             selection_trace: None,
+            clicked_point: None,
         }
     }
 }
@@ -287,6 +289,10 @@ impl ScopeData {
         for (_name, trace) in self.traces.iter_mut() {
             trace.clear_snapshot();
         }
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused
     }
 
     pub fn clear_all(&mut self) {

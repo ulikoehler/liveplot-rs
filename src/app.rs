@@ -5,7 +5,10 @@ use crate::panels::panel_trait::Panel;
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
 //     thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,
 // };
-use crate::panels::{scope_ui::ScopePanel, traces_ui::TracesPanel, math_ui::MathPanel, thresholds_ui::ThresholdsPanel, export_ui::ExportPanel, triggers_ui::TriggersPanel};
+use crate::panels::{
+    export_ui::ExportPanel, math_ui::MathPanel, scope_ui::ScopePanel,
+    thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,measurment_ui::MeasurementPanel,
+};
 
 pub struct MainPanel {
     // Panels
@@ -21,7 +24,13 @@ impl MainPanel {
     pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
         Self {
             scope_panel: ScopePanel::new(rx),
-            right_side_panels: vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default()), Box::new(ThresholdsPanel::default()), Box::new(TriggersPanel::default())], 
+            right_side_panels: vec![
+                Box::new(TracesPanel::default()),
+                Box::new(MathPanel::default()),
+                Box::new(ThresholdsPanel::default()),
+                Box::new(TriggersPanel::default()),
+                Box::new(MeasurementPanel::default()),
+            ],
             //vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default()), Box::new(ThresholdsPanel::default()), Box::new(TriggersPanel::default()), Box::new(ExportPanel::default())],
             left_side_panels: vec![],
             bottom_panels: vec![], //vec![Box::new(FftPanel::default())],
@@ -46,17 +55,18 @@ impl MainPanel {
             let mut detached = std::mem::take(&mut self.detached_panels);
             let mut empty = std::mem::take(&mut self.empty_panels);
 
-            let mut draw_overlays = |plot_ui: &mut egui_plot::PlotUi, data: &crate::data::scope::ScopeData| {
-                for p in right
-                    .iter_mut()
-                    .chain(left.iter_mut())
-                    .chain(bottom.iter_mut())
-                    .chain(detached.iter_mut())
-                    .chain(empty.iter_mut())
-                {
-                    p.draw(plot_ui, data);
-                }
-            };
+            let mut draw_overlays =
+                |plot_ui: &mut egui_plot::PlotUi, data: &crate::data::scope::ScopeData| {
+                    for p in right
+                        .iter_mut()
+                        .chain(left.iter_mut())
+                        .chain(bottom.iter_mut())
+                        .chain(detached.iter_mut())
+                        .chain(empty.iter_mut())
+                    {
+                        p.draw(plot_ui, data);
+                    }
+                };
 
             self.scope_panel.render_panel(ui, &mut draw_overlays);
 

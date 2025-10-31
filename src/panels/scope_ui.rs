@@ -197,7 +197,7 @@ impl ScopePanel {
 
             ui.separator();
 
-            if !self.data.paused {
+            if !self.data.is_paused() {
                 if ui.button("Pause").clicked() {
                     self.data.pause();
                 }
@@ -458,6 +458,105 @@ impl ScopePanel {
             }
         }
 
+        self.handle_plot_click(&plot_resp);
+
         self.data.hover_trace = None;
+    }
+
+    /// Handle click selection on the plot using nearest point logic.
+     fn handle_plot_click(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
+        if plot_response.response.clicked() {
+            if !self.data.is_paused() {
+                self.data.pause();
+            }
+
+            if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                let transform = plot_response.transform;
+                let plot_pos = transform.value_from_position(screen_pos);
+                let selected_trace_name = self.data.selection_trace.clone();
+                let sel_data_points: Option<Vec<[f64; 2]>> =
+                    if let Some(name) = &selected_trace_name {
+                        self.data.traces.get(name).map(|tr| {
+                            let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.data.is_paused() {
+                                if let Some(snap) = &tr.snap {
+                                    Box::new(snap.iter())
+                                } else {
+                                    Box::new(tr.live.iter())
+                                }
+                            } else {
+                                Box::new(tr.live.iter())
+                            };
+                            iter.cloned().collect()
+                        })
+                    } else {
+                        None
+                    };
+                match (&selected_trace_name, &sel_data_points) {
+                    (Some(name), Some(data_points)) if !data_points.is_empty() => {
+                        let off = self.data.traces.get(name).map(|t| t.offset).unwrap_or(0.0);
+                        let mut best_i = None;
+                        let mut best_d2 = f64::INFINITY;
+                        for (i, p) in data_points.iter().enumerate() {
+                            let x_lin = p[0];
+                            let x_plot = if self.data.x_axis.log_scale {
+                                if x_lin > 0.0 {
+                                    x_lin.log10()
+                                } else {
+                                    continue;
+                                }
+                            } else {
+                                x_lin
+                            };
+                            let y_lin = p[1] + off;
+                            let y_plot = if self.data.y_axis.log_scale {
+                                if y_lin > 0.0 {
+                                    y_lin.log10()
+                                } else {
+                                    continue;
+                                }
+                            } else {
+                                y_lin
+                            };
+                            let dx = x_plot - plot_pos.x;
+                            let dy = y_plot - plot_pos.y;
+                            let d2 = dx * dx + dy * dy;
+                            if d2 < best_d2 {
+                                best_d2 = d2;
+                                best_i = Some(i);
+                            }
+                        }
+                        if let Some(i) = best_i {
+                            let p = data_points[i];
+                            let x_lin = p[0];
+                            let x_plot = if self.data.x_axis.log_scale { x_lin.log10() } else { x_lin };
+                            let y_lin = p[1] + off;
+                            let y_plot = if self.data.y_axis.log_scale { y_lin.log10() } else { y_lin };
+                            self.data.clicked_point = Some([x_plot, y_plot]);
+                        }
+                    }
+                    _ => {
+                        let x_plot = if self.data.x_axis.log_scale {
+                            if plot_pos.x > 0.0 {
+                                plot_pos.x.log10()
+                            } else {
+                                plot_pos.x
+                            }
+                        } else {
+                            plot_pos.x
+                        };
+                        let y_plot = if self.data.y_axis.log_scale {
+                            if plot_pos.y > 0.0 {
+                                plot_pos.y.log10()
+                            } else {
+                                plot_pos.y
+                            }
+                        } else {
+                            plot_pos.y
+                        };
+                        self.data.clicked_point = Some([x_plot, y_plot]);
+                    }
+                }
+            }
+        }
     }
 }
