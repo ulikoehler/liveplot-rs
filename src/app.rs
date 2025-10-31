@@ -164,6 +164,26 @@ impl MainPanel {
                     }
                 }
             });
+
+            ui.menu_button("State", |ui| {
+                if ui.button("Save state...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("JSON", &["json"])
+                        .set_file_name("liveplot_state.json")
+                        .save_file()
+                    {
+                        let _ = crate::persistence::save_mainpanel_to_path(ui.ctx(), self, &path);
+                    }
+                }
+                if ui.button("Load state...").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("JSON", &["json"])
+                        .pick_file()
+                    {
+                        let _ = crate::persistence::load_mainpanel_from_path(ui.ctx(), self, &path);
+                    }
+                }
+            });
         });
     }
 

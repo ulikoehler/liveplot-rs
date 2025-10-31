@@ -5,7 +5,7 @@ use crate::data::export;
 use std::collections::HashMap;
 
 pub struct ExportPanel { pub state: PanelState }
-impl Default for ExportPanel { fn default() -> Self { Self { state: PanelState { title: "Export", visible: false, detached: false, request_docket: false } } } }
+impl Default for ExportPanel { fn default() -> Self { Self { state: PanelState::new("Export") } } }
 impl Panel for ExportPanel {
     fn state(&self) -> &PanelState { &self.state }
     fn state_mut(&mut self) -> &mut PanelState { &mut self.state }

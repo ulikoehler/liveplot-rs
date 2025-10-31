@@ -2,6 +2,7 @@ use egui::{Context, Ui};
 use egui_plot::PlotUi;
 
 use crate::data::scope::ScopeData;
+use std::any::Any;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PanelState {
@@ -9,6 +10,8 @@ pub struct PanelState {
     pub visible: bool,
     pub detached: bool,
     pub request_docket: bool,
+    pub window_pos: Option<[f32; 2]>,
+    pub window_size: Option<[f32; 2]>,
 }
 
 impl PanelState {
@@ -18,17 +21,27 @@ impl PanelState {
             visible: false,
             detached: false,
             request_docket: false,
+            window_pos: None,
+            window_size: None,
         }
     }
 }
 
-pub trait Panel {
+pub trait Panel: Any {
     fn title(&self) -> &'static str {
         self.state().title
     }
 
     fn state(&self) -> &PanelState;
     fn state_mut(&mut self) -> &mut PanelState;
+
+    // For downcasting to concrete panel types in persistence and other cross-cutting features
+    fn as_any_mut(&mut self) -> &mut dyn Any
+    where
+        Self: 'static + Sized,
+    {
+        self as &mut dyn Any
+    }
 
     // Optional hooks with default empty impls
     fn render_menu(&mut self, _ui: &mut Ui, _data: &mut ScopeData) {}
@@ -47,9 +60,18 @@ pub trait Panel {
         };
 
         let mut dock_clicked = false;
-        egui::Window::new(title)
-            .open(&mut show_flag)
-            .show(ctx, |ui| {
+        let mut win = egui::Window::new(title).open(&mut show_flag);
+        // Apply persisted position/size if available
+        {
+            let st_ro = self.state();
+            if let Some(pos) = st_ro.window_pos {
+                win = win.default_pos(egui::pos2(pos[0], pos[1]));
+            }
+            if let Some(sz) = st_ro.window_size {
+                win = win.default_size(egui::vec2(sz[0], sz[1]));
+            }
+        }
+        let resp = win.show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.strong(title);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -65,6 +87,12 @@ pub trait Panel {
 
         // Write back state changes without overlapping borrows
         let state = self.state_mut();
+        // Capture window position and size from the response if available
+        if let Some(ir) = &resp {
+            let rect = ir.response.rect;
+            state.window_pos = Some([rect.min.x, rect.min.y]);
+            state.window_size = Some([rect.size().x, rect.size().y]);
+        }
         if dock_clicked {
             state.detached = false;
             // Closing the detached window after docking back to sidebar

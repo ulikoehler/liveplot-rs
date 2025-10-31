@@ -8,6 +8,7 @@ pub mod data;
 pub mod panels;
 
 pub mod app; // standalone runner and embedding entrypoints
+pub mod persistence;
 
 // Re-exports for external API compatibility with examples
 // pub use config::{LivePlotConfig, XDateFormat};

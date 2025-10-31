@@ -786,3 +786,13 @@ impl Panel for MathPanel {
         }
     }
 }
+
+// Public helpers for persistence/state management
+impl MathPanel {
+    pub fn get_math_traces(&self) -> &Vec<crate::data::math::MathTrace> {
+        &self.math_traces
+    }
+    pub fn set_math_traces(&mut self, v: Vec<crate::data::math::MathTrace>) {
+        self.math_traces = v;
+    }
+}
