@@ -387,9 +387,27 @@ impl Panel for ThresholdsPanel {
             ui.add_space(3.0);
 
             // Name, Trace, Condition
+            // Duplicate name when creating, or when editing and changing to an existing different name
+            let duplicate_name = self
+                .thresholds
+                .contains_key(&self.builder.name)
+                && self.editing.as_deref() != Some(self.builder.name.as_str());
+
             ui.horizontal(|ui| {
                 ui.label("Name");
-                ui.text_edit_singleline(&mut self.builder.name);
+                if duplicate_name {
+                    egui::Frame::default()
+                        .stroke(egui::Stroke::new(1.5, egui::Color32::RED))
+                        .show(ui, |ui| {
+                            let resp = ui.add(egui::TextEdit::singleline(&mut self.builder.name));
+                            let _resp = resp.on_hover_text(
+                                "A threshold with this name already exists. Please choose another.",
+                            );
+                        });
+                } else {
+                    let resp = ui.add(egui::TextEdit::singleline(&mut self.builder.name));
+                    let _resp = resp.on_hover_text("Enter a unique name for this threshold");
+                }
             });
             let trace_names: Vec<String> = data.trace_order.clone();
             let mut target_idx = trace_names
@@ -533,9 +551,6 @@ impl Panel for ThresholdsPanel {
                 .default_open(false)
                 .show(ui, |ui| {
                     render_trace_look_editor(&mut self.builder.look, ui, false);
-                    // self.builder
-                    //     .look
-                    //     .render_editor(ui, false, None, false, None);
                 });
             // Keep event colors locked to the line color
             self.builder.start_look.color = self.builder.look.color;
@@ -544,32 +559,22 @@ impl Panel for ThresholdsPanel {
                 .default_open(false)
                 .show(ui, |ui| {
                     render_trace_look_editor(&mut self.builder.start_look, ui, true);
-                    // self.builder.look_start_events.render_editor(
-                    //     ui,
-                    //     true,
-                    //     None,
-                    //     true,
-                    //     Some(self.builder.look.color),
-                    // );
                 });
             egui::CollapsingHeader::new("Style: Event stop")
                 .default_open(false)
                 .show(ui, |ui| {
                     render_trace_look_editor(&mut self.builder.stop_look, ui, true);
-                    // self.builder.look_stop_events.render_editor(
-                    //     ui,
-                    //     true,
-                    //     None,
-                    //     true,
-                    //     Some(self.builder.look.color),
-                    // );
                 });
 
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 let save_label = if is_editing { "Save" } else { "Add threshold" };
+                let can_save = !self.builder.name.is_empty() && !duplicate_name;
                 let mut save_clicked = false;
-                if ui.button(save_label).clicked() {
+                if ui
+                    .add_enabled(can_save, egui::Button::new(save_label))
+                    .clicked()
+                {
                     save_clicked = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -583,9 +588,15 @@ impl Panel for ThresholdsPanel {
                 if save_clicked {
                     if !self.builder.name.is_empty() {
                         if is_editing {
-                            // Insert/replace edited definition
+                            // Insert/replace edited definition; remove old key when renaming
+                            let old_key = self.editing.clone();
                             self.thresholds
                                 .insert(self.builder.name.clone(), self.builder.clone());
+                            if let Some(old) = old_key {
+                                if old != self.builder.name {
+                                    self.thresholds.remove(&old);
+                                }
+                            }
                             self.editing = None;
                             self.creating = false;
                             self.builder = ThresholdDef::default();
