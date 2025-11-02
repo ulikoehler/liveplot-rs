@@ -15,7 +15,7 @@ pub struct Trigger {
 
     start_trigger: bool,
     last_triggered: Option<f64>,
-    trigger_pending: bool,
+    trigger_pending: Option<f64>,
 }
 
 impl Default for Trigger {
@@ -28,10 +28,13 @@ impl Default for Trigger {
             slope: TriggerSlope::Rising,
             single_shot: true,
             trigger_position: 0.5,
-            look: TraceLook { style: LineStyle::Dotted { spacing: 4.0 }, ..TraceLook::default() },
+            look: TraceLook {
+                style: LineStyle::Dotted { spacing: 4.0 },
+                ..TraceLook::default()
+            },
             start_trigger: false,
             last_triggered: None,
-            trigger_pending: false,
+            trigger_pending: None,
         }
     }
 }
@@ -45,13 +48,12 @@ pub enum TriggerSlope {
 impl Trigger {
     pub fn reset(&mut self) {
         self.last_triggered = None;
-        if self.enabled && !self.single_shot {
-            self.start_trigger = true;
-        }
+        self.trigger_pending = None;
     }
 
     pub fn start(&mut self) {
         self.last_triggered = None;
+        self.trigger_pending = None;
         if self.enabled {
             self.start_trigger = true;
         }
@@ -59,6 +61,7 @@ impl Trigger {
 
     pub fn stop(&mut self) {
         self.start_trigger = false;
+        self.trigger_pending = None;
     }
 
     /// Short, user-facing description used in UI and legend labels.
@@ -91,13 +94,13 @@ impl Trigger {
         self.last_triggered
     }
     pub fn is_triggered(&self) -> bool {
-        self.last_triggered.is_some() && self.enabled && !self.trigger_pending
+        self.last_triggered.is_some() && self.enabled
     }
     pub fn is_active(&self) -> bool {
-        self.enabled && self.start_trigger && !self.trigger_pending
+        self.enabled && self.start_trigger && (!self.trigger_pending.is_some() || !self.single_shot)
     }
     pub fn is_trigger_pending(&self) -> bool {
-        self.trigger_pending
+        self.trigger_pending.is_some()
     }
 
     /// Check the target trace for a trigger crossing and optionally pause after a configurable
@@ -106,22 +109,25 @@ impl Trigger {
     /// - 1.0 => pause after `data.max_points` new samples on the target trace
     /// Values in between scale linearly.
     pub fn check_trigger(&mut self, data: &mut ScopeData) -> bool {
+        if !data.traces.contains_key(&self.target.0) {
+            self.enabled = false;
+            if let Some(first) = data.trace_order.first() {
+                self.target = TraceRef(first.clone());
+            }
+        }
+
         if !self.enabled {
             self.start_trigger = false;
-            self.last_triggered = None;
             return false;
         }
-        if !self.single_shot {
-            self.start_trigger = true;
-        }
-        if !self.start_trigger && !self.trigger_pending {
-            return self.last_triggered.is_some();
+        if !self.start_trigger && !self.trigger_pending.is_some() {
+            return false; //self.last_triggered.is_some();
         }
 
         let target_name = &self.target.0;
 
         // Step 1: detect a new trigger crossing and compute a new trigger time (if any)
-        if self.start_trigger && !self.trigger_pending{
+        if self.start_trigger && !self.trigger_pending.is_some() {
             let new_trigger_time: Option<f64> = {
                 if let Some(trace) = data.traces.get(target_name) {
                     let live = &trace.live;
@@ -168,59 +174,45 @@ impl Trigger {
                         found
                     }
                 } else {
+                    self.enabled = false;
                     None
                 }
             };
 
             // Step 2: apply effects of a new trigger (update last_triggered; maybe immediate pause)
             if let Some(t_trig) = new_trigger_time {
-                self.last_triggered = Some(t_trig);
-                self.trigger_pending = true;
+                self.trigger_pending = Some(t_trig);
                 if self.single_shot {
                     self.start_trigger = false;
                 }
             }
 
-            println!("Trigger check: new_trigger_time = {:?}", new_trigger_time);
+            // println!("Trigger check: new_trigger_time = {:?}", new_trigger_time);
         }
 
-        if self.trigger_pending {
-            if let Some(t_trig) = self.last_triggered {
-                let pos = self.trigger_position.clamp(0.0, 1.0);
-                let needed: usize = (data.max_points as f64 * pos).round() as usize;
-                println!(
-                    "Trigger check: trigger_position = {}, needed samples after trigger = {}",
-                    pos, needed
-                );
-                if needed == 0 {
-                    data.pause();
-                    self.trigger_pending = false;
-                } else {
-                    // Short immutable borrow to count samples after the trigger
-                    let have: usize = if let Some(trace) = data.traces.get(target_name) {
-                        trace.live.iter().filter(|p| p[0] > t_trig).count()
-                    } else {
-                        0
-                    };
-                    let have_other: usize = if let Some(trace) = data.traces.get(target_name) {
-                        trace.live.iter().filter(|p| p[0] < t_trig).count()
-                    } else {
-                        0
-                    };
-                    println!(
-                    "Trigger check: have {} samples after trigger time {:.6} with have {} samples before",
-                    have, t_trig, have_other
-                );
-                    if have >= needed {
-                        println!("Pausing due to trigger at time {:.6}", t_trig);
-                        data.pause();
-                        self.trigger_pending = false;
-                    }
-                }
-                return true;
+        if let Some(t_trig) = self.trigger_pending {
+            let pos = self.trigger_position.clamp(0.0, 1.0);
+            let needed: usize = (data.max_points as f64 * pos).round() as usize;
+
+            if needed == 0 {
+                data.pause();
+                self.last_triggered = self.trigger_pending;
+                self.trigger_pending = None;
             } else {
-                self.trigger_pending = false;
+                // Short immutable borrow to count samples after the trigger
+                let have: usize = if let Some(trace) = data.traces.get(target_name) {
+                    trace.live.iter().filter(|p| p[0] > t_trig).count()
+                } else {
+                    0
+                };
+
+                if have >= needed {
+                    data.pause();
+                    self.last_triggered = self.trigger_pending;
+                    self.trigger_pending = None;
+                }
             }
+            return true;
         }
 
         return false;

@@ -128,8 +128,19 @@ impl Panel for TriggersPanel {
             .any(|tr| tr.single_shot && tr.is_triggered());
 
         if !is_single_shot_triggered {
-            for (_name, trigger) in self.triggers.iter_mut() {
-                trigger.check_trigger(_data);
+            for (_name, tr) in self.triggers.iter_mut() {
+                if tr.check_trigger(_data) {
+                    if tr.is_triggered() {
+                        let tr_time = tr.last_trigger_time().unwrap();
+                        let time_window = _data.x_axis.bounds.1 - _data.x_axis.bounds.0;
+
+                        let tr_pos = tr.trigger_position;
+                        _data.x_axis.bounds = (
+                            tr_time - time_window * tr_pos,
+                            tr_time + time_window * (1.0 - tr_pos),
+                        );
+                    }
+                }
             }
         }
     }
@@ -168,103 +179,129 @@ impl Panel for TriggersPanel {
         ui.add_space(6.0);
 
         // List existing triggers with enable toggle, quick info, and Remove button
-        let names_snapshot: Vec<String> = self.triggers.keys().cloned().collect();
-        for name in names_snapshot {
+        let mut removals: Vec<String> = Vec::new();
+        for (name, tr) in self.triggers.iter_mut() {
+            let name_str = name.clone();
             let mut to_remove = false;
+
+            // Main row: enable toggle, name/info, remove button
             let row = ui.horizontal(|ui| {
-                if let Some(tr) = self.triggers.get_mut(&name) {
-                    // Enable toggle
-                    ui.checkbox(&mut tr.enabled, "");
+                // Enable toggle
+                ui.checkbox(&mut tr.enabled, "");
 
-                    // Clickable name to edit
-                    let name_resp =
-                        ui.add(egui::Label::new(tr.name.clone()).sense(egui::Sense::click()));
-                    // Short info text
-                    let info = tr.get_info(&data.y_axis);
-                    let info_resp = ui.add(egui::Label::new(info).sense(egui::Sense::click()));
-                    if name_resp.clicked() || info_resp.clicked() {
-                        // Open editor with a copy of current settings
-                        let mut t = Trigger::default();
-                        t.name = tr.name.clone();
-                        t.target = TraceRef(tr.target.0.clone());
-                        t.enabled = tr.enabled;
-                        t.level = tr.level;
-                        t.slope = match tr.slope {
-                            TriggerSlope::Rising => TriggerSlope::Rising,
-                            TriggerSlope::Falling => TriggerSlope::Falling,
-                            TriggerSlope::Any => TriggerSlope::Any,
-                        };
-                        t.single_shot = tr.single_shot;
-                        t.trigger_position = tr.trigger_position;
-                        t.look = tr.look.clone();
-                        self.builder = Some(t);
-                        self.editing = Some(name.clone());
-                    }
-                    if name_resp.hovered() || info_resp.hovered() {
-                        // Highlight target trace when hovering the name
-                        if !tr.target.0.is_empty() {
-                            data.hover_trace = Some(tr.target.0.clone());
-                        }
-                    }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Remove").clicked() {
-                            to_remove = true;
-                        }
-
-                        if ui.button("Reset").clicked() {
-                            if tr.is_triggered() {
-                                data.resume();
-                            }
-                            tr.reset();
-                        }
-
-                        if tr.single_shot {
-                            if tr.is_active() {
-                                if ui.button("Stop").clicked() {
-                                    tr.stop();
-                                }
-                            } else {
-                                if ui.button("Start").clicked() {
-                                    data.resume();
-                                    tr.start();
-                                }
-                            }
-                        } else {
-                            let state = if tr.is_active() {
-                                "Active"
-                            } else if tr.is_triggered() {
-                                "Triggered"
-                            } else {
-                                "Idle"
-                            };
-                            ui.label(state);
-                        }
-                    });
+                // Clickable name to edit
+                let name_resp =
+                    ui.add(egui::Label::new(tr.name.clone()).sense(egui::Sense::click()));
+                // Short info text
+                let info = tr.get_info(&data.y_axis);
+                let info_resp = ui.add(egui::Label::new(info).sense(egui::Sense::click()));
+                if name_resp.clicked() || info_resp.clicked() {
+                    // Open editor with a copy of current settings
+                    let mut t = Trigger::default();
+                    t.name = tr.name.clone();
+                    t.target = TraceRef(tr.target.0.clone());
+                    t.enabled = tr.enabled;
+                    t.level = tr.level;
+                    t.slope = match tr.slope {
+                        TriggerSlope::Rising => TriggerSlope::Rising,
+                        TriggerSlope::Falling => TriggerSlope::Falling,
+                        TriggerSlope::Any => TriggerSlope::Any,
+                    };
+                    t.single_shot = tr.single_shot;
+                    t.trigger_position = tr.trigger_position;
+                    t.look = tr.look.clone();
+                    self.builder = Some(t);
+                    self.editing = Some(name_str.clone());
                 }
-            });
-            if row.response.hovered() {
-                if let Some(tr) = self.triggers.get(&name) {
+                if name_resp.hovered() || info_resp.hovered() {
+                    // Highlight target trace when hovering the name
                     if !tr.target.0.is_empty() {
                         data.hover_trace = Some(tr.target.0.clone());
                     }
                 }
-            }
-            if to_remove {
-                self.triggers.remove(&name);
-                if self.editing.as_deref() == Some(&name) {
-                    self.builder = None;
-                    self.editing = None;
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Remove").clicked() {
+                        to_remove = true;
+                    }
+                });
+            });
+
+            // Hovering the whole row also highlights target trace
+            if row.response.hovered() {
+                if !tr.target.0.is_empty() {
+                    data.hover_trace = Some(tr.target.0.clone());
                 }
             }
-            // Show last trigger info similar to thresholds panel
-            if let Some(tr) = self.triggers.get(&name) {
-                if let Some(t) = tr.last_trigger_time() {
-                    // Use x-axis formatter for time display
-                    let start_fmt = data.x_axis.format_value(t, 4, 1.0);
-                    ui.label(format!("Last: {}", start_fmt));
+
+            // Stage removal (will be applied after the loop)
+            if to_remove {
+                removals.push(name_str.clone());
+            }
+
+            // Second row: Last info + Reset + Start/Stop
+            let mut do_reset = false;
+            let mut toggle_start: Option<bool> = None; // Some(true)=Start, Some(false)=Stop
+            let (last_text, last_exists) = if let Some(t) = tr.last_trigger_time() {
+                // Use x-axis formatter for time display
+                let start_fmt = data.x_axis.format_value(t, 4, 1.0);
+                (format!("Last: {}", start_fmt), true)
+            } else {
+                (String::from("Last: –"), false)
+            };
+            let is_active = tr.is_active();
+            let enabled_flag = tr.enabled;
+
+            ui.horizontal(|ui| {
+                ui.label(last_text);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add_enabled(last_exists, egui::Button::new("Reset"))
+                        .clicked()
+                    {
+                        do_reset = true;
+                    }
+                    if is_active {
+                        if ui
+                            .add_enabled(enabled_flag, egui::Button::new("Stop"))
+                            .clicked()
+                        {
+                            toggle_start = Some(false);
+                        }
+                    } else {
+                        if ui
+                            .add_enabled(enabled_flag, egui::Button::new("Start"))
+                            .clicked()
+                        {
+                            toggle_start = Some(true);
+                        }
+                    }
+                });
+            });
+
+            if do_reset {
+                if tr.is_triggered() {
+                    data.resume();
+                }
+                tr.reset();
+            }
+            if let Some(start) = toggle_start {
+                if start {
+                    data.resume();
+                    tr.start();
                 } else {
-                    ui.label("Last: –");
+                    tr.stop();
+                }
+            }
+        }
+
+        // Apply removals after iteration to avoid mutable borrow conflicts
+        if !removals.is_empty() {
+            for n in removals {
+                self.triggers.remove(&n);
+                if self.editing.as_deref() == Some(&n) {
+                    self.builder = None;
+                    self.editing = None;
                 }
             }
         }
@@ -292,9 +329,26 @@ impl Panel for TriggersPanel {
             ui.add_space(3.0);
 
             // Name
+            let duplicate_name = self
+                .triggers
+                .contains_key(&builder.name)
+                && self.editing.as_deref() != Some(builder.name.as_str());
+
             ui.horizontal(|ui| {
                 ui.label("Name");
-                ui.text_edit_singleline(&mut builder.name);
+                if duplicate_name {
+                    egui::Frame::default()
+                        .stroke(egui::Stroke::new(1.5, egui::Color32::RED))
+                        .show(ui, |ui| {
+                            let resp = ui.add(egui::TextEdit::singleline(&mut builder.name));
+                            let _resp = resp.on_hover_text(
+                                "A trigger with this name already exists. Please choose another.",
+                            );
+                        });
+                } else {
+                    let resp = ui.add(egui::TextEdit::singleline(&mut builder.name));
+                    let _resp = resp.on_hover_text("Enter a unique name for this trigger");
+                }
             });
 
             // Target trace selection
@@ -384,7 +438,9 @@ impl Panel for TriggersPanel {
                 } else {
                     "Add trigger"
                 };
-                let can_save = !builder.name.is_empty() && !builder.target.0.is_empty();
+                let can_save = !builder.name.is_empty()
+                    && !builder.target.0.is_empty()
+                    && !duplicate_name;
                 if ui
                     .add_enabled(can_save, egui::Button::new(save_label))
                     .clicked()
