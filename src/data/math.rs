@@ -222,53 +222,13 @@ impl MathTrace {
         }
     }
 
-    pub fn compute_math_trace(&mut self, sources: HashMap<String, Vec<[f64; 2]>>)-> Vec<[f64; 2]> {
-        // for (name, _) in &data.traces {
-        //     sources.insert(
-        //         name.clone(),
-        //         data.get_drawn_points(name.as_str()).unwrap().into(),
-        //     );
-        // }
-
-        // let mut math_trace = data.get_trace_or_new(self.name.clone());
-
+    pub fn compute_math_trace(&mut self, sources: HashMap<String, Vec<[f64; 2]>>) -> Vec<[f64; 2]> {
         let mut out = if let Some(points) = sources.get(self.name.as_str()) {
             points.clone()
         } else {
             Vec::new()
         };
-        // let prune_cut = {
-        //     let latest = self
-        //         .trace_order
-        //         .iter()
-        //         .filter_map(|n| sources.get(n).and_then(|v| v.last().map(|p| p[0])))
-        //         .fold(f64::NEG_INFINITY, f64::max);
-        //     if latest.is_finite() {
-        //         Some(latest - self.time_window * 1.2)
-        //     } else {
-        //         None
-        //     }
-        // };
 
-        // Start with optionally keeping previously computed output points. This is
-        // important for incremental stateful algorithms, where we append new samples
-        // instead of recomputing the whole series. We still apply `prune_before` to
-        // drop aged points to limit buffer growth.
-        // let mut out: Vec<[f64; 2]> = if let Some(prev) = prev_output {
-        //     if let Some(cut) = prune_before {
-        //         // Keep only points at or after the cutoff.
-        //         prev.iter().copied().filter(|p| p[0] >= cut).collect()
-        //     } else {
-        //         prev.to_vec()
-        //     }
-        // } else {
-        //     Vec::new()
-        // };
-
-        // Decide how to process based on math kind. Stateless operations use a union
-        // grid and last-sample-hold interpolation to compute values at every
-        // timestamp that appears in their inputs. Stateful operations update
-        // internal state incrementally by walking new samples only.
         match &self.kind {
             MathKind::Add { inputs } => {
                 // Build union grid across inputs
@@ -277,42 +237,40 @@ impl MathTrace {
                 // small tolerance when deduping to account for floating-point
                 // representations of equal timestamps.
 
-                let mut grid: Vec<f64> =
-                    MathTrace::union_times(inputs.iter().map(|(r, _)| r), &sources);
-                grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                // Consider timestamps equal if they differ by < 1e-15.
-                grid.dedup_by(|a, b| (*a - *b).abs() < 1e-15);
+                let used_sources: Vec<Vec<[f64; 2]>> = inputs
+                    .iter()
+                    .filter_map(|(r, _k)| sources.get(&r.0).cloned())
+                    .collect();
 
-                // The `get_val` closure implements last-sample hold (stepwise
-                // interpolation) per-channel. It maintains a small cache of the
-                // previous index per source to allow linear-time evaluation over the
-                // sorted grid instead of binary-searching each time.
-                let mut caches: std::collections::HashMap<String, (usize, f64)> =
-                    Default::default();
-                let mut get_val = |name: &str, t: f64| -> Option<f64> {
-                    let source = sources.get(name)?;
-                    let (idx, last) = caches.entry(name.to_string()).or_insert((0, f64::NAN));
-                    // Advance cached index while the next sample time is <= t.
-                    while *idx + 1 < source.len() && source[*idx + 1][0] <= t {
-                        *idx += 1;
+                let grid: Vec<f64> = MathTrace::union_times(used_sources.clone());
+
+                let mut idx_map: std::collections::HashMap<String, usize> = HashMap::new();
+                for t in grid {
+                    if out.last().map_or(false, |p| p[0] >= t) {
+                        continue;
                     }
-                    // Save the last-observed value for this source at time t.
-                    *last = source[*idx][1];
-                    Some(*last)
-                };
-
-                // Recompute output from scratch for stateless Add operation.
-                out.clear();
-                for &t in &grid {
                     let mut sum = 0.0;
-                    let mut any = false;
+                    let mut all = true;
                     for (r, k) in inputs {
-                        if let Some(v) = get_val(&r.0, t) {
-                            sum += k * v;
-                            any = true;
+                        if let Some(src_data) = sources.get(&r.0) {
+                            let last_idx = if let Some(idx) = idx_map.get_mut(&r.0) {
+                                idx
+                            } else {
+                                idx_map.insert(r.0.clone(), 0);
+                                idx_map.get_mut(&r.0).unwrap()
+                            };
+                            //println!("Add: t = {}, last_idx for '{}' = {}", t, r.0, *last_idx);
+                            if let Some(v) =
+                                MathTrace::interpolate_value_at(t, src_data.clone(), last_idx)
+                            {
+                                sum += k * v;
+                            } else {
+                                all = false;
+                                break;
+                            }
                         }
                     }
-                    if any {
+                    if all {
                         out.push([t, sum]);
                     }
                 }
@@ -322,25 +280,25 @@ impl MathTrace {
                 // a result when both operands have a defined last-sample value at
                 // the time t. Note that if one trace doesn't exist in `sources` we
                 // return an empty output (handled earlier by the data lookup).
-                let mut grid: Vec<f64> = MathTrace::union_times([a, b].into_iter(), &sources);
-                grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                grid.dedup_by(|x, y| (*x - *y).abs() < 1e-15);
-                let mut caches: std::collections::HashMap<String, (usize, f64)> =
-                    Default::default();
-                let mut get_val = |name: &str, t: f64| -> Option<f64> {
-                    let data = sources.get(name)?;
-                    let (idx, last) = caches.entry(name.to_string()).or_insert((0, f64::NAN));
-                    while *idx + 1 < data.len() && data[*idx + 1][0] <= t {
-                        *idx += 1;
+
+                if let (Some(src_a), Some(src_b)) = (sources.get(&a.0), sources.get(&b.0)) {
+                    let grid: Vec<f64> = MathTrace::union_times(vec![src_a.clone(), src_b.clone()]);
+
+                    let mut idx_a = 0usize;
+                    let mut idx_b = 0usize;
+                    for &t in &grid {
+                        if out.last().map_or(false, |p| p[0] >= t) {
+                            continue;
+                        }
+                        if let (Some(va), Some(vb)) = (
+                            MathTrace::interpolate_value_at(t, src_a.clone(), &mut idx_a),
+                            MathTrace::interpolate_value_at(t, src_b.clone(), &mut idx_b),
+                        ) {
+                            out.push([t, va * vb]);
+                        }
                     }
-                    *last = data[*idx][1];
-                    Some(*last)
-                };
-                out.clear();
-                for &t in &grid {
-                    if let (Some(va), Some(vb)) = (get_val(&a.0, t), get_val(&b.0, t)) {
-                        out.push([t, va * vb]);
-                    }
+                } else {
+                    return out;
                 }
             }
             MathKind::Divide { a, b } => {
@@ -348,27 +306,26 @@ impl MathTrace {
                 // denominators. We treat |b| < 1e-12 as effectively zero and skip
                 // that sample to avoid large spurious results. This threshold is a
                 // pragmatic choice balancing numerical stability and dynamic range.
-                let mut grid: Vec<f64> = MathTrace::union_times([a, b].into_iter(), &sources);
-                grid.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                grid.dedup_by(|x, y| (*x - *y).abs() < 1e-15);
-                let mut caches: std::collections::HashMap<String, (usize, f64)> =
-                    Default::default();
-                let mut get_val = |name: &str, t: f64| -> Option<f64> {
-                    let data = sources.get(name)?;
-                    let (idx, last) = caches.entry(name.to_string()).or_insert((0, f64::NAN));
-                    while *idx + 1 < data.len() && data[*idx + 1][0] <= t {
-                        *idx += 1;
-                    }
-                    *last = data[*idx][1];
-                    Some(*last)
-                };
-                out.clear();
-                for &t in &grid {
-                    if let (Some(va), Some(vb)) = (get_val(&a.0, t), get_val(&b.0, t)) {
-                        if vb.abs() > 1e-12 {
-                            out.push([t, va / vb]);
+                if let (Some(src_a), Some(src_b)) = (sources.get(&a.0), sources.get(&b.0)) {
+                    let grid: Vec<f64> = MathTrace::union_times(vec![src_a.clone(), src_b.clone()]);
+
+                    let mut idx_a = 0usize;
+                    let mut idx_b = 0usize;
+                    for &t in &grid {
+                        if out.last().map_or(false, |p| p[0] >= t) {
+                            continue;
+                        }
+                        if let (Some(va), Some(vb)) = (
+                            MathTrace::interpolate_value_at(t, src_a.clone(), &mut idx_a),
+                            MathTrace::interpolate_value_at(t, src_b.clone(), &mut idx_b),
+                        ) {
+                            if vb.abs() > 1e-12 {
+                                out.push([t, va / vb]);
+                            }
                         }
                     }
+                } else {
+                    return out;
                 }
             }
             MathKind::Differentiate { input } => {
@@ -381,11 +338,14 @@ impl MathTrace {
                     Some(v) => v,
                     None => return out,
                 };
-                out.clear();
                 let mut prev: Option<(f64, f64)> = None;
                 for &p in data.iter() {
                     let t = p[0];
                     let v = p[1];
+
+                    if out.last().map_or(false, |p| p[0] >= t) {
+                        continue;
+                    }
                     // If we're asked to prune old samples, we still advance the
                     // `prev` pointer so the next kept sample will be differentiated
                     // against the most recent pruned point.
@@ -701,17 +661,103 @@ impl MathTrace {
         out
     }
 
-    fn union_times<'a>(
-        it: impl IntoIterator<Item = &'a TraceRef>,
-        sources: &std::collections::HashMap<String, Vec<[f64; 2]>>,
-    ) -> Vec<f64> {
+    fn union_times<'a>(sources: Vec<Vec<[f64; 2]>>) -> Vec<f64> {
         let mut v = Vec::new();
-        for r in it {
-            if let Some(d) = sources.get(&r.0) {
-                v.extend(d.iter().map(|p| p[0]));
-            }
+        for s in sources {
+            v.extend(s.iter().map(|p| p[0]));
         }
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        // Consider timestamps equal if they differ by < 1e-15.
+        v.dedup_by(|a, b| (*a - *b).abs() < 1e-15);
         v
+    }
+
+    fn interpolate_value_at(t: f64, data: Vec<[f64; 2]>, last_idx: &mut usize) -> Option<f64> {
+        if data.is_empty() {
+            return None;
+        }
+        // Return None if out of range
+        let n = data.len();
+        if n == 0 {
+            return None;
+        }
+        let first_t = data[0][0];
+        let last_t = data[n - 1][0];
+        if t < first_t || t > last_t {
+            return None;
+        }
+
+        // Clamp last_idx into valid range
+        if *last_idx >= n {
+            *last_idx = n - 1;
+        }
+
+        // If our cached index is ahead of the requested time, use binary search
+        // to find the first index j where time[j] >= t, then interpolate with j-1.
+        if data[*last_idx][0] > t {
+            // upper_bound: first j such that data[j][0] >= t
+            let mut lo = 0usize;
+            let mut hi = n; // exclusive
+            while lo < hi {
+                let mid = (lo + hi) / 2;
+                let tm = data[mid][0];
+                if tm < t {
+                    lo = mid + 1;
+                } else {
+                    hi = mid;
+                }
+            }
+            let j = lo;
+            if j == 0 {
+                // t <= first_t and we already handled t < first_t; so t == first_t here
+                return Some(data[0][1]);
+            }
+            if j == n {
+                // t >= last_t and we already handled t > last_t; so t == last_t here
+                return Some(data[n - 1][1]);
+            }
+            let i = j - 1;
+            *last_idx = i;
+            let t0 = data[i][0];
+            let v0 = data[i][1];
+            let t1 = data[j][0];
+            let v1 = data[j][1];
+            if t1 == t0 {
+                return Some(v0);
+            }
+            let alpha = (t - t0) / (t1 - t0);
+            return Some(v0 + alpha * (v1 - v0));
+        }
+
+        // Move forward while the next sample time is still before t
+        while *last_idx + 1 < n && data[*last_idx + 1][0] < t {
+            *last_idx += 1;
+        }
+
+        // Exact match at current or next index
+        if data[*last_idx][0] == t {
+            return Some(data[*last_idx][1]);
+        }
+        if *last_idx + 1 < n && data[*last_idx + 1][0] == t {
+            *last_idx += 1;
+            return Some(data[*last_idx][1]);
+        }
+
+        // Interpolate between last_idx and last_idx + 1 if possible
+        if *last_idx + 1 < n {
+            let t0 = data[*last_idx][0];
+            let v0 = data[*last_idx][1];
+            let t1 = data[*last_idx + 1][0];
+            let v1 = data[*last_idx + 1][1];
+            if t1 == t0 {
+                return Some(v0);
+            }
+            let alpha = (t - t0) / (t1 - t0);
+            Some(v0 + alpha * (v1 - v0))
+        } else {
+            // No next point; since t <= last_t and not equal, return None
+            None
+        }
     }
 
     /// Collect timestamps from the provided trace refs.
@@ -842,146 +888,6 @@ impl MathTrace {
         }
     }
 
-    // pub fn add_math_trace_internal(&mut self,  data: &mut ScopeData) {
-    //     if data.traces.contains_key(&self.name) {
-    //         return;
-    //     }
-    //     let idx = data.trace_order.len();
-    //     data.trace_order.push(self.name.clone());
-    //     // alloc_color is implemented elsewhere on LivePlotApp; call via associated fn if available,
-    //     // otherwise fall back to default color from TraceLook
-    //     let color = if let Some(c) = (|| {
-    //         // Try to call alloc_color; this may be private in some module setups, so guard with a
-    //         // closure that can be optimized away if not accessible. If not accessible, use default.
-    //         #[allow(unused_imports)]
-    //         use crate::data as _maybe;
-    //         // We cannot directly call a private method here in a portable way; use default color.
-    //         None::<egui::Color32>
-    //     })() {
-    //         c
-    //     } else {
-    //         TraceLook::default().color
-    //     };
-    //     self.traces.insert(
-    //         self.name.clone(),
-    //         TraceState {
-    //             name: self.name.clone(),
-    //             look: {
-    //                 let mut l = TraceLook::default();
-    //                 l.color = color;
-    //                 l
-    //             },
-    //             offset: 0.0,
-    //             live: VecDeque::new(),
-    //             snap: None,
-    //             last_fft: None,
-    //             is_math: true,
-    //             info: String::new(),
-    //         },
-    //     );
-    //     self.math_states
-    //         .entry(self.name.clone())
-    //         .or_insert_with(MathRuntimeState::new);
-    //     self.math_defs.push(def);
-    // }
-
-    // pub fn remove_math_trace(&mut self, name: &str, data: &mut ScopeData) {
-    //     self.math_defs.retain(|d| d.name != name);
-    //     self.math_states.remove(name);
-    //     self.traces.remove(name);
-    //     data.trace_order.retain(|n| n != name);
-    // }
-
-    /// Public API: add a math trace definition (creates a new virtual trace that auto-updates).
-    // pub fn add_math_trace(&mut self, def: MathTraceDef) {
-    //     self.add_math_trace_internal(def);
-    // }
-
-    // pub(super) fn recompute_math_traces(&mut self) {
-    //     if self.math_defs.is_empty() {
-    //         return;
-    //     }
-    //     let mut sources: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-    //     for (name, tr) in &self.traces {
-    //         let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.paused {
-    //             if let Some(s) = &tr.snap {
-    //                 Box::new(s.iter())
-    //             } else {
-    //                 Box::new(tr.live.iter())
-    //             }
-    //         } else {
-    //             Box::new(tr.live.iter())
-    //         };
-    //         sources.insert(name.clone(), iter.cloned().collect());
-    //     }
-    //     for def in &self.math_defs.clone() {
-    //         let st = self
-    //             .math_states
-    //             .entry(self.name.clone())
-    //             .or_insert_with(MathRuntimeState::new);
-    //         let prev_out = sources.get(&self.name).map(|v| v.as_slice());
-    //         let prune_cut = {
-    //             let latest = self
-    //                 .trace_order
-    //                 .iter()
-    //                 .filter_map(|n| sources.get(n).and_then(|v| v.last().map(|p| p[0])))
-    //                 .fold(f64::NEG_INFINITY, f64::max);
-    //             if latest.is_finite() {
-    //                 Some(latest - self.time_window * 1.2)
-    //             } else {
-    //                 None
-    //             }
-    //         };
-    //         let pts = compute_math_trace(def, &sources, prev_out, prune_cut, st);
-    //         sources.insert(self.name.clone(), pts.clone());
-    //         if let Some(tr) = self.traces.get_mut(&self.name) {
-    //             tr.live = pts.iter().copied().collect();
-    //             if self.paused {
-    //                 tr.snap = Some(tr.live.clone());
-    //             } else {
-    //                 tr.snap = None;
-    //             }
-    //             tr.info = Self::math_formula_string(def);
-    //         } else {
-    //             let idx = data.trace_order.len();
-    //             data.trace_order.push(self.name.clone());
-    //             let mut dq: VecDeque<[f64; 2]> = VecDeque::new();
-    //             dq.extend(pts.iter().copied());
-    //             self.traces.insert(
-    //                 self.name.clone(),
-    //                 TraceState {
-    //                     name: self.name.clone(),
-    //                     look: {
-    //                         let mut l = TraceLook::default();
-    //                         l.color = Self::alloc_color(idx);
-    //                         l
-    //                     },
-    //                     offset: 0.0,
-    //                     live: dq.clone(),
-    //                     snap: if self.paused { Some(dq.clone()) } else { None },
-    //                     last_fft: None,
-    //                     is_math: true,
-    //                     info: Self::math_formula_string(def),
-    //                 },
-    //             );
-    //         }
-    //     }
-    // }
-
-    /// Reset runtime storage for all math traces that maintain state (filters, integrators, min/max).
-    // pub(crate) fn reset_all_math_storage(&mut self) {
-    //     for def in self.math_defs.clone().into_iter() {
-    //         let is_stateful = matches!(
-    //             def.kind,
-    //             MathKind::Integrate { .. } | MathKind::Filter { .. } | MathKind::MinMax { .. }
-    //         );
-    //         if is_stateful {
-    //             self.reset_math_storage(&self.name);
-    //         }
-    //     }
-    // }
-
-    /// Reset runtime storage for a specific math trace (clears integrator, filter states, min/max, etc.).
     pub fn reset_math_storage(&mut self) {
         self.runtime_state = MathRuntimeState::default();
     }
@@ -1049,65 +955,4 @@ impl MathTrace {
         }
     }
 
-    // Update an existing math trace definition; supports renaming if the new name is unique.
-    // pub fn update_math_trace(
-    //     &mut self,
-    //     original_name: &str,
-    //     new_def: MathTrace,
-    // ) -> Result<(), &'static str> {
-    //     if new_self.name != original_name && self.traces.contains_key(&new_self.name) {
-    //         return Err("A trace with the new name already exists");
-    //     }
-    //     if let Some(pos) = self.math_defs.iter().position(|d| d.name == original_name) {
-    //         self.math_defs[pos] = new_def.clone();
-    //     } else {
-    //         return Err("Original math trace not found");
-    //     }
-    //     self.math_states
-    //         .insert(new_self.name.clone(), MathRuntimeState::new());
-    //     if new_self.name != original_name {
-    //         self.math_states.remove(original_name);
-    //     }
-    //     if new_self.name != original_name {
-    //         if let Some(mut tr) = self.traces.remove(original_name) {
-    //             tr.name = new_self.name.clone();
-    //             self.traces.insert(new_self.name.clone(), tr);
-    //         }
-    //         for name in &mut data.trace_order {
-    //             if name == original_name {
-    //                 *name = new_self.name.clone();
-    //                 break;
-    //             }
-    //         }
-    //         if let Some(sel) = &mut self.selection_trace {
-    //             if sel == original_name {
-    //                 *sel = new_self.name.clone();
-    //             }
-    //         }
-    //     }
-    //     self.recompute_math_traces();
-    //     Ok(())
-    // }
-
-    // pub(crate) fn apply_add_or_edit(&mut self, def: MathTraceDef) {
-    //     self.math_panel.error = None;
-    //     if let Some(orig) = self.math_panel.editing.clone() {
-    //         match self.update_math_trace(&orig, def) {
-    //             Ok(()) => {
-    //                 self.math_panel.editing = None;
-    //                 self.math_panel.builder = super::types::MathBuilderState::default();
-    //             }
-    //             Err(e) => {
-    //                 self.math_panel.error = Some(e.to_string());
-    //             }
-    //         }
-    //     } else {
-    //         if self.traces.contains_key(&self.name) {
-    //             self.math_panel.error = Some("A trace with this name already exists".into());
-    //             return;
-    //         }
-    //         self.add_math_trace_internal(def);
-    //         self.math_panel.builder = crate::types::MathBuilderState::default();
-    //     }
-    // }
 }
