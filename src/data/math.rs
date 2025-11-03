@@ -126,9 +126,8 @@ pub enum MathKind {
 pub struct MathTrace {
     pub name: String,
     pub kind: MathKind,
-
-    #[serde(skip)]
-    runtime_state: MathRuntimeState,
+    // #[serde(skip)]
+    // runtime_state: MathRuntimeState,
 }
 
 /// Runtime state for stateful math traces.
@@ -137,55 +136,55 @@ pub struct MathTrace {
 /// of state between successive recomputations so that they can be updated
 /// incrementally when new samples arrive. This struct holds that state and is
 /// stored per-math-trace in `LivePlotApp::math_states`.
-#[derive(Debug, Clone)]
-struct MathRuntimeState {
-    /// Timestamp of the last processed input sample (or None if no samples yet).
-    pub last_t: Option<f64>,
-    /// Accumulator for the integrator (running integral value).
-    pub accum: f64,
-    // For biquad: previous two input samples x[n-1], x[n-2] and previous two
-    // output samples y[n-1], y[n-2]. These are used to implement Direct Form I.
-    pub x1: f64,
-    pub x2: f64,
-    pub y1: f64,
-    pub y2: f64,
-    // Secondary section for cascade filters (used by Bandpass implementation).
-    pub x1b: f64,
-    pub x2b: f64,
-    pub y1b: f64,
-    pub y2b: f64,
-    // For MinMax tracker: running min and max. Initialized to infinities so the
-    // first real sample sets them properly.
-    pub min_val: f64,
-    pub max_val: f64,
-    /// Timestamp where decay was last applied for the min/max exponential decay.
-    pub last_decay_t: Option<f64>,
-    // Previous input sample used for incremental algorithms like integrate.
-    pub prev_in_t: Option<f64>,
-    pub prev_in_v: f64,
-}
+// #[derive(Debug, Clone)]
+// struct MathRuntimeState {
+//     /// Timestamp of the last processed input sample (or None if no samples yet).
+//     pub last_t: Option<f64>,
+//     /// Accumulator for the integrator (running integral value).
+//     //pub accum: f64,
+//     // For biquad: previous two input samples x[n-1], x[n-2] and previous two
+//     // output samples y[n-1], y[n-2]. These are used to implement Direct Form I.
+//     pub x1: f64,
+//     pub x2: f64,
+//     pub y1: f64,
+//     pub y2: f64,
+//     // Secondary section for cascade filters (used by Bandpass implementation).
+//     pub x1b: f64,
+//     pub x2b: f64,
+//     pub y1b: f64,
+//     pub y2b: f64,
+//     // For MinMax tracker: running min and max. Initialized to infinities so the
+//     // first real sample sets them properly.
+//     // pub min_val: f64,
+//     // pub max_val: f64,
+//     // /// Timestamp where decay was last applied for the min/max exponential decay.
+//     // pub last_decay_t: Option<f64>,
+//     // Previous input sample used for incremental algorithms like integrate.
+//     pub prev_in_t: Option<f64>,
+//     pub prev_in_v: f64,
+// }
 
-impl Default for MathRuntimeState {
-    fn default() -> Self {
-        Self {
-            last_t: None,
-            accum: 0.0,
-            x1: 0.0,
-            x2: 0.0,
-            y1: 0.0,
-            y2: 0.0,
-            x1b: 0.0,
-            x2b: 0.0,
-            y1b: 0.0,
-            y2b: 0.0,
-            min_val: f64::INFINITY,
-            max_val: f64::NEG_INFINITY,
-            last_decay_t: None,
-            prev_in_t: None,
-            prev_in_v: 0.0,
-        }
-    }
-}
+// impl Default for MathRuntimeState {
+//     fn default() -> Self {
+//         Self {
+//             last_t: None,
+//             //accum: 0.0,
+//             x1: 0.0,
+//             x2: 0.0,
+//             y1: 0.0,
+//             y2: 0.0,
+//             x1b: 0.0,
+//             x2b: 0.0,
+//             y1b: 0.0,
+//             y2b: 0.0,
+//             // min_val: f64::INFINITY,
+//             // max_val: f64::NEG_INFINITY,
+//             // last_decay_t: None,
+//             prev_in_t: None,
+//             prev_in_v: 0.0,
+//         }
+//     }
+// }
 
 /// Compute a math trace given source traces. Each source trace is provided as a slice of
 /// monotonically increasing [t, y]. The result is densely sampled at the union of timestamps
@@ -218,7 +217,7 @@ impl MathTrace {
         Self {
             name,
             kind,
-            runtime_state: MathRuntimeState::default(),
+            // runtime_state: MathRuntimeState::default(),
         }
     }
 
@@ -334,29 +333,51 @@ impl MathTrace {
                 // We skip the very first sample since no previous point exists. If
                 // timestamps are equal or dt <= 0 the sample is skipped to avoid
                 // division by zero.
-                let data = match sources.get(&input.0) {
-                    Some(v) => v,
-                    None => return out,
-                };
-                let mut prev: Option<(f64, f64)> = None;
-                for &p in data.iter() {
-                    let t = p[0];
-                    let v = p[1];
+                if let Some(src) = sources.get(&input.0) {
+                    let mut prev: Option<(f64, f64)> = None;
+                    for &p in src.iter() {
+                        let t = p[0];
+                        let v = p[1];
 
-                    if out.last().map_or(false, |p| p[0] >= t) {
-                        continue;
-                    }
-                    // If we're asked to prune old samples, we still advance the
-                    // `prev` pointer so the next kept sample will be differentiated
-                    // against the most recent pruned point.
-                    if let Some((t0, v0)) = prev {
-                        let dt = t - t0;
-                        if dt > 0.0 {
-                            out.push([t, (v - v0) / dt]);
+                        if out.last().map_or(false, |p| p[0] >= t) {
+                            prev = Some((t, v));
+                            continue;
                         }
+                        if let Some((t0, v0)) = prev {
+                            let dt = t - t0;
+                            if dt > 0.0 {
+                                out.push([t, (v - v0) / dt]);
+                            }
+                        }
+                        prev = Some((t, v));
                     }
-                    prev = Some((t, v));
+                } else {
+                    return out;
                 }
+
+                // let data = match sources.get(&input.0) {
+                //     Some(v) => v,
+                //     None => return out,
+                // };
+                // let mut prev: Option<(f64, f64)> = None;
+                // for &p in data.iter() {
+                //     let t = p[0];
+                //     let v = p[1];
+
+                //     if out.last().map_or(false, |p| p[0] >= t) {
+                //         continue;
+                //     }
+                //     // If we're asked to prune old samples, we still advance the
+                //     // `prev` pointer so the next kept sample will be differentiated
+                //     // against the most recent pruned point.
+                //     if let Some((t0, v0)) = prev {
+                //         let dt = t - t0;
+                //         if dt > 0.0 {
+                //             out.push([t, (v - v0) / dt]);
+                //         }
+                //     }
+                //     prev = Some((t, v));
+                // }
             }
             MathKind::Integrate { input, y0 } => {
                 // Numerical integration using the trapezoidal rule. The integrator is
@@ -364,104 +385,164 @@ impl MathTrace {
                 // `state.prev_in_t`/`state.prev_in_v` remember the last processed
                 // input sample. This allows us to append only newly arrived samples
                 // without touching older results.
-                let data = match sources.get(&input.0) {
-                    Some(v) => v,
-                    None => return out,
-                };
-
-                // If we have never processed this integrator before, initialize the
-                // accumulator with the provided y0. Otherwise keep the stored value.
-                let mut accum = if self.runtime_state.prev_in_t.is_none() {
-                    *y0
-                } else {
-                    self.runtime_state.accum
-                };
-                // Start `prev_t`/`prev_v` from stored state so we can integrate from
-                // the last processed point.
-                let mut prev_t = self.runtime_state.prev_in_t;
-                let mut prev_v = if self.runtime_state.prev_in_t.is_none() {
-                    None
-                } else {
-                    Some(self.runtime_state.prev_in_v)
-                };
-
-                // Compute the index from which we need to process new samples. If
-                // self.runtime_state.prev_in_t exists, find the first sample strictly after it.
-                let mut start_idx = 0usize;
-                if let Some(t0) = self.runtime_state.prev_in_t {
-                    start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
-                        Ok(mut i) => {
-                            // advance past all samples <= t0
-                            while i < data.len() && data[i][0] <= t0 {
-                                i += 1;
-                            }
-                            i
-                        }
-                        Err(i) => i,
+                if let Some(src) = sources.get(&input.0) {
+                    let mut prev: Option<(f64, f64)> = None;
+                    let mut accum = if out.is_empty() {
+                        *y0
+                    } else {
+                        out.last().unwrap()[1]
                     };
-                }
+                    for &p in src.iter() {
+                        let t = p[0];
+                        let v = p[1];
 
-                // Process new samples using the trapezoid rule and append outputs.
-                for p in data.iter().skip(start_idx) {
-                    let t = p[0];
-                    let v = p[1];
-                    if let (Some(t0), Some(v0)) = (prev_t, prev_v) {
-                        let dt = t - t0;
-                        if dt > 0.0 {
-                            // Trapezoidal increment: 0.5*(v + v0) * dt
-                            accum += 0.5 * (v + v0) * dt;
+                        if out.last().map_or(false, |p| p[0] >= t) {
+                            prev = Some((t, v));
+                            continue;
                         }
+                        if let Some((t0, v0)) = prev {
+                            let dt = t - t0;
+                            if dt > 0.0 {
+                                accum += 0.5 * (v + v0) * dt;
+                                out.push([t, accum.clone()]);
+                            }
+                        }else if out.is_empty() {
+                            // First sample, initialize output
+                            out.push([t, accum.clone()]);
+                        }
+                        prev = Some((t, v));
                     }
-                    prev_t = Some(t);
-                    prev_v = Some(v);
-                    out.push([t, accum]);
+                } else {
+                    return out;
                 }
 
-                // Update persistent state so subsequent calls continue from here.
-                self.runtime_state.accum = accum;
-                self.runtime_state.last_t = prev_t;
-                self.runtime_state.prev_in_t = prev_t;
-                self.runtime_state.prev_in_v = prev_v.unwrap_or(self.runtime_state.prev_in_v);
+                // let data = match sources.get(&input.0) {
+                //     Some(v) => v,
+                //     None => return out,
+                // };
+
+                // // If we have never processed this integrator before, initialize the
+                // // accumulator with the provided y0. Otherwise keep the stored value.
+                // let mut accum = if self.runtime_state.prev_in_t.is_none() {
+                //     *y0
+                // } else {
+                //     self.runtime_state.accum
+                // };
+                // // Start `prev_t`/`prev_v` from stored state so we can integrate from
+                // // the last processed point.
+                // let mut prev_t = self.runtime_state.prev_in_t;
+                // let mut prev_v = if self.runtime_state.prev_in_t.is_none() {
+                //     None
+                // } else {
+                //     Some(self.runtime_state.prev_in_v)
+                // };
+
+                // // Compute the index from which we need to process new samples. If
+                // // self.runtime_state.prev_in_t exists, find the first sample strictly after it.
+                // let mut start_idx = 0usize;
+                // if let Some(t0) = self.runtime_state.prev_in_t {
+                //     start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
+                //         Ok(mut i) => {
+                //             // advance past all samples <= t0
+                //             while i < data.len() && data[i][0] <= t0 {
+                //                 i += 1;
+                //             }
+                //             i
+                //         }
+                //         Err(i) => i,
+                //     };
+                // }
+
+                // // Process new samples using the trapezoid rule and append outputs.
+                // for p in data.iter().skip(start_idx) {
+                //     let t = p[0];
+                //     let v = p[1];
+                //     if let (Some(t0), Some(v0)) = (prev_t, prev_v) {
+                //         let dt = t - t0;
+                //         if dt > 0.0 {
+                //             // Trapezoidal increment: 0.5*(v + v0) * dt
+                //             accum += 0.5 * (v + v0) * dt;
+                //         }
+                //     }
+                //     prev_t = Some(t);
+                //     prev_v = Some(v);
+                //     out.push([t, accum]);
+                // }
+
+                // // Update persistent state so subsequent calls continue from here.
+                // self.runtime_state.accum = accum;
+                // self.runtime_state.last_t = prev_t;
+                // self.runtime_state.prev_in_t = prev_t;
+                // self.runtime_state.prev_in_v = prev_v.unwrap_or(self.runtime_state.prev_in_v);
             }
             MathKind::Filter { input, kind } => {
                 // IIR filter processing. We treat several FilterKind variants by
                 // converting them to `BiquadParams` on a per-sample basis because
                 // the sample interval `dt` may vary between successive samples.
                 //
-                // State variables are taken from `state` so that we can continue
-                // filtering across function calls without reinitializing the
-                // filter buffers.
+                // Stateless variant: derive initial delay-line state from the
+                // previously computed output `out` and the source input. This
+                // avoids storing persistent state in `MathRuntimeState` while
+                // still allowing incremental append-only processing. If no prior
+                // output exists, we start from zero initial conditions.
                 let data: &Vec<[f64; 2]> = match sources.get(&input.0) {
                     Some(v) => v,
                     None => return out,
                 };
-                // Local copies of the filter delay elements. We'll write back into
-                // `state` after processing new samples.
-                let mut x1 = self.runtime_state.x1;
-                let mut x2 = self.runtime_state.x2;
-                let mut y1 = self.runtime_state.y1;
-                let mut y2 = self.runtime_state.y2;
-                let mut last_t = self.runtime_state.prev_in_t;
-                // Secondary section state used for cascaded implementations (bandpass)
-                let mut x1b = self.runtime_state.x1b;
-                let mut x2b = self.runtime_state.x2b;
-                let mut y1b = self.runtime_state.y1b;
-                let mut y2b = self.runtime_state.y2b;
+                // Reconstruct delay elements (x1,x2,y1,y2) and last processed time
+                // from existing output `out` if available.
+                let mut x1: f64 = 0.0;
+                let mut x2: f64 = 0.0;
+                let mut y1: f64 = 0.0;
+                let mut y2: f64 = 0.0;
+                let mut x1b: f64 = 0.0;
+                let mut x2b: f64 = 0.0;
+                let mut y1b: f64 = 0.0;
+                let mut y2b: f64 = 0.0;
+                let mut last_t: Option<f64> = None;
+                let mut start_idx: usize = 0;
 
-                // Find where to start processing new input samples; if we've
-                // processed samples before, skip to the first sample strictly after
-                // the last processed timestamp.
-                let mut start_idx = 0usize;
-                if let Some(t0) = self.runtime_state.prev_in_t {
-                    start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
-                        Ok(mut i) => {
-                            while i < data.len() && data[i][0] <= t0 {
-                                i += 1;
+                if !out.is_empty() {
+                    // Helper to find index of exact timestamp (or next greater) in `data`.
+                    let find_idx = |t: f64, d: &Vec<[f64; 2]>| -> Option<usize> {
+                        match d.binary_search_by(|p| p[0].partial_cmp(&t).unwrap()) {
+                            Ok(i) => Some(i),
+                            Err(i) => {
+                                // If timestamp wasn't found exactly, try to align to previous if equal within epsilon
+                                if i > 0 && (d[i - 1][0] - t).abs() < 1e-12 {
+                                    Some(i - 1)
+                                } else {
+                                    None
+                                }
                             }
-                            i
                         }
-                        Err(i) => i,
                     };
+
+                    // Use last output sample as y1 at time t1
+                    let (t1, y1v) = {
+                        let p = out.last().copied().unwrap();
+                        (p[0], p[1])
+                    };
+                    if let Some(i1) = find_idx(t1, data) {
+                        y1 = y1v;
+                        x1 = data[i1][1];
+                        last_t = Some(t1);
+                        start_idx = i1.saturating_add(1);
+                    }
+
+                    // If we have at least two outputs, set y2/x2 from the previous one
+                    if out.len() >= 2 {
+                        let (t2, y2v) = {
+                            let p = out[out.len() - 2];
+                            (p[0], p[1])
+                        };
+                        if let Some(i2) = find_idx(t2, data) {
+                            y2 = y2v;
+                            x2 = data[i2][1];
+                            // Ensure start index is beyond both recovered points
+                            start_idx = start_idx.max(i2.saturating_add(1));
+                        }
+                    }
                 }
 
                 for p in data.iter().skip(start_idx) {
@@ -553,101 +634,118 @@ impl MathTrace {
                     last_t = Some(t);
                     out.push([t, y]);
                 }
-
-                // Persist updated filter state so next invocation continues where
-                // we left off.
-                self.runtime_state.x1 = x1;
-                self.runtime_state.x2 = x2;
-                self.runtime_state.y1 = y1;
-                self.runtime_state.y2 = y2;
-                self.runtime_state.last_t = last_t;
-                self.runtime_state.prev_in_t = last_t;
-                self.runtime_state.prev_in_v = if let Some(i) = data.last() {
-                    i[1]
-                } else {
-                    self.runtime_state.prev_in_v
-                };
-                self.runtime_state.x1b = x1b;
-                self.runtime_state.x2b = x2b;
-                self.runtime_state.y1b = y1b;
-                self.runtime_state.y2b = y2b;
+                // No persistent state updates: this variant reconstructs state each call.
             }
             MathKind::MinMax {
                 input,
                 decay_per_sec,
                 mode,
             } => {
-                // Min/Max tracker: maintain running min or max value with optional
-                // exponential decay. When `decay_per_sec` is specified, we decay the
-                // stored min/max exponentially towards the current value between
-                // processed timestamps. This implements a leaky min/max useful for
-                // highlighting recent extrema while letting older extremes fade.
-                let data = match sources.get(&input.0) {
-                    Some(v) => v,
-                    None => return out,
-                };
-                let mut min_v = self.runtime_state.min_val;
-                let mut max_v = self.runtime_state.max_val;
-                let mut last_decay_t = self.runtime_state.last_decay_t;
-                let mut start_idx = 0usize;
-                if let Some(t0) = self.runtime_state.prev_in_t {
-                    start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
-                        Ok(mut i) => {
-                            while i < data.len() && data[i][0] <= t0 {
-                                i += 1;
-                            }
-                            i
-                        }
-                        Err(i) => i,
+                if let Some(src) = sources.get(&input.0) {
+                    let mut prev: Option<(f64, f64)> = None;
+                    let mut minmax = if out.is_empty() {
+                        src.first().map(|p| p[1]).unwrap_or(0.0)
+                    } else {
+                        out.last().unwrap()[1]
                     };
-                }
 
-                for p in data.iter().skip(start_idx) {
-                    let t = p[0];
-                    let v = p[1];
+                    for &p in src.iter() {
+                        let t = p[0];
+                        let v = p[1];
 
-                    // Apply exponential decay to previous min/max between the
-                    // stored last_decay_t and the current timestamp. The decay
-                    // factor k = exp(-decay * dt) multiplicatively reduces the
-                    // influence of the historic extremum.
-                    if let Some(decay) = decay_per_sec {
-                        if let Some(t0) = last_decay_t {
-                            let dt = (t - t0).max(0.0);
+                        if out.last().map_or(false, |p| p[0] >= t) {
+                            prev = Some((t, v));
+                            continue;
+                        }
+                        minmax = match mode {
+                            MinMaxMode::Min => minmax.min(v),
+                            MinMaxMode::Max => minmax.max(v),
+                        };
+
+                        if let (Some((t0, _v0)), Some(decay)) = (prev, decay_per_sec) {
+                            let dt = t - t0;
                             if dt > 0.0 {
                                 let k = (-decay * dt).exp();
-                                min_v = min_v.min(v) * k + v * (1.0 - k);
-                                max_v = max_v.max(v) * k + v * (1.0 - k);
+                                minmax = match mode {
+                                    MinMaxMode::Min => minmax * k + v * (1.0 - k),
+                                    MinMaxMode::Max => minmax * k + v * (1.0 - k),
+                                };
                             }
                         }
-                    }
 
-                    // If we have infinities (initial state) set them from the
-                    // current value to bootstrap the running min/max.
-                    if min_v.is_infinite() {
-                        min_v = v;
+                        out.push([t, minmax.clone()]);
+                        prev = Some((t, v));
                     }
-                    if max_v.is_infinite() {
-                        max_v = v;
-                    }
-                    min_v = min_v.min(v);
-                    max_v = max_v.max(v);
-                    last_decay_t = Some(t);
-                    let y = match mode {
-                        MinMaxMode::Min => min_v,
-                        MinMaxMode::Max => max_v,
-                    };
-                    out.push([t, y]);
+                } else {
+                    return out;
                 }
 
-                // Persist state after processing.
-                self.runtime_state.min_val = min_v;
-                self.runtime_state.max_val = max_v;
-                self.runtime_state.last_decay_t = last_decay_t;
-                self.runtime_state.prev_in_t = data.last().map(|p| p[0]);
-                self.runtime_state.prev_in_v = data
-                    .last()
-                    .map(|p| p[1])
-                    .unwrap_or(self.runtime_state.prev_in_v);
+                // let data = match sources.get(&input.0) {
+                //     Some(v) => v,
+                //     None => return out,
+                // };
+                // let mut min_v = self.runtime_state.min_val;
+                // let mut max_v = self.runtime_state.max_val;
+                // let mut last_decay_t = self.runtime_state.last_decay_t;
+                // let mut start_idx = 0usize;
+                // if let Some(t0) = self.runtime_state.prev_in_t {
+                //     start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
+                //         Ok(mut i) => {
+                //             while i < data.len() && data[i][0] <= t0 {
+                //                 i += 1;
+                //             }
+                //             i
+                //         }
+                //         Err(i) => i,
+                //     };
+                // }
+
+                // for p in data.iter().skip(start_idx) {
+                //     let t = p[0];
+                //     let v = p[1];
+
+                //     // Apply exponential decay to previous min/max between the
+                //     // stored last_decay_t and the current timestamp. The decay
+                //     // factor k = exp(-decay * dt) multiplicatively reduces the
+                //     // influence of the historic extremum.
+                //     if let Some(decay) = decay_per_sec {
+                //         if let Some(t0) = last_decay_t {
+                //             let dt = (t - t0).max(0.0);
+                //             if dt > 0.0 {
+                //                 let k = (-decay * dt).exp();
+                //                 min_v = min_v.min(v) * k + v * (1.0 - k);
+                //                 max_v = max_v.max(v) * k + v * (1.0 - k);
+                //             }
+                //         }
+                //     }
+
+                //     // If we have infinities (initial state) set them from the
+                //     // current value to bootstrap the running min/max.
+                //     if min_v.is_infinite() {
+                //         min_v = v;
+                //     }
+                //     if max_v.is_infinite() {
+                //         max_v = v;
+                //     }
+                //     min_v = min_v.min(v);
+                //     max_v = max_v.max(v);
+                //     last_decay_t = Some(t);
+                //     let y = match mode {
+                //         MinMaxMode::Min => min_v,
+                //         MinMaxMode::Max => max_v,
+                //     };
+                //     out.push([t, y]);
+                // }
+
+                // // Persist state after processing.
+                // self.runtime_state.min_val = min_v;
+                // self.runtime_state.max_val = max_v;
+                // self.runtime_state.last_decay_t = last_decay_t;
+                // self.runtime_state.prev_in_t = data.last().map(|p| p[0]);
+                // self.runtime_state.prev_in_v = data
+                //     .last()
+                //     .map(|p| p[1])
+                //     .unwrap_or(self.runtime_state.prev_in_v);
             }
         }
 
@@ -888,9 +986,9 @@ impl MathTrace {
         }
     }
 
-    pub fn reset_math_storage(&mut self) {
-        self.runtime_state = MathRuntimeState::default();
-    }
+    // pub fn reset_math_storage(&mut self) {
+    //     self.runtime_state = MathRuntimeState::default();
+    // }
 
     /// Build a human-readable formula description for a math trace.
     pub fn math_formula_string(&self) -> String {
@@ -954,5 +1052,4 @@ impl MathTrace {
             }
         }
     }
-
 }

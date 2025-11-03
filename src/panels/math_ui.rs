@@ -36,8 +36,6 @@ impl Default for MathPanel {
     }
 }
 
-// MathBuilderState removed: the builder now uses MathTrace directly
-
 impl Panel for MathPanel {
     fn state(&self) -> &PanelState {
         &self.state
@@ -93,7 +91,7 @@ impl Panel for MathPanel {
                 .clicked()
             {
                 for def in self.math_traces.iter_mut() {
-                    def.reset_math_storage();
+                    // def.reset_math_storage();
                     data.clear_trace(&def.name);
                 }
             }
@@ -103,7 +101,7 @@ impl Panel for MathPanel {
         // Reset hover before drawing; rows will set it when hovered
 
         let mut hover_trace_intern = None;
-    for def in self.math_traces.clone().iter_mut() {
+        for def in self.math_traces.clone().iter_mut() {
             let row = ui.horizontal(|ui| {
                 // Color editor like in traces_ui
                 if let Some(tr) = data.traces.get_mut(&def.name) {
@@ -196,7 +194,7 @@ impl Panel for MathPanel {
                             hover_trace_intern = Some(def.name.clone());
                         }
                         if reset_resp.clicked() {
-                            def.reset_math_storage();
+                            // def.reset_math_storage();
                             data.clear_trace(&def.name);
                         }
                     }
@@ -297,21 +295,54 @@ impl Panel for MathPanel {
                     }
                 });
             ir.response.on_hover_text("Operation");
-            let trace_names: Vec<String> = data.trace_order.clone();
+            // Available source names, excluding the math trace's own name to avoid self-references
+            let trace_names: Vec<String> = data
+                .trace_order
+                .clone()
+                .into_iter()
+                .filter(|n| *n != self.builder.name)
+                .collect();
 
             if kind_idx != prev_kind_idx {
                 // Switch to a new kind with sensible defaults
                 let first = trace_names.get(0).cloned().unwrap_or_default();
                 let second = trace_names.get(1).cloned().unwrap_or_else(|| first.clone());
                 self.builder.kind = match kind_idx {
-                    0 => MathKind::Add { inputs: vec![(TraceRef(first.clone()), 1.0), (TraceRef(second.clone()), 1.0)] },
-                    1 => MathKind::Multiply { a: TraceRef(first.clone()), b: TraceRef(second.clone()) },
-                    2 => MathKind::Divide { a: TraceRef(first.clone()), b: TraceRef(second.clone()) },
-                    3 => MathKind::Differentiate { input: TraceRef(first.clone()) },
-                    4 => MathKind::Integrate { input: TraceRef(first.clone()), y0: 0.0 },
-                    5 => MathKind::Filter { input: TraceRef(first.clone()), kind: FilterKind::Lowpass { cutoff_hz: 1.0 } },
-                    6 => MathKind::MinMax { input: TraceRef(first.clone()), decay_per_sec: Some(0.0), mode: MinMaxMode::Min },
-                    7 => MathKind::MinMax { input: TraceRef(first.clone()), decay_per_sec: Some(0.0), mode: MinMaxMode::Max },
+                    0 => MathKind::Add {
+                        inputs: vec![
+                            (TraceRef(first.clone()), 1.0),
+                            (TraceRef(second.clone()), 1.0),
+                        ],
+                    },
+                    1 => MathKind::Multiply {
+                        a: TraceRef(first.clone()),
+                        b: TraceRef(second.clone()),
+                    },
+                    2 => MathKind::Divide {
+                        a: TraceRef(first.clone()),
+                        b: TraceRef(second.clone()),
+                    },
+                    3 => MathKind::Differentiate {
+                        input: TraceRef(first.clone()),
+                    },
+                    4 => MathKind::Integrate {
+                        input: TraceRef(first.clone()),
+                        y0: 0.0,
+                    },
+                    5 => MathKind::Filter {
+                        input: TraceRef(first.clone()),
+                        kind: FilterKind::Lowpass { cutoff_hz: 1.0 },
+                    },
+                    6 => MathKind::MinMax {
+                        input: TraceRef(first.clone()),
+                        decay_per_sec: Some(0.0),
+                        mode: MinMaxMode::Min,
+                    },
+                    7 => MathKind::MinMax {
+                        input: TraceRef(first.clone()),
+                        decay_per_sec: Some(0.0),
+                        mode: MinMaxMode::Max,
+                    },
                     _ => MathKind::Add { inputs: vec![] },
                 };
             }
@@ -573,22 +604,38 @@ impl Panel for MathPanel {
                     let tr = self.builder.clone();
                     if self.error.is_none() {
                         if !is_creating {
-                            // Preserve look if renaming
+                            // Preserve look if renaming and replace in-place to keep position
                             let mut prev_look: Option<TraceLook> = None;
+                            let mut replace_idx: Option<usize> = None;
+
                             if let Some(orig) = self.editing.clone() {
+                                replace_idx = self.math_traces.iter().position(|d| d.name == orig);
+
                                 if orig != tr.name {
+                                    // Grab previous look, then remove the old backing trace
+                                    prev_look = data.traces.get(&orig).map(|t| t.look.clone());
+                                    data.remove_trace(&orig);
+                                } else {
+                                    // Keep current look when not renaming
                                     prev_look = data.traces.get(&orig).map(|t| t.look.clone());
                                 }
-                                data.remove_trace(&orig);
-                                // Replace in math_traces
-                                self.math_traces.retain(|d| d.name != orig);
                             }
+
+                            // Ensure backing trace exists and carry over look/info
                             let trace = data.get_trace_or_new(&tr.name);
                             if let Some(l) = prev_look {
                                 trace.look = l;
                             }
                             trace.info = tr.math_formula_string();
-                            self.math_traces.push(tr.clone());
+                            trace.clear_all();
+
+                            // Replace the math trace at the same index (keep position)
+                            if let Some(i) = replace_idx {
+                                self.math_traces[i] = tr.clone();
+                            } else {
+                                // Fallback (shouldn't happen), keep previous behavior
+                                self.math_traces.push(tr.clone());
+                            }
                         } else {
                             // Creating new
                             let trace = data.get_trace_or_new(&tr.name);
@@ -598,10 +645,8 @@ impl Panel for MathPanel {
                         }
                         self.editing = None;
                         self.creating = false;
-                        self.builder = MathTrace::new(
-                            "".to_string(),
-                            MathKind::Add { inputs: Vec::new() },
-                        );
+                        self.builder =
+                            MathTrace::new("".to_string(), MathKind::Add { inputs: Vec::new() });
                         self.builder_look = TraceLook::default();
                         self.error = None;
                     }
@@ -611,10 +656,8 @@ impl Panel for MathPanel {
                     if ui.button("Cancel").clicked() {
                         self.editing = None;
                         self.creating = false;
-                        self.builder = MathTrace::new(
-                            "".to_string(),
-                            MathKind::Add { inputs: Vec::new() },
-                        );
+                        self.builder =
+                            MathTrace::new("".to_string(), MathKind::Add { inputs: Vec::new() });
                         self.builder_look = TraceLook::default();
                         self.error = None;
                     }
