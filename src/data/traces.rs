@@ -1,13 +1,32 @@
-use std::collections::VecDeque;
-use serde::{Deserialize, Serialize};
 use crate::data::trace_look::TraceLook;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceRef(pub String);
 
+pub struct TracesCollection {
+    pub traces: HashMap<TraceRef, TraceData>,
+    pub max_points: usize,
+    rx: Option<std::sync::mpsc::Receiver<MultiSample>>,
+}
+
+impl Default for TracesCollection {
+    fn default() -> Self {
+        Self {
+            traces: HashMap::new(),
+            max_points: 10_000,
+        }
+    }
+}
+
+impl TracesCollection {
+
+}
+
 #[derive(Default)]
 pub struct TraceData {
-    pub name: String,
+    //pub name: String,
     pub look: TraceLook,
     pub offset: f64,
     pub live: VecDeque<[f64; 2]>,

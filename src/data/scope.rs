@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::data::trace_look::TraceLook;
-use crate::data::traces::TraceData;
+use crate::data::traces::{self, TraceData};
 use crate::sink::MultiSample;
 
 pub struct AxisSettings {
@@ -99,14 +99,14 @@ pub struct ScopeData {
     // Y Settings
     pub y_axis: AxisSettings,
     pub x_axis: AxisSettings,
-    pub max_points: usize,
+    //pub max_points: usize,
     pub time_window: f64,
     pub scope_type: ScopeType,
     paused: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
-    rx: Option<std::sync::mpsc::Receiver<MultiSample>>,
-    pub traces: HashMap<String, TraceData>,
+    
+    //pub traces: HashMap<String, TraceData>,
     pub trace_order: Vec<String>,
     pub hover_trace: Option<String>,
     pub selection_trace: Option<String>,
@@ -122,14 +122,14 @@ impl Default for ScopeData {
         Self {
             y_axis: AxisSettings::default(),
             x_axis,
-            max_points: 10_000,
+            //max_points: 10_000,
             time_window: 10.0,
             scope_type: ScopeType::TimeScope,
             paused: false,
             show_legend: true,
             show_info_in_legend: false,
-            rx: None,
-            traces: HashMap::new(),
+            // rx: None,
+            //traces: HashMap::new(),
             trace_order: Vec::new(),
             hover_trace: None,
             selection_trace: None,
@@ -175,7 +175,7 @@ impl ScopeData {
         }
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, traces: &traces::TracesCollection) {
         self.update_rx();
         self.drain();
 
@@ -190,10 +190,10 @@ impl ScopeData {
         }
     }
 
-    fn live_update(&mut self) {
+    fn live_update(&mut self, traces: &traces::TracesCollection) {
         if self.scope_type == ScopeType::TimeScope {
             if !self.paused {
-                let now = if let Some((_name, trace)) = self.traces.iter().next() {
+                let now = if let Some((_name, trace)) = traces.traces.iter().next() {
                     if let Some(last) = trace.live.back() {
                         last[0]
                     } else {
@@ -211,10 +211,10 @@ impl ScopeData {
         }
     }
 
-    pub fn fit_x_bounds(&mut self) {
+    pub fn fit_x_bounds(&mut self, traces: &traces::TracesCollection) {
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
-        for (_name, trace) in self.traces.iter() {
+        for (_name, trace) in traces.traces.iter() {
             let points = if self.paused {
                 if let Some(snap) = &trace.snap {
                     snap
@@ -243,7 +243,7 @@ impl ScopeData {
         let mut min_y = f64::MAX;
         let mut max_y = f64::MIN;
         let x_bounds = self.x_axis.bounds;
-        for (_name, trace) in self.traces.iter() {
+        for (_name, trace) in traces.traces.iter() {
             let points = if self.paused {
                 if let Some(snap) = &trace.snap {
                     snap
