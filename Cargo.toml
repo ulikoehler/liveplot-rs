@@ -41,15 +41,15 @@ window_control_display_info = [
 ]
 
 [dependencies]
-eframe = "0.32.2"
-egui = "0.32.2"
-egui_plot = "0.33.0"
+eframe = "0.33.0"
+egui = "0.33.0"
+egui_plot = "0.34.0"
 chrono = "0.4.41"
 rfd = "0.15.4"
 image = "0.25.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-egui_table = "0.4"
+egui_table = "0.5"
 rustfft = { version = "6", optional = true }
 tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "sync"], optional = true }
 tonic = { version = "0.12", features = ["tls", "transport"], optional = true }

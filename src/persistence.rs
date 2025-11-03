@@ -299,7 +299,7 @@ impl AppStateSerde {
 /// Capture the current application state into a serializable struct.
 pub fn save_mainpanel_to_struct(ctx: &egui::Context, panel: &mut MainPanel) -> AppStateSerde {
     // Capture last known window size and position (best-effort)
-    let rect = ctx.input(|i| i.screen_rect());
+    let rect = ctx.input(|i| i.content_rect());
     let win_size = Some([rect.width(), rect.height()]);
     let win_pos = Some([rect.left(), rect.top()]);
 

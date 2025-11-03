@@ -288,7 +288,7 @@ impl MainPanel {
                 // Estimate width of tabs/labels
                 let button_font = egui::TextStyle::Button.resolve(ui.style());
                 let txt_width = |text: &str, ui: &egui::Ui| -> f32 {
-                    ui.fonts(|f| {
+                    ui.fonts_mut(|f| {
                         f.layout_no_wrap(text.to_owned(), button_font.clone(), egui::Color32::WHITE)
                             .rect
                             .width()
@@ -438,7 +438,7 @@ impl MainApp {
             }
             // Positioning is not applied here due to API variability across platforms.
             // Publish current info
-            let rect = ctx.input(|i| i.screen_rect());
+            let rect = ctx.input(|i| i.content_rect());
             let size = [rect.width(), rect.height()];
             let pos = [rect.left(), rect.top()];
             let info = crate::controllers::WindowInfo {
