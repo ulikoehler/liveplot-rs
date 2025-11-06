@@ -1,7 +1,7 @@
 use eframe::egui;
 
 use crate::controllers::{FftController, TracesController, UiActionController, WindowController};
-use crate::data::export;
+use crate::data::{self, export};
 use crate::data::traces::{TraceRef, TracesCollection};
 
 use crate::data::data::LivePlotData;
@@ -32,8 +32,8 @@ pub struct MainPanel {
 impl MainPanel {
     pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
         Self {
-            traces_data: TracesCollection::default(),
-            scope_panel: ScopePanel::new(rx),
+            traces_data: TracesCollection::new(rx),
+            scope_panel: ScopePanel::default(),
             right_side_panels: vec![
                 Box::new(TracesPanel::default()),
                 Box::new(MathPanel::default()),
@@ -65,7 +65,7 @@ impl MainPanel {
             let mut detached = std::mem::take(&mut self.detached_panels);
             let mut empty = std::mem::take(&mut self.empty_panels);
 
-            let mut draw_overlays = |plot_ui: &mut egui_plot::PlotUi, data: &LivePlotData| {
+            let mut draw_overlays = |plot_ui: &mut egui_plot::PlotUi, scope: &crate::data::scope::ScopeData, traces: &crate::data::traces::TracesCollection| {
                 for p in right
                     .iter_mut()
                     .chain(left.iter_mut())
@@ -73,11 +73,11 @@ impl MainPanel {
                     .chain(detached.iter_mut())
                     .chain(empty.iter_mut())
                 {
-                    p.draw(plot_ui, data);
+                    p.draw(plot_ui, scope, traces);
                 }
             };
 
-            self.scope_panel.render_panel(ui, &mut draw_overlays);
+            self.scope_panel.render_panel(ui, &mut draw_overlays, &mut self.traces_data);
 
             // Return panel lists back to self
             self.left_side_panels = left;
@@ -89,7 +89,10 @@ impl MainPanel {
     }
 
     fn update_data(&mut self) {
-        let data = self.scope_panel.update_data();
+    self.traces_data.update();
+
+    self.scope_panel.update_data(&self.traces_data);
+    let data = &mut LivePlotData { scope_data: self.scope_panel.get_data_mut(), traces: &mut self.traces_data };
 
         for p in &mut self.left_side_panels {
             p.update_data(data);
@@ -114,7 +117,8 @@ impl MainPanel {
         egui::MenuBar::new().ui(ui, |ui| {
             self.scope_panel.render_menu(ui);
 
-            let data = self.scope_panel.get_data_mut();
+            let scope_data = self.scope_panel.get_data_mut();
+            let data = &mut LivePlotData { scope_data, traces: &mut self.traces_data };
 
             for p in &mut self.left_side_panels {
                 p.render_menu(ui, data);
@@ -250,27 +254,27 @@ impl MainPanel {
         // Detached left windows
         for p in &mut self.left_side_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(ui.ctx(), self.scope_panel.get_data_mut());
+                p.show_detached_dialog(ui.ctx(), &mut LivePlotData { scope_data: self.scope_panel.get_data_mut(), traces: &mut self.traces_data });
             }
         }
 
         // Detached right windows
         for p in &mut self.right_side_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(ui.ctx(), self.scope_panel.get_data_mut());
+                p.show_detached_dialog(ui.ctx(), &mut LivePlotData { scope_data: self.scope_panel.get_data_mut(), traces: &mut self.traces_data });
             }
         }
 
         // Detached bottom windows
         for p in &mut self.bottom_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(ui.ctx(), self.scope_panel.get_data_mut());
+                p.show_detached_dialog(ui.ctx(), &mut LivePlotData { scope_data: self.scope_panel.get_data_mut(), traces: &mut self.traces_data });
             }
         }
 
         for p in &mut self.detached_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(ui.ctx(), self.scope_panel.get_data_mut());
+                p.show_detached_dialog(ui.ctx(), &mut LivePlotData { scope_data: self.scope_panel.get_data_mut(), traces: &mut self.traces_data });
             }
         }
     }
@@ -285,7 +289,8 @@ impl MainPanel {
 
         let mut clicked: Option<usize> = None;
 
-        let data = self.scope_panel.get_data_mut();
+    let scope_data = self.scope_panel.get_data_mut();
+    let data = &mut LivePlotData { scope_data, traces: &mut self.traces_data };
 
         if count > 0 {
             // Decide if actions fit on the same row; if not, render them on a new row.
@@ -481,11 +486,8 @@ impl MainApp {
 
             // pause/resume
             if let Some(p) = take_actions.0 {
-                if p {
-                    data.pause();
-                } else {
-                    data.resume();
-                }
+                let mut lp = LivePlotData { scope_data: data, traces: &mut self.main_panel.traces_data };
+                if p { lp.pause(); } else { lp.resume(); }
             }
             // screenshot now
             if take_actions.1 {
@@ -500,11 +502,11 @@ impl MainApp {
             if let Some((_fmt, path)) = take_actions.4.take() {
                 // Build aligned series from currently drawn points
                 let tol = 1e-9;
-                let order = data.scope_data.trace_order.clone();
+                let order = data.trace_order.clone();
                 let series = order
                     .iter()
                     .filter_map(|name| {
-                        data.get_drawn_points(name)
+                        data.get_drawn_points(name, &self.main_panel.traces_data)
                             .map(|v| (name.clone(), v.into_iter().collect()))
                     })
                     .collect();
@@ -526,35 +528,39 @@ impl MainApp {
         if let Some(ctrl) = &self.traces_ctrl {
             let mut inner = ctrl.inner.lock().unwrap();
             let data = self.main_panel.scope_panel.get_data_mut();
+            let traces = &mut self.main_panel.traces_data;
             for (name, rgb) in inner.color_requests.drain(..) {
-                if let Some(tr) = data.traces.get_mut(&name) {
+                    let tref = TraceRef(name.clone());
+                    if let Some(tr) = traces.get_trace_mut(&tref) {
                     tr.look.color = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
                 }
             }
             for (name, vis) in inner.visible_requests.drain(..) {
-                if let Some(tr) = data.traces.get_mut(&name) {
+                let tref = TraceRef(name.clone());
+                if let Some(tr) = traces.get_trace_mut(&tref) {
                     tr.look.visible = vis;
                 }
             }
             for (name, off) in inner.offset_requests.drain(..) {
-                if let Some(tr) = data.traces.get_mut(&name) {
+                let tref = TraceRef(name.clone());
+                if let Some(tr) = traces.get_trace_mut(&tref) {
                     tr.offset = off;
                 }
             }
             if let Some(unit) = inner.y_unit_request.take() {
-                data.scope_data.y_axis.unit = unit;
+                data.y_axis.unit = unit;
             }
             if let Some(ylog) = inner.y_log_request.take() {
-                data.scope_data.y_axis.log_scale = ylog;
+                data.y_axis.log_scale = ylog;
             }
             if let Some(sel) = inner.selection_request.take() {
-                data.scope_data.selection_trace = TraceRef(sel);
+                data.selection_trace = sel.map(TraceRef);
             }
 
             // Publish current traces snapshot
             let mut infos: Vec<crate::controllers::TraceInfo> = Vec::new();
-            for name in data.scope_data.trace_order.iter() {
-                if let Some(tr) = data.traces.get_trace(name) {
+            for name in data.trace_order.iter() {
+                if let Some(tr) = self.main_panel.traces_data.get_trace(name) {
                     infos.push(crate::controllers::TraceInfo {
                         name: name.0.clone(),
                         color_rgb: [tr.look.color.r(), tr.look.color.g(), tr.look.color.b()],
@@ -564,11 +570,11 @@ impl MainApp {
                     });
                 }
             }
-            let y_unit = data.scope_data.y_axis.unit.clone();
-            let y_log = data.scope_data.y_axis.log_scale;
+            let y_unit = data.y_axis.unit.clone();
+            let y_log = data.y_axis.log_scale;
             let snapshot = crate::controllers::TracesInfo {
                 traces: infos,
-                marker_selection: data.scope_data.selection_trace.clone(),
+                marker_selection: data.selection_trace.as_ref().map(|t| t.0.clone()),
                 y_unit,
                 y_log,
             };

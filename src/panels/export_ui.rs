@@ -21,7 +21,7 @@ impl Panel for ExportPanel {
         &mut self.state
     }
 
-    fn render_menu(&mut self, ui: &mut Ui, data: &mut LivePlotData) {
+    fn render_menu(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         ui.menu_button("🗁 Export", |ui| {
             if ui
                 .button("🖼 Save Screenshot")

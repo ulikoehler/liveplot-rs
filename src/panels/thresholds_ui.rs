@@ -1,5 +1,7 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::LivePlotData;
+use crate::data::scope::ScopeData;
+use crate::data::traces::TracesCollection;
 use crate::data::scope::AxisSettings;
 use crate::data::thresholds::{ThresholdDef, ThresholdEvent, ThresholdKind};
 use crate::panels::trace_look_ui::render_trace_look_editor;
@@ -49,7 +51,7 @@ impl Panel for ThresholdsPanel {
         &mut self.state
     }
 
-    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, _data: &LivePlotData) {
+    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, scope: &ScopeData, traces: &TracesCollection) {
         // Threshold overlays
         if !self.thresholds.is_empty() {
             let bounds = plot_ui.plot_bounds();
@@ -57,7 +59,7 @@ impl Panel for ThresholdsPanel {
             let xmin = *xr.start();
             let xmax = *xr.end();
             for (_name, def) in &self.thresholds {
-                if let Some(tr) = _data.traces.get_trace(&def.target) {
+                if let Some(tr) = traces.get_trace(&def.target) {
                     if !tr.look.visible {
                         continue;
                     }
@@ -101,7 +103,7 @@ impl Panel for ThresholdsPanel {
 
                     let mut draw_hline = |label: &str, y_world: f64| {
                         let y_lin = y_world + tr.offset;
-                        let y_plot = if _data.scope_data.y_axis.log_scale {
+                        let y_plot = if scope.y_axis.log_scale {
                             if y_lin > 0.0 {
                                 y_lin.log10()
                             } else {
@@ -119,8 +121,8 @@ impl Panel for ThresholdsPanel {
                         }
                     };
 
-                    let thr_info = def.get_info(&_data.scope_data.y_axis);
-                    let legend_label = if _data.scope_data.show_info_in_legend {
+                    let thr_info = def.get_info(&scope.y_axis);
+                    let legend_label = if scope.show_info_in_legend {
                         format!("{} — {}", def.name, thr_info)
                     } else {
                         def.name.clone()
@@ -147,7 +149,7 @@ impl Panel for ThresholdsPanel {
                         ThresholdKind::InRange { low, high } => (low + high) * 0.5,
                     };
                     let y_lin = marker_y_world + tr.offset;
-                    let marker_y_plot = if _data.scope_data.y_axis.log_scale {
+                    let marker_y_plot = if scope.y_axis.log_scale {
                         if y_lin > 0.0 {
                             y_lin.log10()
                         } else {
@@ -202,14 +204,14 @@ impl Panel for ThresholdsPanel {
         }
     }
 
-    fn update_data(&mut self, _data: &mut LivePlotData) {
+    fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
         let sources = _data.get_all_drawn_points();
         for def in self.thresholds.values_mut() {
             def.process_threshold(sources.clone());
         }
     }
 
-    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData) {
+    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         ui.label("Detect and log when a trace exceeds a condition.");
         if let Some(err) = &self.error {
             ui.colored_label(Color32::LIGHT_RED, err);
@@ -416,16 +418,16 @@ impl Panel for ThresholdsPanel {
                 .position(|n| n == &self.builder.target)
                 .unwrap_or(0);
             egui::ComboBox::from_label("Trace")
-                .selected_text(trace_names.get(target_idx).cloned().unwrap_or_default())
+                .selected_text(trace_names.get(target_idx).map(|t| t.to_string()).unwrap_or_default())
                 .show_ui(ui, |ui| {
                     for (i, n) in trace_names.iter().enumerate() {
-                        if ui.selectable_label(target_idx == i, n).clicked() {
+                        if ui.selectable_label(target_idx == i, n.as_str()).clicked() {
                             target_idx = i;
                         }
                     }
                 });
             if let Some(sel_name) = trace_names.get(target_idx) {
-                self.builder.target.0 = sel_name.clone();
+                self.builder.target = sel_name.clone();
             }
             // Default color when creating: use selected trace color at 75% alpha if not set by user yet
             if is_creating {

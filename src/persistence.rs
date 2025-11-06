@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::MainPanel;
 use crate::data::scope::{AxisSettings, ScopeType};
-use crate::data::traces::TraceRef;
+use crate::data::traces::{TracesCollection, TraceRef};
 use crate::panels::{math_ui::MathPanel, thresholds_ui::ThresholdsPanel, triggers_ui::TriggersPanel};
 use crate::panels::panel_trait::Panel;
-use crate::data::data::LivePlotData;
+use crate::data::scope::ScopeData;
 
 // ---------- Serializable mirror types ----------
 
@@ -191,7 +191,6 @@ pub struct ThresholdSerde {
 pub struct ScopeStateSerde {
     pub x_axis: AxisSettingsSerde,
     pub y_axis: AxisSettingsSerde,
-    pub max_points: usize,
     pub time_window: f64,
     pub scope_is_xy: bool,
     pub show_legend: bool,
@@ -199,13 +198,12 @@ pub struct ScopeStateSerde {
     pub selection_trace: Option<TraceRef>,
 }
 
-impl From<&LivePlotData> for ScopeStateSerde {
-    fn from(data: &LivePlotData) -> Self {
-        let s = &data.scope_data;
+impl From<&ScopeData> for ScopeStateSerde {
+    fn from(data: &ScopeData) -> Self {
+        let s: &ScopeData = &data;
         Self {
             x_axis: AxisSettingsSerde::from(&s.x_axis),
             y_axis: AxisSettingsSerde::from(&s.y_axis),
-            max_points: data.traces.max_points,
             time_window: s.time_window,
             scope_is_xy: matches!(s.scope_type, ScopeType::XYScope),
             show_legend: s.show_legend,
@@ -216,11 +214,9 @@ impl From<&LivePlotData> for ScopeStateSerde {
 }
 
 impl ScopeStateSerde {
-    fn apply_to(self, data: &mut LivePlotData) {
-        let scope = &mut data.scope_data;
+    fn apply_to(self, scope: &mut ScopeData) {
         self.x_axis.apply_to(&mut scope.x_axis);
         self.y_axis.apply_to(&mut scope.y_axis);
-        data.traces.max_points = self.max_points;
         scope.time_window = self.time_window;
         scope.scope_type = if self.scope_is_xy { ScopeType::XYScope } else { ScopeType::TimeScope };
         scope.show_legend = self.show_legend;
@@ -252,11 +248,12 @@ pub struct AppStateSerde {
 
 impl AppStateSerde {
     fn capture(panel: &mut MainPanel, window_size: Option<[f32; 2]>) -> Self {
-        let data = panel.scope_panel.get_data_mut();
+    let scope_data = panel.scope_panel.get_data_mut();
+    let traces_data = &panel.traces_data;
         // traces styles
         let mut traces_style = Vec::new();
-        for name in data.scope_data.trace_order.iter() {
-            if let Some(tr) = data.traces.get_trace(name) {
+        for name in scope_data.trace_order.iter() {
+            if let Some(tr) = traces_data.get_trace(name) {
                 traces_style.push(TraceStyleSerde {
                     name: name.clone(),
                     look: TraceLookSerde::from(&tr.look),
@@ -438,9 +435,9 @@ pub fn load_mainpanel_from_struct(ctx: &egui::Context, panel: &mut MainPanel, st
 
     // Apply trace styles/offsets to existing traces
     {
-    let data = panel.scope_panel.get_data_mut();
+        let traces = &mut panel.traces_data;
         for s in state.traces_style.iter() {
-            if let Some(tr) = data.traces.get_trace_mut(&s.name) {
+            if let Some(tr) = traces.get_trace_mut(&s.name) {
                 tr.look = s.look.clone().into_look();
                 tr.offset = s.offset;
             }

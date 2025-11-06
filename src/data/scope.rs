@@ -134,6 +134,14 @@ impl Default for ScopeData {
 
 impl ScopeData {
     pub fn update(&mut self, traces: &TracesCollection) {
+        // Keep trace_order in sync with current traces: drop missing, append new
+        self.trace_order.retain(|n| traces.contains_key(n));
+        for name in traces.keys() {
+            if !self.trace_order.iter().any(|n| n == name) {
+                self.trace_order.push(name.clone());
+            }
+        }
+
         if self.x_axis.auto_fit {
             self.fit_x_bounds(traces);
         }
@@ -233,5 +241,26 @@ impl ScopeData {
         self.fit_y_bounds(traces);
     }
 
+    pub fn get_drawn_points(&self, name: &TraceRef, traces: &TracesCollection) -> Option<VecDeque<[f64; 2]>> {
+        if let Some(trace) = traces.get_points(name, self.paused) {
+            if self.scope_type == ScopeType::XYScope {
+                Some(trace.clone())
+            } else {
+                Some(TraceData::cap_by_x_bounds(&trace, self.x_axis.bounds))
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_all_drawn_points(&self, traces: &TracesCollection) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
+        let mut result = HashMap::new();
+        for name in self.trace_order.iter() {
+            if let Some(pts) = self.get_drawn_points(name, traces) {
+                result.insert(name.clone(), pts);
+            }
+        }
+        result
+    }
     
 }

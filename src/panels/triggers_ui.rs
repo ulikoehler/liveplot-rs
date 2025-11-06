@@ -1,5 +1,7 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::LivePlotData;
+use crate::data::scope::ScopeData;
+use crate::data::traces::TracesCollection;
 use crate::data::traces::TraceRef;
 use crate::data::triggers::{Trigger, TriggerSlope};
 use crate::panels::trace_look_ui::render_trace_look_editor;
@@ -40,7 +42,7 @@ impl Panel for TriggersPanel {
         &mut self.state
     }
 
-    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, data: &LivePlotData) {
+    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, scope: &ScopeData, traces: &TracesCollection) {
         if self.triggers.is_empty() {
             return;
         }
@@ -53,7 +55,7 @@ impl Panel for TriggersPanel {
             if !trig.enabled {
                 continue;
             }
-            let Some(tr) = data.traces.get_trace(&trig.target) else {
+            let Some(tr) = traces.get_trace(&trig.target) else {
                 continue;
             };
             if !tr.look.visible {
@@ -66,7 +68,7 @@ impl Panel for TriggersPanel {
 
             // Draw horizontal trigger level line
             let y_lin = trig.level + tr.offset;
-            let y_plot = if data.scope_data.y_axis.log_scale {
+            let y_plot = if scope.y_axis.log_scale {
                 if y_lin > 0.0 {
                     y_lin.log10()
                 } else {
@@ -77,8 +79,8 @@ impl Panel for TriggersPanel {
             };
             if y_plot.is_finite() {
                 // Legend label can include info text
-                let info = trig.get_info(&data.scope_data.y_axis);
-                let label = if data.scope_data.show_info_in_legend {
+                let info = trig.get_info(&scope.y_axis);
+                let label = if scope.show_info_in_legend {
                     format!("{} — {}", trig.name, info)
                 } else {
                     trig.name.clone()
@@ -121,7 +123,7 @@ impl Panel for TriggersPanel {
         }
     }
 
-    fn update_data(&mut self, data: &mut LivePlotData) {
+    fn update_data(&mut self, data: &mut LivePlotData<'_>) {
         let is_single_shot_triggered = self
             .triggers
             .values()
@@ -145,7 +147,7 @@ impl Panel for TriggersPanel {
         }
     }
 
-    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData) {
+    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         ui.label("Trigger when a trace crosses a level; optionally pause after N samples.");
 
         ui.separator();
@@ -356,16 +358,16 @@ impl Panel for TriggersPanel {
                 .position(|n| n == &builder.target)
                 .unwrap_or(0);
             egui::ComboBox::from_label("Trace")
-                .selected_text(trace_names.get(target_idx).cloned().unwrap_or_default())
+                .selected_text(trace_names.get(target_idx).map(|t| t.to_string()).unwrap_or_default())
                 .show_ui(ui, |ui| {
-                    for (i, nm) in trace_names.iter().enumerate() {
-                        if ui.selectable_label(i == target_idx, nm).clicked() {
+                    for (i, n) in trace_names.iter().enumerate() {
+                        if ui.selectable_label(target_idx == i, n.as_str()).clicked() {
                             target_idx = i;
                         }
                     }
                 });
             if let Some(sel_name) = trace_names.get(target_idx) {
-                builder.target = TraceRef(sel_name.clone());
+                builder.target = sel_name.clone();
             }
 
             // Level and slope

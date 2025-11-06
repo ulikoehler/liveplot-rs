@@ -109,7 +109,7 @@ impl Trigger {
     /// - 0.0 => pause immediately when the trigger occurs
     /// - 1.0 => pause after `data.max_points` new samples on the target trace
     /// Values in between scale linearly.
-    pub fn check_trigger(&mut self, data: &mut LivePlotData) -> bool {
+    pub fn check_trigger(&mut self, data: &mut LivePlotData<'_>) -> bool {
         let livedata = if let Some(data) = data.traces.get_points(&self.target, false) {
             data
         } else {

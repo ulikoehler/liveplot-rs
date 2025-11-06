@@ -12,6 +12,26 @@ impl Default for TraceRef {
     }
 }
 
+impl TraceRef {
+    pub fn new<S: Into<String>>(name: S) -> Self {
+        TraceRef(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl std::fmt::Display for TraceRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl std::cmp::Ord for TraceRef {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.0.cmp(&other.0)
@@ -27,6 +47,24 @@ impl std::cmp::PartialOrd for TraceRef {
 impl PartialEq<str> for TraceRef {
     fn eq(&self, other: &str) -> bool {
         self.0 == other
+    }
+}
+
+impl PartialEq<String> for TraceRef {
+    fn eq(&self, other: &String) -> bool {
+        &self.0 == other
+    }
+}
+
+impl PartialEq<TraceRef> for String {
+    fn eq(&self, other: &TraceRef) -> bool {
+        self == &other.0
+    }
+}
+
+impl PartialEq<&str> for TraceRef {
+    fn eq(&self, other: &&str) -> bool {
+        self.0.as_str() == *other
     }
 }
 
@@ -67,6 +105,12 @@ impl From<String> for TraceRef {
     }
 }
 
+impl From<TraceRef> for String {
+    fn from(value: TraceRef) -> Self {
+        value.0
+    }
+}
+
 pub struct TracesCollection {
     traces: HashMap<TraceRef, TraceData>,
     pub max_points: usize,
@@ -84,6 +128,12 @@ impl Default for TracesCollection {
 }
 
 impl TracesCollection {
+    pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
+        let mut instance = Self::default();
+        instance.set_rx(rx);
+        instance
+    }
+
     pub fn set_rx(&mut self, rx: std::sync::mpsc::Receiver<MultiSample>) {
         self.rx = Some(rx);
     }
@@ -142,8 +192,14 @@ impl TracesCollection {
         self.traces.values().any(|tr| tr.snap.is_some())
     }
 
-    pub fn clear_traces(&mut self, name: &TraceRef) {
+    pub fn clear_trace(&mut self, name: &TraceRef) {
         if let Some(trace) = self.traces.get_mut(name) {
+            trace.clear_all();
+        }
+    }
+
+    pub fn clear_all(&mut self) {
+        for trace in self.traces.values_mut() {
             trace.clear_all();
         }
     }
@@ -198,12 +254,24 @@ impl TracesCollection {
         self.traces.iter()
     }
 
+    pub fn traces_iter_mut(&mut self) -> impl Iterator<Item = (&TraceRef, &mut TraceData)> {
+        self.traces.iter_mut()
+    }
+
     pub fn get_trace(&self, name: &TraceRef) -> Option<&TraceData> {
         self.traces.get(name)
     }
 
     pub fn get_trace_mut(&mut self, name: &TraceRef) -> Option<&mut TraceData> {
         self.traces.get_mut(name)
+    }
+
+    pub fn contains_key(&self, name: &TraceRef) -> bool {
+        self.traces.contains_key(name)
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &TraceRef> {
+        self.traces.keys()
     }
 }
 

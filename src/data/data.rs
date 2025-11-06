@@ -1,13 +1,14 @@
-use crate::data::scope::{ScopeData, ScopeType};
+use crate::data::scope::{ScopeData};
 use std::collections::{HashMap, VecDeque};
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 
-pub struct LivePlotData {
-    pub scope_data: ScopeData,
-    pub traces: TracesCollection,
+pub struct LivePlotData<'a> {
+    pub scope_data: &'a mut ScopeData,
+    pub traces: &'a mut TracesCollection,
 }
 
-impl LivePlotData {
+impl<'a> LivePlotData<'a> {
+
     pub fn pause(&mut self) {
         self.scope_data.paused = true;
         self.traces.take_snapshot();
@@ -34,24 +35,11 @@ impl LivePlotData {
     }
 
     pub fn get_drawn_points(&self, name: &TraceRef) -> Option<VecDeque<[f64; 2]>> {
-        if let Some(trace) = self.traces.get_points(name, self.scope_data.paused) {
-            if self.scope_data.scope_type == ScopeType::XYScope {
-                Some(trace.clone())
-            } else {
-                Some(TraceData::cap_by_x_bounds(&trace, self.scope_data.x_axis.bounds))
-            }
-        } else {
-            None
-        }
+        // Delegate to ScopeData helper to ensure consistent bounds handling
+        self.scope_data.get_drawn_points(name, &*self.traces)
     }
 
     pub fn get_all_drawn_points(&self) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
-        let mut result = HashMap::new();
-        for name in self.scope_data.trace_order.iter() {
-            if let Some(pts) = self.get_drawn_points(name) {
-                result.insert(name.clone(), pts);
-            }
-        }
-        result
+        self.scope_data.get_all_drawn_points(&*self.traces)
     }
 }

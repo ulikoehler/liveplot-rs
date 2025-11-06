@@ -3,9 +3,11 @@ use egui_plot::{Legend, Line, Plot, Points};
 
 // no XDateFormat needed in this panel for now
 
-use crate::data::scope::ScopeType;
-use crate::data::data::LivePlotData;
+use crate::data;
+// use crate::data::data::LivePlotData; // not needed here
 use crate::data::scope::ScopeData;
+use crate::data::scope::ScopeType;
+use crate::data::traces::TracesCollection;
 // no panel trait needed here; overlays are provided via closure from app
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -39,40 +41,42 @@ impl Default for ScopePanel {
 }
 
 impl ScopePanel {
+    // pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
+    //     let mut instance = Self::default();
+    //     instance.data.set_rx(rx);
+    //     instance
+    // }
 
-    pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
-        let mut instance = Self::default();
-        instance.data.set_rx(rx);
-        instance
+    pub fn update_data(&mut self, traces: &TracesCollection) {
+        self.data.update(traces);
     }
 
-    pub fn update_data(&mut self) -> &mut LivePlotData {
-        self.data.update();
-        &mut self.data
-    }
-
-    pub fn get_data_mut(&mut self) -> &mut LivePlotData {
+    pub fn get_data_mut(&mut self) -> &mut ScopeData {
         &mut self.data
     }
 
     pub fn render_menu(&mut self, _ui: &mut Ui) {}
 
-    pub fn render_panel<F>(&mut self, ui: &mut Ui, mut draw_overlays: F)
-    where
-        F: FnMut(&mut egui_plot::PlotUi, &LivePlotData),
+    pub fn render_panel<F>(
+        &mut self,
+        ui: &mut Ui,
+        mut draw_overlays: F,
+        traces: &mut TracesCollection,
+    ) where
+        F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
     {
-        self.render_controls(ui);
+        self.render_controls(ui, traces);
         ui.separator();
-        self.render_plot(ui, &mut draw_overlays);
+        self.render_plot(ui, &mut draw_overlays, traces);
     }
 
-    fn render_controls(&mut self, ui: &mut Ui) {
+    fn render_controls(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
         // Main top-bar controls grouped similarly to old controls_ui
 
         ui.horizontal(|ui| {
             ui.label("Data Points:");
             ui.add(egui::Slider::new(
-                &mut self.data.traces.max_points,
+                &mut traces.max_points,
                 self.points_bounds.0..=self.points_bounds.1,
             ));
 
@@ -120,13 +124,17 @@ impl ScopePanel {
                 let r1 = ui.add(
                     egui::DragValue::new(&mut x_min_tmp)
                         .speed(0.1)
-                        .custom_formatter(|n, _| self.data.x_axis.format_value_with_unit(n, 4, x_range)),
+                        .custom_formatter(|n, _| {
+                            self.data.x_axis.format_value_with_unit(n, 4, x_range)
+                        }),
                 );
                 ui.label("Max:");
                 let r2 = ui.add(
                     egui::DragValue::new(&mut x_max_tmp)
                         .speed(0.1)
-                        .custom_formatter(|n, _| self.data.x_axis.format_value_with_unit(n, 4, x_range)),
+                        .custom_formatter(|n, _| {
+                            self.data.x_axis.format_value_with_unit(n, 4, x_range)
+                        }),
                 );
                 if (r1.changed() || r2.changed()) && x_min_tmp < x_max_tmp {
                     self.data.x_axis.bounds.0 = x_min_tmp;
@@ -140,7 +148,7 @@ impl ScopePanel {
                 .on_hover_text("Fit X to visible data")
                 .clicked()
             {
-                self.data.fit_x_bounds();
+                self.data.fit_x_bounds(traces);
             }
 
             ui.checkbox(&mut self.data.x_axis.auto_fit, "Auto Fit X");
@@ -156,13 +164,17 @@ impl ScopePanel {
             let r1 = ui.add(
                 egui::DragValue::new(&mut y_min_tmp)
                     .speed(0.1)
-                    .custom_formatter(|n, _| self.data.y_axis.format_value_with_unit(n, 4, y_range)),
+                    .custom_formatter(|n, _| {
+                        self.data.y_axis.format_value_with_unit(n, 4, y_range)
+                    }),
             );
             ui.label("Max:");
             let r2 = ui.add(
                 egui::DragValue::new(&mut y_max_tmp)
                     .speed(0.1)
-                    .custom_formatter(|n, _| self.data.y_axis.format_value_with_unit(n, 4, y_range)),
+                    .custom_formatter(|n, _| {
+                        self.data.y_axis.format_value_with_unit(n, 4, y_range)
+                    }),
             );
             if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
                 self.data.y_axis.bounds.0 = y_min_tmp;
@@ -174,7 +186,7 @@ impl ScopePanel {
                 .on_hover_text("Fit Y to visible data")
                 .clicked()
             {
-                self.data.fit_y_bounds();
+                self.data.fit_y_bounds(traces);
             }
 
             ui.checkbox(&mut self.data.y_axis.auto_fit, "Auto Fit Y");
@@ -194,29 +206,35 @@ impl ScopePanel {
                 .on_hover_text("Fit both axes to visible data")
                 .clicked()
             {
-                self.data.fit_bounds();
+                self.data.fit_bounds(traces);
             }
 
             ui.separator();
 
-            if !self.data.is_paused() {
+            if !self.data.paused {
                 if ui.button("Pause").clicked() {
-                    self.data.pause();
+                    self.data.paused = true;
+                    traces.take_snapshot();
                 }
             } else {
                 if ui.button("Resume").clicked() {
-                    self.data.resume();
+                    self.data.paused = false;
                 }
             }
 
             if ui.button("Clear All").clicked() {
-                self.data.clear_all();
+                traces.clear_all();
             }
 
             // Request a screenshot of the current viewport; the handler below
             // will catch the Screenshot event and write it to disk.
-            if ui.button("Save Screenshot").on_hover_text("Take a screenshot of the entire window").clicked() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            if ui
+                .button("Save Screenshot")
+                .on_hover_text("Take a screenshot of the entire window")
+                .clicked()
+            {
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
             }
 
             ui.separator();
@@ -243,7 +261,11 @@ impl ScopePanel {
             for y in 0..h {
                 for x in 0..w {
                     let p = img.pixels[y * w + x];
-                    out.put_pixel(x as u32, y as u32, image::Rgba([p.r(), p.g(), p.b(), p.a()]));
+                    out.put_pixel(
+                        x as u32,
+                        y as u32,
+                        image::Rgba([p.r(), p.g(), p.b(), p.a()]),
+                    );
                 }
             }
 
@@ -276,13 +298,14 @@ impl ScopePanel {
         }
     }
 
-    fn render_plot<F>(&mut self, ui: &mut Ui, mut draw_overlays: F)
+    fn render_plot<F>(&mut self, ui: &mut Ui, mut draw_overlays: F, traces: &mut TracesCollection)
     where
-        F: FnMut(&mut egui_plot::PlotUi, &LivePlotData),
+        F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
     {
         // No extra controls in panel; top bar uses render_menu
         // Render plot directly here (for now). Later we can separate draw() if needed.
         // First, handle any completed screenshot events from the OS/windowing backend.
+
         self.handle_screenshot_result(ui);
 
         let y_log = self.data.y_axis.log_scale;
@@ -294,19 +317,15 @@ impl ScopePanel {
             .legend(Legend::default())
             .x_axis_formatter(|x, _range| {
                 let x_value = if x_log { 10f64.powf(x.value) } else { x.value };
-                self.data
-                    .x_axis
-                    .format_value(x_value, 4, x.step_size.abs())
+                self.data.x_axis.format_value(x_value, 4, x.step_size.abs())
             })
             .y_axis_formatter(|y, _range| {
                 // Scientific ticks with optional unit, apply inverse log mapping for display
                 let y_value = if y_log { 10f64.powf(y.value) } else { y.value };
-                self.data
-                    .y_axis
-                    .format_value(y_value, 4, y.step_size.abs())
+                self.data.y_axis.format_value(y_value, 4, y.step_size.abs())
             });
 
-    let plot_resp = plot.show(ui, |plot_ui| {
+        let plot_resp = plot.show(ui, |plot_ui| {
             // Handle wheel zoom around hovered point
             let resp = plot_ui.response();
 
@@ -357,11 +376,11 @@ impl ScopePanel {
 
             // Draw traces
             for name in self.data.trace_order.clone().into_iter() {
-                if let Some(tr) = self.data.traces.get(&name) {
+                if let Some(tr) = traces.get_trace(&name) {
                     if !tr.look.visible {
                         continue;
                     }
-                    let shown_pts = match self.data.get_drawn_points(&name) {
+                    let shown_pts = match self.data.get_drawn_points(&name, &traces) {
                         Some(pts) => pts,
                         None => continue,
                     };
@@ -414,7 +433,7 @@ impl ScopePanel {
                     let legend_label = if self.data.show_info_in_legend && !tr.info.is_empty() {
                         format!("{} — {}", name, tr.info)
                     } else {
-                        name.clone()
+                        name.0.clone()
                     };
                     line = line.name(legend_label.clone());
                     plot_ui.line(line);
@@ -439,7 +458,7 @@ impl ScopePanel {
             }
 
             // Additional overlays provided by caller (e.g., thresholds, markers)
-                draw_overlays(plot_ui, &self.data);
+            draw_overlays(plot_ui, &self.data, &*traces);
 
             // Detect bounds changes via zoom box
             bounds_changed
@@ -463,16 +482,21 @@ impl ScopePanel {
             }
         }
 
-        self.handle_plot_click(&plot_resp);
+        self.handle_plot_click(&plot_resp, traces);
 
         self.data.hover_trace = None;
     }
 
     /// Handle click selection on the plot using nearest point logic.
-     fn handle_plot_click(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
+    fn handle_plot_click(
+        &mut self,
+        plot_response: &egui_plot::PlotResponse<bool>,
+        traces: &mut TracesCollection,
+    ) {
         if plot_response.response.clicked() {
-            if !self.data.is_paused() {
-                self.data.pause();
+            if !self.data.paused {
+                self.data.paused = true;
+                traces.take_snapshot();
             }
 
             if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
@@ -481,24 +505,15 @@ impl ScopePanel {
                 let selected_trace_name = self.data.selection_trace.clone();
                 let sel_data_points: Option<Vec<[f64; 2]>> =
                     if let Some(name) = &selected_trace_name {
-                        self.data.traces.get(name).map(|tr| {
-                            let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if self.data.is_paused() {
-                                if let Some(snap) = &tr.snap {
-                                    Box::new(snap.iter())
-                                } else {
-                                    Box::new(tr.live.iter())
-                                }
-                            } else {
-                                Box::new(tr.live.iter())
-                            };
-                            iter.cloned().collect()
-                        })
+                        traces
+                            .get_points(name, self.data.paused)
+                            .map(|v| v.into_iter().collect())
                     } else {
                         None
                     };
                 match (&selected_trace_name, &sel_data_points) {
                     (Some(name), Some(data_points)) if !data_points.is_empty() => {
-                        let off = self.data.traces.get(name).map(|t| t.offset).unwrap_or(0.0);
+                        let off = traces.get_trace(name).map(|t| t.offset).unwrap_or(0.0);
                         let mut best_i = None;
                         let mut best_d2 = f64::INFINITY;
                         for (i, p) in data_points.iter().enumerate() {
@@ -533,9 +548,17 @@ impl ScopePanel {
                         if let Some(i) = best_i {
                             let p = data_points[i];
                             let x_lin = p[0];
-                            let x_plot = if self.data.x_axis.log_scale { x_lin.log10() } else { x_lin };
+                            let x_plot = if self.data.x_axis.log_scale {
+                                x_lin.log10()
+                            } else {
+                                x_lin
+                            };
                             let y_lin = p[1] + off;
-                            let y_plot = if self.data.y_axis.log_scale { y_lin.log10() } else { y_lin };
+                            let y_plot = if self.data.y_axis.log_scale {
+                                y_lin.log10()
+                            } else {
+                                y_lin
+                            };
                             self.data.clicked_point = Some([x_plot, y_plot]);
                         }
                     }
