@@ -3,7 +3,9 @@ use egui_plot::{Legend, Line, Plot, Points};
 
 // no XDateFormat needed in this panel for now
 
-use crate::data::scope::{ScopeData, ScopeType};
+use crate::data::scope::ScopeType;
+use crate::data::data::LivePlotData;
+use crate::data::scope::ScopeData;
 // no panel trait needed here; overlays are provided via closure from app
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -44,24 +46,24 @@ impl ScopePanel {
         instance
     }
 
-    pub fn update_data(&mut self) -> &mut ScopeData {
+    pub fn update_data(&mut self) -> &mut LivePlotData {
         self.data.update();
         &mut self.data
     }
 
-    pub fn get_data_mut(&mut self) -> &mut ScopeData {
+    pub fn get_data_mut(&mut self) -> &mut LivePlotData {
         &mut self.data
     }
 
     pub fn render_menu(&mut self, _ui: &mut Ui) {}
 
-    pub fn render_panel<F>(&mut self, ui: &mut Ui, draw_overlays: F)
+    pub fn render_panel<F>(&mut self, ui: &mut Ui, mut draw_overlays: F)
     where
-        F: FnMut(&mut egui_plot::PlotUi, &ScopeData),
+        F: FnMut(&mut egui_plot::PlotUi, &LivePlotData),
     {
         self.render_controls(ui);
         ui.separator();
-        self.render_plot(ui, draw_overlays);
+        self.render_plot(ui, &mut draw_overlays);
     }
 
     fn render_controls(&mut self, ui: &mut Ui) {
@@ -70,7 +72,7 @@ impl ScopePanel {
         ui.horizontal(|ui| {
             ui.label("Data Points:");
             ui.add(egui::Slider::new(
-                &mut self.data.max_points,
+                &mut self.data.traces.max_points,
                 self.points_bounds.0..=self.points_bounds.1,
             ));
 
@@ -276,7 +278,7 @@ impl ScopePanel {
 
     fn render_plot<F>(&mut self, ui: &mut Ui, mut draw_overlays: F)
     where
-        F: FnMut(&mut egui_plot::PlotUi, &ScopeData),
+        F: FnMut(&mut egui_plot::PlotUi, &LivePlotData),
     {
         // No extra controls in panel; top bar uses render_menu
         // Render plot directly here (for now). Later we can separate draw() if needed.
@@ -359,7 +361,10 @@ impl ScopePanel {
                     if !tr.look.visible {
                         continue;
                     }
-                    let shown_pts = self.data.get_drawn_points(&tr.name).unwrap();
+                    let shown_pts = match self.data.get_drawn_points(&name) {
+                        Some(pts) => pts,
+                        None => continue,
+                    };
                     let pts_vec: Vec<[f64; 2]> = shown_pts
                         .into_iter()
                         .map(|p| {
@@ -389,7 +394,7 @@ impl ScopePanel {
                     let mut width: f32 = tr.look.width.max(0.1);
                     let style = tr.look.style;
                     if let Some(hov) = &self.data.hover_trace {
-                        if &tr.name != hov {
+                        if name != *hov {
                             // Strongly dim non-hovered traces
                             color = Color32::from_rgba_unmultiplied(
                                 color.r(),
@@ -402,14 +407,14 @@ impl ScopePanel {
                             width = (width * 1.6).max(width + 1.0);
                         }
                     }
-                    let mut line = Line::new(&tr.name, pts_vec.clone())
+                    let mut line = Line::new(name.clone(), pts_vec.clone())
                         .color(color)
                         .width(width)
                         .style(style);
                     let legend_label = if self.data.show_info_in_legend && !tr.info.is_empty() {
-                        format!("{} — {}", tr.name, tr.info)
+                        format!("{} — {}", name, tr.info)
                     } else {
-                        tr.name.clone()
+                        name.clone()
                     };
                     line = line.name(legend_label.clone());
                     plot_ui.line(line);
@@ -419,7 +424,7 @@ impl ScopePanel {
                         if !pts_vec.is_empty() {
                             let mut radius = tr.look.point_size.max(0.5);
                             if let Some(hov) = &self.data.hover_trace {
-                                if &tr.name == hov {
+                                if name == *hov {
                                     radius = (radius * 1.25).max(radius + 0.5);
                                 }
                             }
@@ -434,7 +439,7 @@ impl ScopePanel {
             }
 
             // Additional overlays provided by caller (e.g., thresholds, markers)
-            draw_overlays(plot_ui, &self.data);
+                draw_overlays(plot_ui, &self.data);
 
             // Detect bounds changes via zoom box
             bounds_changed

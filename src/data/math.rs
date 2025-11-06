@@ -124,7 +124,7 @@ pub enum MathKind {
 /// which specifies the actual computation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MathTrace {
-    pub name: String,
+    pub name: TraceRef,
     pub kind: MathKind,
     // #[serde(skip)]
     // runtime_state: MathRuntimeState,
@@ -213,7 +213,7 @@ pub struct MathTrace {
 ///   associated output buffer.
 ///
 impl MathTrace {
-    pub fn new(name: String, kind: MathKind) -> Self {
+    pub fn new(name: TraceRef, kind: MathKind) -> Self {
         Self {
             name,
             kind,
@@ -221,8 +221,8 @@ impl MathTrace {
         }
     }
 
-    pub fn compute_math_trace(&mut self, sources: HashMap<String, Vec<[f64; 2]>>) -> Vec<[f64; 2]> {
-        let mut out = if let Some(points) = sources.get(self.name.as_str()) {
+    pub fn compute_math_trace(&mut self, sources: HashMap<TraceRef, Vec<[f64; 2]>>) -> Vec<[f64; 2]> {
+        let mut out = if let Some(points) = sources.get(&self.name) {
             points.clone()
         } else {
             Vec::new()
@@ -238,12 +238,12 @@ impl MathTrace {
 
                 let used_sources: Vec<Vec<[f64; 2]>> = inputs
                     .iter()
-                    .filter_map(|(r, _k)| sources.get(&r.0).cloned())
+                    .filter_map(|(r, _k)| sources.get(&r).cloned())
                     .collect();
 
                 let grid: Vec<f64> = MathTrace::union_times(used_sources.clone());
 
-                let mut idx_map: std::collections::HashMap<String, usize> = HashMap::new();
+                let mut idx_map: std::collections::HashMap<TraceRef, usize> = HashMap::new();
                 for t in grid {
                     if out.last().map_or(false, |p| p[0] >= t) {
                         continue;
@@ -251,12 +251,12 @@ impl MathTrace {
                     let mut sum = 0.0;
                     let mut all = true;
                     for (r, k) in inputs {
-                        if let Some(src_data) = sources.get(&r.0) {
-                            let last_idx = if let Some(idx) = idx_map.get_mut(&r.0) {
+                        if let Some(src_data) = sources.get(r) {
+                            let last_idx = if let Some(idx) = idx_map.get_mut(r) {
                                 idx
                             } else {
-                                idx_map.insert(r.0.clone(), 0);
-                                idx_map.get_mut(&r.0).unwrap()
+                                idx_map.insert(r.clone(), 0);
+                                idx_map.get_mut(r).unwrap()
                             };
                             //println!("Add: t = {}, last_idx for '{}' = {}", t, r.0, *last_idx);
                             if let Some(v) =
@@ -280,7 +280,7 @@ impl MathTrace {
                 // the time t. Note that if one trace doesn't exist in `sources` we
                 // return an empty output (handled earlier by the data lookup).
 
-                if let (Some(src_a), Some(src_b)) = (sources.get(&a.0), sources.get(&b.0)) {
+                if let (Some(src_a), Some(src_b)) = (sources.get(&a), sources.get(&b)) {
                     let grid: Vec<f64> = MathTrace::union_times(vec![src_a.clone(), src_b.clone()]);
 
                     let mut idx_a = 0usize;
@@ -305,7 +305,7 @@ impl MathTrace {
                 // denominators. We treat |b| < 1e-12 as effectively zero and skip
                 // that sample to avoid large spurious results. This threshold is a
                 // pragmatic choice balancing numerical stability and dynamic range.
-                if let (Some(src_a), Some(src_b)) = (sources.get(&a.0), sources.get(&b.0)) {
+                if let (Some(src_a), Some(src_b)) = (sources.get(&a), sources.get(&b)) {
                     let grid: Vec<f64> = MathTrace::union_times(vec![src_a.clone(), src_b.clone()]);
 
                     let mut idx_a = 0usize;
@@ -333,7 +333,7 @@ impl MathTrace {
                 // We skip the very first sample since no previous point exists. If
                 // timestamps are equal or dt <= 0 the sample is skipped to avoid
                 // division by zero.
-                if let Some(src) = sources.get(&input.0) {
+                if let Some(src) = sources.get(&input) {
                     let mut prev: Option<(f64, f64)> = None;
                     for &p in src.iter() {
                         let t = p[0];
@@ -385,7 +385,7 @@ impl MathTrace {
                 // `state.prev_in_t`/`state.prev_in_v` remember the last processed
                 // input sample. This allows us to append only newly arrived samples
                 // without touching older results.
-                if let Some(src) = sources.get(&input.0) {
+                if let Some(src) = sources.get(&input) {
                     let mut prev: Option<(f64, f64)> = None;
                     let mut accum = if out.is_empty() {
                         *y0
@@ -485,7 +485,7 @@ impl MathTrace {
                 // avoids storing persistent state in `MathRuntimeState` while
                 // still allowing incremental append-only processing. If no prior
                 // output exists, we start from zero initial conditions.
-                let data: &Vec<[f64; 2]> = match sources.get(&input.0) {
+                let data: &Vec<[f64; 2]> = match sources.get(&input) {
                     Some(v) => v,
                     None => return out,
                 };
@@ -641,7 +641,7 @@ impl MathTrace {
                 decay_per_sec,
                 mode,
             } => {
-                if let Some(src) = sources.get(&input.0) {
+                if let Some(src) = sources.get(&input) {
                     let mut prev: Option<(f64, f64)> = None;
                     let mut minmax = if out.is_empty() {
                         src.first().map(|p| p[1]).unwrap_or(0.0)

@@ -1,5 +1,5 @@
 use super::panel_trait::{Panel, PanelState};
-use crate::data::scope::ScopeData;
+use crate::data::{data::LivePlotData, traces::TraceRef};
 use eframe::egui;
 use egui::Ui;
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
@@ -28,8 +28,8 @@ thread_local! {
 
 pub struct TracesPanel {
     pub state: PanelState,
-    pub look_editor_trace: Option<String>,
-    pub hover_trace: Option<String>,
+    pub look_editor_trace: Option<TraceRef>,
+    pub hover_trace: Option<TraceRef>,
 }
 impl Default for TracesPanel {
     fn default() -> Self {
@@ -49,22 +49,22 @@ impl Panel for TracesPanel {
         &mut self.state
     }
 
-    fn render_panel(&mut self, ui: &mut Ui, data: &mut ScopeData) {
+    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData) {
         ui.label("Configure traces: marker selection, visibility, colors, offsets, Y axis options, and legend info.");
         ui.horizontal(|ui| {
-            let mut v = data.show_info_in_legend;
+            let mut v = data.scope_data.show_info_in_legend;
             if ui
                 .checkbox(&mut v, "Show info in Legend")
                 .on_hover_text("Append each trace's info text to its legend label")
                 .changed()
             {
-                data.show_info_in_legend = v;
+                data.scope_data.show_info_in_legend = v;
             }
         });
         ui.separator();
 
         ui.horizontal(|ui| {
-            let mut ylog = data.y_axis.log_scale;
+            let mut ylog = data.scope_data.y_axis.log_scale;
             if ui
                 .checkbox(&mut ylog, "Y axis log scale")
                 .on_hover_text(
@@ -72,12 +72,12 @@ impl Panel for TracesPanel {
                 )
                 .changed()
             {
-                data.y_axis.log_scale = ylog;
+                data.scope_data.y_axis.log_scale = ylog;
             }
             ui.label("Y unit:");
-            let mut unit = data.y_axis.unit.clone().unwrap_or_default();
+            let mut unit = data.scope_data.y_axis.unit.clone().unwrap_or_default();
             if ui.text_edit_singleline(&mut unit).changed() {
-                data.y_axis.unit = if unit.trim().is_empty() {
+                data.scope_data.y_axis.unit = if unit.trim().is_empty() {
                     None
                 } else {
                     Some(unit)
@@ -100,16 +100,16 @@ impl Panel for TracesPanel {
             name: "Free".to_string(),
             is_free: true,
         });
-        for n in data.trace_order.iter() {
+        for n in data.scope_data.trace_order.iter() {
             rows.push(Row {
-                name: n.clone(),
+                name: n.0.clone(),
                 is_free: false,
             });
         }
 
         // Delegate for table rendering
         struct TracesDelegate<'a> {
-            data: &'a mut ScopeData,
+            data: &'a mut LivePlotData,
             traces_panel: &'a mut TracesPanel,
             rows: Vec<Row>,
             col_w: [f32; 6],
@@ -195,7 +195,7 @@ impl Panel for TracesPanel {
                                     |cui| {
                                         if r.is_free {
                                             cui.label("");
-                                        } else if let Some(tr) = self.data.traces.get_mut(&r.name) {
+                                        } else if let Some(tr) = self.data.traces.get_trace_mut(r.name) {
                                             let mut c = tr.look.color;
                                             let resp = cui
                                                 .color_edit_button_srgba(&mut c)
@@ -246,7 +246,7 @@ impl Panel for TracesPanel {
                                         egui::Direction::LeftToRight,
                                     ),
                                     |cui| {
-                                        let mut sel = self.data.selection_trace.clone();
+                                        let mut sel = self.data.scope_data.selection_trace.clone();
                                         let is_selected = (r.is_free && sel.is_none())
                                             || (!r.is_free && sel.as_ref() == Some(&r.name));
                                         let resp = cui.selectable_label(
@@ -262,7 +262,7 @@ impl Panel for TracesPanel {
                                             } else {
                                                 Some(r.name.clone())
                                             };
-                                            self.data.selection_trace = sel;
+                                            self.data.scope_data.selection_trace = sel;
                                         }
                                     },
                                 );
@@ -276,7 +276,7 @@ impl Panel for TracesPanel {
                                     |cui| {
                                         if r.is_free {
                                             cui.label("");
-                                        } else if let Some(tr) = self.data.traces.get_mut(&r.name) {
+                                        } else if let Some(tr) = self.data.traces.get_trace_mut(r.name) {
                                             let mut vis = tr.look.visible;
                                             let resp = cui.checkbox(&mut vis, "");
                                             if resp.hovered() {
@@ -299,7 +299,7 @@ impl Panel for TracesPanel {
                                     |cui| {
                                         if r.is_free {
                                             cui.label("");
-                                        } else if let Some(tr) = self.data.traces.get_mut(&r.name) {
+                                        } else if let Some(tr) = self.data.traces.get_trace_mut(r.name) {
                                             let mut off = tr.offset;
                                             let resp = cui.add(
                                                 egui::DragValue::new(&mut off)
@@ -321,7 +321,7 @@ impl Panel for TracesPanel {
                                 inner.add_space(4.0);
                                 if r.is_free {
                                     inner.label("");
-                                } else if let Some(tr) = self.data.traces.get(&r.name) {
+                                } else if let Some(tr) = self.data.traces.get_trace(r.name) {
                                     let text = tr.info.clone();
                                     let resp = inner.add(
                                         egui::Label::new(text.clone())
@@ -441,7 +441,7 @@ impl Panel for TracesPanel {
 
                 // Render inline style editor beneath the table
                 if let Some(tn) = self.look_editor_trace.clone() {
-                    if let Some(tr) = data.traces.get_mut(&tn) {
+                    if let Some(tr) = data.traces.get_trace_mut(tn) {
                         ui.add_space(8.0);
                         egui::Frame::group(ui.style()).show(ui, |ui| {
                             ui.horizontal(|ui| {

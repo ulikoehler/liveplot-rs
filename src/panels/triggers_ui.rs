@@ -1,5 +1,5 @@
 use super::panel_trait::{Panel, PanelState};
-use crate::data::scope::ScopeData;
+use crate::data::data::LivePlotData;
 use crate::data::traces::TraceRef;
 use crate::data::triggers::{Trigger, TriggerSlope};
 use crate::panels::trace_look_ui::render_trace_look_editor;
@@ -40,7 +40,7 @@ impl Panel for TriggersPanel {
         &mut self.state
     }
 
-    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, data: &ScopeData) {
+    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, data: &LivePlotData) {
         if self.triggers.is_empty() {
             return;
         }
@@ -53,7 +53,7 @@ impl Panel for TriggersPanel {
             if !trig.enabled {
                 continue;
             }
-            let Some(tr) = data.traces.get(&trig.target.0) else {
+            let Some(tr) = data.traces.get_trace(&trig.target) else {
                 continue;
             };
             if !tr.look.visible {
@@ -66,7 +66,7 @@ impl Panel for TriggersPanel {
 
             // Draw horizontal trigger level line
             let y_lin = trig.level + tr.offset;
-            let y_plot = if data.y_axis.log_scale {
+            let y_plot = if data.scope_data.y_axis.log_scale {
                 if y_lin > 0.0 {
                     y_lin.log10()
                 } else {
@@ -77,8 +77,8 @@ impl Panel for TriggersPanel {
             };
             if y_plot.is_finite() {
                 // Legend label can include info text
-                let info = trig.get_info(&data.y_axis);
-                let label = if data.show_info_in_legend {
+                let info = trig.get_info(&data.scope_data.y_axis);
+                let label = if data.scope_data.show_info_in_legend {
                     format!("{} — {}", trig.name, info)
                 } else {
                     trig.name.clone()
@@ -121,7 +121,7 @@ impl Panel for TriggersPanel {
         }
     }
 
-    fn update_data(&mut self, _data: &mut ScopeData) {
+    fn update_data(&mut self, data: &mut LivePlotData) {
         let is_single_shot_triggered = self
             .triggers
             .values()
@@ -129,13 +129,13 @@ impl Panel for TriggersPanel {
 
         if !is_single_shot_triggered {
             for (_name, tr) in self.triggers.iter_mut() {
-                if tr.check_trigger(_data) {
+                if tr.check_trigger(data) {
                     if tr.is_triggered() {
                         let tr_time = tr.last_trigger_time().unwrap();
-                        let time_window = _data.x_axis.bounds.1 - _data.x_axis.bounds.0;
+                        let time_window = data.scope_data.x_axis.bounds.1 - data.scope_data.x_axis.bounds.0;
 
                         let tr_pos = tr.trigger_position;
-                        _data.x_axis.bounds = (
+                        data.scope_data.x_axis.bounds = (
                             tr_time - time_window * tr_pos,
                             tr_time + time_window * (1.0 - tr_pos),
                         );
@@ -145,7 +145,7 @@ impl Panel for TriggersPanel {
         }
     }
 
-    fn render_panel(&mut self, ui: &mut Ui, data: &mut ScopeData) {
+    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData) {
         ui.label("Trigger when a trace crosses a level; optionally pause after N samples.");
 
         ui.separator();
@@ -193,7 +193,7 @@ impl Panel for TriggersPanel {
                 let name_resp =
                     ui.add(egui::Label::new(tr.name.clone()).sense(egui::Sense::click()));
                 // Short info text
-                let info = tr.get_info(&data.y_axis);
+                let info = tr.get_info(&data.scope_data.y_axis);
                 let info_resp = ui.add(egui::Label::new(info).sense(egui::Sense::click()));
                 if name_resp.clicked() || info_resp.clicked() {
                     // Open editor with a copy of current settings
@@ -216,7 +216,7 @@ impl Panel for TriggersPanel {
                 if name_resp.hovered() || info_resp.hovered() {
                     // Highlight target trace when hovering the name
                     if !tr.target.0.is_empty() {
-                        data.hover_trace = Some(tr.target.0.clone());
+                        data.scope_data.hover_trace = Some(tr.target.clone());
                     }
                 }
 
@@ -230,7 +230,7 @@ impl Panel for TriggersPanel {
             // Hovering the whole row also highlights target trace
             if row.response.hovered() {
                 if !tr.target.0.is_empty() {
-                    data.hover_trace = Some(tr.target.0.clone());
+                    data.scope_data.hover_trace = Some(tr.target.clone());
                 }
             }
 
@@ -244,7 +244,7 @@ impl Panel for TriggersPanel {
             let mut toggle_start: Option<bool> = None; // Some(true)=Start, Some(false)=Stop
             let (last_text, last_exists) = if let Some(t) = tr.last_trigger_time() {
                 // Use x-axis formatter for time display
-                let start_fmt = data.x_axis.format_value(t, 4, 1.0);
+                let start_fmt = data.scope_data.x_axis.format_value(t, 4, 1.0);
                 (format!("Last: {}", start_fmt), true)
             } else {
                 (String::from("Last: –"), false)
@@ -329,9 +329,7 @@ impl Panel for TriggersPanel {
             ui.add_space(3.0);
 
             // Name
-            let duplicate_name = self
-                .triggers
-                .contains_key(&builder.name)
+            let duplicate_name = self.triggers.contains_key(&builder.name)
                 && self.editing.as_deref() != Some(builder.name.as_str());
 
             ui.horizontal(|ui| {
@@ -352,10 +350,10 @@ impl Panel for TriggersPanel {
             });
 
             // Target trace selection
-            let trace_names: Vec<String> = data.trace_order.clone();
+            let trace_names= data.scope_data.trace_order.clone();
             let mut target_idx = trace_names
                 .iter()
-                .position(|n| n == &builder.target.0)
+                .position(|n| n == &builder.target)
                 .unwrap_or(0);
             egui::ComboBox::from_label("Trace")
                 .selected_text(trace_names.get(target_idx).cloned().unwrap_or_default())
@@ -438,9 +436,8 @@ impl Panel for TriggersPanel {
                 } else {
                     "Add trigger"
                 };
-                let can_save = !builder.name.is_empty()
-                    && !builder.target.0.is_empty()
-                    && !duplicate_name;
+                let can_save =
+                    !builder.name.is_empty() && !builder.target.0.is_empty() && !duplicate_name;
                 if ui
                     .add_enabled(can_save, egui::Button::new(save_label))
                     .clicked()

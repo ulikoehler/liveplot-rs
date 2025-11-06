@@ -1,7 +1,7 @@
 use egui::{Context, Ui};
 use egui_plot::PlotUi;
 
-use crate::data::scope::ScopeData;
+use crate::data::data::LivePlotData;
 use std::any::Any;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -44,15 +44,15 @@ pub trait Panel: Any {
     }
 
     // Optional hooks with default empty impls
-    fn render_menu(&mut self, _ui: &mut Ui, _data: &mut ScopeData) {}
-    fn render_panel(&mut self, _ui: &mut Ui, _data: &mut ScopeData) {}
-    fn draw(&mut self, _plot_ui: &mut PlotUi, _data: &ScopeData) {}
+    fn render_menu(&mut self, _ui: &mut Ui, _data: &mut LivePlotData) {}
+    fn render_panel(&mut self, _ui: &mut Ui, _data: &mut LivePlotData) {}
+    fn draw(&mut self, _plot_ui: &mut PlotUi, _data: &LivePlotData) {}
 
-    fn update_data(&mut self, _data: &mut ScopeData) {}
+    fn update_data(&mut self, _data: &mut LivePlotData) {}
 
     // fn panel_contents(&mut self, _ui: &mut Ui, _data: &mut ScopeData) {}
 
-    fn show_detached_dialog(&mut self, ctx: &Context, data: &mut ScopeData) {
+    fn show_detached_dialog(&mut self, ctx: &Context, data: &mut LivePlotData) {
         // Read minimal window state in a short borrow scope to avoid conflicts
         let (title, mut show_flag) = {
             let dock: &mut PanelState = self.state_mut();

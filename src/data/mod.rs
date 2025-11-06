@@ -6,4 +6,5 @@ pub mod thresholds;
 pub mod export;
 pub mod triggers;
 pub mod measurement;
+pub mod data;
 //pub mod fft;

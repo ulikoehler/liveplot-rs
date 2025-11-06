@@ -1,16 +1,27 @@
-use egui::Ui;
 use super::panel_trait::{Panel, PanelState};
-use crate::data::scope::ScopeData;
-use crate::data::export;
+use crate::data::{export, traces::TraceRef, data::LivePlotData};
+use egui::Ui;
 use std::collections::HashMap;
 
-pub struct ExportPanel { pub state: PanelState }
-impl Default for ExportPanel { fn default() -> Self { Self { state: PanelState::new("Export") } } }
+pub struct ExportPanel {
+    pub state: PanelState,
+}
+impl Default for ExportPanel {
+    fn default() -> Self {
+        Self {
+            state: PanelState::new("Export"),
+        }
+    }
+}
 impl Panel for ExportPanel {
-    fn state(&self) -> &PanelState { &self.state }
-    fn state_mut(&mut self) -> &mut PanelState { &mut self.state }
+    fn state(&self) -> &PanelState {
+        &self.state
+    }
+    fn state_mut(&mut self) -> &mut PanelState {
+        &mut self.state
+    }
 
-    fn render_menu(&mut self, ui: &mut Ui, data: &mut ScopeData) {
+    fn render_menu(&mut self, ui: &mut Ui, data: &mut LivePlotData) {
         ui.menu_button("🗁 Export", |ui| {
             if ui
                 .button("🖼 Save Screenshot")
@@ -23,9 +34,13 @@ impl Panel for ExportPanel {
                     .add_filter("PNG", &["png"])
                     .save_file()
                 {
-                    std::env::set_var("LIVEPLOT_SAVE_SCREENSHOT_TO", path.to_string_lossy().to_string());
+                    std::env::set_var(
+                        "LIVEPLOT_SAVE_SCREENSHOT_TO",
+                        path.to_string_lossy().to_string(),
+                    );
                 }
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
                 ui.close();
             }
             if ui.button("Snapshot as CSV").clicked() {
@@ -35,17 +50,27 @@ impl Panel for ExportPanel {
                     .save_file()
                 {
                     // Build series map based on paused/snapshot state
-                    let mut series: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-                    for name in data.trace_order.iter() {
-                        if let Some(tr) = data.traces.get(name) {
-                            let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if data.is_paused() {
-                                if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
-                            } else { Box::new(tr.live.iter()) };
-                            let vec: Vec<[f64; 2]> = iter.cloned().collect();
-                            series.insert(name.clone(), vec);
-                        }
+                    let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
+                    for (name,tr) in data.traces.traces_iter() {
+                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
+                            if data.is_paused() {
+                                if let Some(snap) = &tr.snap {
+                                    Box::new(snap.iter())
+                                } else {
+                                    Box::new(tr.live.iter())
+                                }
+                            } else {
+                                Box::new(tr.live.iter())
+                            };
+                        let vec: Vec<[f64; 2]> = iter.cloned().collect();
+                        series.insert(name.clone(), vec);
                     }
-                    if let Err(e) = export::write_csv_aligned_path(&path, &data.trace_order, &series, 1e-9) {
+                    if let Err(e) = export::write_csv_aligned_path(
+                        &path,
+                        &data.scope_data.trace_order,
+                        &series,
+                        1e-9,
+                    ) {
                         eprintln!("Failed to export snapshot CSV: {e}");
                     }
                 }
@@ -63,14 +88,26 @@ impl Panel for ExportPanel {
                         let mut series: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
                         for name in data.trace_order.iter() {
                             if let Some(tr) = data.traces.get(name) {
-                                let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if data.is_paused() {
-                                    if let Some(snap) = &tr.snap { Box::new(snap.iter()) } else { Box::new(tr.live.iter()) }
-                                } else { Box::new(tr.live.iter()) };
+                                let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
+                                    if data.is_paused() {
+                                        if let Some(snap) = &tr.snap {
+                                            Box::new(snap.iter())
+                                        } else {
+                                            Box::new(tr.live.iter())
+                                        }
+                                    } else {
+                                        Box::new(tr.live.iter())
+                                    };
                                 let vec: Vec<[f64; 2]> = iter.cloned().collect();
                                 series.insert(name.clone(), vec);
                             }
                         }
-                        if let Err(e) = export::write_parquet_aligned_path(&path, &data.trace_order, &series, 1e-9) {
+                        if let Err(e) = export::write_parquet_aligned_path(
+                            &path,
+                            &data.trace_order,
+                            &series,
+                            1e-9,
+                        ) {
                             eprintln!("Failed to export snapshot Parquet: {e}");
                         }
                     }

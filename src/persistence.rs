@@ -4,10 +4,11 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::app::MainPanel;
-use crate::data::scope::{AxisSettings, ScopeData, ScopeType};
+use crate::data::scope::{AxisSettings, ScopeType};
 use crate::data::traces::TraceRef;
 use crate::panels::{math_ui::MathPanel, thresholds_ui::ThresholdsPanel, triggers_ui::TriggersPanel};
 use crate::panels::panel_trait::Panel;
+use crate::data::data::LivePlotData;
 
 // ---------- Serializable mirror types ----------
 
@@ -150,7 +151,7 @@ impl TraceLookSerde {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceStyleSerde {
-    pub name: String,
+    pub name: TraceRef,
     pub look: TraceLookSerde,
     pub offset: f64,
 }
@@ -195,15 +196,16 @@ pub struct ScopeStateSerde {
     pub scope_is_xy: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
-    pub selection_trace: Option<String>,
+    pub selection_trace: Option<TraceRef>,
 }
 
-impl From<&ScopeData> for ScopeStateSerde {
-    fn from(s: &ScopeData) -> Self {
+impl From<&LivePlotData> for ScopeStateSerde {
+    fn from(data: &LivePlotData) -> Self {
+        let s = &data.scope_data;
         Self {
             x_axis: AxisSettingsSerde::from(&s.x_axis),
             y_axis: AxisSettingsSerde::from(&s.y_axis),
-            max_points: s.max_points,
+            max_points: data.traces.max_points,
             time_window: s.time_window,
             scope_is_xy: matches!(s.scope_type, ScopeType::XYScope),
             show_legend: s.show_legend,
@@ -214,15 +216,16 @@ impl From<&ScopeData> for ScopeStateSerde {
 }
 
 impl ScopeStateSerde {
-    fn apply_to(self, s: &mut ScopeData) {
-        self.x_axis.apply_to(&mut s.x_axis);
-        self.y_axis.apply_to(&mut s.y_axis);
-        s.max_points = self.max_points;
-        s.time_window = self.time_window;
-        s.scope_type = if self.scope_is_xy { ScopeType::XYScope } else { ScopeType::TimeScope };
-        s.show_legend = self.show_legend;
-        s.show_info_in_legend = self.show_info_in_legend;
-        s.selection_trace = self.selection_trace;
+    fn apply_to(self, data: &mut LivePlotData) {
+        let scope = &mut data.scope_data;
+        self.x_axis.apply_to(&mut scope.x_axis);
+        self.y_axis.apply_to(&mut scope.y_axis);
+        data.traces.max_points = self.max_points;
+        scope.time_window = self.time_window;
+        scope.scope_type = if self.scope_is_xy { ScopeType::XYScope } else { ScopeType::TimeScope };
+        scope.show_legend = self.show_legend;
+        scope.show_info_in_legend = self.show_info_in_legend;
+        scope.selection_trace = self.selection_trace;
     }
 }
 
@@ -252,8 +255,8 @@ impl AppStateSerde {
         let data = panel.scope_panel.get_data_mut();
         // traces styles
         let mut traces_style = Vec::new();
-        for name in data.trace_order.iter() {
-            if let Some(tr) = data.traces.get(name) {
+        for name in data.scope_data.trace_order.iter() {
+            if let Some(tr) = data.traces.get_trace(name) {
                 traces_style.push(TraceStyleSerde {
                     name: name.clone(),
                     look: TraceLookSerde::from(&tr.look),
@@ -437,7 +440,7 @@ pub fn load_mainpanel_from_struct(ctx: &egui::Context, panel: &mut MainPanel, st
     {
     let data = panel.scope_panel.get_data_mut();
         for s in state.traces_style.iter() {
-            if let Some(tr) = data.traces.get_mut(&s.name) {
+            if let Some(tr) = data.traces.get_trace_mut(&s.name) {
                 tr.look = s.look.clone().into_look();
                 tr.offset = s.offset;
             }

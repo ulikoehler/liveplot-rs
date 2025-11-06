@@ -15,6 +15,7 @@ use std::collections::VecDeque;
 use crate::data::scope::AxisSettings;
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceRef;
+//use crate::data::traces::TraceRef;
 use std::collections::HashMap;
 
 /// Threshold condition kind.
@@ -83,7 +84,7 @@ impl Default for ThresholdDef {
     fn default() -> Self {
         Self {
             name: String::new(),
-            target: TraceRef(String::new()),
+            target: TraceRef::default(),
             kind: ThresholdKind::GreaterThan { value: 0.0 },
             look: TraceLook::default(),
             start_look: TraceLook::default(),
@@ -98,7 +99,7 @@ impl Default for ThresholdDef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThresholdEvent {
     pub threshold: String,
-    pub trace: String,
+    pub trace: TraceRef,
     pub start_t: f64,
     pub end_t: f64,
     /// Duration in seconds.
@@ -187,8 +188,8 @@ impl ThresholdDef {
 
     /// Process new data points for this threshold, updating its runtime state and recording events.
 
-    pub fn process_threshold(&mut self, sources: HashMap<String, VecDeque<[f64; 2]>>) {
-        let data = sources.get(&self.target.0).unwrap();
+    pub fn process_threshold(&mut self, sources: HashMap<TraceRef, VecDeque<[f64; 2]>>) {
+        let data = sources.get(&self.target).unwrap();
 
         let mut start_idx = 0usize;
         if let Some(t0) = self.runtime_state.prev_in_t {
@@ -222,7 +223,7 @@ impl ThresholdDef {
                 if dur >= self.min_duration_s {
                     let evt = ThresholdEvent {
                         threshold: self.name.clone(),
-                        trace: self.target.0.clone(),
+                        trace: self.target.clone(),
                         start_t: self.runtime_state.start_t,
                         end_t,
                         duration: dur,

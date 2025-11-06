@@ -1,4 +1,5 @@
-use crate::data::scope::{AxisSettings, ScopeData};
+use crate::data::data::LivePlotData;
+use crate::data::scope::AxisSettings;
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceRef;
 use egui_plot::LineStyle;
@@ -108,13 +109,16 @@ impl Trigger {
     /// - 0.0 => pause immediately when the trigger occurs
     /// - 1.0 => pause after `data.max_points` new samples on the target trace
     /// Values in between scale linearly.
-    pub fn check_trigger(&mut self, data: &mut ScopeData) -> bool {
-        if !data.traces.contains_key(&self.target.0) {
+    pub fn check_trigger(&mut self, data: &mut LivePlotData) -> bool {
+        let livedata = if let Some(data) = data.traces.get_points(&self.target, false) {
+            data
+        } else {
             self.enabled = false;
-            if let Some(first) = data.trace_order.first() {
-                self.target = TraceRef(first.clone());
+            if let Some(first) = data.scope_data.trace_order.first() {
+                self.target = first.clone();
             }
-        }
+            return false;
+        };
 
         if !self.enabled {
             self.start_trigger = false;
@@ -129,53 +133,47 @@ impl Trigger {
         // Step 1: detect a new trigger crossing and compute a new trigger time (if any)
         if self.start_trigger && !self.trigger_pending.is_some() {
             let new_trigger_time: Option<f64> = {
-                if let Some(trace) = data.traces.get(target_name) {
-                    let live = &trace.live;
-                    let len = live.len();
-                    if len < 2 {
-                        None
-                    } else {
-                        // Start detection at the index determined by trigger_position within the last max_points window
-                        let window_start = len.saturating_sub(data.max_points);
-                        let pos = self.trigger_position.clamp(0.0, 1.0);
-                        let offset = (pos * (data.max_points as f64)).round() as usize;
-                        let mut i0 = window_start.saturating_add(offset);
-                        if i0 >= len {
-                            i0 = len - 1;
-                        }
-                        if i0 < 1 {
-                            i0 = 1;
-                        }
-
-                        let mut found: Option<f64> = None;
-                        for i in i0..len {
-                            let p0 = live.get(i - 1).unwrap();
-                            let p1 = live.get(i).unwrap();
-                            let (v0, v1) = (p0[1], p1[1]);
-                            let t1 = p1[0];
-                            let crossed = match self.slope {
-                                TriggerSlope::Rising => v0 < self.level && v1 >= self.level,
-                                TriggerSlope::Falling => v0 > self.level && v1 <= self.level,
-                                TriggerSlope::Any => {
-                                    (v0 < self.level && v1 >= self.level)
-                                        || (v0 > self.level && v1 <= self.level)
-                                }
-                            };
-                            if crossed {
-                                if let Some(last_t) = self.last_triggered {
-                                    if (t1 - last_t).abs() < std::f64::EPSILON {
-                                        continue;
-                                    }
-                                }
-                                found = Some(t1);
-                                break;
-                            }
-                        }
-                        found
-                    }
-                } else {
-                    self.enabled = false;
+                let len = livedata.len();
+                if len < 2 {
                     None
+                } else {
+                    // Start detection at the index determined by trigger_position within the last max_points window
+                    let window_start = len.saturating_sub(data.traces.max_points);
+                    let pos = self.trigger_position.clamp(0.0, 1.0);
+                    let offset = (pos * (data.traces.max_points as f64)).round() as usize;
+                    let mut i0 = window_start.saturating_add(offset);
+                    if i0 >= len {
+                        i0 = len - 1;
+                    }
+                    if i0 < 1 {
+                        i0 = 1;
+                    }
+
+                    let mut found: Option<f64> = None;
+                    for i in i0..len {
+                        let p0 = livedata.get(i - 1).unwrap();
+                        let p1 = livedata.get(i).unwrap();
+                        let (v0, v1) = (p0[1], p1[1]);
+                        let t1 = p1[0];
+                        let crossed = match self.slope {
+                            TriggerSlope::Rising => v0 < self.level && v1 >= self.level,
+                            TriggerSlope::Falling => v0 > self.level && v1 <= self.level,
+                            TriggerSlope::Any => {
+                                (v0 < self.level && v1 >= self.level)
+                                    || (v0 > self.level && v1 <= self.level)
+                            }
+                        };
+                        if crossed {
+                            if let Some(last_t) = self.last_triggered {
+                                if (t1 - last_t).abs() < std::f64::EPSILON {
+                                    continue;
+                                }
+                            }
+                            found = Some(t1);
+                            break;
+                        }
+                    }
+                    found
                 }
             };
 
@@ -192,7 +190,7 @@ impl Trigger {
 
         if let Some(t_trig) = self.trigger_pending {
             let pos = self.trigger_position.clamp(0.0, 1.0);
-            let needed: usize = (data.max_points as f64 * pos).round() as usize;
+            let needed: usize = (data.traces.max_points as f64 * pos).round() as usize;
 
             if needed == 0 {
                 data.pause();
@@ -200,11 +198,7 @@ impl Trigger {
                 self.trigger_pending = None;
             } else {
                 // Short immutable borrow to count samples after the trigger
-                let have: usize = if let Some(trace) = data.traces.get(target_name) {
-                    trace.live.iter().filter(|p| p[0] > t_trig).count()
-                } else {
-                    0
-                };
+                let have = livedata.iter().filter(|p| p[0] > t_trig).count();
 
                 if have >= needed {
                     data.pause();

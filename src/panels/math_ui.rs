@@ -1,3 +1,4 @@
+use crate::data::data::LivePlotData;
 use crate::data::math::{FilterKind, MathKind, MathTrace, MinMaxMode};
 use crate::data::traces::TraceRef;
 use eframe::egui;
@@ -5,7 +6,7 @@ use egui::{Color32, Ui};
 use std::collections::HashMap;
 
 //use super::app::ScopeAppMulti;
-use crate::data::{scope::ScopeData, trace_look::TraceLook};
+use crate::data::trace_look::TraceLook;
 use crate::panels::panel_trait::{Panel, PanelState};
 use crate::panels::trace_look_ui::render_trace_look_editor;
 
@@ -25,7 +26,7 @@ impl Default for MathPanel {
     fn default() -> Self {
         Self {
             state: PanelState::new("∫ Math"),
-            builder: MathTrace::new("".to_string(), MathKind::Add { inputs: Vec::new() }),
+            builder: MathTrace::new(TraceRef(""), MathKind::Add { inputs: Vec::new() }),
             builder_look: TraceLook::default(),
             editing: None,
             error: None,
@@ -44,23 +45,23 @@ impl Panel for MathPanel {
         &mut self.state
     }
 
-    fn update_data(&mut self, _data: &mut ScopeData) {
-        let mut sources: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-        for (name, tr) in &_data.traces {
+    fn update_data(&mut self, _data: &mut LivePlotData) {
+        let mut sources: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
+        for (name, tr) in _data.traces.traces_iter() {
             sources.insert(name.clone(), tr.live.iter().copied().collect());
         }
 
         for def in self.math_traces.iter_mut() {
             let out = def.compute_math_trace(sources.clone());
 
-            let tr = _data.get_trace_or_new(def.name.as_str());
+            let tr = _data.get_trace_or_new(&def.name);
             tr.live = out.iter().copied().collect();
 
             sources.insert(def.name.clone(), out);
         }
 
         sources.clear();
-        for (name, tr) in &_data.traces {
+        for (name, tr) in &_data.traces.traces {
             if let Some(data) = tr.snap.clone() {
                 sources.insert(name.clone(), data.iter().copied().collect());
             }
@@ -69,14 +70,14 @@ impl Panel for MathPanel {
         for def in self.math_traces.iter_mut() {
             let out = def.compute_math_trace(sources.clone());
 
-            let tr = _data.get_trace_or_new(def.name.as_str());
+            let tr = _data.get_trace_or_new(&def.name);
             tr.snap = Some(out.iter().copied().collect());
 
             sources.insert(def.name.clone(), out);
         }
     }
 
-    fn render_panel(&mut self, ui: &mut Ui, data: &mut ScopeData) {
+    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData) {
         ui.label("Create virtual traces from existing ones.");
         if let Some(err) = &self.error {
             ui.colored_label(Color32::LIGHT_RED, err);
@@ -595,7 +596,7 @@ impl Panel for MathPanel {
                 let save_label = if is_editing { "Save" } else { "Add trace" };
                 if ui
                     .add_enabled(
-                        !self.builder.name.is_empty() && !duplicate_name,
+                        !self.builder.name.0.is_empty() && !duplicate_name,
                         egui::Button::new(save_label),
                     )
                     .clicked()
