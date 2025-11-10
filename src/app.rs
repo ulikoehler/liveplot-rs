@@ -6,6 +6,7 @@ use crate::data::traces::{TraceRef, TracesCollection};
 
 use crate::data::data::LivePlotData;
 use crate::panels::panel_trait::Panel;
+use crate::panels::liveplot_ui::LiveplotPanel;
 
 // use crate::panels::{
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
@@ -15,15 +16,14 @@ use crate::panels::panel_trait::Panel;
 use crate::panels::fft_ui::FftPanel;
 use crate::panels::{
     export_ui::ExportPanel, math_ui::MathPanel, measurment_ui::MeasurementPanel,
-    scope_ui::ScopePanel, thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel,
-    triggers_ui::TriggersPanel,
+    thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,
 };
 
 pub struct MainPanel {
     // Traces
     pub traces_data: TracesCollection,
     // Panels
-    pub scope_panel: ScopePanel,
+    pub liveplot_panel: LiveplotPanel,
     pub right_side_panels: Vec<Box<dyn Panel>>,
     pub left_side_panels: Vec<Box<dyn Panel>>,
     pub bottom_panels: Vec<Box<dyn Panel>>,
@@ -35,7 +35,7 @@ impl MainPanel {
     pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
         Self {
             traces_data: TracesCollection::new(rx),
-            scope_panel: ScopePanel::default(),
+            liveplot_panel: LiveplotPanel::default(),
             right_side_panels: vec![
                 Box::new(TracesPanel::default()),
                 Box::new(MathPanel::default()),
@@ -85,7 +85,7 @@ impl MainPanel {
                     }
                 };
 
-            self.scope_panel
+            self.liveplot_panel
                 .render_panel(ui, &mut draw_overlays, &mut self.traces_data);
 
             // Return panel lists back to self
@@ -100,9 +100,9 @@ impl MainPanel {
     fn update_data(&mut self) {
         self.traces_data.update();
 
-        self.scope_panel.update_data(&self.traces_data);
+        self.liveplot_panel.update_data(&self.traces_data);
         let data = &mut LivePlotData {
-            scope_data: self.scope_panel.get_data_mut(),
+            scope_data: self.liveplot_panel.get_data_mut(),
             traces: &mut self.traces_data,
         };
 
@@ -127,9 +127,9 @@ impl MainPanel {
         // Render Menu
 
         egui::MenuBar::new().ui(ui, |ui| {
-            self.scope_panel.render_menu(ui);
+            self.liveplot_panel.render_menu(ui);
 
-            let scope_data = self.scope_panel.get_data_mut();
+            let scope_data = self.liveplot_panel.get_data_mut();
             let data = &mut LivePlotData {
                 scope_data,
                 traces: &mut self.traces_data,
@@ -272,7 +272,7 @@ impl MainPanel {
                 p.show_detached_dialog(
                     ui.ctx(),
                     &mut LivePlotData {
-                        scope_data: self.scope_panel.get_data_mut(),
+                        scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
                     },
                 );
@@ -285,7 +285,7 @@ impl MainPanel {
                 p.show_detached_dialog(
                     ui.ctx(),
                     &mut LivePlotData {
-                        scope_data: self.scope_panel.get_data_mut(),
+                        scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
                     },
                 );
@@ -298,7 +298,7 @@ impl MainPanel {
                 p.show_detached_dialog(
                     ui.ctx(),
                     &mut LivePlotData {
-                        scope_data: self.scope_panel.get_data_mut(),
+                        scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
                     },
                 );
@@ -310,7 +310,7 @@ impl MainPanel {
                 p.show_detached_dialog(
                     ui.ctx(),
                     &mut LivePlotData {
-                        scope_data: self.scope_panel.get_data_mut(),
+                        scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
                     },
                 );
@@ -328,7 +328,7 @@ impl MainPanel {
 
         let mut clicked: Option<usize> = None;
 
-        let scope_data = self.scope_panel.get_data_mut();
+        let scope_data = self.liveplot_panel.get_data_mut();
         let data = &mut LivePlotData {
             scope_data,
             traces: &mut self.traces_data,
@@ -524,7 +524,7 @@ impl MainApp {
                 )
             };
 
-            let data = self.main_panel.scope_panel.get_data_mut();
+            let data = self.main_panel.liveplot_panel.get_data_mut();
 
             // pause/resume
             if let Some(p) = take_actions.0 {
@@ -576,7 +576,7 @@ impl MainApp {
         // TracesController: apply queued changes and publish snapshot info
         if let Some(ctrl) = &self.traces_ctrl {
             let mut inner = ctrl.inner.lock().unwrap();
-            let data = self.main_panel.scope_panel.get_data_mut();
+            let data = self.main_panel.liveplot_panel.get_data_mut();
             let traces = &mut self.main_panel.traces_data;
             for (name, rgb) in inner.color_requests.drain(..) {
                 let tref = TraceRef(name.clone());

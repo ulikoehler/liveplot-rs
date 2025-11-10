@@ -254,7 +254,7 @@ pub struct AppStateSerde {
 
 impl AppStateSerde {
     fn capture(panel: &mut MainPanel, window_size: Option<[f32; 2]>) -> Self {
-        let scope_data = panel.scope_panel.get_data_mut();
+        let scope_data = panel.liveplot_panel.get_data_mut();
         let traces_data = &panel.traces_data;
         // traces styles
         let mut traces_style = Vec::new();
@@ -290,7 +290,7 @@ impl AppStateSerde {
         Self {
             window_size,
             window_pos: None,
-            scope: ScopeStateSerde::from(&*panel.scope_panel.get_data_mut()),
+            scope: ScopeStateSerde::from(&*panel.liveplot_panel.get_data_mut()),
             panels,
             traces_style,
             math_traces: Vec::new(),
@@ -432,7 +432,7 @@ pub fn load_mainpanel_from_struct(
     // Apply window position (not supported on all platforms/versions, skipped here)
 
     // Apply scope settings
-    state.scope.apply_to(panel.scope_panel.get_data_mut());
+    state.scope.apply_to(panel.liveplot_panel.get_data_mut());
 
     // Apply panel visibility and stored positions/sizes
     let panel_info: HashMap<String, (bool, bool, Option<[f32; 2]>, Option<[f32; 2]>)> = state

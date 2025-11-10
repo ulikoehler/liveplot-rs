@@ -20,7 +20,6 @@ pub struct ScopePanel {
     zoom_mode: ZoomMode,
     time_slider_dragging: bool,
     time_window_bounds: (f64, f64),
-    points_bounds: (usize, usize),
 }
 
 impl Default for ScopePanel {
@@ -30,18 +29,11 @@ impl Default for ScopePanel {
             zoom_mode: ZoomMode::X,
             time_slider_dragging: false,
             time_window_bounds: (0.1, 100.0),
-            points_bounds: (5000, 200000),
         }
     }
 }
 
 impl ScopePanel {
-    // pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
-    //     let mut instance = Self::default();
-    //     instance.data.set_rx(rx);
-    //     instance
-    // }
-
     pub fn update_data(&mut self, traces: &TracesCollection) {
         self.data.update(traces);
     }
@@ -49,8 +41,6 @@ impl ScopePanel {
     pub fn get_data_mut(&mut self) -> &mut ScopeData {
         &mut self.data
     }
-
-    pub fn render_menu(&mut self, _ui: &mut Ui) {}
 
     pub fn render_panel<F>(
         &mut self,
@@ -60,20 +50,45 @@ impl ScopePanel {
     ) where
         F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
     {
-        self.render_controls(ui, traces);
+        // Default: no extra prefix/suffix controls
+        self.render_controls_ext(ui, traces, |_, _, _| {}, |_, _, _| {});
         ui.separator();
         self.render_plot(ui, &mut draw_overlays, traces);
     }
 
-    fn render_controls(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
-        // Main top-bar controls grouped similarly to old controls_ui
+    pub fn render_panel_ext<F, P, S>(
+        &mut self,
+        ui: &mut Ui,
+        mut draw_overlays: F,
+        traces: &mut TracesCollection,
+        mut prefix_controls: P,
+        mut suffix_controls: S,
+    ) where
+        F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
+        P: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
+        S: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
+    {
+        self.render_controls_ext(ui, traces, &mut prefix_controls, &mut suffix_controls);
+        ui.separator();
+        self.render_plot(ui, &mut draw_overlays, traces);
+    }
 
+    // legacy render_controls removed in favor of render_controls_ext
+
+    // Extended controls with injectable prefix/suffix sections
+    fn render_controls_ext<P, S>(
+        &mut self,
+        ui: &mut Ui,
+        traces: &mut TracesCollection,
+        mut prefix_controls: P,
+        mut suffix_controls: S,
+    ) where
+        P: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
+        S: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
+    {
         ui.horizontal(|ui| {
-            ui.label("Data Points:");
-            ui.add(egui::Slider::new(
-                &mut traces.max_points,
-                self.points_bounds.0..=self.points_bounds.1,
-            ));
+            // Prefix controls injected by caller
+            prefix_controls(ui, &mut self.data, traces);
 
             ui.separator();
 
@@ -100,8 +115,6 @@ impl ScopePanel {
                 .show_value(true)
                 .clamping(egui::SliderClamping::Edits)
                 .custom_formatter(|n, _| {
-                    // Use the axis formatter with unit for the time window value
-                    // Use the current value as step heuristic for sci thresholding
                     self.data.x_axis.format_value_with_unit(n, 4, n)
                 });
 
@@ -206,23 +219,7 @@ impl ScopePanel {
 
             ui.separator();
 
-            if !self.data.paused {
-                if ui.button("Pause").clicked() {
-                    self.data.paused = true;
-                    traces.take_snapshot();
-                }
-            } else {
-                if ui.button("Resume").clicked() {
-                    self.data.paused = false;
-                }
-            }
-
-            if ui.button("Clear All").clicked() {
-                traces.clear_all();
-            }
-
-            // Request a screenshot of the current viewport; the handler below
-            // will catch the Screenshot event and write it to disk.
+            // Screenshot button kept in core controls
             if ui
                 .button("Save Screenshot")
                 .on_hover_text("Take a screenshot of the entire window")
@@ -233,6 +230,9 @@ impl ScopePanel {
             }
 
             ui.separator();
+
+            // Suffix controls injected by caller
+            suffix_controls(ui, &mut self.data, traces);
         });
     }
 
@@ -581,5 +581,9 @@ impl ScopePanel {
                 }
             }
         }
+    }
+
+    pub fn fit_all(&mut self, traces: &TracesCollection) {
+        self.data.fit_bounds(traces);
     }
 }

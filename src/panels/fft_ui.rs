@@ -11,6 +11,7 @@ pub struct FftPanel {
     pub fft_data: FftData,
     pub scope_ui: ScopePanel,
     pub fft_db: bool,
+    pending_auto_fit: bool,
 }
 
 impl Default for FftPanel {
@@ -20,6 +21,7 @@ impl Default for FftPanel {
             fft_data: FftData::default(),
             scope_ui: ScopePanel::default(),
             fft_db: false,
+            pending_auto_fit: true,
         }
     }
 }
@@ -68,51 +70,6 @@ impl Panel for FftPanel {
     }
 
     fn render_panel(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
-        // Flat settings bar (no collapsing header) with auto-fit trigger on change
-        let mut changed_settings = false;
-        ui.horizontal(|ui| {
-            ui.label("FFT size:");
-            let mut size_log2 = (self.fft_data.fft_size as f32).log2() as u32;
-            let slider = egui::Slider::new(&mut size_log2, 8..=15).text("2^N");
-            if ui.add(slider).changed() {
-                self.fft_data.fft_size = 1usize << size_log2;
-                changed_settings = true;
-            }
-            ui.separator();
-            ui.label("Window:");
-            let mut w_idx = FFTWindow::ALL
-                .iter()
-                .position(|w| *w == self.fft_data.fft_window)
-                .unwrap_or(1);
-            let combo = egui::ComboBox::from_id_salt("fft_window_multi")
-                .selected_text(self.fft_data.fft_window.label())
-                .show_ui(ui, |ui| {
-                    for (i, w) in FFTWindow::ALL.iter().enumerate() {
-                        ui.selectable_value(&mut w_idx, i, w.label());
-                    }
-                });
-            if combo.response.changed() {
-                self.fft_data.fft_window = FFTWindow::ALL[w_idx];
-                changed_settings = true;
-            } else {
-                self.fft_data.fft_window = FFTWindow::ALL[w_idx];
-            }
-            ui.separator();
-            if ui
-                .button(if self.fft_db { "Linear" } else { "dB" })
-                .on_hover_text("Toggle FFT magnitude scale")
-                .clicked()
-            {
-                self.fft_db = !self.fft_db;
-                changed_settings = true;
-            }
-            ui.separator();
-            if changed_settings {
-                ui.label("(auto-fit)");
-            }
-        });
-        ui.separator();
-
         // Build temporary traces collection for spectra
         let mut tmp_traces = TracesCollection::default();
         for (name, td) in self.fft_data.fft_traces.iter() {
@@ -144,16 +101,71 @@ impl Panel for FftPanel {
         } else {
             "Magnitude".to_string()
         });
-        scope_data.y_axis.unit = None;
+        scope_data.y_axis.unit = Some(if self.fft_db {
+            "dB".to_string()
+        } else {
+            None
+        });
         scope_data.y_axis.log_scale = false;
 
         // Update scope ordering
         self.scope_ui.update_data(&tmp_traces);
 
-        
+        if self.pending_auto_fit {
+            self.scope_ui.fit_all(&tmp_traces);
+            self.pending_auto_fit = false;
+        }
 
-        // Render using scope panel (no overlays)
-        self.scope_ui
-            .render_panel(ui, |_plot_ui, _scope, _traces| {}, &mut tmp_traces);
+        // Render using scope panel with FFT controls as prefix
+        self.scope_ui.render_panel_ext(
+            ui,
+            |_plot_ui, _scope, _traces| {},
+            &mut tmp_traces,
+            |ui, scope, traces| {
+                let mut changed_settings = false;
+                ui.label("FFT size:");
+                let mut size_log2 = (self.fft_data.fft_size as f32).log2() as u32;
+                let slider = egui::Slider::new(&mut size_log2, 8..=15).text("2^N");
+                if ui.add(slider).changed() {
+                    self.fft_data.fft_size = 1usize << size_log2;
+                    changed_settings = true;
+                }
+                ui.separator();
+                ui.label("Window:");
+                let mut w_idx = FFTWindow::ALL
+                    .iter()
+                    .position(|w| *w == self.fft_data.fft_window)
+                    .unwrap_or(1);
+                let combo = egui::ComboBox::from_id_salt("fft_window_multi")
+                    .selected_text(self.fft_data.fft_window.label())
+                    .show_ui(ui, |ui| {
+                        for (i, w) in FFTWindow::ALL.iter().enumerate() {
+                            ui.selectable_value(&mut w_idx, i, w.label());
+                        }
+                    });
+                if combo.response.changed() {
+                    self.fft_data.fft_window = FFTWindow::ALL[w_idx];
+                    changed_settings = true;
+                } else {
+                    self.fft_data.fft_window = FFTWindow::ALL[w_idx];
+                }
+                ui.separator();
+                if ui
+                    .button(if self.fft_db { "Linear" } else { "dB" })
+                    .on_hover_text("Toggle FFT magnitude scale")
+                    .clicked()
+                {
+                    self.fft_db = !self.fft_db;
+                    changed_settings = true;
+                }
+                ui.separator();
+                if changed_settings {
+                    // Defer fit until after next update_data so new spectrum sizes are reflected
+                    self.pending_auto_fit = true;
+                    ui.label("(auto-fit next)");
+                }
+            },
+            |_ui, _scope, _traces| {},
+        );
     }
 }
