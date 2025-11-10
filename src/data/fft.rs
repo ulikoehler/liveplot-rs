@@ -5,7 +5,7 @@ use egui::ahash::HashMap;
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::collections::VecDeque;
 
-use crate::data::traces::TraceData;
+use crate::data::traces::{TraceData, TraceRef};
 
 /// Supported FFT window functions for spectral analysis.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -69,7 +69,7 @@ impl FFTWindow {
 pub struct FftData {
     pub fft_size: usize,
     pub fft_window: FFTWindow,
-    pub fft_traces: HashMap<String, TraceData>,
+    pub fft_traces: HashMap<TraceRef, TraceData>,
 }
 
 /// Compute the FFT of the most recent samples in the buffer, using the selected window.

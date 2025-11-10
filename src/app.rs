@@ -11,6 +11,8 @@ use crate::panels::panel_trait::Panel;
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
 //     thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,
 // };
+#[cfg(feature = "fft")]
+use crate::panels::fft_ui::FftPanel;
 use crate::panels::{
     export_ui::ExportPanel, math_ui::MathPanel, measurment_ui::MeasurementPanel,
     scope_ui::ScopePanel, thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel,
@@ -43,7 +45,10 @@ impl MainPanel {
             ],
             //vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default()), Box::new(ThresholdsPanel::default()), Box::new(TriggersPanel::default()), Box::new(ExportPanel::default())],
             left_side_panels: vec![],
-            bottom_panels: vec![], //vec![Box::new(FftPanel::default())],
+            #[cfg(feature = "fft")]
+            bottom_panels: vec![Box::new(FftPanel::default())],
+            #[cfg(not(feature = "fft"))]
+            bottom_panels: vec![],
             detached_panels: vec![],
             empty_panels: vec![Box::new(ExportPanel::default())],
         }

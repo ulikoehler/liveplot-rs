@@ -9,3 +9,6 @@ pub mod triggers_ui;
 pub mod export_ui;
 pub mod trace_look_ui;
 pub mod measurment_ui;
+
+#[cfg(feature = "fft")]
+pub mod fft_ui;
