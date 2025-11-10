@@ -1,6 +1,7 @@
 use egui::ahash::HashMap;
 // FFT logic for time-series data, extracted from main.rs
 // Provides windowing and spectrum calculation utilities for plotting
+#[cfg(feature = "fft")]
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::collections::VecDeque;
 
