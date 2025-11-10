@@ -128,8 +128,6 @@ impl Trigger {
             return false; //self.last_triggered.is_some();
         }
 
-        let target_name = &self.target.0;
-
         // Step 1: detect a new trigger crossing and compute a new trigger time (if any)
         if self.start_trigger && !self.trigger_pending.is_some() {
             let new_trigger_time: Option<f64> = {

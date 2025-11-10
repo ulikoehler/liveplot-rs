@@ -1,6 +1,4 @@
 use std::collections::{HashMap, VecDeque};
-
-use crate::data::trace_look::TraceLook;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 
 pub struct AxisSettings {

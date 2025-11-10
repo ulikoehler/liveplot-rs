@@ -1,7 +1,7 @@
 use eframe::egui;
 
 use crate::controllers::{FftController, TracesController, UiActionController, WindowController};
-use crate::data::{self, export};
+use crate::data::export;
 use crate::data::traces::{TraceRef, TracesCollection};
 
 use crate::data::data::LivePlotData;
@@ -65,19 +65,23 @@ impl MainPanel {
             let mut detached = std::mem::take(&mut self.detached_panels);
             let mut empty = std::mem::take(&mut self.empty_panels);
 
-            let mut draw_overlays = |plot_ui: &mut egui_plot::PlotUi, scope: &crate::data::scope::ScopeData, traces: &crate::data::traces::TracesCollection| {
-                for p in right
-                    .iter_mut()
-                    .chain(left.iter_mut())
-                    .chain(bottom.iter_mut())
-                    .chain(detached.iter_mut())
-                    .chain(empty.iter_mut())
-                {
-                    p.draw(plot_ui, scope, traces);
-                }
-            };
+            let mut draw_overlays =
+                |plot_ui: &mut egui_plot::PlotUi,
+                 scope: &crate::data::scope::ScopeData,
+                 traces: &crate::data::traces::TracesCollection| {
+                    for p in right
+                        .iter_mut()
+                        .chain(left.iter_mut())
+                        .chain(bottom.iter_mut())
+                        .chain(detached.iter_mut())
+                        .chain(empty.iter_mut())
+                    {
+                        p.draw(plot_ui, scope, traces);
+                    }
+                };
 
-            self.scope_panel.render_panel(ui, &mut draw_overlays, &mut self.traces_data);
+            self.scope_panel
+                .render_panel(ui, &mut draw_overlays, &mut self.traces_data);
 
             // Return panel lists back to self
             self.left_side_panels = left;
@@ -89,10 +93,13 @@ impl MainPanel {
     }
 
     fn update_data(&mut self) {
-    self.traces_data.update();
+        self.traces_data.update();
 
-    self.scope_panel.update_data(&self.traces_data);
-    let data = &mut LivePlotData { scope_data: self.scope_panel.get_data_mut(), traces: &mut self.traces_data };
+        self.scope_panel.update_data(&self.traces_data);
+        let data = &mut LivePlotData {
+            scope_data: self.scope_panel.get_data_mut(),
+            traces: &mut self.traces_data,
+        };
 
         for p in &mut self.left_side_panels {
             p.update_data(data);
@@ -118,7 +125,10 @@ impl MainPanel {
             self.scope_panel.render_menu(ui);
 
             let scope_data = self.scope_panel.get_data_mut();
-            let data = &mut LivePlotData { scope_data, traces: &mut self.traces_data };
+            let data = &mut LivePlotData {
+                scope_data,
+                traces: &mut self.traces_data,
+            };
 
             for p in &mut self.left_side_panels {
                 p.render_menu(ui, data);
@@ -254,27 +264,51 @@ impl MainPanel {
         // Detached left windows
         for p in &mut self.left_side_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(ui.ctx(), &mut LivePlotData { scope_data: self.scope_panel.get_data_mut(), traces: &mut self.traces_data });
+                p.show_detached_dialog(
+                    ui.ctx(),
+                    &mut LivePlotData {
+                        scope_data: self.scope_panel.get_data_mut(),
+                        traces: &mut self.traces_data,
+                    },
+                );
             }
         }
 
         // Detached right windows
         for p in &mut self.right_side_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(ui.ctx(), &mut LivePlotData { scope_data: self.scope_panel.get_data_mut(), traces: &mut self.traces_data });
+                p.show_detached_dialog(
+                    ui.ctx(),
+                    &mut LivePlotData {
+                        scope_data: self.scope_panel.get_data_mut(),
+                        traces: &mut self.traces_data,
+                    },
+                );
             }
         }
 
         // Detached bottom windows
         for p in &mut self.bottom_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(ui.ctx(), &mut LivePlotData { scope_data: self.scope_panel.get_data_mut(), traces: &mut self.traces_data });
+                p.show_detached_dialog(
+                    ui.ctx(),
+                    &mut LivePlotData {
+                        scope_data: self.scope_panel.get_data_mut(),
+                        traces: &mut self.traces_data,
+                    },
+                );
             }
         }
 
         for p in &mut self.detached_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(ui.ctx(), &mut LivePlotData { scope_data: self.scope_panel.get_data_mut(), traces: &mut self.traces_data });
+                p.show_detached_dialog(
+                    ui.ctx(),
+                    &mut LivePlotData {
+                        scope_data: self.scope_panel.get_data_mut(),
+                        traces: &mut self.traces_data,
+                    },
+                );
             }
         }
     }
@@ -289,8 +323,11 @@ impl MainPanel {
 
         let mut clicked: Option<usize> = None;
 
-    let scope_data = self.scope_panel.get_data_mut();
-    let data = &mut LivePlotData { scope_data, traces: &mut self.traces_data };
+        let scope_data = self.scope_panel.get_data_mut();
+        let data = &mut LivePlotData {
+            scope_data,
+            traces: &mut self.traces_data,
+        };
 
         if count > 0 {
             // Decide if actions fit on the same row; if not, render them on a new row.
@@ -486,8 +523,15 @@ impl MainApp {
 
             // pause/resume
             if let Some(p) = take_actions.0 {
-                let mut lp = LivePlotData { scope_data: data, traces: &mut self.main_panel.traces_data };
-                if p { lp.pause(); } else { lp.resume(); }
+                let mut lp = LivePlotData {
+                    scope_data: data,
+                    traces: &mut self.main_panel.traces_data,
+                };
+                if p {
+                    lp.pause();
+                } else {
+                    lp.resume();
+                }
             }
             // screenshot now
             if take_actions.1 {
@@ -530,8 +574,8 @@ impl MainApp {
             let data = self.main_panel.scope_panel.get_data_mut();
             let traces = &mut self.main_panel.traces_data;
             for (name, rgb) in inner.color_requests.drain(..) {
-                    let tref = TraceRef(name.clone());
-                    if let Some(tr) = traces.get_trace_mut(&tref) {
+                let tref = TraceRef(name.clone());
+                if let Some(tr) = traces.get_trace_mut(&tref) {
                     tr.look.color = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
                 }
             }

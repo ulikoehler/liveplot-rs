@@ -4,11 +4,13 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::app::MainPanel;
-use crate::data::scope::{AxisSettings, ScopeType};
-use crate::data::traces::{TracesCollection, TraceRef};
-use crate::panels::{math_ui::MathPanel, thresholds_ui::ThresholdsPanel, triggers_ui::TriggersPanel};
-use crate::panels::panel_trait::Panel;
 use crate::data::scope::ScopeData;
+use crate::data::scope::{AxisSettings, ScopeType};
+use crate::data::traces::TraceRef;
+use crate::panels::panel_trait::Panel;
+use crate::panels::{
+    math_ui::MathPanel, thresholds_ui::ThresholdsPanel, triggers_ui::TriggersPanel,
+};
 
 // ---------- Serializable mirror types ----------
 
@@ -218,7 +220,11 @@ impl ScopeStateSerde {
         self.x_axis.apply_to(&mut scope.x_axis);
         self.y_axis.apply_to(&mut scope.y_axis);
         scope.time_window = self.time_window;
-        scope.scope_type = if self.scope_is_xy { ScopeType::XYScope } else { ScopeType::TimeScope };
+        scope.scope_type = if self.scope_is_xy {
+            ScopeType::XYScope
+        } else {
+            ScopeType::TimeScope
+        };
         scope.show_legend = self.show_legend;
         scope.show_info_in_legend = self.show_info_in_legend;
         scope.selection_trace = self.selection_trace;
@@ -248,8 +254,8 @@ pub struct AppStateSerde {
 
 impl AppStateSerde {
     fn capture(panel: &mut MainPanel, window_size: Option<[f32; 2]>) -> Self {
-    let scope_data = panel.scope_panel.get_data_mut();
-    let traces_data = &panel.traces_data;
+        let scope_data = panel.scope_panel.get_data_mut();
+        let traces_data = &panel.traces_data;
         // traces styles
         let mut traces_style = Vec::new();
         for name in scope_data.trace_order.iter() {
@@ -275,11 +281,11 @@ impl AppStateSerde {
                 });
             }
         };
-    collect(&panel.left_side_panels, &mut panels);
-    collect(&panel.right_side_panels, &mut panels);
-    collect(&panel.bottom_panels, &mut panels);
-    collect(&panel.detached_panels, &mut panels);
-    collect(&panel.empty_panels, &mut panels);
+        collect(&panel.left_side_panels, &mut panels);
+        collect(&panel.right_side_panels, &mut panels);
+        collect(&panel.bottom_panels, &mut panels);
+        collect(&panel.detached_panels, &mut panels);
+        collect(&panel.empty_panels, &mut panels);
 
         Self {
             window_size,
@@ -375,32 +381,50 @@ pub fn save_mainpanel_to_struct(ctx: &egui::Context, panel: &mut MainPanel) -> A
 }
 
 /// Serialize the application state as pretty JSON.
-pub fn save_mainpanel_to_json(ctx: &egui::Context, panel: &mut MainPanel) -> Result<String, String> {
+pub fn save_mainpanel_to_json(
+    ctx: &egui::Context,
+    panel: &mut MainPanel,
+) -> Result<String, String> {
     let state = save_mainpanel_to_struct(ctx, panel);
     serde_json::to_string_pretty(&state).map_err(|e| e.to_string())
 }
 
 /// Save the application state to a JSON file at the given path.
-pub fn save_mainpanel_to_path(ctx: &egui::Context, panel: &mut MainPanel, path: &Path) -> Result<(), String> {
+pub fn save_mainpanel_to_path(
+    ctx: &egui::Context,
+    panel: &mut MainPanel,
+    path: &Path,
+) -> Result<(), String> {
     let txt = save_mainpanel_to_json(ctx, panel)?;
     std::fs::write(path, txt).map_err(|e| e.to_string())
 }
 
 /// Load the application state from a JSON file at the given path and apply it.
-pub fn load_mainpanel_from_path(ctx: &egui::Context, panel: &mut MainPanel, path: &Path) -> Result<(), String> {
+pub fn load_mainpanel_from_path(
+    ctx: &egui::Context,
+    panel: &mut MainPanel,
+    path: &Path,
+) -> Result<(), String> {
     let txt = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     load_mainpanel_from_json(ctx, panel, &txt)
 }
 
 /// Load the application state from a JSON string and apply it.
-pub fn load_mainpanel_from_json(ctx: &egui::Context, panel: &mut MainPanel, json: &str) -> Result<(), String> {
+pub fn load_mainpanel_from_json(
+    ctx: &egui::Context,
+    panel: &mut MainPanel,
+    json: &str,
+) -> Result<(), String> {
     let state: AppStateSerde = serde_json::from_str(json).map_err(|e| e.to_string())?;
     load_mainpanel_from_struct(ctx, panel, state)
 }
 
 /// Apply a previously captured application state.
-pub fn load_mainpanel_from_struct(ctx: &egui::Context, panel: &mut MainPanel, state: AppStateSerde) -> Result<(), String> {
-
+pub fn load_mainpanel_from_struct(
+    ctx: &egui::Context,
+    panel: &mut MainPanel,
+    state: AppStateSerde,
+) -> Result<(), String> {
     // Apply window size (best-effort)
     if let Some([w, h]) = state.window_size {
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(w, h)));
@@ -414,19 +438,26 @@ pub fn load_mainpanel_from_struct(ctx: &egui::Context, panel: &mut MainPanel, st
     let panel_info: HashMap<String, (bool, bool, Option<[f32; 2]>, Option<[f32; 2]>)> = state
         .panels
         .iter()
-        .map(|p| (p.title.clone(), (p.visible, p.detached, p.window_pos, p.window_size)))
+        .map(|p| {
+            (
+                p.title.clone(),
+                (p.visible, p.detached, p.window_pos, p.window_size),
+            )
+        })
         .collect();
-    let set_vis = |list: &mut Vec<Box<dyn Panel>>, infos: &HashMap<String, (bool, bool, Option<[f32; 2]>, Option<[f32; 2]>)>| {
-        for p in list.iter_mut() {
-            if let Some((vis, det, pos, sz)) = infos.get(p.title()) {
-                let st = p.state_mut();
-                st.visible = *vis;
-                st.detached = *det;
-                st.window_pos = *pos;
-                st.window_size = *sz;
+    let set_vis =
+        |list: &mut Vec<Box<dyn Panel>>,
+         infos: &HashMap<String, (bool, bool, Option<[f32; 2]>, Option<[f32; 2]>)>| {
+            for p in list.iter_mut() {
+                if let Some((vis, det, pos, sz)) = infos.get(p.title()) {
+                    let st = p.state_mut();
+                    st.visible = *vis;
+                    st.detached = *det;
+                    st.window_pos = *pos;
+                    st.window_size = *sz;
+                }
             }
-        }
-    };
+        };
     set_vis(&mut panel.left_side_panels, &panel_info);
     set_vis(&mut panel.right_side_panels, &panel_info);
     set_vis(&mut panel.bottom_panels, &panel_info);

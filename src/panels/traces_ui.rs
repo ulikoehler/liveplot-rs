@@ -113,7 +113,6 @@ impl Panel for TracesPanel {
             hover_out: &'a mut Option<TraceRef>,
             selection: &'a mut Option<TraceRef>,
             look_toggle: &'a mut Option<TraceRef>,
-            current_look: Option<TraceRef>,
             rows: Vec<Row>,
             col_w: [f32; 6],
         }
@@ -198,7 +197,8 @@ impl Panel for TracesPanel {
                                     |cui| {
                                         if r.is_free {
                                             cui.label("");
-                                        } else if let Some(tr) = self.traces.get_trace_mut(&r.name) {
+                                        } else if let Some(tr) = self.traces.get_trace_mut(&r.name)
+                                        {
                                             let mut c = tr.look.color;
                                             let resp = cui
                                                 .color_edit_button_srgba(&mut c)
@@ -222,10 +222,14 @@ impl Panel for TracesPanel {
                                         .sense(egui::Sense::click()),
                                 );
                                 if resp.hovered() {
-                                    if !r.is_free { *self.hover_out = Some(r.name.clone()); }
+                                    if !r.is_free {
+                                        *self.hover_out = Some(r.name.clone());
+                                    }
                                 }
                                 if resp.clicked() {
-                                    if !r.is_free { *self.look_toggle = Some(r.name.clone()); }
+                                    if !r.is_free {
+                                        *self.look_toggle = Some(r.name.clone());
+                                    }
                                 }
                             }
                             2 => {
@@ -265,10 +269,13 @@ impl Panel for TracesPanel {
                                     |cui| {
                                         if r.is_free {
                                             cui.label("");
-                                        } else if let Some(tr) = self.traces.get_trace_mut(&r.name) {
+                                        } else if let Some(tr) = self.traces.get_trace_mut(&r.name)
+                                        {
                                             let mut vis = tr.look.visible;
                                             let resp = cui.checkbox(&mut vis, "");
-                                            if resp.hovered() { *self.hover_out = Some(r.name.clone()); }
+                                            if resp.hovered() {
+                                                *self.hover_out = Some(r.name.clone());
+                                            }
                                             if resp.changed() {
                                                 tr.look.visible = vis;
                                             }
@@ -285,14 +292,17 @@ impl Panel for TracesPanel {
                                     |cui| {
                                         if r.is_free {
                                             cui.label("");
-                                        } else if let Some(tr) = self.traces.get_trace_mut(&r.name) {
+                                        } else if let Some(tr) = self.traces.get_trace_mut(&r.name)
+                                        {
                                             let mut off = tr.offset;
                                             let resp = cui.add(
                                                 egui::DragValue::new(&mut off)
                                                     .speed(0.01)
                                                     .range(-1.0e12..=1.0e12),
                                             );
-                                            if resp.hovered() { *self.hover_out = Some(r.name.clone()); }
+                                            if resp.hovered() {
+                                                *self.hover_out = Some(r.name.clone());
+                                            }
                                             if resp.changed() {
                                                 tr.offset = off;
                                             }
@@ -312,7 +322,9 @@ impl Panel for TracesPanel {
                                             .show_tooltip_when_elided(true)
                                             .sense(egui::Sense::click()),
                                     );
-                                    if resp.hovered() { *self.hover_out = Some(r.name.clone()); }
+                                    if resp.hovered() {
+                                        *self.hover_out = Some(r.name.clone());
+                                    }
                                     if resp.clicked() {
                                         inner.ctx().copy_text(text.clone());
                                     }
@@ -403,7 +415,6 @@ impl Panel for TracesPanel {
                     let mut hover_tmp: Option<TraceRef> = None;
                     let mut selection_tmp = data.scope_data.selection_trace.clone();
                     let mut look_toggle_req: Option<TraceRef> = None;
-                    let current_look = self.look_editor_trace.clone();
                     // Borrow traces mutably for the table drawing scope only
                     let traces_ref = &mut *data.traces;
                     let mut delegate = TracesDelegate {
@@ -411,7 +422,6 @@ impl Panel for TracesPanel {
                         hover_out: &mut hover_tmp,
                         selection: &mut selection_tmp,
                         look_toggle: &mut look_toggle_req,
-                        current_look,
                         rows: rows_clone,
                         col_w: w,
                     };

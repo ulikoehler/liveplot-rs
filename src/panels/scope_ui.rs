@@ -1,14 +1,9 @@
 use egui::{Color32, Ui};
 use egui_plot::{Legend, Line, Plot, Points};
 
-// no XDateFormat needed in this panel for now
-
-use crate::data;
-// use crate::data::data::LivePlotData; // not needed here
 use crate::data::scope::ScopeData;
 use crate::data::scope::ScopeType;
 use crate::data::traces::TracesCollection;
-// no panel trait needed here; overlays are provided via closure from app
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum ZoomMode {
