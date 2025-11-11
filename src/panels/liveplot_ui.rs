@@ -64,7 +64,7 @@ impl LiveplotPanel {
                     scope.paused = false;
                 }
 
-                if ui.button("⌫ Clear All").clicked() {
+                if ui.button("X Clear All").clicked() {
                     traces.clear_all();
                 }
             },

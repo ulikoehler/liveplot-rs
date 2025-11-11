@@ -291,7 +291,7 @@ impl Panel for ThresholdsPanel {
                         action_remove = true;
                     }
                     let clear_resp = ui
-                        .button("⌫ Clear")
+                        .button("X Clear")
                         .on_hover_text("Clear events for this threshold");
                     if clear_resp.hovered() {
                         self.hover_threshold = Some(removing_name.clone());
@@ -671,7 +671,7 @@ impl Panel for ThresholdsPanel {
                 }
             }
             if ui
-                .button("⌫ Clear events")
+                .button("X Clear events")
                 .on_hover_text("Delete all threshold events (global log and per-threshold buffers)")
                 .clicked()
             {

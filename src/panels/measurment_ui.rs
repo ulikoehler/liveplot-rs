@@ -205,7 +205,7 @@ impl Panel for MeasurementPanel {
                 self.measurements
                     .push(Measurement::new(&format!("M{}", idx)));
             }
-            if ui.button("⌫ Clear All").clicked() {
+            if ui.button("X Clear All").clicked() {
                 for m in &mut self.measurements {
                     m.clear();
                 }
@@ -231,7 +231,7 @@ impl Panel for MeasurementPanel {
                     self.selected_measurement = Some(i);
                 }
 
-                let clear_btn = ui.button("⌫ Clear");
+                let clear_btn = ui.button("X Clear");
                 if clear_btn.clicked() {
                     m.clear();
                 }
