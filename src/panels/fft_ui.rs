@@ -101,11 +101,11 @@ impl Panel for FftPanel {
         } else {
             "Magnitude".to_string()
         });
-        scope_data.y_axis.unit = Some(if self.fft_db {
-            "dB".to_string()
+        scope_data.y_axis.unit = if self.fft_db {
+            Some("dB".to_string())
         } else {
             None
-        });
+        };
         scope_data.y_axis.log_scale = false;
 
         // Update scope ordering

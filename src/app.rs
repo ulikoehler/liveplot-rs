@@ -266,7 +266,7 @@ impl MainPanel {
         }
 
         // Detached windows
-        // Detached left windows
+        // Detached left windows via panel trait helper
         for p in &mut self.left_side_panels {
             if p.state().visible && p.state().detached {
                 p.show_detached_dialog(
@@ -279,7 +279,7 @@ impl MainPanel {
             }
         }
 
-        // Detached right windows
+        // Detached right windows via panel trait helper
         for p in &mut self.right_side_panels {
             if p.state().visible && p.state().detached {
                 p.show_detached_dialog(
@@ -292,7 +292,7 @@ impl MainPanel {
             }
         }
 
-        // Detached bottom windows
+        // Detached bottom windows via panel trait helper
         for p in &mut self.bottom_panels {
             if p.state().visible && p.state().detached {
                 p.show_detached_dialog(

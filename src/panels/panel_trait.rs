@@ -14,6 +14,8 @@ pub struct PanelState {
     pub request_docket: bool,
     pub window_pos: Option<[f32; 2]>,
     pub window_size: Option<[f32; 2]>,
+    // If set, the panel is shown in an external OS window with this ViewportId
+    pub viewport_id: Option<egui::ViewportId>,
 }
 
 impl PanelState {
@@ -25,6 +27,7 @@ impl PanelState {
             request_docket: false,
             window_pos: None,
             window_size: None,
+            viewport_id: None,
         }
     }
 }
@@ -56,24 +59,39 @@ pub trait Panel: Any {
 
     fn show_detached_dialog(&mut self, ctx: &Context, data: &mut LivePlotData<'_>) {
         // Read minimal window state in a short borrow scope to avoid conflicts
-        let (title, mut show_flag) = {
-            let dock: &mut PanelState = self.state_mut();
-            (dock.title, dock.visible)
+        let (title, vis, pos, size, mut vid_opt) = {
+            let st = self.state();
+            (st.title, st.visible, st.window_pos, st.window_size, st.viewport_id)
         };
 
-        let mut dock_clicked = false;
-        let mut win = egui::Window::new(title).open(&mut show_flag);
-        // Apply persisted position/size if available
+        // Ensure a stable viewport id for this panel
+        let vid = vid_opt.unwrap_or_else(|| egui::ViewportId::from_hash_of(&(title, "panel")));
+
+        // Persist the id back to state
         {
-            let st_ro = self.state();
-            if let Some(pos) = st_ro.window_pos {
-                win = win.default_pos(egui::pos2(pos[0], pos[1]));
-            }
-            if let Some(sz) = st_ro.window_size {
-                win = win.default_size(egui::vec2(sz[0], sz[1]));
-            }
+            let st = self.state_mut();
+            st.viewport_id = Some(vid);
         }
-        let resp = win.show(ctx, |ui| {
+
+        // Build viewport with persisted geometry if present
+        let mut builder = egui::ViewportBuilder::default().with_title(title);
+        if let Some(sz) = size { builder = builder.with_inner_size([sz[0], sz[1]]); }
+        if let Some(p) = pos { builder = builder.with_position([p[0], p[1]]); }
+
+        // Show new viewport (external if supported, embedded otherwise)
+        ctx.show_viewport_immediate(vid, builder, |vctx, class| {
+            // If the OS window was closed, hide and re-dock the panel
+            let close = vctx.input(|i| i.viewport().close_requested());
+            if close {
+                let st = self.state_mut();
+                st.detached = false;
+                st.visible = false;
+                return;
+            }
+
+            let mut dock_clicked = false;
+
+            let mut draw_ui = |ui: &mut Ui| {
                 ui.horizontal(|ui| {
                     ui.strong(title);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -83,29 +101,48 @@ pub trait Panel: Any {
                     });
                 });
                 ui.separator();
-                // Render contents (may mutate app extensively)
                 self.render_panel(ui, data);
-            });
+            };
 
-        // Write back state changes without overlapping borrows
-        let state = self.state_mut();
-        // Capture window position and size from the response if available
-        if let Some(ir) = &resp {
-            let rect = ir.response.rect;
-            state.window_pos = Some([rect.min.x, rect.min.y]);
-            state.window_size = Some([rect.size().x, rect.size().y]);
-        }
-        if dock_clicked {
-            state.detached = false;
-            // Closing the detached window after docking back to sidebar
-            state.visible = true;
-            state.request_docket = true;
-        } else {
-            if !show_flag {
-                // If window was closed externally, clear detached flag
-                state.detached = false;
+            match class {
+                egui::ViewportClass::Embedded => {
+                    // In backends without multi-viewport support, embed as a normal egui window
+                    let mut show_flag = vis;
+                    let mut win = egui::Window::new(title).open(&mut show_flag);
+                    // Apply persisted position/size if available
+                    if let Some(p) = pos { win = win.default_pos(egui::pos2(p[0], p[1])); }
+                    if let Some(sz) = size { win = win.default_size(egui::vec2(sz[0], sz[1])); }
+                    let resp = win.show(vctx, |ui| draw_ui(ui));
+
+                    // Write back state changes without overlapping borrows
+                    let st = self.state_mut();
+                    if let Some(ir) = &resp {
+                        let rect = ir.response.rect;
+                        st.window_pos = Some([rect.min.x, rect.min.y]);
+                        st.window_size = Some([rect.size().x, rect.size().y]);
+                    }
+                    if dock_clicked {
+                        st.detached = false;
+                        st.visible = true;
+                        st.request_docket = true;
+                    } else {
+                        if !show_flag {
+                            st.detached = false;
+                        }
+                        st.visible = show_flag;
+                    }
+                }
+                _ => {
+                    // External OS window: render content in the child viewport
+                    egui::CentralPanel::default().show(vctx, |ui| draw_ui(ui));
+                    if dock_clicked {
+                        let st = self.state_mut();
+                        st.detached = false;
+                        st.visible = true;
+                        st.request_docket = true;
+                    }
+                }
             }
-            state.visible = show_flag;
-        }
+        });
     }
 }
