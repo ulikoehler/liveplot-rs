@@ -119,9 +119,9 @@ impl Panel for FftPanel {
         // Render using scope panel with FFT controls as prefix
         self.scope_ui.render_panel_ext(
             ui,
-            |_plot_ui, _scope, _traces| {},
+            |_plot_ui, _scope_unused, _traces_unused| {},
             &mut tmp_traces,
-            |ui, scope, traces| {
+            |ui, _scope_unused, _traces_unused| {
                 let mut changed_settings = false;
                 ui.label("FFT size:");
                 let mut size_log2 = (self.fft_data.fft_size as f32).log2() as u32;
@@ -165,7 +165,7 @@ impl Panel for FftPanel {
                     ui.label("(auto-fit next)");
                 }
             },
-            |_ui, _scope, _traces| {},
+            |_ui, _scope_unused, _traces_unused| {},
         );
     }
 }

@@ -59,7 +59,7 @@ pub trait Panel: Any {
 
     fn show_detached_dialog(&mut self, ctx: &Context, data: &mut LivePlotData<'_>) {
         // Read minimal window state in a short borrow scope to avoid conflicts
-        let (title, vis, pos, size, mut vid_opt) = {
+        let (title, vis, pos, size, vid_opt) = {
             let st = self.state();
             (st.title, st.visible, st.window_pos, st.window_size, st.viewport_id)
         };
