@@ -488,6 +488,7 @@ impl ScopePanel {
         plot_response: &egui_plot::PlotResponse<bool>,
         traces: &mut TracesCollection,
     ) {
+        self.data.clicked_point = None;
         if plot_response.response.clicked() {
             if !self.data.paused {
                 self.data.paused = true;

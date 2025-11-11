@@ -52,6 +52,12 @@ impl Trigger {
         self.trigger_pending = None;
     }
 
+    pub fn reset_runtime_state(&mut self) {
+        self.last_triggered = None;
+        self.trigger_pending = None;
+        self.start_trigger = false;
+    }
+
     pub fn start(&mut self) {
         self.last_triggered = None;
         self.trigger_pending = None;

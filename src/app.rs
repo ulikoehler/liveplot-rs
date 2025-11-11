@@ -63,37 +63,95 @@ impl MainPanel {
 
         // Draw additional overlay objects from other panels (e.g., thresholds)
         egui::CentralPanel::default().show_inside(ui, |ui| {
+            use std::cell::RefCell;
             // Temporarily take panel lists to build a local overlay drawer without borrowing self
-            let mut left = std::mem::take(&mut self.left_side_panels);
-            let mut right = std::mem::take(&mut self.right_side_panels);
-            let mut bottom = std::mem::take(&mut self.bottom_panels);
-            let mut detached = std::mem::take(&mut self.detached_panels);
-            let mut empty = std::mem::take(&mut self.empty_panels);
+            let left = RefCell::new(std::mem::take(&mut self.left_side_panels));
+            let right = RefCell::new(std::mem::take(&mut self.right_side_panels));
+            let bottom = RefCell::new(std::mem::take(&mut self.bottom_panels));
+            let detached = RefCell::new(std::mem::take(&mut self.detached_panels));
+            let empty = RefCell::new(std::mem::take(&mut self.empty_panels));
 
             let mut draw_overlays =
                 |plot_ui: &mut egui_plot::PlotUi,
                  scope: &crate::data::scope::ScopeData,
                  traces: &crate::data::traces::TracesCollection| {
                     for p in right
+                        .borrow_mut()
                         .iter_mut()
-                        .chain(left.iter_mut())
-                        .chain(bottom.iter_mut())
-                        .chain(detached.iter_mut())
-                        .chain(empty.iter_mut())
+                        .chain(left.borrow_mut().iter_mut())
+                        .chain(bottom.borrow_mut().iter_mut())
+                        .chain(detached.borrow_mut().iter_mut())
+                        .chain(empty.borrow_mut().iter_mut())
                     {
                         p.draw(plot_ui, scope, traces);
                     }
                 };
 
-            self.liveplot_panel
-                .render_panel(ui, &mut draw_overlays, &mut self.traces_data);
+            self.liveplot_panel.render_panel_with_suffix(
+                ui,
+                &mut draw_overlays,
+                &mut self.traces_data,
+                |ui, scope, traces| {
+                    // Global Clear All across tabs
+                    if ui
+                        .button("X Clear All")
+                        .on_hover_text("Clear all traces and per-panel buffers")
+                        .clicked()
+                    {
+                        traces.clear_all();
+                        // Also clear any last clicked point used by measurements/markers
+                        scope.clicked_point = None;
+                        // Broadcast clear_all to all panels (left/right/bottom/detached/empty)
+                        for p in right
+                            .borrow_mut()
+                            .iter_mut()
+                            .chain(left.borrow_mut().iter_mut())
+                            .chain(bottom.borrow_mut().iter_mut())
+                            .chain(detached.borrow_mut().iter_mut())
+                            .chain(empty.borrow_mut().iter_mut())
+                        {
+                            p.clear_all();
+                        }
+                    }
+
+                    ui.separator();
+                    // Panels quick toggles (inline, no menu or labels)
+                    for p in left.borrow_mut().iter_mut() {
+                        if ui
+                            .selectable_label(p.state_mut().visible, p.title())
+                            .clicked()
+                        {
+                            p.state_mut().detached = false;
+                            p.state_mut().visible = true;
+                        }
+                    }
+                    for p in right.borrow_mut().iter_mut() {
+                        if ui
+                            .selectable_label(p.state_mut().visible, p.title())
+                            .clicked()
+                        {
+                            p.state_mut().detached = false;
+                            p.state_mut().visible = true;
+                        }
+                    }
+                    for p in bottom.borrow_mut().iter_mut() {
+                        if ui
+                            .selectable_label(p.state_mut().visible, p.title())
+                            .clicked()
+                        {
+                            p.state_mut().detached = false;
+                            p.state_mut().visible = true;
+                        }
+                    }
+                },
+            );
 
             // Return panel lists back to self
-            self.left_side_panels = left;
-            self.right_side_panels = right;
-            self.bottom_panels = bottom;
-            self.detached_panels = detached;
-            self.empty_panels = empty;
+            self.left_side_panels = left.into_inner();
+            self.right_side_panels = right.into_inner();
+            self.bottom_panels = bottom.into_inner();
+            self.detached_panels = detached.into_inner();
+            self.empty_panels = empty.into_inner();
         });
     }
 
@@ -153,37 +211,25 @@ impl MainPanel {
 
             ui.menu_button("Panels", |ui| {
                 for p in &mut self.left_side_panels {
-                    if ui
-                        .selectable_label(p.state_mut().visible, p.title())
-                        .clicked()
-                    {
+                    if ui.selectable_label(p.state_mut().visible, p.title()).clicked() {
                         p.state_mut().detached = false;
                         p.state_mut().visible = true;
                     }
                 }
                 for p in &mut self.right_side_panels {
-                    if ui
-                        .selectable_label(p.state_mut().visible, p.title())
-                        .clicked()
-                    {
+                    if ui.selectable_label(p.state_mut().visible, p.title()).clicked() {
                         p.state_mut().detached = false;
                         p.state_mut().visible = true;
                     }
                 }
                 for p in &mut self.bottom_panels {
-                    if ui
-                        .selectable_label(p.state_mut().visible, p.title())
-                        .clicked()
-                    {
+                    if ui.selectable_label(p.state_mut().visible, p.title()).clicked() {
                         p.state_mut().detached = false;
                         p.state_mut().visible = true;
                     }
                 }
                 for p in &mut self.detached_panels {
-                    if ui
-                        .selectable_label(p.state_mut().visible, p.title())
-                        .clicked()
-                    {
+                    if ui.selectable_label(p.state_mut().visible, p.title()).clicked() {
                         p.state_mut().detached = true;
                         p.state_mut().visible = true;
                     }

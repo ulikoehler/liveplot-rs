@@ -51,6 +51,15 @@ impl Panel for ThresholdsPanel {
         &mut self.state
     }
 
+    fn clear_all(&mut self) {
+        self.events_filter = None;
+        self.hover_threshold = None;
+        // Clear per-threshold events (if they are stored within the defs) and reset map
+        // Current implementation tracks events in runtime buffers associated with thresholds;
+        // provide a bulk clear by calling the helper if available.
+        self.clear_all_events();
+    }
+
     fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, scope: &ScopeData, traces: &TracesCollection) {
         // Threshold overlays
         if !self.thresholds.is_empty() {
@@ -845,6 +854,12 @@ impl ThresholdsPanel {
         }
 
         Ok(())
+    }
+
+    pub fn clear_all_events(&mut self) {
+        for def in self.thresholds.values_mut() {
+            def.clear_threshold_events();
+        }
     }
 }
 // Removed unused show_thresholds_dialog helper; dialogs are shown via DockPanel::show_detached_dialog

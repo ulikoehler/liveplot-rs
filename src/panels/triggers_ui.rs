@@ -42,6 +42,16 @@ impl Panel for TriggersPanel {
         &mut self.state
     }
 
+    fn clear_all(&mut self) {
+        // Reset all triggers to disabled and clear last-trigger times
+        for (_name, trig) in self.triggers.iter_mut() {
+            trig.enabled = false;
+            trig.reset_runtime_state();
+        }
+        self.builder = None;
+        self.editing = None;
+    }
+
     fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, scope: &ScopeData, traces: &TracesCollection) {
         if self.triggers.is_empty() {
             return;
@@ -487,6 +497,14 @@ impl Panel for TriggersPanel {
                 self.builder = None;
                 self.editing = None;
             }
+        }
+    }
+}
+
+impl TriggersPanel {
+    pub fn reset_all(&mut self) {
+        for (_name, tr) in self.triggers.iter_mut() {
+            tr.reset();
         }
     }
 }

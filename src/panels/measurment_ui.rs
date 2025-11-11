@@ -35,6 +35,14 @@ impl Panel for MeasurementPanel {
         &mut self.state
     }
 
+    fn clear_all(&mut self) {
+        self.measurements.clear();
+        self.selected_measurement = None;
+        self.selected_point_index = None;
+        self.last_clicked_point = None;
+        self.hovered_measurement = None;
+    }
+
     fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
         if let Some(point) = _data.scope_data.clicked_point {
             if self.last_clicked_point == Some(point) {
@@ -381,6 +389,14 @@ impl Panel for MeasurementPanel {
                 self.measurements.remove(i);
                 break; // restart loop due to changed indices
             }
+        }
+    }
+}
+
+impl MeasurementPanel {
+    pub fn clear_all(&mut self) {
+        for m in &mut self.measurements {
+            m.clear();
         }
     }
 }

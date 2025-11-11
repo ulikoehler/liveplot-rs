@@ -2637,6 +2637,7 @@ dependencies = [
  "async-stream",
  "chrono",
  "display-info",
+ "downcast-rs",
  "eframe",
  "egui",
  "egui_plot",

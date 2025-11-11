@@ -4,7 +4,7 @@ use egui_plot::PlotUi;
 use crate::data::data::LivePlotData;
 use crate::data::scope::ScopeData;
 use crate::data::traces::TracesCollection;
-use std::any::Any;
+use downcast_rs::{impl_downcast, Downcast};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PanelState {
@@ -32,7 +32,7 @@ impl PanelState {
     }
 }
 
-pub trait Panel: Any {
+pub trait Panel: Downcast {
     fn title(&self) -> &'static str {
         self.state().title
     }
@@ -40,20 +40,16 @@ pub trait Panel: Any {
     fn state(&self) -> &PanelState;
     fn state_mut(&mut self) -> &mut PanelState;
 
-    // For downcasting to concrete panel types in persistence and other cross-cutting features
-    fn as_any_mut(&mut self) -> &mut dyn Any
-    where
-        Self: 'static + Sized,
-    {
-        self as &mut dyn Any
-    }
-
     // Optional hooks with default empty impls
     fn render_menu(&mut self, _ui: &mut Ui, _data: &mut LivePlotData<'_>) {}
     fn render_panel(&mut self, _ui: &mut Ui, _data: &mut LivePlotData<'_>) {}
     fn draw(&mut self, _plot_ui: &mut PlotUi, _scope: &ScopeData, _traces: &TracesCollection) {}
 
     fn update_data(&mut self, _data: &mut LivePlotData<'_>) {}
+
+    // Clear all internal runtime state / events / buffers specific to the panel.
+    // Default: no-op. Panels with internal collections override this.
+    fn clear_all(&mut self) {}
 
     // fn panel_contents(&mut self, _ui: &mut Ui, _data: &mut ScopeData) {}
 
@@ -146,3 +142,5 @@ pub trait Panel: Any {
         });
     }
 }
+
+impl_downcast!(Panel);

@@ -34,14 +34,27 @@ impl LiveplotPanel {
     pub fn render_panel<F>(
         &mut self,
         ui: &mut Ui,
-        mut draw_overlays: F,
+        draw_overlays: F,
         traces: &mut TracesCollection,
     ) where
         F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
     {
+        self.render_panel_with_suffix(ui, draw_overlays, traces, |_ui, _scope, _traces| {});
+    }
+
+    pub fn render_panel_with_suffix<F, S>(
+        &mut self,
+        ui: &mut Ui,
+        draw_overlays: F,
+        traces: &mut TracesCollection,
+        mut extra_suffix: S,
+    ) where
+        F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
+        S: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
+    {
         self.scope_ui.render_panel_ext(
             ui,
-            &mut draw_overlays,
+            draw_overlays,
             traces,
             |ui, _scope, traces| {
                 // Prefix controls
@@ -54,7 +67,7 @@ impl LiveplotPanel {
                 );
             },
             |ui, scope, traces| {
-                // Suffix controls
+                // Suffix controls (core controls first)
                 if !scope.paused {
                     if ui.button("⏸ Pause").clicked() {
                         scope.paused = true;
@@ -64,9 +77,8 @@ impl LiveplotPanel {
                     scope.paused = false;
                 }
 
-                if ui.button("X Clear All").clicked() {
-                    traces.clear_all();
-                }
+                // Defer additional suffix from caller (e.g., Panels, Clear All across tabs)
+                extra_suffix(ui, scope, traces);
             },
         );
     }
