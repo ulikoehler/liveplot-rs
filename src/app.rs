@@ -417,6 +417,23 @@ impl MainPanel {
         };
 
         if count > 0 {
+            // Honor focus requests from panels (request_docket): make that panel the active attached tab
+            if let Some(req_idx) = list
+                .iter()
+                .enumerate()
+                .find_map(|(i, p)| if p.state().request_docket { Some(i) } else { None })
+            {
+                for (j, p) in list.iter_mut().enumerate() {
+                    if j == req_idx {
+                        let st = p.state_mut();
+                        st.visible = true;
+                        st.detached = false;
+                        st.request_docket = false;
+                    } else if !p.state().detached {
+                        p.state_mut().visible = false;
+                    }
+                }
+            }
             // Decide if actions fit on the same row; if not, render them on a new row.
             let actions_need_row_below = {
                 let available = ui.available_width();

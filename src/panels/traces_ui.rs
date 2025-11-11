@@ -49,6 +49,27 @@ impl Panel for TracesPanel {
         &mut self.state
     }
 
+    fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
+        ui.menu_button("📈 Traces", |ui| {
+            if ui.button("Show info in legend").clicked() {
+                data.scope_data.show_info_in_legend = !data.scope_data.show_info_in_legend;
+                let st = self.state_mut();
+                st.visible = true;
+                st.detached = false;
+                st.request_docket = true;
+                ui.close();
+            }
+            if ui.button("X Clear All").clicked() {
+                data.traces.clear_all();
+                let st = self.state_mut();
+                st.visible = true;
+                st.detached = false;
+                st.request_docket = true;
+                ui.close();
+            }
+        });
+    }
+
     fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         ui.label("Configure traces: marker selection, visibility, colors, offsets, Y axis options, and legend info.");
         ui.horizontal(|ui| {

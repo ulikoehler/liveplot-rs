@@ -51,6 +51,26 @@ impl Panel for ThresholdsPanel {
         &mut self.state
     }
 
+    fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
+        ui.menu_button("⚠ Thresholds", |ui| {
+            if ui.button("New").clicked() {
+                self.builder = ThresholdDef::default();
+                self.editing = None;
+                self.creating = true;
+                self.error = None;
+                let st = self.state_mut();
+                st.visible = true;
+                st.detached = false;
+                st.request_docket = true;
+                ui.close();
+            }
+            if ui.button("X Clear events").clicked() {
+                self.clear_all_events();
+                ui.close();
+            }
+        });
+    }
+
     fn clear_all(&mut self) {
         self.events_filter = None;
         self.hover_threshold = None;

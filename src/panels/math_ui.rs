@@ -45,6 +45,36 @@ impl Panel for MathPanel {
         &mut self.state
     }
 
+    fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
+        ui.menu_button("∫ Math", |ui| {
+            if ui.button("New").clicked() {
+                self.builder = MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() });
+                self.editing = None;
+                self.creating = true;
+                self.error = None;
+                let st = self.state_mut();
+                st.visible = true;
+                st.detached = false;
+                st.request_docket = true;
+                ui.close();
+            }
+            if ui.button("Reset storage").clicked() {
+                for def in self.math_traces.iter() {
+                    data.traces.clear_trace(&def.name);
+                }
+                ui.close();
+            }
+            if ui.button("X Clear All math traces").clicked() {
+                // Remove math traces & their underlying live data
+                for def in self.math_traces.iter() { data.traces.remove_trace(&def.name); }
+                self.math_traces.clear();
+                self.editing = None;
+                self.creating = false;
+                ui.close();
+            }
+        });
+    }
+
     fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
         let mut sources: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
         for (name, tr) in _data.traces.traces_iter() {

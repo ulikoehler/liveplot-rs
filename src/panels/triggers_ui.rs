@@ -42,6 +42,35 @@ impl Panel for TriggersPanel {
         &mut self.state
     }
 
+    fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
+        ui.menu_button("🔔 Trigger", |ui| {
+            if ui.button("New").clicked() {
+                let mut t = crate::data::triggers::Trigger::default();
+                let idx = self.triggers.len() + 1;
+                t.name = format!("Trigger{}", idx);
+                t.enabled = false;
+                self.triggers.insert(t.name.clone(), t);
+                let st = self.state_mut();
+                st.visible = true;
+                st.detached = false;
+                st.request_docket = true;
+                ui.close();
+            }
+            if ui.button("Start all").clicked() {
+                for (_n, trig) in self.triggers.iter_mut() { trig.start(); }
+                ui.close();
+            }
+            if ui.button("Stop all").clicked() {
+                for (_n, trig) in self.triggers.iter_mut() { trig.stop(); }
+                ui.close();
+            }
+            if ui.button("Reset all").clicked() {
+                for (_n, trig) in self.triggers.iter_mut() { trig.reset_runtime_state(); }
+                ui.close();
+            }
+        });
+    }
+
     fn clear_all(&mut self) {
         // Reset all triggers to disabled and clear last-trigger times
         for (_name, trig) in self.triggers.iter_mut() {

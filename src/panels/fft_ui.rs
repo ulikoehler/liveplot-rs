@@ -35,6 +35,40 @@ impl Panel for FftPanel {
         &mut self.state
     }
 
+    fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
+        ui.menu_button("📊 FFT", |ui| {
+            let prev = self.fft_db;
+            if ui.button(if self.fft_db { "Linear" } else { "dB" }).clicked() {
+                self.fft_db = !self.fft_db;
+                let st = self.state_mut();
+                st.visible = true;
+                st.detached = false;
+                st.request_docket = true;
+            }
+            ui.menu_button("Window", |ui| {
+                // Select FFT window function
+                let mut changed = false;
+                for w in FFTWindow::ALL.iter().copied() {
+                    let sel = w == self.fft_data.fft_window;
+                    if ui.selectable_label(sel, w.label()).clicked() {
+                        if self.fft_data.fft_window != w {
+                            self.fft_data.fft_window = w;
+                            self.pending_auto_fit = true; // re-fit after next update
+                            // Focus panel so user sees effect
+                            let st = self.state_mut();
+                            st.visible = true;
+                            st.detached = false;
+                            st.request_docket = true;
+                        }
+                        changed = true;
+                    }
+                }
+                if changed { ui.close(); }
+            });
+            if self.fft_db != prev { ui.close(); }
+        });
+    }
+
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
         let paused = data.is_paused();
         // Retain only FFT traces that still exist in source data

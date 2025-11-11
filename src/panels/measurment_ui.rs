@@ -43,6 +43,34 @@ impl Panel for MeasurementPanel {
         self.hovered_measurement = None;
     }
 
+    fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
+        ui.menu_button("📏 Measurements", |ui| {
+            if ui.button("New measurement").clicked() {
+                let idx = self.measurements.len() + 1;
+                self.measurements.push(Measurement::new(&format!("M{}", idx)));
+                // Focus this panel
+                let st = self.state_mut();
+                st.visible = true;
+                st.detached = false;
+                st.request_docket = true;
+                ui.close();
+            }
+            if ui.button("X Clear All").clicked() {
+                for m in &mut self.measurements { m.clear(); }
+                data.scope_data.clicked_point = None;
+                ui.close();
+            }
+            if ui.button("Take P1 at click").clicked() {
+                self.selected_point_index = Some(0);
+                ui.close();
+            }
+            if ui.button("Take P2 at click").clicked() {
+                self.selected_point_index = Some(1);
+                ui.close();
+            }
+        });
+    }
+
     fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
         if let Some(point) = _data.scope_data.clicked_point {
             if self.last_clicked_point == Some(point) {
