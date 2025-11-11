@@ -1,0 +1,25 @@
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Black background (screen) with rounded corners -->
+  <rect x="10" y="15" width="80" height="70" rx="8" fill="#000000"/>
+
+  <!-- Blue sine wave (1 cycle) -->
+  <path d="M20 45 C30 25, 40 65, 50 45 S70 25, 80 45"
+        stroke="#0078D4"
+        stroke-width="2"
+        fill="none"
+        stroke-linecap="round"/>
+
+  <!-- Green sine wave (2 cycles, same width) -->
+  <path d="M20 45
+           C25 65, 30 25, 35 65
+           S45 25, 50 65
+           S55 25, 60 65
+           S70 25, 80 45"
+        stroke="#00FF88"
+        stroke-width="2"
+        fill="none"
+        stroke-linecap="round"/>
+
+  <!-- Play symbol (white, bottom-right) -->
+  <polygon points="70 70, 70 80, 80 75" fill="white"/>
+</svg>

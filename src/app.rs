@@ -662,10 +662,12 @@ pub fn run_liveplot(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> 
     let app = MainApp::new(rx);
 
     let title = "LivePlot".to_string();
-    let opts = eframe::NativeOptions {
-        // initial_window_size: Some(egui::vec2(1280.0, 720.0)),
-        ..Default::default()
-    };
+    let mut opts = eframe::NativeOptions::default();
+    // Try to set application icon from icon.svg if available
+    if let Some(icon) = load_app_icon_svg() {
+        opts.viewport = egui::ViewportBuilder::default().with_icon(icon);
+    }
+    // opts.initial_window_size = Some(egui::vec2(1280.0, 720.0));
     eframe::run_native(&title, opts, Box::new(|_cc| Ok(Box::new(app))))
 }
 
@@ -678,8 +680,28 @@ pub fn run_liveplot_with_controllers(
 ) -> eframe::Result<()> {
     let app = MainApp::with_controllers(rx, window_ctrl, ui_ctrl, traces_ctrl, fft_ctrl);
     let title = "LivePlot".to_string();
-    let opts = eframe::NativeOptions {
-        ..Default::default()
-    };
+    let mut opts = eframe::NativeOptions::default();
+    if let Some(icon) = load_app_icon_svg() {
+        opts.viewport = egui::ViewportBuilder::default().with_icon(icon);
+    }
     eframe::run_native(&title, opts, Box::new(|_cc| Ok(Box::new(app))))
+}
+
+fn load_app_icon_svg() -> Option<egui::IconData> {
+    // Prefer project-root icon.svg; fall back to none if not present.
+    let svg_path = concat!(env!("CARGO_MANIFEST_DIR"), "/icon.svg");
+    let data = std::fs::read(svg_path).ok()?;
+
+    // Parse and render SVG to RGBA using usvg + resvg
+    let opt = usvg::Options::default();
+    let tree = usvg::Tree::from_data(&data, &opt).ok()?;
+    let size = tree.size().to_int_size();
+    if size.width() == 0 || size.height() == 0 {
+        return None;
+    }
+    let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height())?;
+    let mut canvas = pixmap.as_mut();
+    resvg::render(&tree, tiny_skia::Transform::default(), &mut canvas);
+    let rgba = pixmap.take();
+    Some(egui::IconData { rgba, width: size.width(), height: size.height() })
 }
