@@ -16,7 +16,7 @@ pub struct MeasurementPanel {
 impl Default for MeasurementPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Measurement"),
+            state: PanelState::new("📏 Measurement"),
             measurements: vec![Measurement::new("M1")],
             selected_measurement: Some(0),
             selected_point_index: None,
@@ -200,12 +200,12 @@ impl Panel for MeasurementPanel {
     fn render_panel(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
         ui.label("Pick points on the plot and compute deltas.");
         ui.horizontal(|ui| {
-            if ui.button("Add").clicked() {
+            if ui.button("➕ Add").clicked() {
                 let idx = self.measurements.len() + 1;
                 self.measurements
                     .push(Measurement::new(&format!("M{}", idx)));
             }
-            if ui.button("Clear All").clicked() {
+            if ui.button("⌫ Clear All").clicked() {
                 for m in &mut self.measurements {
                     m.clear();
                 }
@@ -231,12 +231,12 @@ impl Panel for MeasurementPanel {
                     self.selected_measurement = Some(i);
                 }
 
-                let clear_btn = ui.button("Clear");
+                let clear_btn = ui.button("⌫ Clear");
                 if clear_btn.clicked() {
                     m.clear();
                 }
 
-                let rm_btn = ui.button("Remove");
+                let rm_btn = ui.button("🗑 Remove");
                 if rm_btn.clicked() {
                     remove_this = true;
                 }

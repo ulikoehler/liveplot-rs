@@ -152,7 +152,7 @@ impl ScopePanel {
             }
 
             if ui
-                .button("Fit X")
+                .button("↔ Fit X")
                 .on_hover_text("Fit X to visible data")
                 .clicked()
             {
@@ -190,7 +190,7 @@ impl ScopePanel {
             }
 
             if ui
-                .button("Fit Y")
+                .button("↕ Fit Y")
                 .on_hover_text("Fit Y to visible data")
                 .clicked()
             {
@@ -210,7 +210,7 @@ impl ScopePanel {
             ui.separator();
 
             if ui
-                .button("Fit to View")
+                .button("🔍 Fit to View")
                 .on_hover_text("Fit both axes to visible data")
                 .clicked()
             {
@@ -221,7 +221,7 @@ impl ScopePanel {
 
             // Screenshot button kept in core controls
             if ui
-                .button("Save Screenshot")
+                .button("🖼 Save Screenshot")
                 .on_hover_text("Take a screenshot of the entire window")
                 .clicked()
             {

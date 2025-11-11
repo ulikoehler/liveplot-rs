@@ -19,7 +19,7 @@ pub struct TriggersPanel {
 impl Default for TriggersPanel {
     fn default() -> Self {
         let mut panel = Self {
-            state: PanelState::new("Triggers"),
+            state: PanelState::new("🔔 Triggers"),
             triggers: HashMap::new(),
             builder: None,
             editing: None,
@@ -155,7 +155,7 @@ impl Panel for TriggersPanel {
         // Global actions
         ui.horizontal(|ui| {
             if ui
-                .button("Reset all")
+                .button("♻ Reset all")
                 .on_hover_text("Clear last trigger state for all triggers")
                 .clicked()
             {
@@ -166,7 +166,7 @@ impl Panel for TriggersPanel {
                 }
             }
             if ui
-                .button("Start all")
+                .button("▶ Start all")
                 .on_hover_text("Enable and start all triggers")
                 .clicked()
             {
@@ -223,7 +223,7 @@ impl Panel for TriggersPanel {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Remove").clicked() {
+                    if ui.button("🗑 Remove").clicked() {
                         to_remove = true;
                     }
                 });
@@ -258,21 +258,21 @@ impl Panel for TriggersPanel {
                 ui.label(last_text);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .add_enabled(last_exists, egui::Button::new("Reset"))
+                        .add_enabled(last_exists, egui::Button::new("↺ Reset"))
                         .clicked()
                     {
                         do_reset = true;
                     }
                     if is_active {
                         if ui
-                            .add_enabled(enabled_flag, egui::Button::new("Stop"))
+                            .add_enabled(enabled_flag, egui::Button::new("⏹ Stop"))
                             .clicked()
                         {
                             toggle_start = Some(false);
                         }
                     } else {
                         if ui
-                            .add_enabled(enabled_flag, egui::Button::new("Start"))
+                            .add_enabled(enabled_flag, egui::Button::new("▶ Start"))
                             .clicked()
                         {
                             toggle_start = Some(true);
@@ -311,7 +311,7 @@ impl Panel for TriggersPanel {
         // New button
         ui.add_space(6.0);
         let new_clicked = ui
-            .add_sized([ui.available_width(), 24.0], egui::Button::new("New"))
+            .add_sized([ui.available_width(), 24.0], egui::Button::new("➕ New"))
             .on_hover_text("Create a new trigger")
             .clicked();
         if new_clicked {

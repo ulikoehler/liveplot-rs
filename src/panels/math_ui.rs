@@ -25,7 +25,7 @@ pub struct MathPanel {
 impl Default for MathPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("∫ Math"),
+            state: PanelState::new("∫ Math"), // already has integral symbol; keep as-is
             builder: MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() }),
             builder_look: TraceLook::default(),
             editing: None,
@@ -87,7 +87,7 @@ impl Panel for MathPanel {
         // Global storage reset for all stateful math traces
         ui.horizontal(|ui| {
             if ui
-                .button("Reset All Storage")
+                .button("♻ Reset All Storage")
                 .on_hover_text("Reset integrators, filters, min/max for all math traces")
                 .clicked()
             {
@@ -388,7 +388,7 @@ impl Panel for MathPanel {
                         });
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("Add input").clicked() {
+                        if ui.button("➕ Add input").clicked() {
                             let nm = trace_names.get(0).cloned().unwrap_or_default();
                             inputs.push((nm, 1.0));
                         }
@@ -592,7 +592,7 @@ impl Panel for MathPanel {
                 });
 
             ui.horizontal(|ui| {
-                let save_label = if is_editing { "Save" } else { "Add trace" };
+                let save_label = if is_editing { "Save" } else { "➕ Add trace" };
                 if ui
                     .add_enabled(
                         !self.builder.name.0.is_empty() && !duplicate_name,

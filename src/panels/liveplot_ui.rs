@@ -56,15 +56,15 @@ impl LiveplotPanel {
             |ui, scope, traces| {
                 // Suffix controls
                 if !scope.paused {
-                    if ui.button("Pause").clicked() {
+                    if ui.button("⏸ Pause").clicked() {
                         scope.paused = true;
                         traces.take_snapshot();
                     }
-                } else if ui.button("Resume").clicked() {
+                } else if ui.button("▶ Resume").clicked() {
                     scope.paused = false;
                 }
 
-                if ui.button("Clear All").clicked() {
+                if ui.button("⌫ Clear All").clicked() {
                     traces.clear_all();
                 }
             },

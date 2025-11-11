@@ -283,7 +283,7 @@ impl Panel for ThresholdsPanel {
                 // Right-aligned actions: Clear (events) and Remove (definition)
                 let removing_name = def.name.clone();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let remove_resp = ui.button("Remove");
+                    let remove_resp = ui.button("🗑 Remove");
                     if remove_resp.hovered() {
                         self.hover_threshold = Some(removing_name.clone());
                     }
@@ -291,7 +291,7 @@ impl Panel for ThresholdsPanel {
                         action_remove = true;
                     }
                     let clear_resp = ui
-                        .button("Clear")
+                        .button("⌫ Clear")
                         .on_hover_text("Clear events for this threshold");
                     if clear_resp.hovered() {
                         self.hover_threshold = Some(removing_name.clone());
@@ -354,7 +354,7 @@ impl Panel for ThresholdsPanel {
         // Full-width New button
         ui.add_space(6.0);
         let new_clicked = ui
-            .add_sized([ui.available_width(), 24.0], egui::Button::new("New"))
+            .add_sized([ui.available_width(), 24.0], egui::Button::new("➕ New"))
             .on_hover_text("Create a new threshold")
             .clicked();
         if new_clicked {
@@ -581,7 +581,7 @@ impl Panel for ThresholdsPanel {
                     save_clicked = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Cancel").clicked() {
+                    if ui.button("✖ Cancel").clicked() {
                         self.editing = None;
                         self.creating = false;
                         self.builder = ThresholdDef::default();
@@ -659,7 +659,7 @@ impl Panel for ThresholdsPanel {
             if sel != self.events_filter {
                 self.events_filter = sel;
             }
-            if ui.button("Export to CSV").clicked() {
+            if ui.button("📄 Export to CSV").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .set_file_name("threshold_events.csv")
                     .add_filter("CSV", &["csv"])
@@ -671,7 +671,7 @@ impl Panel for ThresholdsPanel {
                 }
             }
             if ui
-                .button("Clear events")
+                .button("⌫ Clear events")
                 .on_hover_text("Delete all threshold events (global log and per-threshold buffers)")
                 .clicked()
             {
@@ -754,7 +754,7 @@ impl Panel for ThresholdsPanel {
                         }
                         6 => {
                             let ev_clear = ui
-                                .small_button("Clear")
+                                .small_button("🗑 Clear")
                                 .on_hover_text("Remove this event from the list");
                             if ev_clear.hovered() {
                                 *self.hover_threshold_out = Some(e.threshold.clone());

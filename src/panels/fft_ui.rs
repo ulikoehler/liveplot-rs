@@ -17,7 +17,7 @@ pub struct FftPanel {
 impl Default for FftPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("FFT"),
+            state: PanelState::new("📊 FFT"),
             fft_data: FftData::default(),
             scope_ui: ScopePanel::default(),
             fft_db: false,

@@ -34,7 +34,7 @@ pub struct TracesPanel {
 impl Default for TracesPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Traces"),
+            state: PanelState::new("📈 Traces"),
             look_editor_trace: None,
             hover_trace: None,
         }
@@ -460,7 +460,7 @@ impl Panel for TracesPanel {
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
-                                        if ui.small_button("Close").clicked() {
+                                        if ui.small_button("✖ Close").clicked() {
                                             self.look_editor_trace = None;
                                         }
                                     },

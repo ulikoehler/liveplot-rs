@@ -9,7 +9,7 @@ pub struct ExportPanel {
 impl Default for ExportPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Export"),
+            state: PanelState::new("📤 Export"),
         }
     }
 }
