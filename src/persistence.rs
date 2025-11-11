@@ -4,10 +4,13 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::app::MainPanel;
-use crate::data::scope::{AxisSettings, ScopeData, ScopeType};
+use crate::data::scope::ScopeData;
+use crate::data::scope::{AxisSettings, ScopeType};
 use crate::data::traces::TraceRef;
-use crate::panels::{math_ui::MathPanel, thresholds_ui::ThresholdsPanel, triggers_ui::TriggersPanel};
 use crate::panels::panel_trait::Panel;
+use crate::panels::{
+    math_ui::MathPanel, thresholds_ui::ThresholdsPanel, triggers_ui::TriggersPanel,
+};
 
 // ---------- Serializable mirror types ----------
 
@@ -150,7 +153,7 @@ impl TraceLookSerde {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceStyleSerde {
-    pub name: String,
+    pub name: TraceRef,
     pub look: TraceLookSerde,
     pub offset: f64,
 }
@@ -190,20 +193,19 @@ pub struct ThresholdSerde {
 pub struct ScopeStateSerde {
     pub x_axis: AxisSettingsSerde,
     pub y_axis: AxisSettingsSerde,
-    pub max_points: usize,
     pub time_window: f64,
     pub scope_is_xy: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
-    pub selection_trace: Option<String>,
+    pub selection_trace: Option<TraceRef>,
 }
 
 impl From<&ScopeData> for ScopeStateSerde {
-    fn from(s: &ScopeData) -> Self {
+    fn from(data: &ScopeData) -> Self {
+        let s: &ScopeData = &data;
         Self {
             x_axis: AxisSettingsSerde::from(&s.x_axis),
             y_axis: AxisSettingsSerde::from(&s.y_axis),
-            max_points: s.max_points,
             time_window: s.time_window,
             scope_is_xy: matches!(s.scope_type, ScopeType::XYScope),
             show_legend: s.show_legend,
@@ -214,15 +216,18 @@ impl From<&ScopeData> for ScopeStateSerde {
 }
 
 impl ScopeStateSerde {
-    fn apply_to(self, s: &mut ScopeData) {
-        self.x_axis.apply_to(&mut s.x_axis);
-        self.y_axis.apply_to(&mut s.y_axis);
-        s.max_points = self.max_points;
-        s.time_window = self.time_window;
-        s.scope_type = if self.scope_is_xy { ScopeType::XYScope } else { ScopeType::TimeScope };
-        s.show_legend = self.show_legend;
-        s.show_info_in_legend = self.show_info_in_legend;
-        s.selection_trace = self.selection_trace;
+    fn apply_to(self, scope: &mut ScopeData) {
+        self.x_axis.apply_to(&mut scope.x_axis);
+        self.y_axis.apply_to(&mut scope.y_axis);
+        scope.time_window = self.time_window;
+        scope.scope_type = if self.scope_is_xy {
+            ScopeType::XYScope
+        } else {
+            ScopeType::TimeScope
+        };
+        scope.show_legend = self.show_legend;
+        scope.show_info_in_legend = self.show_info_in_legend;
+        scope.selection_trace = self.selection_trace;
     }
 }
 
@@ -249,11 +254,12 @@ pub struct AppStateSerde {
 
 impl AppStateSerde {
     fn capture(panel: &mut MainPanel, window_size: Option<[f32; 2]>) -> Self {
-        let data = panel.scope_panel.get_data_mut();
+        let scope_data = panel.liveplot_panel.get_data_mut();
+        let traces_data = &panel.traces_data;
         // traces styles
         let mut traces_style = Vec::new();
-        for name in data.trace_order.iter() {
-            if let Some(tr) = data.traces.get(name) {
+        for name in scope_data.trace_order.iter() {
+            if let Some(tr) = traces_data.get_trace(name) {
                 traces_style.push(TraceStyleSerde {
                     name: name.clone(),
                     look: TraceLookSerde::from(&tr.look),
@@ -275,16 +281,16 @@ impl AppStateSerde {
                 });
             }
         };
-    collect(&panel.left_side_panels, &mut panels);
-    collect(&panel.right_side_panels, &mut panels);
-    collect(&panel.bottom_panels, &mut panels);
-    collect(&panel.detached_panels, &mut panels);
-    collect(&panel.empty_panels, &mut panels);
+        collect(&panel.left_side_panels, &mut panels);
+        collect(&panel.right_side_panels, &mut panels);
+        collect(&panel.bottom_panels, &mut panels);
+        collect(&panel.detached_panels, &mut panels);
+        collect(&panel.empty_panels, &mut panels);
 
         Self {
             window_size,
             window_pos: None,
-            scope: ScopeStateSerde::from(&*panel.scope_panel.get_data_mut()),
+            scope: ScopeStateSerde::from(&*panel.liveplot_panel.get_data_mut()),
             panels,
             traces_style,
             math_traces: Vec::new(),
@@ -375,32 +381,50 @@ pub fn save_mainpanel_to_struct(ctx: &egui::Context, panel: &mut MainPanel) -> A
 }
 
 /// Serialize the application state as pretty JSON.
-pub fn save_mainpanel_to_json(ctx: &egui::Context, panel: &mut MainPanel) -> Result<String, String> {
+pub fn save_mainpanel_to_json(
+    ctx: &egui::Context,
+    panel: &mut MainPanel,
+) -> Result<String, String> {
     let state = save_mainpanel_to_struct(ctx, panel);
     serde_json::to_string_pretty(&state).map_err(|e| e.to_string())
 }
 
 /// Save the application state to a JSON file at the given path.
-pub fn save_mainpanel_to_path(ctx: &egui::Context, panel: &mut MainPanel, path: &Path) -> Result<(), String> {
+pub fn save_mainpanel_to_path(
+    ctx: &egui::Context,
+    panel: &mut MainPanel,
+    path: &Path,
+) -> Result<(), String> {
     let txt = save_mainpanel_to_json(ctx, panel)?;
     std::fs::write(path, txt).map_err(|e| e.to_string())
 }
 
 /// Load the application state from a JSON file at the given path and apply it.
-pub fn load_mainpanel_from_path(ctx: &egui::Context, panel: &mut MainPanel, path: &Path) -> Result<(), String> {
+pub fn load_mainpanel_from_path(
+    ctx: &egui::Context,
+    panel: &mut MainPanel,
+    path: &Path,
+) -> Result<(), String> {
     let txt = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
     load_mainpanel_from_json(ctx, panel, &txt)
 }
 
 /// Load the application state from a JSON string and apply it.
-pub fn load_mainpanel_from_json(ctx: &egui::Context, panel: &mut MainPanel, json: &str) -> Result<(), String> {
+pub fn load_mainpanel_from_json(
+    ctx: &egui::Context,
+    panel: &mut MainPanel,
+    json: &str,
+) -> Result<(), String> {
     let state: AppStateSerde = serde_json::from_str(json).map_err(|e| e.to_string())?;
     load_mainpanel_from_struct(ctx, panel, state)
 }
 
 /// Apply a previously captured application state.
-pub fn load_mainpanel_from_struct(ctx: &egui::Context, panel: &mut MainPanel, state: AppStateSerde) -> Result<(), String> {
-
+pub fn load_mainpanel_from_struct(
+    ctx: &egui::Context,
+    panel: &mut MainPanel,
+    state: AppStateSerde,
+) -> Result<(), String> {
     // Apply window size (best-effort)
     if let Some([w, h]) = state.window_size {
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(w, h)));
@@ -408,25 +432,32 @@ pub fn load_mainpanel_from_struct(ctx: &egui::Context, panel: &mut MainPanel, st
     // Apply window position (not supported on all platforms/versions, skipped here)
 
     // Apply scope settings
-    state.scope.apply_to(panel.scope_panel.get_data_mut());
+    state.scope.apply_to(panel.liveplot_panel.get_data_mut());
 
     // Apply panel visibility and stored positions/sizes
     let panel_info: HashMap<String, (bool, bool, Option<[f32; 2]>, Option<[f32; 2]>)> = state
         .panels
         .iter()
-        .map(|p| (p.title.clone(), (p.visible, p.detached, p.window_pos, p.window_size)))
+        .map(|p| {
+            (
+                p.title.clone(),
+                (p.visible, p.detached, p.window_pos, p.window_size),
+            )
+        })
         .collect();
-    let set_vis = |list: &mut Vec<Box<dyn Panel>>, infos: &HashMap<String, (bool, bool, Option<[f32; 2]>, Option<[f32; 2]>)>| {
-        for p in list.iter_mut() {
-            if let Some((vis, det, pos, sz)) = infos.get(p.title()) {
-                let st = p.state_mut();
-                st.visible = *vis;
-                st.detached = *det;
-                st.window_pos = *pos;
-                st.window_size = *sz;
+    let set_vis =
+        |list: &mut Vec<Box<dyn Panel>>,
+         infos: &HashMap<String, (bool, bool, Option<[f32; 2]>, Option<[f32; 2]>)>| {
+            for p in list.iter_mut() {
+                if let Some((vis, det, pos, sz)) = infos.get(p.title()) {
+                    let st = p.state_mut();
+                    st.visible = *vis;
+                    st.detached = *det;
+                    st.window_pos = *pos;
+                    st.window_size = *sz;
+                }
             }
-        }
-    };
+        };
     set_vis(&mut panel.left_side_panels, &panel_info);
     set_vis(&mut panel.right_side_panels, &panel_info);
     set_vis(&mut panel.bottom_panels, &panel_info);
@@ -435,9 +466,9 @@ pub fn load_mainpanel_from_struct(ctx: &egui::Context, panel: &mut MainPanel, st
 
     // Apply trace styles/offsets to existing traces
     {
-    let data = panel.scope_panel.get_data_mut();
+        let traces = &mut panel.traces_data;
         for s in state.traces_style.iter() {
-            if let Some(tr) = data.traces.get_mut(&s.name) {
+            if let Some(tr) = traces.get_trace_mut(&s.name) {
                 tr.look = s.look.clone().into_look();
                 tr.offset = s.offset;
             }

@@ -1,8 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-
-use crate::data::trace_look::TraceLook;
-use crate::data::traces::TraceData;
-use crate::sink::MultiSample;
+use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 
 pub struct AxisSettings {
     pub unit: Option<String>,
@@ -26,8 +23,7 @@ impl Default for AxisSettings {
     }
 }
 
-impl AxisSettings { 
-
+impl AxisSettings {
     pub fn format_value_with_unit(&self, v: f64, dec_pl: usize, step: f64) -> String {
         // Decide scientific formatting based on step magnitude vs precision:
         // - Use scientific if step < 10^-dec_pl (too fine to show with dec_pl)
@@ -83,10 +79,6 @@ impl AxisSettings {
 
         return self.format_value_with_unit(v, dec_pl, step);
     }
-
-    
-
-     
 }
 
 #[derive(PartialEq, Eq)]
@@ -99,17 +91,17 @@ pub struct ScopeData {
     // Y Settings
     pub y_axis: AxisSettings,
     pub x_axis: AxisSettings,
-    pub max_points: usize,
+    //pub max_points: usize,
     pub time_window: f64,
     pub scope_type: ScopeType,
-    paused: bool,
+    pub paused: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
-    rx: Option<std::sync::mpsc::Receiver<MultiSample>>,
-    pub traces: HashMap<String, TraceData>,
-    pub trace_order: Vec<String>,
-    pub hover_trace: Option<String>,
-    pub selection_trace: Option<String>,
+
+    //pub traces: HashMap<String, TraceData>,
+    pub trace_order: Vec<TraceRef>,
+    pub hover_trace: Option<TraceRef>,
+    pub selection_trace: Option<TraceRef>,
     pub clicked_point: Option<[f64; 2]>,
 }
 
@@ -122,14 +114,14 @@ impl Default for ScopeData {
         Self {
             y_axis: AxisSettings::default(),
             x_axis,
-            max_points: 10_000,
+            //max_points: 10_000,
             time_window: 10.0,
             scope_type: ScopeType::TimeScope,
             paused: false,
             show_legend: true,
             show_info_in_legend: false,
-            rx: None,
-            traces: HashMap::new(),
+            // rx: None,
+            //traces: HashMap::new(),
             trace_order: Vec::new(),
             hover_trace: None,
             selection_trace: None,
@@ -139,61 +131,30 @@ impl Default for ScopeData {
 }
 
 impl ScopeData {
-    pub fn set_rx(&mut self, rx: std::sync::mpsc::Receiver<MultiSample>) {
-        self.rx = Some(rx);
-    }
-
-    fn update_rx(&mut self) {
-        if let Some(rx) = &self.rx {
-            while let Ok(s) = rx.try_recv() {
-                let entry = self.traces.entry(s.trace.clone()).or_insert_with(|| {
-                    self.trace_order.push(s.trace.clone());
-                    TraceData {
-                        name: s.trace.clone(),
-                        look: TraceLook::new(self.trace_order.len() - 1),
-                        offset: 0.0,
-                        live: VecDeque::new(),
-                        snap: None,
-                        info: String::new(),
-                    }
-                });
-                let t = s.timestamp_micros as f64 * 1e-6;
-                entry.live.push_back([t, s.value]);
-                if entry.live.len() > self.max_points {
-                    entry.live.pop_front();
-                }
-                if let Some(inf) = s.info {
-                    entry.info = inf;
-                }
+    pub fn update(&mut self, traces: &TracesCollection) {
+        // Keep trace_order in sync with current traces: drop missing, append new
+        self.trace_order.retain(|n| traces.contains_key(n));
+        for name in traces.keys() {
+            if !self.trace_order.iter().any(|n| n == name) {
+                self.trace_order.push(name.clone());
             }
         }
-    }
-
-    fn drain(&mut self) {
-        for (_name, trace) in self.traces.iter_mut() {
-            trace.prune_by_points(self.max_points);
-        }
-    }
-
-    pub fn update(&mut self) {
-        self.update_rx();
-        self.drain();
 
         if self.x_axis.auto_fit {
-            self.fit_x_bounds();
+            self.fit_x_bounds(traces);
         }
 
-        self.live_update();
+        self.live_update(traces);
 
         if self.y_axis.auto_fit {
-            self.fit_y_bounds();
+            self.fit_y_bounds(traces);
         }
     }
 
-    fn live_update(&mut self) {
+    fn live_update(&mut self, traces: &TracesCollection) {
         if self.scope_type == ScopeType::TimeScope {
             if !self.paused {
-                let now = if let Some((_name, trace)) = self.traces.iter().next() {
+                let now = if let Some((_name, trace)) = traces.traces_iter().next() {
                     if let Some(last) = trace.live.back() {
                         last[0]
                     } else {
@@ -211,10 +172,10 @@ impl ScopeData {
         }
     }
 
-    pub fn fit_x_bounds(&mut self) {
+    pub fn fit_x_bounds(&mut self, traces: &TracesCollection) {
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
-        for (_name, trace) in self.traces.iter() {
+        for (_name, trace) in traces.traces_iter() {
             let points = if self.paused {
                 if let Some(snap) = &trace.snap {
                     snap
@@ -239,11 +200,11 @@ impl ScopeData {
         }
     }
 
-    pub fn fit_y_bounds(&mut self) {
+    pub fn fit_y_bounds(&mut self, traces: &TracesCollection) {
         let mut min_y = f64::MAX;
         let mut max_y = f64::MIN;
         let x_bounds = self.x_axis.bounds;
-        for (_name, trace) in self.traces.iter() {
+        for (_name, trace) in traces.traces_iter() {
             let points = if self.paused {
                 if let Some(snap) = &trace.snap {
                     snap
@@ -272,96 +233,32 @@ impl ScopeData {
             self.y_axis.bounds = (min_y, max_y);
         }
     }
-    pub fn fit_bounds(&mut self) {
-        self.fit_x_bounds();
-        self.fit_y_bounds();
+    
+    pub fn fit_bounds(&mut self, traces: &TracesCollection) {
+        self.fit_x_bounds(traces);
+        self.fit_y_bounds(traces);
     }
 
-    pub fn pause(&mut self) {
-        self.paused = true;
-        for (_name, trace) in self.traces.iter_mut() {
-            trace.take_snapshot();
-        }
-    }
-
-    pub fn resume(&mut self) {
-        self.paused = false;
-        for (_name, trace) in self.traces.iter_mut() {
-            trace.clear_snapshot();
-        }
-    }
-
-    pub fn is_paused(&self) -> bool {
-        self.paused
-    }
-
-    pub fn clear_all(&mut self) {
-        for (_name, trace) in self.traces.iter_mut() {
-            trace.clear_all();
-        }
-    }
-
-    pub fn get_trace_or_new(&mut self, name: &str) -> &mut TraceData {
-        self.traces.entry(name.to_string()).or_insert_with(|| {
-            self.trace_order.push(name.to_string());
-            TraceData {
-                name: name.to_string(),
-                look: TraceLook::new(self.trace_order.len() - 1),
-                offset: 0.0,
-                live: VecDeque::new(),
-                snap: None,
-                info: String::new(),
-            }
-        })
-    }
-
-    pub fn remove_trace(&mut self, name: &str) {
-        self.traces.remove(name);
-        self.trace_order.retain(|n| n != name);
-    }
-
-    pub fn clear_trace(&mut self, name: &str) {
-        if let Some(trace) = self.traces.get_mut(name) {
-            trace.clear_all();
-        }
-    }
-
-    pub fn get_drawn_points(&self, name: &str) -> Option<VecDeque<[f64; 2]>> {
-        if let Some(trace) = self.traces.get(name) {
-            if self.paused {
-                if let Some(snap) = &trace.snap {
-                    if self.scope_type == ScopeType::XYScope {
-                        Some(snap.clone())
-                    } else {
-                        Some(TraceData::cap_by_x_bounds(snap, self.x_axis.bounds))
-                    }
-                } else {
-                    if self.scope_type == ScopeType::XYScope {
-                        Some(trace.live.clone())
-                    } else {
-                        Some(TraceData::cap_by_x_bounds(&trace.live, self.x_axis.bounds))
-                    }
-                }
+    pub fn get_drawn_points(&self, name: &TraceRef, traces: &TracesCollection) -> Option<VecDeque<[f64; 2]>> {
+        if let Some(trace) = traces.get_points(name, self.paused) {
+            if self.scope_type == ScopeType::XYScope {
+                Some(trace.clone())
             } else {
-                if self.scope_type == ScopeType::XYScope {
-                    Some(trace.live.clone())
-                } else {
-                    Some(TraceData::cap_by_x_bounds(&trace.live, self.x_axis.bounds))
-                }
+                Some(TraceData::cap_by_x_bounds(&trace, self.x_axis.bounds))
             }
         } else {
             None
         }
     }
 
-    pub fn get_all_drawn_points(&self) -> HashMap<String, VecDeque<[f64; 2]>> {
+    pub fn get_all_drawn_points(&self, traces: &TracesCollection) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
         let mut result = HashMap::new();
-        for (name, _) in self.traces.iter() {
-            if let Some(pts) = self.get_drawn_points(name) {
+        for name in self.trace_order.iter() {
+            if let Some(pts) = self.get_drawn_points(name, traces) {
                 result.insert(name.clone(), pts);
             }
         }
         result
     }
-
+    
 }

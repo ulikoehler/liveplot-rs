@@ -6,6 +6,8 @@ use std::path::Path;
 #[cfg(feature = "parquet")]
 use std::sync::Arc;
 
+use crate::data::traces::TraceRef;
+
 /// A single aligned row: timestamp in seconds and one value per trace (None if missing).
 pub type AlignedRow = (f64, Vec<Option<f64>>);
 
@@ -17,8 +19,8 @@ pub type AlignedRow = (f64, Vec<Option<f64>>);
 /// - Rows are sorted by the smallest timestamp among the grouped samples.
 /// - Samples whose timestamps differ by at most `tol` are merged into the same row.
 pub fn align_series(
-    trace_order: &[String],
-    series: &HashMap<String, Vec<[f64; 2]>>,
+    trace_order: &[TraceRef],
+    series: &HashMap<TraceRef, Vec<[f64; 2]>>,
     tol: f64,
 ) -> Vec<AlignedRow> {
     // Build per-trace indices and local refs for faster access.
@@ -65,13 +67,13 @@ pub fn align_series(
 /// Write aligned rows to CSV with the header: `timestamp_seconds,<trace1>,<trace2>,...`.
 pub fn write_aligned_rows_csv<W: Write>(
     mut w: W,
-    trace_order: &[String],
+    trace_order: &[TraceRef],
     rows: &[AlignedRow],
 ) -> io::Result<()> {
     // Header
     write!(w, "timestamp_seconds")?;
     for name in trace_order {
-        write!(w, ",{}", name)?;
+        write!(w, ",{}", name.0)?;
     }
     writeln!(w)?;
 
@@ -94,8 +96,8 @@ pub fn write_aligned_rows_csv<W: Write>(
 /// Convenience: align series by tolerance and write to a CSV file at `path`.
 pub fn write_csv_aligned_path(
     path: &Path,
-    trace_order: &[String],
-    series: &HashMap<String, Vec<[f64; 2]>>,
+    trace_order: &[TraceRef],
+    series: &HashMap<TraceRef, Vec<[f64; 2]>>,
     tol: f64,
 ) -> io::Result<()> {
     let rows = align_series(trace_order, series, tol);
@@ -109,8 +111,8 @@ pub fn write_csv_aligned_path(
 #[cfg(feature = "parquet")]
 pub fn write_parquet_aligned_path(
     path: &Path,
-    trace_order: &[String],
-    series: &HashMap<String, Vec<[f64; 2]>>,
+    trace_order: &[TraceRef],
+    series: &HashMap<TraceRef, Vec<[f64; 2]>>,
     tol: f64,
 ) -> io::Result<()> {
     use arrow_array::builder::Float64Builder;
@@ -175,8 +177,8 @@ pub fn write_parquet_aligned_path(
 #[cfg(not(feature = "parquet"))]
 pub fn write_parquet_aligned_path(
     _path: &Path,
-    _trace_order: &[String],
-    _series: &HashMap<String, Vec<[f64; 2]>>,
+    _trace_order: &[TraceRef],
+    _series: &HashMap<TraceRef, Vec<[f64; 2]>>,
     _tol: f64,
 ) -> io::Result<()> {
     Err(io::Error::new(
@@ -189,13 +191,15 @@ pub fn write_parquet_aligned_path(
 mod tests {
     use super::*;
 
-    fn mk_series(map: &[(&str, &[(f64, f64)])]) -> (Vec<String>, HashMap<String, Vec<[f64; 2]>>) {
-        let mut order = Vec::new();
-        let mut series: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
+    fn mk_series(
+        map: &[(&str, &[(f64, f64)])],
+    ) -> (Vec<TraceRef>, HashMap<TraceRef, Vec<[f64; 2]>>) {
+        let mut order: Vec<TraceRef> = Vec::new();
+        let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
         for (name, pts) in map {
-            order.push((*name).to_string());
+            order.push(TraceRef(name.to_string()));
             let vec: Vec<[f64; 2]> = pts.iter().map(|(t, v)| [*t, *v]).collect();
-            series.insert((*name).to_string(), vec);
+            series.insert(TraceRef(name.to_string()), vec);
         }
         (order, series)
     }

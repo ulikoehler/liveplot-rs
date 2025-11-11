@@ -1,3 +1,4 @@
+use crate::data::data::LivePlotData;
 use crate::data::math::{FilterKind, MathKind, MathTrace, MinMaxMode};
 use crate::data::traces::TraceRef;
 use eframe::egui;
@@ -5,7 +6,7 @@ use egui::{Color32, Ui};
 use std::collections::HashMap;
 
 //use super::app::ScopeAppMulti;
-use crate::data::{scope::ScopeData, trace_look::TraceLook};
+use crate::data::trace_look::TraceLook;
 use crate::panels::panel_trait::{Panel, PanelState};
 use crate::panels::trace_look_ui::render_trace_look_editor;
 
@@ -14,7 +15,7 @@ pub struct MathPanel {
     state: PanelState,
     builder: MathTrace,
     builder_look: TraceLook,
-    editing: Option<String>,
+    editing: Option<TraceRef>,
     error: Option<String>,
     creating: bool,
 
@@ -24,8 +25,8 @@ pub struct MathPanel {
 impl Default for MathPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("∫ Math"),
-            builder: MathTrace::new("".to_string(), MathKind::Add { inputs: Vec::new() }),
+            state: PanelState::new("∫ Math"), // already has integral symbol; keep as-is
+            builder: MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() }),
             builder_look: TraceLook::default(),
             editing: None,
             error: None,
@@ -44,23 +45,53 @@ impl Panel for MathPanel {
         &mut self.state
     }
 
-    fn update_data(&mut self, _data: &mut ScopeData) {
-        let mut sources: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-        for (name, tr) in &_data.traces {
+    fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
+        ui.menu_button("∫ Math", |ui| {
+            if ui.button("New").clicked() {
+                self.builder = MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() });
+                self.editing = None;
+                self.creating = true;
+                self.error = None;
+                let st = self.state_mut();
+                st.visible = true;
+                st.detached = false;
+                st.request_docket = true;
+                ui.close();
+            }
+            if ui.button("Reset storage").clicked() {
+                for def in self.math_traces.iter() {
+                    data.traces.clear_trace(&def.name);
+                }
+                ui.close();
+            }
+            if ui.button("X Clear All math traces").clicked() {
+                // Remove math traces & their underlying live data
+                for def in self.math_traces.iter() { data.traces.remove_trace(&def.name); }
+                self.math_traces.clear();
+                self.editing = None;
+                self.creating = false;
+                ui.close();
+            }
+        });
+    }
+
+    fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
+        let mut sources: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
+        for (name, tr) in _data.traces.traces_iter() {
             sources.insert(name.clone(), tr.live.iter().copied().collect());
         }
 
         for def in self.math_traces.iter_mut() {
             let out = def.compute_math_trace(sources.clone());
 
-            let tr = _data.get_trace_or_new(def.name.as_str());
+            let tr = _data.get_trace_or_new(&def.name);
             tr.live = out.iter().copied().collect();
 
             sources.insert(def.name.clone(), out);
         }
 
         sources.clear();
-        for (name, tr) in &_data.traces {
+        for (name, tr) in _data.traces.traces_iter() {
             if let Some(data) = tr.snap.clone() {
                 sources.insert(name.clone(), data.iter().copied().collect());
             }
@@ -69,14 +100,14 @@ impl Panel for MathPanel {
         for def in self.math_traces.iter_mut() {
             let out = def.compute_math_trace(sources.clone());
 
-            let tr = _data.get_trace_or_new(def.name.as_str());
+            let tr = _data.get_trace_or_new(&def.name);
             tr.snap = Some(out.iter().copied().collect());
 
             sources.insert(def.name.clone(), out);
         }
     }
 
-    fn render_panel(&mut self, ui: &mut Ui, data: &mut ScopeData) {
+    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         ui.label("Create virtual traces from existing ones.");
         if let Some(err) = &self.error {
             ui.colored_label(Color32::LIGHT_RED, err);
@@ -86,13 +117,13 @@ impl Panel for MathPanel {
         // Global storage reset for all stateful math traces
         ui.horizontal(|ui| {
             if ui
-                .button("Reset All Storage")
+                .button("♻ Reset All Storage")
                 .on_hover_text("Reset integrators, filters, min/max for all math traces")
                 .clicked()
             {
                 for def in self.math_traces.iter_mut() {
                     // def.reset_math_storage();
-                    data.clear_trace(&def.name);
+                    data.traces.clear_trace(&def.name);
                 }
             }
         });
@@ -104,7 +135,7 @@ impl Panel for MathPanel {
         for def in self.math_traces.clone().iter_mut() {
             let row = ui.horizontal(|ui| {
                 // Color editor like in traces_ui
-                if let Some(tr) = data.traces.get_mut(&def.name) {
+                if let Some(tr) = data.traces.get_trace_mut(&def.name) {
                     let mut c = tr.look.color;
                     let resp = ui
                         .color_edit_button_srgba(&mut c)
@@ -121,7 +152,7 @@ impl Panel for MathPanel {
 
                 // Name (click to edit)
                 let name_resp = ui.add(
-                    egui::Label::new(def.name.clone())
+                    egui::Label::new(def.name.0.clone())
                         .truncate()
                         .show_tooltip_when_elided(true)
                         .sense(egui::Sense::click()),
@@ -137,7 +168,7 @@ impl Panel for MathPanel {
                 }
 
                 // Info string (formula) - clickable to edit
-                let info_text = if let Some(tr) = data.traces.get(&def.name) {
+                let info_text = if let Some(tr) = data.traces.get_trace(&def.name) {
                     tr.info.clone()
                 } else {
                     String::new()
@@ -172,7 +203,7 @@ impl Panel for MathPanel {
                             self.editing = None;
                             self.creating = false;
                             self.builder = MathTrace::new(
-                                "".to_string(),
+                                TraceRef::default(),
                                 MathKind::Add { inputs: Vec::new() },
                             );
                             self.builder_look = TraceLook::default();
@@ -195,7 +226,7 @@ impl Panel for MathPanel {
                         }
                         if reset_resp.clicked() {
                             // def.reset_math_storage();
-                            data.clear_trace(&def.name);
+                            data.traces.clear_trace(&def.name);
                         }
                     }
                 });
@@ -205,7 +236,7 @@ impl Panel for MathPanel {
             }
         }
         if let Some(nm) = hover_trace_intern {
-            data.hover_trace = Some(nm);
+            data.scope_data.hover_trace = Some(nm);
         }
 
         // Style popup removed; the editor is part of the new/edit dialog above
@@ -217,7 +248,8 @@ impl Panel for MathPanel {
             .on_hover_text("Create a new math trace")
             .clicked();
         if new_clicked {
-            self.builder = MathTrace::new("".to_string(), MathKind::Add { inputs: Vec::new() });
+            self.builder =
+                MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() });
             self.editing = None;
             self.error = None;
             self.creating = true;
@@ -252,13 +284,13 @@ impl Panel for MathPanel {
                     egui::Frame::default()
                         .stroke(egui::Stroke::new(1.5, egui::Color32::RED))
                         .show(ui, |ui| {
-                            let resp = ui.add(egui::TextEdit::singleline(&mut self.builder.name));
+                            let resp = ui.add(egui::TextEdit::singleline(&mut self.builder.name.0));
                             let _ = resp.on_hover_text(
                                 "A trace with this name already exists. Please choose another.",
                             );
                         });
                 } else {
-                    let resp = ui.add(egui::TextEdit::singleline(&mut self.builder.name));
+                    let resp = ui.add(egui::TextEdit::singleline(&mut self.builder.name.0));
                     let _ = resp.on_hover_text("Enter a unique name for this trace");
                 }
             });
@@ -296,7 +328,8 @@ impl Panel for MathPanel {
                 });
             ir.response.on_hover_text("Operation");
             // Available source names, excluding the math trace's own name to avoid self-references
-            let trace_names: Vec<String> = data
+            let trace_names: Vec<TraceRef> = data
+                .scope_data
                 .trace_order
                 .clone()
                 .into_iter()
@@ -309,37 +342,34 @@ impl Panel for MathPanel {
                 let second = trace_names.get(1).cloned().unwrap_or_else(|| first.clone());
                 self.builder.kind = match kind_idx {
                     0 => MathKind::Add {
-                        inputs: vec![
-                            (TraceRef(first.clone()), 1.0),
-                            (TraceRef(second.clone()), 1.0),
-                        ],
+                        inputs: vec![(first.clone(), 1.0), (second.clone(), 1.0)],
                     },
                     1 => MathKind::Multiply {
-                        a: TraceRef(first.clone()),
-                        b: TraceRef(second.clone()),
+                        a: first.clone(),
+                        b: second.clone(),
                     },
                     2 => MathKind::Divide {
-                        a: TraceRef(first.clone()),
-                        b: TraceRef(second.clone()),
+                        a: first.clone(),
+                        b: second.clone(),
                     },
                     3 => MathKind::Differentiate {
-                        input: TraceRef(first.clone()),
+                        input: first.clone(),
                     },
                     4 => MathKind::Integrate {
-                        input: TraceRef(first.clone()),
+                        input: first.clone(),
                         y0: 0.0,
                     },
                     5 => MathKind::Filter {
-                        input: TraceRef(first.clone()),
+                        input: first.clone(),
                         kind: FilterKind::Lowpass { cutoff_hz: 1.0 },
                     },
                     6 => MathKind::MinMax {
-                        input: TraceRef(first.clone()),
+                        input: first.clone(),
                         decay_per_sec: Some(0.0),
                         mode: MinMaxMode::Min,
                     },
                     7 => MathKind::MinMax {
-                        input: TraceRef(first.clone()),
+                        input: first.clone(),
                         decay_per_sec: Some(0.0),
                         mode: MinMaxMode::Max,
                     },
@@ -353,7 +383,7 @@ impl Panel for MathPanel {
                 let future_idx = if data.traces.contains_key(&self.builder.name) {
                     None
                 } else {
-                    Some(data.trace_order.len())
+                    Some(data.scope_data.trace_order.len())
                 };
                 if let Some(idx) = future_idx {
                     self.builder_look.color = TraceLook::alloc_color(idx);
@@ -365,7 +395,7 @@ impl Panel for MathPanel {
                     // Ensure at least one input row for UX
                     if inputs.is_empty() {
                         if let Some(nm) = trace_names.get(0) {
-                            inputs.push((TraceRef(nm.clone()), 1.0));
+                            inputs.push((nm.clone(), 1.0));
                         }
                     }
                     // Draw rows
@@ -377,7 +407,7 @@ impl Panel for MathPanel {
                                 .selected_text(selected.clone())
                                 .show_ui(ui, |ui| {
                                     for n in trace_names.iter() {
-                                        ui.selectable_value(&mut selected, n.clone(), n);
+                                        ui.selectable_value(&mut selected, n.0.clone(), n.0.clone());
                                     }
                                 });
                             if selected != current_name {
@@ -388,9 +418,9 @@ impl Panel for MathPanel {
                         });
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("Add input").clicked() {
+                        if ui.button("➕ Add input").clicked() {
                             let nm = trace_names.get(0).cloned().unwrap_or_default();
-                            inputs.push((TraceRef(nm), 1.0));
+                            inputs.push((nm, 1.0));
                         }
                         if ui.button("Remove input").clicked() {
                             if inputs.len() > 1 {
@@ -406,7 +436,7 @@ impl Panel for MathPanel {
                             .selected_text(sel_a.clone())
                             .show_ui(ui, |ui| {
                                 for n in trace_names.iter() {
-                                    ui.selectable_value(&mut sel_a, n.clone(), n);
+                                    ui.selectable_value(&mut sel_a, n.0.clone(), n.0.clone());
                                 }
                             });
                         if sel_a != a.0 {
@@ -417,7 +447,7 @@ impl Panel for MathPanel {
                             .selected_text(sel_b.clone())
                             .show_ui(ui, |ui| {
                                 for n in trace_names.iter() {
-                                    ui.selectable_value(&mut sel_b, n.clone(), n);
+                                    ui.selectable_value(&mut sel_b, n.0.clone(), n.0.clone());
                                 }
                             });
                         if sel_b != b.0 {
@@ -431,7 +461,7 @@ impl Panel for MathPanel {
                         .selected_text(sel.clone())
                         .show_ui(ui, |ui| {
                             for n in trace_names.iter() {
-                                ui.selectable_value(&mut sel, n.clone(), n);
+                                ui.selectable_value(&mut sel, n.0.clone(), n.0.clone());
                             }
                         });
                     if sel != input.0 {
@@ -444,7 +474,7 @@ impl Panel for MathPanel {
                         .selected_text(sel.clone())
                         .show_ui(ui, |ui| {
                             for n in trace_names.iter() {
-                                ui.selectable_value(&mut sel, n.clone(), n);
+                                ui.selectable_value(&mut sel, n.0.clone(), n.0.clone());
                             }
                         });
                     if sel != input.0 {
@@ -461,7 +491,7 @@ impl Panel for MathPanel {
                         .selected_text(sel.clone())
                         .show_ui(ui, |ui| {
                             for n in trace_names.iter() {
-                                ui.selectable_value(&mut sel, n.clone(), n);
+                                ui.selectable_value(&mut sel, n.0.clone(), n.0.clone());
                             }
                         });
                     if sel != input.0 {
@@ -558,7 +588,7 @@ impl Panel for MathPanel {
                         .selected_text(sel.clone())
                         .show_ui(ui, |ui| {
                             for n in trace_names.iter() {
-                                ui.selectable_value(&mut sel, n.clone(), n);
+                                ui.selectable_value(&mut sel, n.0.clone(), n.0.clone());
                             }
                         });
                     if sel != input.0 {
@@ -580,7 +610,7 @@ impl Panel for MathPanel {
                 .show(ui, |ui| {
                     if is_editing {
                         if let Some(editing_name) = self.editing.clone() {
-                            if let Some(tr) = data.traces.get_mut(&editing_name) {
+                            if let Some(tr) = data.traces.get_trace_mut(&editing_name) {
                                 render_trace_look_editor(&mut tr.look, ui, true);
                             } else {
                                 ui.label("Trace not found.");
@@ -592,10 +622,10 @@ impl Panel for MathPanel {
                 });
 
             ui.horizontal(|ui| {
-                let save_label = if is_editing { "Save" } else { "Add trace" };
+                let save_label = if is_editing { "Save" } else { "➕ Add trace" };
                 if ui
                     .add_enabled(
-                        !self.builder.name.is_empty() && !duplicate_name,
+                        !self.builder.name.0.is_empty() && !duplicate_name,
                         egui::Button::new(save_label),
                     )
                     .clicked()
@@ -613,11 +643,11 @@ impl Panel for MathPanel {
 
                                 if orig != tr.name {
                                     // Grab previous look, then remove the old backing trace
-                                    prev_look = data.traces.get(&orig).map(|t| t.look.clone());
+                                    prev_look = data.traces.get_trace(&orig).map(|t| t.look.clone());
                                     data.remove_trace(&orig);
                                 } else {
                                     // Keep current look when not renaming
-                                    prev_look = data.traces.get(&orig).map(|t| t.look.clone());
+                                    prev_look = data.traces.get_trace(&orig).map(|t| t.look.clone());
                                 }
                             }
 
@@ -645,8 +675,10 @@ impl Panel for MathPanel {
                         }
                         self.editing = None;
                         self.creating = false;
-                        self.builder =
-                            MathTrace::new("".to_string(), MathKind::Add { inputs: Vec::new() });
+                        self.builder = MathTrace::new(
+                            TraceRef::default(),
+                            MathKind::Add { inputs: Vec::new() },
+                        );
                         self.builder_look = TraceLook::default();
                         self.error = None;
                     }
@@ -656,8 +688,10 @@ impl Panel for MathPanel {
                     if ui.button("Cancel").clicked() {
                         self.editing = None;
                         self.creating = false;
-                        self.builder =
-                            MathTrace::new("".to_string(), MathKind::Add { inputs: Vec::new() });
+                        self.builder = MathTrace::new(
+                            TraceRef::default(),
+                            MathKind::Add { inputs: Vec::new() },
+                        );
                         self.builder_look = TraceLook::default();
                         self.error = None;
                     }

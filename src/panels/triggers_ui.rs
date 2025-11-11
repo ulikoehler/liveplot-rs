@@ -1,5 +1,7 @@
 use super::panel_trait::{Panel, PanelState};
+use crate::data::data::LivePlotData;
 use crate::data::scope::ScopeData;
+use crate::data::traces::TracesCollection;
 use crate::data::traces::TraceRef;
 use crate::data::triggers::{Trigger, TriggerSlope};
 use crate::panels::trace_look_ui::render_trace_look_editor;
@@ -17,7 +19,7 @@ pub struct TriggersPanel {
 impl Default for TriggersPanel {
     fn default() -> Self {
         let mut panel = Self {
-            state: PanelState::new("Triggers"),
+            state: PanelState::new("🔔 Triggers"),
             triggers: HashMap::new(),
             builder: None,
             editing: None,
@@ -40,7 +42,46 @@ impl Panel for TriggersPanel {
         &mut self.state
     }
 
-    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, data: &ScopeData) {
+    fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
+        ui.menu_button("🔔 Trigger", |ui| {
+            if ui.button("New").clicked() {
+                let mut t = crate::data::triggers::Trigger::default();
+                let idx = self.triggers.len() + 1;
+                t.name = format!("Trigger{}", idx);
+                t.enabled = false;
+                self.triggers.insert(t.name.clone(), t);
+                let st = self.state_mut();
+                st.visible = true;
+                st.detached = false;
+                st.request_docket = true;
+                ui.close();
+            }
+            if ui.button("Start all").clicked() {
+                for (_n, trig) in self.triggers.iter_mut() { trig.start(); }
+                ui.close();
+            }
+            if ui.button("Stop all").clicked() {
+                for (_n, trig) in self.triggers.iter_mut() { trig.stop(); }
+                ui.close();
+            }
+            if ui.button("Reset all").clicked() {
+                for (_n, trig) in self.triggers.iter_mut() { trig.reset_runtime_state(); }
+                ui.close();
+            }
+        });
+    }
+
+    fn clear_all(&mut self) {
+        // Reset all triggers to disabled and clear last-trigger times
+        for (_name, trig) in self.triggers.iter_mut() {
+            trig.enabled = false;
+            trig.reset_runtime_state();
+        }
+        self.builder = None;
+        self.editing = None;
+    }
+
+    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, scope: &ScopeData, traces: &TracesCollection) {
         if self.triggers.is_empty() {
             return;
         }
@@ -53,7 +94,7 @@ impl Panel for TriggersPanel {
             if !trig.enabled {
                 continue;
             }
-            let Some(tr) = data.traces.get(&trig.target.0) else {
+            let Some(tr) = traces.get_trace(&trig.target) else {
                 continue;
             };
             if !tr.look.visible {
@@ -66,7 +107,7 @@ impl Panel for TriggersPanel {
 
             // Draw horizontal trigger level line
             let y_lin = trig.level + tr.offset;
-            let y_plot = if data.y_axis.log_scale {
+            let y_plot = if scope.y_axis.log_scale {
                 if y_lin > 0.0 {
                     y_lin.log10()
                 } else {
@@ -77,8 +118,8 @@ impl Panel for TriggersPanel {
             };
             if y_plot.is_finite() {
                 // Legend label can include info text
-                let info = trig.get_info(&data.y_axis);
-                let label = if data.show_info_in_legend {
+                let info = trig.get_info(&scope.y_axis);
+                let label = if scope.show_info_in_legend {
                     format!("{} — {}", trig.name, info)
                 } else {
                     trig.name.clone()
@@ -121,7 +162,7 @@ impl Panel for TriggersPanel {
         }
     }
 
-    fn update_data(&mut self, _data: &mut ScopeData) {
+    fn update_data(&mut self, data: &mut LivePlotData<'_>) {
         let is_single_shot_triggered = self
             .triggers
             .values()
@@ -129,13 +170,13 @@ impl Panel for TriggersPanel {
 
         if !is_single_shot_triggered {
             for (_name, tr) in self.triggers.iter_mut() {
-                if tr.check_trigger(_data) {
+                if tr.check_trigger(data) {
                     if tr.is_triggered() {
                         let tr_time = tr.last_trigger_time().unwrap();
-                        let time_window = _data.x_axis.bounds.1 - _data.x_axis.bounds.0;
+                        let time_window = data.scope_data.x_axis.bounds.1 - data.scope_data.x_axis.bounds.0;
 
                         let tr_pos = tr.trigger_position;
-                        _data.x_axis.bounds = (
+                        data.scope_data.x_axis.bounds = (
                             tr_time - time_window * tr_pos,
                             tr_time + time_window * (1.0 - tr_pos),
                         );
@@ -145,7 +186,7 @@ impl Panel for TriggersPanel {
         }
     }
 
-    fn render_panel(&mut self, ui: &mut Ui, data: &mut ScopeData) {
+    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         ui.label("Trigger when a trace crosses a level; optionally pause after N samples.");
 
         ui.separator();
@@ -153,7 +194,7 @@ impl Panel for TriggersPanel {
         // Global actions
         ui.horizontal(|ui| {
             if ui
-                .button("Reset all")
+                .button("♻ Reset all")
                 .on_hover_text("Clear last trigger state for all triggers")
                 .clicked()
             {
@@ -164,7 +205,7 @@ impl Panel for TriggersPanel {
                 }
             }
             if ui
-                .button("Start all")
+                .button("▶ Start all")
                 .on_hover_text("Enable and start all triggers")
                 .clicked()
             {
@@ -193,7 +234,7 @@ impl Panel for TriggersPanel {
                 let name_resp =
                     ui.add(egui::Label::new(tr.name.clone()).sense(egui::Sense::click()));
                 // Short info text
-                let info = tr.get_info(&data.y_axis);
+                let info = tr.get_info(&data.scope_data.y_axis);
                 let info_resp = ui.add(egui::Label::new(info).sense(egui::Sense::click()));
                 if name_resp.clicked() || info_resp.clicked() {
                     // Open editor with a copy of current settings
@@ -216,12 +257,12 @@ impl Panel for TriggersPanel {
                 if name_resp.hovered() || info_resp.hovered() {
                     // Highlight target trace when hovering the name
                     if !tr.target.0.is_empty() {
-                        data.hover_trace = Some(tr.target.0.clone());
+                        data.scope_data.hover_trace = Some(tr.target.clone());
                     }
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Remove").clicked() {
+                    if ui.button("🗑 Remove").clicked() {
                         to_remove = true;
                     }
                 });
@@ -230,7 +271,7 @@ impl Panel for TriggersPanel {
             // Hovering the whole row also highlights target trace
             if row.response.hovered() {
                 if !tr.target.0.is_empty() {
-                    data.hover_trace = Some(tr.target.0.clone());
+                    data.scope_data.hover_trace = Some(tr.target.clone());
                 }
             }
 
@@ -244,7 +285,7 @@ impl Panel for TriggersPanel {
             let mut toggle_start: Option<bool> = None; // Some(true)=Start, Some(false)=Stop
             let (last_text, last_exists) = if let Some(t) = tr.last_trigger_time() {
                 // Use x-axis formatter for time display
-                let start_fmt = data.x_axis.format_value(t, 4, 1.0);
+                let start_fmt = data.scope_data.x_axis.format_value(t, 4, 1.0);
                 (format!("Last: {}", start_fmt), true)
             } else {
                 (String::from("Last: –"), false)
@@ -256,21 +297,21 @@ impl Panel for TriggersPanel {
                 ui.label(last_text);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .add_enabled(last_exists, egui::Button::new("Reset"))
+                        .add_enabled(last_exists, egui::Button::new("↺ Reset"))
                         .clicked()
                     {
                         do_reset = true;
                     }
                     if is_active {
                         if ui
-                            .add_enabled(enabled_flag, egui::Button::new("Stop"))
+                            .add_enabled(enabled_flag, egui::Button::new("⏹ Stop"))
                             .clicked()
                         {
                             toggle_start = Some(false);
                         }
                     } else {
                         if ui
-                            .add_enabled(enabled_flag, egui::Button::new("Start"))
+                            .add_enabled(enabled_flag, egui::Button::new("▶ Start"))
                             .clicked()
                         {
                             toggle_start = Some(true);
@@ -309,7 +350,7 @@ impl Panel for TriggersPanel {
         // New button
         ui.add_space(6.0);
         let new_clicked = ui
-            .add_sized([ui.available_width(), 24.0], egui::Button::new("New"))
+            .add_sized([ui.available_width(), 24.0], egui::Button::new("➕ New"))
             .on_hover_text("Create a new trigger")
             .clicked();
         if new_clicked {
@@ -329,9 +370,7 @@ impl Panel for TriggersPanel {
             ui.add_space(3.0);
 
             // Name
-            let duplicate_name = self
-                .triggers
-                .contains_key(&builder.name)
+            let duplicate_name = self.triggers.contains_key(&builder.name)
                 && self.editing.as_deref() != Some(builder.name.as_str());
 
             ui.horizontal(|ui| {
@@ -352,22 +391,22 @@ impl Panel for TriggersPanel {
             });
 
             // Target trace selection
-            let trace_names: Vec<String> = data.trace_order.clone();
+            let trace_names= data.scope_data.trace_order.clone();
             let mut target_idx = trace_names
                 .iter()
-                .position(|n| n == &builder.target.0)
+                .position(|n| n == &builder.target)
                 .unwrap_or(0);
             egui::ComboBox::from_label("Trace")
-                .selected_text(trace_names.get(target_idx).cloned().unwrap_or_default())
+                .selected_text(trace_names.get(target_idx).map(|t| t.to_string()).unwrap_or_default())
                 .show_ui(ui, |ui| {
-                    for (i, nm) in trace_names.iter().enumerate() {
-                        if ui.selectable_label(i == target_idx, nm).clicked() {
+                    for (i, n) in trace_names.iter().enumerate() {
+                        if ui.selectable_label(target_idx == i, n.as_str()).clicked() {
                             target_idx = i;
                         }
                     }
                 });
             if let Some(sel_name) = trace_names.get(target_idx) {
-                builder.target = TraceRef(sel_name.clone());
+                builder.target = sel_name.clone();
             }
 
             // Level and slope
@@ -438,9 +477,8 @@ impl Panel for TriggersPanel {
                 } else {
                     "Add trigger"
                 };
-                let can_save = !builder.name.is_empty()
-                    && !builder.target.0.is_empty()
-                    && !duplicate_name;
+                let can_save =
+                    !builder.name.is_empty() && !builder.target.0.is_empty() && !duplicate_name;
                 if ui
                     .add_enabled(can_save, egui::Button::new(save_label))
                     .clicked()
@@ -488,6 +526,14 @@ impl Panel for TriggersPanel {
                 self.builder = None;
                 self.editing = None;
             }
+        }
+    }
+}
+
+impl TriggersPanel {
+    pub fn reset_all(&mut self) {
+        for (_name, tr) in self.triggers.iter_mut() {
+            tr.reset();
         }
     }
 }

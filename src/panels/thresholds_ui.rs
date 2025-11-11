@@ -1,5 +1,8 @@
 use super::panel_trait::{Panel, PanelState};
-use crate::data::scope::{AxisSettings, ScopeData};
+use crate::data::data::LivePlotData;
+use crate::data::scope::ScopeData;
+use crate::data::traces::TracesCollection;
+use crate::data::scope::AxisSettings;
 use crate::data::thresholds::{ThresholdDef, ThresholdEvent, ThresholdKind};
 use crate::panels::trace_look_ui::render_trace_look_editor;
 use chrono::Local;
@@ -48,7 +51,36 @@ impl Panel for ThresholdsPanel {
         &mut self.state
     }
 
-    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, _data: &ScopeData) {
+    fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
+        ui.menu_button("⚠ Thresholds", |ui| {
+            if ui.button("New").clicked() {
+                self.builder = ThresholdDef::default();
+                self.editing = None;
+                self.creating = true;
+                self.error = None;
+                let st = self.state_mut();
+                st.visible = true;
+                st.detached = false;
+                st.request_docket = true;
+                ui.close();
+            }
+            if ui.button("X Clear events").clicked() {
+                self.clear_all_events();
+                ui.close();
+            }
+        });
+    }
+
+    fn clear_all(&mut self) {
+        self.events_filter = None;
+        self.hover_threshold = None;
+        // Clear per-threshold events (if they are stored within the defs) and reset map
+        // Current implementation tracks events in runtime buffers associated with thresholds;
+        // provide a bulk clear by calling the helper if available.
+        self.clear_all_events();
+    }
+
+    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, scope: &ScopeData, traces: &TracesCollection) {
         // Threshold overlays
         if !self.thresholds.is_empty() {
             let bounds = plot_ui.plot_bounds();
@@ -56,7 +88,7 @@ impl Panel for ThresholdsPanel {
             let xmin = *xr.start();
             let xmax = *xr.end();
             for (_name, def) in &self.thresholds {
-                if let Some(tr) = _data.traces.get(&def.target.0) {
+                if let Some(tr) = traces.get_trace(&def.target) {
                     if !tr.look.visible {
                         continue;
                     }
@@ -100,7 +132,7 @@ impl Panel for ThresholdsPanel {
 
                     let mut draw_hline = |label: &str, y_world: f64| {
                         let y_lin = y_world + tr.offset;
-                        let y_plot = if _data.y_axis.log_scale {
+                        let y_plot = if scope.y_axis.log_scale {
                             if y_lin > 0.0 {
                                 y_lin.log10()
                             } else {
@@ -118,8 +150,8 @@ impl Panel for ThresholdsPanel {
                         }
                     };
 
-                    let thr_info = def.get_info(&_data.y_axis);
-                    let legend_label = if _data.show_info_in_legend {
+                    let thr_info = def.get_info(&scope.y_axis);
+                    let legend_label = if scope.show_info_in_legend {
                         format!("{} — {}", def.name, thr_info)
                     } else {
                         def.name.clone()
@@ -146,7 +178,7 @@ impl Panel for ThresholdsPanel {
                         ThresholdKind::InRange { low, high } => (low + high) * 0.5,
                     };
                     let y_lin = marker_y_world + tr.offset;
-                    let marker_y_plot = if _data.y_axis.log_scale {
+                    let marker_y_plot = if scope.y_axis.log_scale {
                         if y_lin > 0.0 {
                             y_lin.log10()
                         } else {
@@ -201,14 +233,14 @@ impl Panel for ThresholdsPanel {
         }
     }
 
-    fn update_data(&mut self, _data: &mut ScopeData) {
+    fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
         let sources = _data.get_all_drawn_points();
         for def in self.thresholds.values_mut() {
             def.process_threshold(sources.clone());
         }
     }
 
-    fn render_panel(&mut self, ui: &mut Ui, data: &mut ScopeData) {
+    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         ui.label("Detect and log when a trace exceeds a condition.");
         if let Some(err) = &self.error {
             ui.colored_label(Color32::LIGHT_RED, err);
@@ -259,7 +291,7 @@ impl Panel for ThresholdsPanel {
                 }
 
                 // Info text like math traces: target + condition; hover highlights target trace
-                let info_text = def.get_info(&data.y_axis);
+                let info_text = def.get_info(&data.scope_data.y_axis);
                 let info_resp = ui.add(
                     egui::Label::new(info_text)
                         .truncate()
@@ -280,7 +312,7 @@ impl Panel for ThresholdsPanel {
                 // Right-aligned actions: Clear (events) and Remove (definition)
                 let removing_name = def.name.clone();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let remove_resp = ui.button("Remove");
+                    let remove_resp = ui.button("🗑 Remove");
                     if remove_resp.hovered() {
                         self.hover_threshold = Some(removing_name.clone());
                     }
@@ -288,7 +320,7 @@ impl Panel for ThresholdsPanel {
                         action_remove = true;
                     }
                     let clear_resp = ui
-                        .button("Clear")
+                        .button("X Clear")
                         .on_hover_text("Clear events for this threshold");
                     if clear_resp.hovered() {
                         self.hover_threshold = Some(removing_name.clone());
@@ -351,7 +383,7 @@ impl Panel for ThresholdsPanel {
         // Full-width New button
         ui.add_space(6.0);
         let new_clicked = ui
-            .add_sized([ui.available_width(), 24.0], egui::Button::new("New"))
+            .add_sized([ui.available_width(), 24.0], egui::Button::new("➕ New"))
             .on_hover_text("Create a new threshold")
             .clicked();
         if new_clicked {
@@ -409,26 +441,26 @@ impl Panel for ThresholdsPanel {
                     let _resp = resp.on_hover_text("Enter a unique name for this threshold");
                 }
             });
-            let trace_names: Vec<String> = data.trace_order.clone();
+            let trace_names = data.scope_data.trace_order.clone();
             let mut target_idx = trace_names
                 .iter()
-                .position(|n| n == &self.builder.target.0)
+                .position(|n| n == &self.builder.target)
                 .unwrap_or(0);
             egui::ComboBox::from_label("Trace")
-                .selected_text(trace_names.get(target_idx).cloned().unwrap_or_default())
+                .selected_text(trace_names.get(target_idx).map(|t| t.to_string()).unwrap_or_default())
                 .show_ui(ui, |ui| {
                     for (i, n) in trace_names.iter().enumerate() {
-                        if ui.selectable_label(target_idx == i, n).clicked() {
+                        if ui.selectable_label(target_idx == i, n.as_str()).clicked() {
                             target_idx = i;
                         }
                     }
                 });
             if let Some(sel_name) = trace_names.get(target_idx) {
-                self.builder.target.0 = sel_name.clone();
+                self.builder.target = sel_name.clone();
             }
             // Default color when creating: use selected trace color at 75% alpha if not set by user yet
             if is_creating {
-                if let Some(tr) = data.traces.get(&self.builder.target.0) {
+                if let Some(tr) = data.traces.get_trace(&self.builder.target) {
                     if self.builder.look.color == egui::Color32::WHITE {
                         let c = tr.look.color;
                         self.builder.look.color =
@@ -578,7 +610,7 @@ impl Panel for ThresholdsPanel {
                     save_clicked = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Cancel").clicked() {
+                    if ui.button("✖ Cancel").clicked() {
                         self.editing = None;
                         self.creating = false;
                         self.builder = ThresholdDef::default();
@@ -656,7 +688,7 @@ impl Panel for ThresholdsPanel {
             if sel != self.events_filter {
                 self.events_filter = sel;
             }
-            if ui.button("Export to CSV").clicked() {
+            if ui.button("📄 Export to CSV").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .set_file_name("threshold_events.csv")
                     .add_filter("CSV", &["csv"])
@@ -668,7 +700,7 @@ impl Panel for ThresholdsPanel {
                 }
             }
             if ui
-                .button("Clear events")
+                .button("X Clear events")
                 .on_hover_text("Delete all threshold events (global log and per-threshold buffers)")
                 .clicked()
             {
@@ -744,14 +776,14 @@ impl Panel for ThresholdsPanel {
                             ui.label(self.axis.format_value(e.duration * 1000.0, 3, e.duration));
                         }
                         4 => {
-                            ui.label(&e.trace);
+                            ui.label(&e.trace.0);
                         }
                         5 => {
                             ui.label(format!("{:.6}", e.area));
                         }
                         6 => {
                             let ev_clear = ui
-                                .small_button("Clear")
+                                .small_button("🗑 Clear")
                                 .on_hover_text("Remove this event from the list");
                             if ev_clear.hovered() {
                                 *self.hover_threshold_out = Some(e.threshold.clone());
@@ -773,7 +805,7 @@ impl Panel for ThresholdsPanel {
             items: items_vec.as_slice(),
             to_clear: Vec::new(),
             hover_threshold_out: &mut self.hover_threshold,
-            axis: &data.x_axis,
+            axis: &data.scope_data.x_axis,
         };
         let cols = vec![
             egui_table::Column::new(152.0),
@@ -837,11 +869,17 @@ impl ThresholdsPanel {
             writeln!(
                 f,
                 "{:.9},{},{},{:.9},{:.9},{:.9}",
-                e.end_t, e.threshold, e.trace, e.start_t, e.duration, e.area
+                e.end_t, e.threshold, e.trace.0, e.start_t, e.duration, e.area
             )?;
         }
 
         Ok(())
+    }
+
+    pub fn clear_all_events(&mut self) {
+        for def in self.thresholds.values_mut() {
+            def.clear_threshold_events();
+        }
     }
 }
 // Removed unused show_thresholds_dialog helper; dialogs are shown via DockPanel::show_detached_dialog

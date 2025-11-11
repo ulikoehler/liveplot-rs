@@ -6,4 +6,7 @@ pub mod thresholds;
 pub mod export;
 pub mod triggers;
 pub mod measurement;
-// Minimal build: other data modules (math/fft/export/thresholds) are disabled for now
+pub mod data;
+
+#[cfg(feature = "fft")]
+pub mod fft;
