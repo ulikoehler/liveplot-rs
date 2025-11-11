@@ -86,7 +86,7 @@ impl ScopePanel {
         P: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
         S: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
     {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             // Prefix controls injected by caller
             prefix_controls(ui, &mut self.data, traces);
 

@@ -115,32 +115,68 @@ impl MainPanel {
                     }
 
                     ui.separator();
-                    // Panels quick toggles (inline, no menu or labels)
-                    for p in left.borrow_mut().iter_mut() {
-                        if ui
-                            .selectable_label(p.state_mut().visible, p.title())
-                            .clicked()
-                        {
-                            p.state_mut().detached = false;
-                            p.state_mut().visible = true;
+                    // Panels quick toggles (inline, mutually exclusive per region among attached panels)
+                    // Left group
+                    {
+                        let mut clicked: Option<usize> = None;
+                        let mut l = left.borrow_mut();
+                        for (i, p) in l.iter_mut().enumerate() {
+                            let active = p.state().visible && !p.state().detached;
+                            if ui.selectable_label(active, p.title()).clicked() {
+                                clicked = Some(i);
+                            }
+                        }
+                        if let Some(ci) = clicked {
+                            for (i, p) in l.iter_mut().enumerate() {
+                                if i == ci {
+                                    p.state_mut().detached = false;
+                                    p.state_mut().visible = true;
+                                } else if !p.state().detached {
+                                    p.state_mut().visible = false;
+                                }
+                            }
                         }
                     }
-                    for p in right.borrow_mut().iter_mut() {
-                        if ui
-                            .selectable_label(p.state_mut().visible, p.title())
-                            .clicked()
-                        {
-                            p.state_mut().detached = false;
-                            p.state_mut().visible = true;
+                    // Right group
+                    {
+                        let mut clicked: Option<usize> = None;
+                        let mut r = right.borrow_mut();
+                        for (i, p) in r.iter_mut().enumerate() {
+                            let active = p.state().visible && !p.state().detached;
+                            if ui.selectable_label(active, p.title()).clicked() {
+                                clicked = Some(i);
+                            }
+                        }
+                        if let Some(ci) = clicked {
+                            for (i, p) in r.iter_mut().enumerate() {
+                                if i == ci {
+                                    p.state_mut().detached = false;
+                                    p.state_mut().visible = true;
+                                } else if !p.state().detached {
+                                    p.state_mut().visible = false;
+                                }
+                            }
                         }
                     }
-                    for p in bottom.borrow_mut().iter_mut() {
-                        if ui
-                            .selectable_label(p.state_mut().visible, p.title())
-                            .clicked()
-                        {
-                            p.state_mut().detached = false;
-                            p.state_mut().visible = true;
+                    // Bottom group
+                    {
+                        let mut clicked: Option<usize> = None;
+                        let mut b = bottom.borrow_mut();
+                        for (i, p) in b.iter_mut().enumerate() {
+                            let active = p.state().visible && !p.state().detached;
+                            if ui.selectable_label(active, p.title()).clicked() {
+                                clicked = Some(i);
+                            }
+                        }
+                        if let Some(ci) = clicked {
+                            for (i, p) in b.iter_mut().enumerate() {
+                                if i == ci {
+                                    p.state_mut().detached = false;
+                                    p.state_mut().visible = true;
+                                } else if !p.state().detached {
+                                    p.state_mut().visible = false;
+                                }
+                            }
                         }
                     }
                 },
