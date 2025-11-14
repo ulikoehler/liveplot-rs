@@ -29,6 +29,11 @@ pub struct MainPanel {
     pub bottom_panels: Vec<Box<dyn Panel>>,
     pub detached_panels: Vec<Box<dyn Panel>>,
     pub empty_panels: Vec<Box<dyn Panel>>,
+    // Optional controllers for embedded usage
+    pub(crate) window_ctrl: Option<WindowController>,
+    pub(crate) ui_ctrl: Option<UiActionController>,
+    pub(crate) traces_ctrl: Option<TracesController>,
+    pub(crate) fft_ctrl: Option<FftController>,
 }
 
 impl MainPanel {
@@ -51,7 +56,25 @@ impl MainPanel {
             bottom_panels: vec![],
             detached_panels: vec![],
             empty_panels: vec![Box::new(ExportPanel::default())],
+            window_ctrl: None,
+            ui_ctrl: None,
+            traces_ctrl: None,
+            fft_ctrl: None,
         }
+    }
+
+    /// Attach controllers for embedded usage. These mirror the controllers used by MainApp.
+    pub fn set_controllers(
+        &mut self,
+        window_ctrl: Option<WindowController>,
+        ui_ctrl: Option<UiActionController>,
+        traces_ctrl: Option<TracesController>,
+        fft_ctrl: Option<FftController>,
+    ) {
+        self.window_ctrl = window_ctrl;
+        self.ui_ctrl = ui_ctrl;
+        self.traces_ctrl = traces_ctrl;
+        self.fft_ctrl = fft_ctrl;
     }
 
     pub fn update(&mut self, ui: &mut egui::Ui) {
@@ -191,6 +214,12 @@ impl MainPanel {
         });
     }
 
+    /// Update and render the panel when embedded in a parent app, and also apply controllers.
+    pub fn update_embedded(&mut self, ui: &mut egui::Ui) {
+        self.update(ui);
+        self.apply_controllers_embedded(ui.ctx());
+    }
+
     fn update_data(&mut self) {
         self.traces_data.update();
 
@@ -214,6 +243,140 @@ impl MainPanel {
         }
         for p in &mut self.empty_panels {
             p.update_data(data);
+        }
+    }
+
+    /// Apply controller requests and publish state, for embedded usage (no stand-alone window frame).
+    pub fn apply_controllers_embedded(&mut self, ctx: &egui::Context) {
+        // WindowController: publish current viewport info; apply requested size if any
+        if let Some(ctrl) = &self.window_ctrl {
+            let (req_size, req_pos) = {
+                let mut inner = ctrl.inner.lock().unwrap();
+                (inner.request_set_size.take(), inner.request_set_pos.take())
+            };
+            if let Some([w, h]) = req_size {
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(w, h)));
+            }
+            let rect = ctx.input(|i| i.content_rect());
+            let size = [rect.width(), rect.height()];
+            let pos = [rect.left(), rect.top()];
+            let info = crate::controllers::WindowInfo {
+                current_size: Some(size),
+                current_pos: Some(pos),
+                requested_size: req_size,
+                requested_pos: req_pos,
+            };
+            let mut inner = ctrl.inner.lock().unwrap();
+            inner.current_size = Some(size);
+            inner.current_pos = Some(pos);
+            inner.listeners.retain(|s| s.send(info.clone()).is_ok());
+        }
+
+        // UiActionController: pause/resume, screenshot, export
+        if let Some(ctrl) = &self.ui_ctrl {
+            let mut take_actions = {
+                let mut inner = ctrl.inner.lock().unwrap();
+                (
+                    inner.request_pause.take(),
+                    {
+                        let v = inner.request_screenshot;
+                        inner.request_screenshot = false;
+                        v
+                    },
+                    inner.request_screenshot_to.take(),
+                    inner.request_save_raw.take(),
+                    inner.request_save_raw_to.take(),
+                    inner.fft_request.take(),
+                )
+            };
+
+            let data = self.liveplot_panel.get_data_mut();
+            if let Some(p) = take_actions.0 {
+                let mut lp = LivePlotData {
+                    scope_data: data,
+                    traces: &mut self.traces_data,
+                };
+                if p { lp.pause(); } else { lp.resume(); }
+            }
+            if take_actions.1 {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            }
+            if let Some(path) = take_actions.2.take() {
+                std::env::set_var("LIVEPLOT_SAVE_SCREENSHOT_TO", path);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            }
+            if let Some((_fmt, path)) = take_actions.4.take() {
+                let tol = 1e-9;
+                let order = data.trace_order.clone();
+                let series = order
+                    .iter()
+                    .filter_map(|name| {
+                        data.get_drawn_points(name, &self.traces_data)
+                            .map(|v| (name.clone(), v.into_iter().collect()))
+                    })
+                    .collect();
+                let _ = if path.extension().and_then(|s| s.to_str()) == Some("csv") {
+                    export::write_csv_aligned_path(&path, &order, &series, tol)
+                } else {
+                    export::write_parquet_aligned_path(&path, &order, &series, tol)
+                };
+            }
+            if let Some(_req) = take_actions.5.take() {
+                // Placeholder for FFT data requests in embedded mode
+            }
+        }
+
+        // TracesController: apply queued changes and publish snapshot info
+        if let Some(ctrl) = &self.traces_ctrl {
+            let mut inner = ctrl.inner.lock().unwrap();
+            let data = self.liveplot_panel.get_data_mut();
+            let traces = &mut self.traces_data;
+            for (name, rgb) in inner.color_requests.drain(..) {
+                let tref = TraceRef(name.clone());
+                if let Some(tr) = traces.get_trace_mut(&tref) {
+                    tr.look.color = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                }
+            }
+            for (name, vis) in inner.visible_requests.drain(..) {
+                let tref = TraceRef(name.clone());
+                if let Some(tr) = traces.get_trace_mut(&tref) { tr.look.visible = vis; }
+            }
+            for (name, off) in inner.offset_requests.drain(..) {
+                let tref = TraceRef(name.clone());
+                if let Some(tr) = traces.get_trace_mut(&tref) { tr.offset = off; }
+            }
+            if let Some(unit) = inner.y_unit_request.take() { data.y_axis.unit = unit; }
+            if let Some(ylog) = inner.y_log_request.take() { data.y_axis.log_scale = ylog; }
+            if let Some(sel) = inner.selection_request.take() { data.selection_trace = sel.map(TraceRef); }
+
+            let mut infos: Vec<crate::controllers::TraceInfo> = Vec::new();
+            for name in data.trace_order.iter() {
+                if let Some(tr) = self.traces_data.get_trace(name) {
+                    infos.push(crate::controllers::TraceInfo {
+                        name: name.0.clone(),
+                        color_rgb: [tr.look.color.r(), tr.look.color.g(), tr.look.color.b()],
+                        visible: tr.look.visible,
+                        is_math: false,
+                        offset: tr.offset,
+                    });
+                }
+            }
+            let y_unit = data.y_axis.unit.clone();
+            let y_log = data.y_axis.log_scale;
+            let snapshot = crate::controllers::TracesInfo {
+                traces: infos,
+                marker_selection: data.selection_trace.as_ref().map(|t| t.0.clone()),
+                y_unit,
+                y_log,
+            };
+            inner.listeners.retain(|s| s.send(snapshot.clone()).is_ok());
+        }
+
+        // FFT controller: publish basic info
+        if let Some(ctrl) = &self.fft_ctrl {
+            let mut inner = ctrl.inner.lock().unwrap();
+            let info = crate::controllers::FftPanelInfo { shown: inner.show, current_size: None, requested_size: inner.request_set_size };
+            inner.listeners.retain(|s| s.send(info.clone()).is_ok());
         }
     }
 
