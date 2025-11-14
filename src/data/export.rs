@@ -127,7 +127,8 @@ pub fn write_parquet_aligned_path(
     let mut fields: Vec<Field> = Vec::with_capacity(1 + trace_order.len());
     fields.push(Field::new("timestamp_seconds", DataType::Float64, false));
     for name in trace_order.iter() {
-        fields.push(Field::new(name, DataType::Float64, true));
+        // TraceRef implements AsRef<str>; Arrow Field::new accepts Into<String>
+        fields.push(Field::new(name.as_ref(), DataType::Float64, true));
     }
     let schema = Arc::new(Schema::new(fields));
 

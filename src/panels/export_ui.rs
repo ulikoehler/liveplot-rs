@@ -85,9 +85,9 @@ impl Panel for ExportPanel {
                         .save_file()
                     {
                         // Build series map like for CSV
-                        let mut series: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-                        for name in data.trace_order.iter() {
-                            if let Some(tr) = data.traces.get(name) {
+                        let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
+                        for name in data.scope_data.trace_order.iter() {
+                            if let Some(tr) = data.traces.get_trace(name) {
                                 let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
                                     if data.is_paused() {
                                         if let Some(snap) = &tr.snap {
@@ -104,7 +104,7 @@ impl Panel for ExportPanel {
                         }
                         if let Err(e) = export::write_parquet_aligned_path(
                             &path,
-                            &data.trace_order,
+                            &data.scope_data.trace_order,
                             &series,
                             1e-9,
                         ) {
