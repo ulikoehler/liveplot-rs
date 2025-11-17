@@ -3,8 +3,6 @@
 //! Contains the extracted menu rendering logic previously in `app.rs`.
 
 use super::LivePlotApp;
-use crate::controllers::FFTPanelInfo;
-use crate::controllers::{FFTDataRequest, FFTRawData, RawExportFormat, WindowInfo};
 use eframe::egui;
 
 impl LivePlotApp {
