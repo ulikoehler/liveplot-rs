@@ -73,7 +73,10 @@ pub enum PlotCommand {
     ///
     /// This is intended as an efficient overwrite operation: any existing points
     /// for the trace are discarded and replaced atomically with `points`.
-    SetData { trace_id: TraceId, points: Vec<PlotPoint> },
+    SetData {
+        trace_id: TraceId,
+        points: Vec<PlotPoint>,
+    },
 }
 
 /// Convenience sender for feeding points into the multi-trace plotter.
@@ -426,13 +429,20 @@ impl PlotSink {
 
     /// Remove all data points for a given trace id.
     #[inline]
-    pub fn clear_data_by_id(&self, trace_id: TraceId) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
+    pub fn clear_data_by_id(
+        &self,
+        trace_id: TraceId,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>> {
         self.tx.send(PlotCommand::ClearData { trace_id })
     }
 
     /// Replace the entire data vector for a given `Trace` with the provided points.
     /// This discards any existing points for the trace.
-    pub fn set_data<I>(&self, trace: &Trace, points: I) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    pub fn set_data<I>(
+        &self,
+        trace: &Trace,
+        points: I,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
     where
         I: Into<Vec<PlotPoint>>,
     {
@@ -443,7 +453,11 @@ impl PlotSink {
     }
 
     /// Replace the entire data vector for a given trace id with the provided points.
-    pub fn set_data_by_id<I>(&self, trace_id: TraceId, points: I) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
+    pub fn set_data_by_id<I>(
+        &self,
+        trace_id: TraceId,
+        points: I,
+    ) -> Result<(), std::sync::mpsc::SendError<PlotCommand>>
     where
         I: Into<Vec<PlotPoint>>,
     {

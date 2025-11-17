@@ -521,7 +521,10 @@ pub fn compute_math_trace(
                         let p = first_order_highpass(*cutoff_hz, dt);
                         biquad_step(p, x, x1, x2, y1, y2)
                     }
-                    FilterKind::Bandpass { low_cut_hz, high_cut_hz } => {
+                    FilterKind::Bandpass {
+                        low_cut_hz,
+                        high_cut_hz,
+                    } => {
                         // Implement bandpass as cascade: highpass -> lowpass.
                         let p1 = first_order_highpass(*low_cut_hz, dt);
                         let z1 = biquad_step(p1, x, x1, x2, y1, y2);

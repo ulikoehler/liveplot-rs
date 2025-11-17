@@ -15,9 +15,9 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use liveplot::{run_liveplot, LivePlotConfig};
-use liveplot::PlotPoint;
 use liveplot::PlotCommand;
+use liveplot::PlotPoint;
+use liveplot::{run_liveplot, LivePlotConfig};
 
 fn make_wave(is_sine: bool, t0: f64, n: usize, dt: f64) -> Vec<PlotPoint> {
     let mut v = Vec::with_capacity(n);
@@ -53,7 +53,15 @@ fn main() {
         loop {
             // Build waveform and use SetData to overwrite the trace
             let pts = make_wave(is_sine, t0, n, dt);
-            if mpsc::Sender::send(&tx, PlotCommand::SetData { trace_id: 1, points: pts }).is_err() {
+            if mpsc::Sender::send(
+                &tx,
+                PlotCommand::SetData {
+                    trace_id: 1,
+                    points: pts,
+                },
+            )
+            .is_err()
+            {
                 break; // UI likely closed
             }
             // toggle every 2 seconds
