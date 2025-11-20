@@ -930,7 +930,13 @@ pub fn run_liveplot(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> 
         opts.viewport = egui::ViewportBuilder::default().with_icon(icon);
     }
     // opts.initial_window_size = Some(egui::vec2(1280.0, 720.0));
-    eframe::run_native(&title, opts, Box::new(|_cc| Ok(Box::new(app))))
+    eframe::run_native(&title, opts, Box::new(|cc| {
+        // Install Phosphor icon font before creating the app
+        let mut fonts = egui::FontDefinitions::default();
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+        cc.egui_ctx.set_fonts(fonts);
+        Ok(Box::new(app))
+    }))
 }
 
 pub fn run_liveplot_with_controllers(
@@ -946,7 +952,12 @@ pub fn run_liveplot_with_controllers(
     if let Some(icon) = load_app_icon_svg() {
         opts.viewport = egui::ViewportBuilder::default().with_icon(icon);
     }
-    eframe::run_native(&title, opts, Box::new(|_cc| Ok(Box::new(app))))
+    eframe::run_native(&title, opts, Box::new(|cc| {
+        let mut fonts = egui::FontDefinitions::default();
+        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+        cc.egui_ctx.set_fonts(fonts);
+        Ok(Box::new(app))
+    }))
 }
 
 fn load_app_icon_svg() -> Option<egui::IconData> {

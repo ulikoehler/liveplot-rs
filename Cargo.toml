@@ -41,9 +41,9 @@ window_control_display_info = [
 ]
 
 [dependencies]
-eframe = "0.33.2"
-egui = "0.33.2"
-egui_plot = "0.34.0"
+eframe = "0.33"
+egui = "0.33"
+egui_plot = "0.34"
 chrono = "0.4"
 rfd = "0.15"
 image = "0.25"
@@ -65,6 +65,7 @@ arrow-schema = { version = "52", optional = true }
 parquet = { version = "52", optional = true, features = ["arrow"] }
 display-info = { version = "0.5", optional = true }
 downcast-rs = "1.2"
+egui-phosphor = "0.11"
 
 [build-dependencies]
 tonic-build = "0.12"
