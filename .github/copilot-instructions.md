@@ -1,11 +1,19 @@
 ## Checking compilation
 
-After writing code, you MUST check if it compiles by running:
+After each change, and before finishing, you MUST check using
 
-```bash
+```sh
 cargo check
 ```
 
-If that produces any errors, you MUST fix before proceeding.
+and, if the user gave you a command you can execute, check using that command as well.
 
 You SHOULD perform intermediate checks while writing code.
+
+When you finish, you MUST ensure that the code compiles without errors.
+
+When the code does compile, run auto formatting using
+
+```sh
+cargo fmt
+```
