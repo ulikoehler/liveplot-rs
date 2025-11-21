@@ -176,6 +176,9 @@ impl ScopeData {
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
         for (_name, trace) in traces.traces_iter() {
+            if trace.look.visible == false {
+                continue;
+            }
             let points = if self.paused {
                 if let Some(snap) = &trace.snap {
                     snap
@@ -205,6 +208,9 @@ impl ScopeData {
         let mut max_y = f64::MIN;
         let x_bounds = self.x_axis.bounds;
         for (_name, trace) in traces.traces_iter() {
+            if trace.look.visible == false {
+                continue;
+            }
             let points = if self.paused {
                 if let Some(snap) = &trace.snap {
                     snap
