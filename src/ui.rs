@@ -706,18 +706,24 @@ impl LivePlotApp {
         ctx.request_repaint_after(Duration::from_millis(16));
     }
 
-    /// Render the LivePlot UI into an arbitrary egui container (e.g., inside an egui::Window).
-    pub fn ui_embed(&mut self, ui: &mut egui::Ui) {
+    /// Render the LivePlot UI into an arbitrary egui container (e.g., inside an egui::Window) with a custom plot ID.
+    pub fn ui_embed_with_id(&mut self, ui: &mut egui::Ui, plot_id: egui::Id) {
         let ctx = ui.ctx().clone();
         self.tick_non_ui();
         ui.vertical(|ui| {
             self.header_ui(ui, super::app::ControlsMode::Embedded);
         });
         self.show_dialogs_shared(&ctx);
-        let plot_response = self.plot_traces_common(ui, &ctx, "liveplot_embedded");
+        let plot_response = self.plot_traces_common(ui, &ctx, plot_id);
         self.pause_on_click(&plot_response);
         self.apply_zoom(&plot_response);
         self.handle_plot_click(&plot_response);
         ctx.request_repaint_after(Duration::from_millis(16));
+    }
+
+    /// Render the LivePlot UI with the default embedded plot ID.
+    pub fn ui_embed(&mut self, ui: &mut egui::Ui) {
+        let plot_id = ui.make_persistent_id("liveplot_embedded");
+        self.ui_embed_with_id(ui, plot_id);
     }
 }

@@ -20,6 +20,7 @@ traces_table_debug = []
 grpc = [
 	"dep:tokio",
 	"dep:tonic",
+	"dep:tonic-prost",
 	"dep:prost",
 	"dep:prost-types",
 	"dep:async-stream",
@@ -40,10 +41,14 @@ window_control_display_info = [
 	"dep:display-info",
 ]
 
+# Optional tiles layout engine for examples
+tiles = ["dep:egui_tiles"]
+
 [dependencies]
 eframe = "0.33"
 egui = "0.33"
 egui_plot = "0.34"
+egui_tiles = { version = "0.14", optional = true }
 chrono = "0.4"
 rfd = "0.15"
 image = "0.25"
@@ -53,6 +58,7 @@ serde_yaml = "0.9"
 rustfft = { version = "6", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"], optional = true }
 tonic = { version = "0.14", features = ["transport"], optional = true }
+tonic-prost = { version = "0.14", optional = true }
 prost = { version = "0.14", optional = true }
 prost-types = { version = "0.14", optional = true }
 async-stream = { version = "0.3", optional = true }
@@ -63,7 +69,14 @@ parquet = { version = "57", optional = true, features = ["arrow"] }
 display-info = { version = "0.5", optional = true }
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-prost-build = "0.14"
+
+## note: this repository uses `examples/embedded_tiles.rs` as the tiles example
+
+[[example]]
+name = "embedded_tiles"
+path = "examples/embedded_tiles.rs"
+required-features = ["tiles"]
 
 [[example]]
 name = "client"

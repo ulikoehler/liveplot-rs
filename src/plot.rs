@@ -23,12 +23,15 @@ impl LivePlotApp {
     }
 
     /// Shared plot for both embedded and main variants. Returns (x_width, zoomed) and full response.
-    pub(super) fn plot_traces_common(
+    pub(super) fn plot_traces_common<ID>(
         &mut self,
         ui: &mut egui::Ui,
         ctx: &egui::Context,
-        plot_id: &str,
-    ) -> egui_plot::PlotResponse<bool> {
+        plot_id: ID,
+    ) -> egui_plot::PlotResponse<bool>
+    where
+        ID: std::hash::Hash,
+    {
         let mut plot = Plot::new(plot_id)
             .allow_scroll(false)
             .allow_zoom(false)
