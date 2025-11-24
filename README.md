@@ -7,12 +7,12 @@ https://img.shields.io/crates/v/:crate
 
 This crate provides a reusable plotting UI you can feed with a stream of `(timestamp, value)` samples.
 gRPC input is provided as an example of how to use the library, not as a built-in dependency.
-
+A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as [examples/sine.rs](examples/sine.rs).
 ## Features
 
 #### Tiles
 
-liveplot provides a `egui_tiles` API if enabled via the `tiles` feature. See the `examples/embedded_tiles.rs` example for usage.
+liveplot provides a `egui_tiles` API if enabled via the `tiles` feature. See the [examples/embedded_tiles.rs](examples/embedded_tiles.rs) example for usage.
 
 ![LivePlot embedded tiles screenshot](docs/liveplot%20embedded%20tiles.png)
 
@@ -21,6 +21,8 @@ liveplot provides a `egui_tiles` API if enabled via the `tiles` feature. See the
 You can select one or two points on the plot to see the values and also delta-X and delta-Y plus slope between the points. You can also compare two different traces using this feature. There is also a "free" selection which does not track the nearest trace point.
 
 ![LivePlot screenshot](docs/liveplot%20point%20and%20slope.png)
+
+A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as [examples/sine.rs](examples/sine.rs).
 
 #### Multi-trace plotting
 
@@ -245,7 +247,7 @@ fn main() -> eframe::Result<()> {
 
 ## Simple example
 
-A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as `examples/sine.rs`.
+A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as [examples/sine.rs](examples/sine.rs).
 
 Run it with:
 
@@ -275,7 +277,7 @@ The examples use the proto in `proto/sine.proto` and are only compiled when the 
 
 ## Built-in synthetic example: `sine`
 
-A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as `examples/sine.rs`.
+A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as [examples/sine.rs](examples/sine.rs).
 
 Run it with:
 
@@ -340,7 +342,7 @@ cargo run --example window_control --features window_control_display_info
 
 This example demonstrates monitoring a CSV file that is continuously appended by an external process (for example, a data logger or the provided Python script) and plotting the values as they appear. It polls the file every 20 ms, reads any newly appended complete lines, and streams them into the UI.
 
-Companion writer (Python, ~1 kHz): `examples/csv_writer.py`.
+Companion writer (Python, ~1 kHz): [examples/csv_writer.py](examples/csv_writer.py).
 
 ### CSV format
 
