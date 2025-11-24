@@ -41,7 +41,7 @@ window_control_display_info = [
 	"dep:display-info",
 ]
 
-# Optional tiles layout engine for examples
+# Optional tiles layout engine for helper APIs & examples
 tiles = ["dep:egui_tiles"]
 
 [dependencies]

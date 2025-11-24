@@ -16,6 +16,8 @@ mod plot;
 mod point_selection;
 mod thresholds;
 mod thresholds_ui;
+#[cfg(feature = "tiles")]
+pub mod tiles;
 mod trace_look;
 mod traces_ui;
 mod types;
