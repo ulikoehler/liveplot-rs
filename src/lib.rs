@@ -1,7 +1,8 @@
 //! LivePlot crate root: re-exports and module wiring.
 
 mod app;
-mod data;
+pub mod data;
+mod data_impl;
 mod export_helpers;
 #[cfg(feature = "fft")]
 mod fft;
@@ -12,6 +13,8 @@ mod math;
 mod math_ui;
 mod menu_ui;
 mod panel;
+pub mod panels;
+pub mod persistence;
 mod plot;
 mod point_selection;
 mod thresholds;
@@ -27,6 +30,7 @@ pub mod config;
 pub mod controllers;
 pub mod export;
 pub mod sink;
+pub mod main_panel;
 
 #[cfg(feature = "fft")]
 mod fft_panel;
@@ -41,6 +45,14 @@ pub use controllers::{
 pub use controllers::{TraceInfo, TracesController, TracesInfo};
 #[cfg(feature = "fft")]
 pub use fft::FFTWindow;
-pub use math::{FilterKind, MathKind, MathTraceDef, TraceRef};
+pub use math::{FilterKind, MathKind, MathTraceDef};
+pub use data::traces::TraceRef;
 pub use sink::{channel_plot, PlotCommand, PlotPoint, PlotSink, Trace, TraceId};
 pub use thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdKind};
+pub use panels::{Panel, PanelState};
+
+// Re-exports from new modules
+pub use data::triggers::{Trigger, TriggerSlope};
+pub use main_panel::{MainApp, MainPanel, run_liveplot_modular, run_liveplot_modular_with_controllers};
+
+
