@@ -29,30 +29,8 @@ pub enum ThresholdKind {
     InRange { low: f64, high: f64 },
 }
 
-impl ThresholdKind {
-    /// Compute the "excess" at value v relative to the threshold definition.
-    /// Excess is >= 0 when the threshold condition holds, 0 when not.
-    #[inline]
-    pub fn excess(&self, v: f64) -> f64 {
-        match self {
-            ThresholdKind::GreaterThan { value } => (v - *value).max(0.0),
-            ThresholdKind::LessThan { value } => (*value - v).max(0.0),
-            ThresholdKind::InRange { low, high } => {
-                if v >= *low && v <= *high {
-                    (v - *low).max(0.0)
-                } else {
-                    0.0
-                }
-            }
-        }
-    }
-
-    /// Whether the condition holds at value v
-    #[inline]
-    pub fn is_active(&self, v: f64) -> bool {
-        self.excess(v) > 0.0
-    }
-}
+// NOTE: ThresholdKind::excess() and ThresholdKind::is_active() were removed as duplicates.
+// See main crate src/thresholds.rs lines ~213-232 for identical implementations.
 
 /// Definition of a threshold.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,15 +113,8 @@ impl Default for ThresholdRuntimeState {
     }
 }
 
-impl ThresholdRuntimeState {
-    /// Push, enforcing a cap.
-    pub fn push_event_capped(&mut self, evt: ThresholdEvent, cap: usize) {
-        self.events.push_back(evt);
-        while self.events.len() > cap {
-            self.events.pop_front();
-        }
-    }
-}
+// NOTE: ThresholdRuntimeState::push_event_capped() was removed as a duplicate.
+// See main crate src/thresholds.rs lines ~310-315 for identical implementation.
 
 impl ThresholdDef {
     pub fn get_info(&self, axis_setting: &AxisSettings) -> String {
