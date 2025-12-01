@@ -36,6 +36,112 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TraceRef(pub String);
 
+// Additional TraceRef impls merged from Janosch branch (src/data/traces.rs)
+impl Default for TraceRef {
+    fn default() -> Self {
+        TraceRef(String::new())
+    }
+}
+
+impl TraceRef {
+    pub fn new<S: Into<String>>(name: S) -> Self {
+        TraceRef(name.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl std::fmt::Display for TraceRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::cmp::Ord for TraceRef {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.cmp(&other.0)
+    }
+}
+
+impl std::cmp::PartialOrd for TraceRef {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq<str> for TraceRef {
+    fn eq(&self, other: &str) -> bool {
+        self.0 == other
+    }
+}
+
+impl PartialEq<String> for TraceRef {
+    fn eq(&self, other: &String) -> bool {
+        &self.0 == other
+    }
+}
+
+impl PartialEq<TraceRef> for String {
+    fn eq(&self, other: &TraceRef) -> bool {
+        self == &other.0
+    }
+}
+
+impl PartialEq<&str> for TraceRef {
+    fn eq(&self, other: &&str) -> bool {
+        self.0.as_str() == *other
+    }
+}
+
+impl std::cmp::PartialOrd<str> for TraceRef {
+    fn partial_cmp(&self, other: &str) -> Option<std::cmp::Ordering> {
+        Some(self.0.as_str().cmp(other))
+    }
+}
+
+impl std::ops::Deref for TraceRef {
+    type Target = str;
+    fn deref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl AsRef<str> for TraceRef {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::borrow::Borrow<str> for TraceRef {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<&str> for TraceRef {
+    fn from(s: &str) -> Self {
+        TraceRef(s.to_string())
+    }
+}
+
+impl From<String> for TraceRef {
+    fn from(s: String) -> Self {
+        TraceRef(s)
+    }
+}
+
+impl From<TraceRef> for String {
+    fn from(value: TraceRef) -> Self {
+        value.0
+    }
+}
+
 /// Parameters describing a biquad / low-order IIR filter in direct form I.
 ///
 /// The coefficients are stored as arrays following the conventional biquad

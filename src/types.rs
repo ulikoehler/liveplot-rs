@@ -18,6 +18,49 @@ pub(crate) struct TraceState {
     pub info: String,
 }
 
+impl TraceState {
+    /// Prune live buffer to at most `max_points` by removing oldest points.
+    pub fn prune_by_points(&mut self, max_points: usize) {
+        while self.live.len() > max_points {
+            self.live.pop_front();
+        }
+    }
+
+    /// Clear both live and snapshot buffers.
+    pub fn clear_all(&mut self) {
+        self.live.clear();
+        self.snap = None;
+    }
+
+    /// Take a snapshot of the current live buffer.
+    pub fn take_snapshot(&mut self) {
+        self.snap = Some(self.live.clone());
+    }
+
+    /// Clear the snapshot buffer.
+    pub fn clear_snapshot(&mut self) {
+        self.snap = None;
+    }
+
+    /// Get the timestamp of the last live point, if any.
+    pub fn get_last_live_timestamp(&self) -> Option<f64> {
+        self.live.back().map(|p| p[0])
+    }
+
+    /// Get the timestamp of the last snapshot point, if any.
+    pub fn get_last_snapshot_timestamp(&self) -> Option<f64> {
+        self.snap.as_ref().and_then(|s| s.back().map(|p| p[0]))
+    }
+
+    /// Filter points to only those within the given x bounds (inclusive).
+    pub fn cap_by_x_bounds(pts: &VecDeque<[f64; 2]>, bounds: (f64, f64)) -> VecDeque<[f64; 2]> {
+        pts.iter()
+            .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
+            .cloned()
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct MathBuilderState {
     pub name: String,

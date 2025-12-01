@@ -466,7 +466,7 @@ impl LivePlotApp {
     }
 
     /// Call a closure with the bottom panel at the given index temporarily moved out, then put it back.
-    pub(super) fn with_bottom_panel_at<F>(&mut self, index: usize, f: F)
+    pub(super) fn with_bottom_panel_at<F>(&mut self, index: usize, mut f: F)
     where
         F: FnMut(&mut dyn crate::panel::DockPanel, &mut Self),
     {

@@ -31,9 +31,31 @@ impl PointSelection {
         }
     }
 
+    // Additional methods merged from Janosch branch (src/data/measurement.rs)
+
+    /// Set point 1 directly
+    pub fn set_point1(&mut self, point: [f64; 2]) {
+        self.selected_p1 = Some(point);
+    }
+
+    /// Set point 2 directly
+    pub fn set_point2(&mut self, point: [f64; 2]) {
+        self.selected_p2 = Some(point);
+    }
+
+    /// Get both points
+    pub fn get_points(&self) -> (Option<[f64; 2]>, Option<[f64; 2]>) {
+        (self.selected_p1, self.selected_p2)
+    }
+
     /// Clear both selections
     pub fn clear(&mut self) {
         self.selected_p1 = None;
         self.selected_p2 = None;
+    }
+
+    /// Check if both points are selected
+    pub fn has_both_points(&self) -> bool {
+        self.selected_p1.is_some() && self.selected_p2.is_some()
     }
 }

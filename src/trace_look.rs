@@ -21,7 +21,7 @@ impl Default for TraceLook {
         Self {
             visible: true,
             color: egui::Color32::WHITE,
-            width: 1.0,
+            width: 1.5, // Updated from Janosch branch (was 1.0)
             style: egui_plot::LineStyle::Solid,
             show_points: false,
             point_size: 2.0,
