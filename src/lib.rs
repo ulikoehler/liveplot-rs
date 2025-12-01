@@ -50,6 +50,11 @@ pub use data::traces::TraceRef;
 pub use sink::{channel_plot, PlotCommand, PlotPoint, PlotSink, Trace, TraceId};
 pub use thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdKind};
 pub use panels::{Panel, PanelState};
+// Re-export individual panel types from panels module
+pub use panels::{
+    ExportPanel, LiveplotPanel, MathPanel, MeasurementPanel, ScopePanel as PanelScopePanel,
+    ThresholdsPanel, TracesPanel, TriggersPanel,
+};
 
 // Re-exports from new modules
 pub use data::triggers::{Trigger, TriggerSlope};

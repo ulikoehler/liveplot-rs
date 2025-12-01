@@ -696,7 +696,7 @@ fn union_times<'a>(
 /// caller is responsible for sorting and deduping the returned vector.
 
 #[inline]
-fn first_order_lowpass(fc: f64, dt: f64) -> BiquadParams {
+pub fn first_order_lowpass(fc: f64, dt: f64) -> BiquadParams {
     // Bilinear transform of RC lowpass: alpha = dt / (RC + dt), with RC = 1/(2*pi*fc)
     let rc = 1.0 / (2.0 * std::f64::consts::PI * fc.max(1e-9));
     let alpha = dt / (rc + dt);
@@ -715,7 +715,7 @@ fn first_order_lowpass(fc: f64, dt: f64) -> BiquadParams {
 /// and `dt` the sample interval in seconds.
 
 #[inline]
-fn first_order_highpass(fc: f64, dt: f64) -> BiquadParams {
+pub fn first_order_highpass(fc: f64, dt: f64) -> BiquadParams {
     let rc = 1.0 / (2.0 * std::f64::consts::PI * fc.max(1e-9));
     let alpha = rc / (rc + dt);
     // y[n] = alpha*(y[n-1] + x[n] - x[n-1])
@@ -726,7 +726,7 @@ fn first_order_highpass(fc: f64, dt: f64) -> BiquadParams {
 }
 
 #[inline]
-fn biquad_step(p: BiquadParams, x0: f64, x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
+pub fn biquad_step(p: BiquadParams, x0: f64, x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
     let a0 = if p.a[0].abs() < 1e-15 { 1.0 } else { p.a[0] };
     let b0 = p.b[0] / a0;
     let b1 = p.b[1] / a0;
@@ -747,7 +747,7 @@ fn biquad_step(p: BiquadParams, x0: f64, x1: f64, x2: f64, y1: f64, y2: f64) -> 
 
 // RBJ audio EQ cookbook biquad coefficients (dt -> fs)
 #[inline]
-fn biquad_lowpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
+pub fn biquad_lowpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
     let fs = (1.0 / dt).max(1.0);
     let w0 = 2.0 * std::f64::consts::PI * (fc.max(1e-9) / fs);
     let cosw0 = w0.cos();
@@ -773,7 +773,7 @@ fn biquad_lowpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
 /// layout as `BiquadParams` and should be normalized by a0 when used.
 
 #[inline]
-fn biquad_highpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
+pub fn biquad_highpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
     let fs = (1.0 / dt).max(1.0);
     let w0 = 2.0 * std::f64::consts::PI * (fc.max(1e-9) / fs);
     let cosw0 = w0.cos();
@@ -799,7 +799,7 @@ fn biquad_highpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
 /// other biquad generators the caller should normalize the coefficients by a0.
 
 #[inline]
-fn biquad_bandpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
+pub fn biquad_bandpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
     let fs = (1.0 / dt).max(1.0);
     let w0 = 2.0 * std::f64::consts::PI * (fc.max(1e-9) / fs);
     let cosw0 = w0.cos();
