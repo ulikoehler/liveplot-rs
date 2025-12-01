@@ -1,10 +1,8 @@
 use egui::Ui;
 
+use super::scope_ui::ScopePanel;
 use crate::data::scope::ScopeData;
 use crate::data::traces::TracesCollection;
-use super::scope_ui::ScopePanel;
-
-
 
 pub struct LiveplotPanel {
     scope_ui: ScopePanel,
@@ -31,12 +29,8 @@ impl LiveplotPanel {
 
     pub fn render_menu(&mut self, _ui: &mut Ui) {}
 
-    pub fn render_panel<F>(
-        &mut self,
-        ui: &mut Ui,
-        draw_overlays: F,
-        traces: &mut TracesCollection,
-    ) where
+    pub fn render_panel<F>(&mut self, ui: &mut Ui, draw_overlays: F, traces: &mut TracesCollection)
+    where
         F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
     {
         self.render_panel_with_suffix(ui, draw_overlays, traces, |_ui, _scope, _traces| {});
@@ -59,12 +53,10 @@ impl LiveplotPanel {
             |ui, _scope, traces| {
                 // Prefix controls
                 ui.label("Data Points:");
-                ui.add(
-                    egui::Slider::new(
-                        &mut traces.max_points,
-                        self.points_bounds.0..=self.points_bounds.1,
-                    )
-                );
+                ui.add(egui::Slider::new(
+                    &mut traces.max_points,
+                    self.points_bounds.0..=self.points_bounds.1,
+                ));
             },
             |ui, scope, traces| {
                 // Suffix controls (core controls first)
@@ -84,5 +76,4 @@ impl LiveplotPanel {
     }
 
     // Old specialized prefix/suffix helpers removed; functionality handled via closures.
-
 }

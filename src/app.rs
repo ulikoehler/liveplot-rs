@@ -5,8 +5,8 @@ use crate::data::export;
 use crate::data::traces::{TraceRef, TracesCollection};
 
 use crate::data::data::LivePlotData;
-use crate::panels::panel_trait::Panel;
 use crate::panels::liveplot_ui::LiveplotPanel;
+use crate::panels::panel_trait::Panel;
 
 // use crate::panels::{
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
@@ -296,7 +296,11 @@ impl MainPanel {
                     scope_data: data,
                     traces: &mut self.traces_data,
                 };
-                if p { lp.pause(); } else { lp.resume(); }
+                if p {
+                    lp.pause();
+                } else {
+                    lp.resume();
+                }
             }
             if take_actions.1 {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
@@ -339,15 +343,25 @@ impl MainPanel {
             }
             for (name, vis) in inner.visible_requests.drain(..) {
                 let tref = TraceRef(name.clone());
-                if let Some(tr) = traces.get_trace_mut(&tref) { tr.look.visible = vis; }
+                if let Some(tr) = traces.get_trace_mut(&tref) {
+                    tr.look.visible = vis;
+                }
             }
             for (name, off) in inner.offset_requests.drain(..) {
                 let tref = TraceRef(name.clone());
-                if let Some(tr) = traces.get_trace_mut(&tref) { tr.offset = off; }
+                if let Some(tr) = traces.get_trace_mut(&tref) {
+                    tr.offset = off;
+                }
             }
-            if let Some(unit) = inner.y_unit_request.take() { data.y_axis.unit = unit; }
-            if let Some(ylog) = inner.y_log_request.take() { data.y_axis.log_scale = ylog; }
-            if let Some(sel) = inner.selection_request.take() { data.selection_trace = sel.map(TraceRef); }
+            if let Some(unit) = inner.y_unit_request.take() {
+                data.y_axis.unit = unit;
+            }
+            if let Some(ylog) = inner.y_log_request.take() {
+                data.y_axis.log_scale = ylog;
+            }
+            if let Some(sel) = inner.selection_request.take() {
+                data.selection_trace = sel.map(TraceRef);
+            }
 
             let mut infos: Vec<crate::controllers::TraceInfo> = Vec::new();
             for name in data.trace_order.iter() {
@@ -375,7 +389,11 @@ impl MainPanel {
         // FFT controller: publish basic info
         if let Some(ctrl) = &self.fft_ctrl {
             let mut inner = ctrl.inner.lock().unwrap();
-            let info = crate::controllers::FftPanelInfo { shown: inner.show, current_size: None, requested_size: inner.request_set_size };
+            let info = crate::controllers::FftPanelInfo {
+                shown: inner.show,
+                current_size: None,
+                requested_size: inner.request_set_size,
+            };
             inner.listeners.retain(|s| s.send(info.clone()).is_ok());
         }
     }
@@ -410,25 +428,37 @@ impl MainPanel {
 
             ui.menu_button("Panels", |ui| {
                 for p in &mut self.left_side_panels {
-                    if ui.selectable_label(p.state_mut().visible, p.title()).clicked() {
+                    if ui
+                        .selectable_label(p.state_mut().visible, p.title())
+                        .clicked()
+                    {
                         p.state_mut().detached = false;
                         p.state_mut().visible = true;
                     }
                 }
                 for p in &mut self.right_side_panels {
-                    if ui.selectable_label(p.state_mut().visible, p.title()).clicked() {
+                    if ui
+                        .selectable_label(p.state_mut().visible, p.title())
+                        .clicked()
+                    {
                         p.state_mut().detached = false;
                         p.state_mut().visible = true;
                     }
                 }
                 for p in &mut self.bottom_panels {
-                    if ui.selectable_label(p.state_mut().visible, p.title()).clicked() {
+                    if ui
+                        .selectable_label(p.state_mut().visible, p.title())
+                        .clicked()
+                    {
                         p.state_mut().detached = false;
                         p.state_mut().visible = true;
                     }
                 }
                 for p in &mut self.detached_panels {
-                    if ui.selectable_label(p.state_mut().visible, p.title()).clicked() {
+                    if ui
+                        .selectable_label(p.state_mut().visible, p.title())
+                        .clicked()
+                    {
                         p.state_mut().detached = true;
                         p.state_mut().visible = true;
                     }
@@ -581,11 +611,13 @@ impl MainPanel {
 
         if count > 0 {
             // Honor focus requests from panels (request_docket): make that panel the active attached tab
-            if let Some(req_idx) = list
-                .iter()
-                .enumerate()
-                .find_map(|(i, p)| if p.state().request_docket { Some(i) } else { None })
-            {
+            if let Some(req_idx) = list.iter().enumerate().find_map(|(i, p)| {
+                if p.state().request_docket {
+                    Some(i)
+                } else {
+                    None
+                }
+            }) {
                 for (j, p) in list.iter_mut().enumerate() {
                     if j == req_idx {
                         let st = p.state_mut();
@@ -930,13 +962,17 @@ pub fn run_liveplot(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> 
         opts.viewport = egui::ViewportBuilder::default().with_icon(icon);
     }
     // opts.initial_window_size = Some(egui::vec2(1280.0, 720.0));
-    eframe::run_native(&title, opts, Box::new(|cc| {
-        // Install Phosphor icon font before creating the app
-        let mut fonts = egui::FontDefinitions::default();
-        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-        cc.egui_ctx.set_fonts(fonts);
-        Ok(Box::new(app))
-    }))
+    eframe::run_native(
+        &title,
+        opts,
+        Box::new(|cc| {
+            // Install Phosphor icon font before creating the app
+            let mut fonts = egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+            cc.egui_ctx.set_fonts(fonts);
+            Ok(Box::new(app))
+        }),
+    )
 }
 
 pub fn run_liveplot_with_controllers(
@@ -952,12 +988,16 @@ pub fn run_liveplot_with_controllers(
     if let Some(icon) = load_app_icon_svg() {
         opts.viewport = egui::ViewportBuilder::default().with_icon(icon);
     }
-    eframe::run_native(&title, opts, Box::new(|cc| {
-        let mut fonts = egui::FontDefinitions::default();
-        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-        cc.egui_ctx.set_fonts(fonts);
-        Ok(Box::new(app))
-    }))
+    eframe::run_native(
+        &title,
+        opts,
+        Box::new(|cc| {
+            let mut fonts = egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+            cc.egui_ctx.set_fonts(fonts);
+            Ok(Box::new(app))
+        }),
+    )
 }
 
 fn load_app_icon_svg() -> Option<egui::IconData> {
@@ -976,5 +1016,9 @@ fn load_app_icon_svg() -> Option<egui::IconData> {
     let mut canvas = pixmap.as_mut();
     resvg::render(&tree, tiny_skia::Transform::default(), &mut canvas);
     let rgba = pixmap.take();
-    Some(egui::IconData { rgba, width: size.width(), height: size.height() })
+    Some(egui::IconData {
+        rgba,
+        width: size.width(),
+        height: size.height(),
+    })
 }

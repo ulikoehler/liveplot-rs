@@ -221,7 +221,10 @@ impl MathTrace {
         }
     }
 
-    pub fn compute_math_trace(&mut self, sources: HashMap<TraceRef, Vec<[f64; 2]>>) -> Vec<[f64; 2]> {
+    pub fn compute_math_trace(
+        &mut self,
+        sources: HashMap<TraceRef, Vec<[f64; 2]>>,
+    ) -> Vec<[f64; 2]> {
         let mut out = if let Some(points) = sources.get(&self.name) {
             points.clone()
         } else {
@@ -406,7 +409,7 @@ impl MathTrace {
                                 accum += 0.5 * (v + v0) * dt;
                                 out.push([t, accum.clone()]);
                             }
-                        }else if out.is_empty() {
+                        } else if out.is_empty() {
                             // First sample, initialize output
                             out.push([t, accum.clone()]);
                         }

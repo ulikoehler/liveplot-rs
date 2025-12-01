@@ -57,7 +57,13 @@ pub trait Panel: Downcast {
         // Read minimal window state in a short borrow scope to avoid conflicts
         let (title, vis, pos, size, vid_opt) = {
             let st = self.state();
-            (st.title, st.visible, st.window_pos, st.window_size, st.viewport_id)
+            (
+                st.title,
+                st.visible,
+                st.window_pos,
+                st.window_size,
+                st.viewport_id,
+            )
         };
 
         // Ensure a stable viewport id for this panel
@@ -71,8 +77,12 @@ pub trait Panel: Downcast {
 
         // Build viewport with persisted geometry if present
         let mut builder = egui::ViewportBuilder::default().with_title(title);
-        if let Some(sz) = size { builder = builder.with_inner_size([sz[0], sz[1]]); }
-        if let Some(p) = pos { builder = builder.with_position([p[0], p[1]]); }
+        if let Some(sz) = size {
+            builder = builder.with_inner_size([sz[0], sz[1]]);
+        }
+        if let Some(p) = pos {
+            builder = builder.with_position([p[0], p[1]]);
+        }
 
         // Show new viewport (external if supported, embedded otherwise)
         ctx.show_viewport_immediate(vid, builder, |vctx, class| {
@@ -106,8 +116,12 @@ pub trait Panel: Downcast {
                     let mut show_flag = vis;
                     let mut win = egui::Window::new(title).open(&mut show_flag);
                     // Apply persisted position/size if available
-                    if let Some(p) = pos { win = win.default_pos(egui::pos2(p[0], p[1])); }
-                    if let Some(sz) = size { win = win.default_size(egui::vec2(sz[0], sz[1])); }
+                    if let Some(p) = pos {
+                        win = win.default_pos(egui::pos2(p[0], p[1]));
+                    }
+                    if let Some(sz) = size {
+                        win = win.default_size(egui::vec2(sz[0], sz[1]));
+                    }
                     let resp = win.show(vctx, |ui| draw_ui(ui));
 
                     // Write back state changes without overlapping borrows

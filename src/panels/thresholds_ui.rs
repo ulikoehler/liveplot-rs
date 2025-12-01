@@ -1,9 +1,9 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::LivePlotData;
-use crate::data::scope::ScopeData;
-use crate::data::traces::TracesCollection;
 use crate::data::scope::AxisSettings;
+use crate::data::scope::ScopeData;
 use crate::data::thresholds::{ThresholdDef, ThresholdEvent, ThresholdKind};
+use crate::data::traces::TracesCollection;
 use crate::panels::trace_look_ui::render_trace_look_editor;
 use chrono::Local;
 use egui;
@@ -80,7 +80,12 @@ impl Panel for ThresholdsPanel {
         self.clear_all_events();
     }
 
-    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, scope: &ScopeData, traces: &TracesCollection) {
+    fn draw(
+        &mut self,
+        plot_ui: &mut egui_plot::PlotUi,
+        scope: &ScopeData,
+        traces: &TracesCollection,
+    ) {
         // Threshold overlays
         if !self.thresholds.is_empty() {
             let bounds = plot_ui.plot_bounds();
@@ -420,9 +425,7 @@ impl Panel for ThresholdsPanel {
 
             // Name, Trace, Condition
             // Duplicate name when creating, or when editing and changing to an existing different name
-            let duplicate_name = self
-                .thresholds
-                .contains_key(&self.builder.name)
+            let duplicate_name = self.thresholds.contains_key(&self.builder.name)
                 && self.editing.as_deref() != Some(self.builder.name.as_str());
 
             ui.horizontal(|ui| {
@@ -447,7 +450,12 @@ impl Panel for ThresholdsPanel {
                 .position(|n| n == &self.builder.target)
                 .unwrap_or(0);
             egui::ComboBox::from_label("Trace")
-                .selected_text(trace_names.get(target_idx).map(|t| t.to_string()).unwrap_or_default())
+                .selected_text(
+                    trace_names
+                        .get(target_idx)
+                        .map(|t| t.to_string())
+                        .unwrap_or_default(),
+                )
                 .show_ui(ui, |ui| {
                     for (i, n) in trace_names.iter().enumerate() {
                         if ui.selectable_label(target_idx == i, n.as_str()).clicked() {

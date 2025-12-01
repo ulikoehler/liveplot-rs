@@ -1,4 +1,4 @@
-use liveplot::{channel_multi, run_liveplot, WindowController, LivePlotConfig};
+use liveplot::{channel_multi, run_liveplot, LivePlotConfig, WindowController};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
@@ -46,8 +46,8 @@ fn main() -> eframe::Result<()> {
 
     // Log window updates in a background thread
     std::thread::spawn(move || {
-        let mut last_size: Option<[f32;2]> = None;
-        let mut last_pos: Option<[f32;2]> = None;
+        let mut last_size: Option<[f32; 2]> = None;
+        let mut last_pos: Option<[f32; 2]> = None;
         while let Ok(info) = updates.recv() {
             let changed = info.current_size != last_size || info.current_pos != last_pos;
             if changed {

@@ -1,5 +1,5 @@
 use super::panel_trait::{Panel, PanelState};
-use crate::data::{export, traces::TraceRef, data::LivePlotData};
+use crate::data::{data::LivePlotData, export, traces::TraceRef};
 use egui::Ui;
 use std::collections::HashMap;
 
@@ -51,17 +51,16 @@ impl Panel for ExportPanel {
                 {
                     // Build series map based on paused/snapshot state
                     let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
-                    for (name,tr) in data.traces.traces_iter() {
-                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
-                            if data.is_paused() {
-                                if let Some(snap) = &tr.snap {
-                                    Box::new(snap.iter())
-                                } else {
-                                    Box::new(tr.live.iter())
-                                }
+                    for (name, tr) in data.traces.traces_iter() {
+                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if data.is_paused() {
+                            if let Some(snap) = &tr.snap {
+                                Box::new(snap.iter())
                             } else {
                                 Box::new(tr.live.iter())
-                            };
+                            }
+                        } else {
+                            Box::new(tr.live.iter())
+                        };
                         let vec: Vec<[f64; 2]> = iter.cloned().collect();
                         series.insert(name.clone(), vec);
                     }

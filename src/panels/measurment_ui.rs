@@ -47,7 +47,8 @@ impl Panel for MeasurementPanel {
         ui.menu_button("📏 Measurements", |ui| {
             if ui.button("New measurement").clicked() {
                 let idx = self.measurements.len() + 1;
-                self.measurements.push(Measurement::new(&format!("M{}", idx)));
+                self.measurements
+                    .push(Measurement::new(&format!("M{}", idx)));
                 // Focus this panel
                 let st = self.state_mut();
                 st.visible = true;
@@ -56,7 +57,9 @@ impl Panel for MeasurementPanel {
                 ui.close();
             }
             if ui.button("X Clear All").clicked() {
-                for m in &mut self.measurements { m.clear(); }
+                for m in &mut self.measurements {
+                    m.clear();
+                }
                 data.scope_data.clicked_point = None;
                 ui.close();
             }
@@ -108,7 +111,12 @@ impl Panel for MeasurementPanel {
         }
     }
 
-    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, scope: &crate::data::scope::ScopeData, _traces: &crate::data::traces::TracesCollection) {
+    fn draw(
+        &mut self,
+        plot_ui: &mut egui_plot::PlotUi,
+        scope: &crate::data::scope::ScopeData,
+        _traces: &crate::data::traces::TracesCollection,
+    ) {
         // Measurement overlays
         let base_body = plot_ui.ctx().style().text_styles[&egui::TextStyle::Body].size;
         let marker_font_size = base_body * 1.5;
@@ -117,7 +125,11 @@ impl Panel for MeasurementPanel {
         for (mi, measurement) in self.measurements.iter().enumerate() {
             let name = measurement.name.clone();
             let (p1_opt, p2_opt) = measurement.get_points();
-            let dimmed = if let Some(h) = hovered_idx { h != mi } else { false };
+            let dimmed = if let Some(h) = hovered_idx {
+                h != mi
+            } else {
+                false
+            };
             let (c_p1, c_p2, c_line) = if dimmed {
                 let dim = |c: Color32| Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 60);
                 (
@@ -131,30 +143,73 @@ impl Panel for MeasurementPanel {
 
             let (x_min_lin, x_max_lin) = scope.x_axis.bounds;
             let (y_min_lin, y_max_lin) = scope.y_axis.bounds;
-            let x_min_plot = if scope.x_axis.log_scale && x_min_lin > 0.0 { x_min_lin.log10() } else { x_min_lin };
-            let x_max_plot = if scope.x_axis.log_scale && x_max_lin > 0.0 { x_max_lin.log10() } else { x_max_lin };
-            let y_min_plot = if scope.y_axis.log_scale && y_min_lin > 0.0 { y_min_lin.log10() } else { y_min_lin };
-            let y_max_plot = if scope.y_axis.log_scale && y_max_lin > 0.0 { y_max_lin.log10() } else { y_max_lin };
+            let x_min_plot = if scope.x_axis.log_scale && x_min_lin > 0.0 {
+                x_min_lin.log10()
+            } else {
+                x_min_lin
+            };
+            let x_max_plot = if scope.x_axis.log_scale && x_max_lin > 0.0 {
+                x_max_lin.log10()
+            } else {
+                x_max_lin
+            };
+            let y_min_plot = if scope.y_axis.log_scale && y_min_lin > 0.0 {
+                y_min_lin.log10()
+            } else {
+                y_min_lin
+            };
+            let y_max_plot = if scope.y_axis.log_scale && y_max_lin > 0.0 {
+                y_max_lin.log10()
+            } else {
+                y_max_lin
+            };
             let ox = 0.01 * (x_max_plot - x_min_plot);
             let oy = 0.01 * (y_max_plot - y_min_plot);
 
             let (dx, dy) = if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
                 (p2[0] - p1[0], p2[1] - p1[1])
-            } else { (0.0, 0.0) };
+            } else {
+                (0.0, 0.0)
+            };
 
-            let label_pos = |dx: f64, dy: f64, p: &[f64; 2], ox: f64, oy: f64| -> (Align2, egui::Align, PlotPoint) {
-                let slope = if dx != 0.0 || oy != 0.0 || ox != 0.0 { (dy / oy) / (dx / ox) } else { 0.0 };
+            let label_pos = |dx: f64,
+                             dy: f64,
+                             p: &[f64; 2],
+                             ox: f64,
+                             oy: f64|
+             -> (Align2, egui::Align, PlotPoint) {
+                let slope = if dx != 0.0 || oy != 0.0 || ox != 0.0 {
+                    (dy / oy) / (dx / ox)
+                } else {
+                    0.0
+                };
                 if dx <= 0.0 || slope.abs() > 8.0 {
                     if dy >= 0.0 || slope.abs() < 0.2 {
-                        (Align2::LEFT_TOP, egui::Align::LEFT, PlotPoint::new(p[0] + ox, p[1] - oy))
+                        (
+                            Align2::LEFT_TOP,
+                            egui::Align::LEFT,
+                            PlotPoint::new(p[0] + ox, p[1] - oy),
+                        )
                     } else {
-                        (Align2::LEFT_BOTTOM, egui::Align::LEFT, PlotPoint::new(p[0] + ox, p[1] + oy))
+                        (
+                            Align2::LEFT_BOTTOM,
+                            egui::Align::LEFT,
+                            PlotPoint::new(p[0] + ox, p[1] + oy),
+                        )
                     }
                 } else {
                     if dy >= 0.0 || slope.abs() < 0.2 {
-                        (Align2::RIGHT_TOP, egui::Align::RIGHT, PlotPoint::new(p[0] - ox, p[1] - oy))
+                        (
+                            Align2::RIGHT_TOP,
+                            egui::Align::RIGHT,
+                            PlotPoint::new(p[0] - ox, p[1] - oy),
+                        )
                     } else {
-                        (Align2::RIGHT_BOTTOM, egui::Align::RIGHT, PlotPoint::new(p[0] - ox, p[1] + oy))
+                        (
+                            Align2::RIGHT_BOTTOM,
+                            egui::Align::RIGHT,
+                            PlotPoint::new(p[0] - ox, p[1] + oy),
+                        )
                     }
                 }
             };
@@ -162,8 +217,16 @@ impl Panel for MeasurementPanel {
             if let Some(p) = p1_opt {
                 plot_ui.points(Points::new(&name, vec![p]).radius(5.0).color(c_p1));
                 let (halign_anchor, text_align, base) = label_pos(dx, dy, &p, ox, oy);
-                let x_lin = if scope.x_axis.log_scale { 10f64.powf(p[0]) } else { p[0] };
-                let y_lin = if scope.y_axis.log_scale { 10f64.powf(p[1]) } else { p[1] };
+                let x_lin = if scope.x_axis.log_scale {
+                    10f64.powf(p[0])
+                } else {
+                    p[0]
+                };
+                let y_lin = if scope.y_axis.log_scale {
+                    10f64.powf(p[1])
+                } else {
+                    p[1]
+                };
                 let x_range = (x_max_lin - x_min_lin).abs();
                 let y_range = (y_max_lin - y_min_lin).abs();
                 let x_txt = scope.x_axis.format_value(x_lin, 6, x_range);
@@ -180,8 +243,16 @@ impl Panel for MeasurementPanel {
             if let Some(p) = p2_opt {
                 plot_ui.points(Points::new(&name, vec![p]).radius(5.0).color(c_p2));
                 let (halign_anchor, text_align, base) = label_pos(-dx, -dy, &p, ox, oy);
-                let x_lin = if scope.x_axis.log_scale { 10f64.powf(p[0]) } else { p[0] };
-                let y_lin = if scope.y_axis.log_scale { 10f64.powf(p[1]) } else { p[1] };
+                let x_lin = if scope.x_axis.log_scale {
+                    10f64.powf(p[0])
+                } else {
+                    p[0]
+                };
+                let y_lin = if scope.y_axis.log_scale {
+                    10f64.powf(p[1])
+                } else {
+                    p[1]
+                };
                 let x_range = (x_max_lin - x_min_lin).abs();
                 let y_range = (y_max_lin - y_min_lin).abs();
                 let x_txt = scope.x_axis.format_value(x_lin, 6, x_range);
@@ -197,22 +268,49 @@ impl Panel for MeasurementPanel {
             }
             if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
                 plot_ui.line(Line::new(&name, vec![p1, p2]).color(c_line));
-                let x1_lin = if scope.x_axis.log_scale { 10f64.powf(p1[0]) } else { p1[0] };
-                let x2_lin = if scope.x_axis.log_scale { 10f64.powf(p2[0]) } else { p2[0] };
-                let y1_lin = if scope.y_axis.log_scale { 10f64.powf(p1[1]) } else { p1[1] };
-                let y2_lin = if scope.y_axis.log_scale { 10f64.powf(p2[1]) } else { p2[1] };
+                let x1_lin = if scope.x_axis.log_scale {
+                    10f64.powf(p1[0])
+                } else {
+                    p1[0]
+                };
+                let x2_lin = if scope.x_axis.log_scale {
+                    10f64.powf(p2[0])
+                } else {
+                    p2[0]
+                };
+                let y1_lin = if scope.y_axis.log_scale {
+                    10f64.powf(p1[1])
+                } else {
+                    p1[1]
+                };
+                let y2_lin = if scope.y_axis.log_scale {
+                    10f64.powf(p2[1])
+                } else {
+                    p2[1]
+                };
                 let dx_lin = x2_lin - x1_lin;
                 let dy_lin = y2_lin - y1_lin;
-                let slope = if dx_lin.abs() > 1e-12 { dy_lin / dx_lin } else { f64::INFINITY };
+                let slope = if dx_lin.abs() > 1e-12 {
+                    dy_lin / dx_lin
+                } else {
+                    f64::INFINITY
+                };
                 let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
                 let y_range = (y_max_lin - y_min_lin).abs();
                 let dy_txt = scope.y_axis.format_value_with_unit(dy_lin, 6, y_range);
                 let txt = if slope.is_finite() {
-                    format!("{}:\nΔx={:.6}\nΔy={}\nslope={:.4}", name, dx_lin, dy_txt, slope)
+                    format!(
+                        "{}:\nΔx={:.6}\nΔy={}\nslope={:.4}",
+                        name, dx_lin, dy_txt, slope
+                    )
                 } else {
                     format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
                 };
-                let slope_plot = if dx != 0.0 || oy != 0.0 || ox != 0.0 { (dy / oy) / (dx / ox) } else { 0.0 };
+                let slope_plot = if dx != 0.0 || oy != 0.0 || ox != 0.0 {
+                    (dy / oy) / (dx / ox)
+                } else {
+                    0.0
+                };
                 let (halign_anchor, base) = if slope_plot.abs() > 8.0 {
                     (Align2::RIGHT_CENTER, PlotPoint::new(mid[0] - ox, mid[1]))
                 } else if slope_plot.abs() < 0.2 {
@@ -220,14 +318,22 @@ impl Panel for MeasurementPanel {
                 } else if slope_plot >= 0.0 {
                     (Align2::LEFT_TOP, PlotPoint::new(mid[0] + ox, mid[1] - oy))
                 } else {
-                    (Align2::LEFT_BOTTOM, PlotPoint::new(mid[0] + ox, mid[1] + oy))
+                    (
+                        Align2::LEFT_BOTTOM,
+                        PlotPoint::new(mid[0] + ox, mid[1] + oy),
+                    )
                 };
                 let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
                 egui::RichText::new(txt)
                     .size(marker_font_size)
                     .color(c_line)
-                    .append_to(&mut job, &style, egui::FontSelection::Default, egui::Align::LEFT);
+                    .append_to(
+                        &mut job,
+                        &style,
+                        egui::FontSelection::Default,
+                        egui::Align::LEFT,
+                    );
                 plot_ui.text(Text::new(&name, base, job).anchor(halign_anchor));
             }
         }
@@ -301,7 +407,9 @@ impl Panel for MeasurementPanel {
                     let p1_text = format!(
                         "P1: x={}  y={}",
                         data.scope_data.x_axis.format_value(x_lin, 6, x_range),
-                        data.scope_data.y_axis.format_value_with_unit(y_lin, 6, y_range)
+                        data.scope_data
+                            .y_axis
+                            .format_value_with_unit(y_lin, 6, y_range)
                     );
                     let resp = ui.colored_label(Color32::YELLOW, p1_text.clone());
                     if resp.double_clicked() {
@@ -318,7 +426,6 @@ impl Panel for MeasurementPanel {
                 }
                 // double-click handled above when value exists
 
-
                 let mut p2_label = if let Some(p) = p2 {
                     let x_lin = if data.scope_data.x_axis.log_scale {
                         10f64.powf(p[0])
@@ -333,7 +440,9 @@ impl Panel for MeasurementPanel {
                     let p2_text = format!(
                         "P2: x={}  y={}",
                         data.scope_data.x_axis.format_value(x_lin, 6, x_range),
-                        data.scope_data.y_axis.format_value_with_unit(y_lin, 6, y_range)
+                        data.scope_data
+                            .y_axis
+                            .format_value_with_unit(y_lin, 6, y_range)
                     );
                     let resp = ui.colored_label(Color32::LIGHT_BLUE, p2_text.clone());
                     if resp.double_clicked() {
@@ -386,13 +495,17 @@ impl Panel for MeasurementPanel {
                     format!(
                         "Δx={:.6}  Δy={}  slope={:.4}",
                         dx,
-                        data.scope_data.y_axis.format_value_with_unit(dy, 6, y_range),
+                        data.scope_data
+                            .y_axis
+                            .format_value_with_unit(dy, 6, y_range),
                         slope
                     )
                 } else {
                     format!(
                         "Δx=0  Δy={}",
-                        data.scope_data.y_axis.format_value_with_unit(dy, 6, y_range)
+                        data.scope_data
+                            .y_axis
+                            .format_value_with_unit(dy, 6, y_range)
                     )
                 };
                 let mut diff_label = ui.colored_label(Color32::LIGHT_GREEN, diff_txt.clone());

@@ -36,7 +36,10 @@ fn main() -> eframe::Result<()> {
     }
     let csv_path = csv_path.unwrap_or_else(|| PathBuf::from("live_data.csv"));
 
-    eprintln!("[csv_tail] Monitoring {:?} (from_start={})", csv_path, from_start);
+    eprintln!(
+        "[csv_tail] Monitoring {:?} (from_start={})",
+        csv_path, from_start
+    );
 
     let (sink, rx) = channel_multi();
 
@@ -65,7 +68,10 @@ fn main() -> eframe::Result<()> {
         let mut pos: u64 = if from_start {
             0
         } else {
-            match file.metadata() { Ok(m) => m.len(), Err(_) => 0 }
+            match file.metadata() {
+                Ok(m) => m.len(),
+                Err(_) => 0,
+            }
         };
 
         // Accumulator for partial last line across polls
@@ -77,11 +83,16 @@ fn main() -> eframe::Result<()> {
 
         loop {
             // Handle rotations/truncations
-            let len = match file.metadata() { Ok(m) => m.len(), Err(_) => 0 };
+            let len = match file.metadata() {
+                Ok(m) => m.len(),
+                Err(_) => 0,
+            };
             if len < pos {
                 // Truncated (e.g., recreated). Reset and try to re-open to refresh inode.
                 eprintln!("[csv_tail] Detected truncation. Reopening...");
-                if let Ok(f) = OpenOptions::new().read(true).open(&csv_path) { file = f; }
+                if let Ok(f) = OpenOptions::new().read(true).open(&csv_path) {
+                    file = f;
+                }
                 pos = 0;
             }
 
@@ -133,9 +144,15 @@ fn main() -> eframe::Result<()> {
     run_liveplot(rx, LivePlotConfig::default())
 }
 
-fn process_line(line: &str, trace_names: &mut Option<Vec<String>>, sink: &liveplot::sink::MultiPlotSink) {
+fn process_line(
+    line: &str,
+    trace_names: &mut Option<Vec<String>>,
+    sink: &liveplot::sink::MultiPlotSink,
+) {
     let line = line.trim();
-    if line.is_empty() { return; }
+    if line.is_empty() {
+        return;
+    }
 
     // Header? Expect at least 3 columns and non-numeric first cell
     if trace_names.is_none() {
@@ -157,18 +174,26 @@ fn process_line(line: &str, trace_names: &mut Option<Vec<String>>, sink: &livepl
 
     // Data line
     let cols: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
-    if cols.len() < 3 { return; } // incomplete
+    if cols.len() < 3 {
+        return;
+    } // incomplete
 
-    let idx = match cols[0].parse::<u64>() { Ok(v) => v, Err(_) => return };
+    let idx = match cols[0].parse::<u64>() {
+        Ok(v) => v,
+        Err(_) => return,
+    };
     let ts = match cols[1].parse::<i64>() {
         Ok(v) => v,
-        Err(_) => SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0),
+        Err(_) => SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_micros() as i64)
+            .unwrap_or(0),
     };
 
     // Determine trace names: if not set, synthesize generic names based on column index
     let names: Vec<String> = match trace_names {
         Some(v) => v.clone(),
-        None => (2..cols.len()).map(|i| format!("col{}", i-1)).collect(),
+        None => (2..cols.len()).map(|i| format!("col{}", i - 1)).collect(),
     };
 
     let value_cols = cols.len() - 2;

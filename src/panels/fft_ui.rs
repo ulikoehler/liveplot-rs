@@ -38,7 +38,10 @@ impl Panel for FftPanel {
     fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
         ui.menu_button("📊 FFT", |ui| {
             let prev = self.fft_db;
-            if ui.button(if self.fft_db { "Linear" } else { "dB" }).clicked() {
+            if ui
+                .button(if self.fft_db { "Linear" } else { "dB" })
+                .clicked()
+            {
                 self.fft_db = !self.fft_db;
                 let st = self.state_mut();
                 st.visible = true;
@@ -54,7 +57,7 @@ impl Panel for FftPanel {
                         if self.fft_data.fft_window != w {
                             self.fft_data.fft_window = w;
                             self.pending_auto_fit = true; // re-fit after next update
-                            // Focus panel so user sees effect
+                                                          // Focus panel so user sees effect
                             let st = self.state_mut();
                             st.visible = true;
                             st.detached = false;
@@ -63,9 +66,13 @@ impl Panel for FftPanel {
                         changed = true;
                     }
                 }
-                if changed { ui.close(); }
+                if changed {
+                    ui.close();
+                }
             });
-            if self.fft_db != prev { ui.close(); }
+            if self.fft_db != prev {
+                ui.close();
+            }
         });
     }
 
@@ -124,7 +131,7 @@ impl Panel for FftPanel {
             out_td.info = td.info.clone();
         }
 
-    // Configure scope for frequency domain
+        // Configure scope for frequency domain
         let scope_data = self.scope_ui.get_data_mut();
         scope_data.scope_type = ScopeType::XYScope;
         scope_data.x_axis.name = Some("Frequency".to_string());

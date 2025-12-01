@@ -16,7 +16,7 @@
 //
 //   cargo run --example sine_cosine_delayed_snapshot
 //
-use liveplot::{channel_multi, run_liveplot, UiActionController, RawExportFormat, LivePlotConfig};
+use liveplot::{channel_multi, run_liveplot, LivePlotConfig, RawExportFormat, UiActionController};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
@@ -33,7 +33,10 @@ fn main() -> eframe::Result<()> {
             let t = n as f64 / FS_HZ;
             let s_val = (2.0 * std::f64::consts::PI * F_HZ * t).sin();
             let c_val = (2.0 * std::f64::consts::PI * F_HZ * t).cos();
-            let now_us = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0);
+            let now_us = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_micros() as i64)
+                .unwrap_or(0);
             let _ = sink.send_value(n, s_val, now_us, "sine");
             let _ = sink.send_value(n, c_val, now_us, "cosine");
             n = n.wrapping_add(1);
