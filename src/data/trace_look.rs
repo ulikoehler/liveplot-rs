@@ -26,28 +26,6 @@ impl Default for TraceLook {
     }
 }
 
-impl TraceLook {
-    pub fn alloc_color(index: usize) -> Color32 {
-        // Simple distinct color palette
-        const PALETTE: [Color32; 10] = [
-            Color32::LIGHT_BLUE,
-            Color32::LIGHT_RED,
-            Color32::LIGHT_GREEN,
-            Color32::GOLD,
-            Color32::from_rgb(0xAA, 0x55, 0xFF), // purple
-            Color32::from_rgb(0xFF, 0xAA, 0x00), // orange
-            Color32::from_rgb(0x00, 0xDD, 0xDD), // cyan
-            Color32::from_rgb(0xDD, 0x00, 0xDD), // magenta
-            Color32::from_rgb(0x66, 0xCC, 0x66), // green2
-            Color32::from_rgb(0xCC, 0x66, 0x66), // red2
-        ];
-        PALETTE[index % PALETTE.len()]
-    }
-
-    pub fn new(index: usize) -> Self {
-        Self {
-            color: Self::alloc_color(index),
-            ..Default::default()
-        }
-    }
-}
+// NOTE: TraceLook::alloc_color() and TraceLook::new() were removed as duplicates.
+// See main crate src/data.rs lines ~485-502 for LivePlotApp::alloc_color() with identical PALETTE.
+// The function should be called from a central location during merge.
