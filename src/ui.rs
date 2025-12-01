@@ -12,7 +12,6 @@ use crate::controllers::FFTPanelInfo;
 use crate::controllers::{FFTDataRequest, FFTRawData, RawExportFormat, WindowInfo};
 use crate::thresholds::ThresholdEvent;
 
-use super::hotkeys::{Hotkey, HotkeyName};
 use super::panel::DockPanel;
 use super::LivePlotApp;
 
@@ -467,7 +466,7 @@ impl LivePlotApp {
     }
 
     /// Call a closure with the bottom panel at the given index temporarily moved out, then put it back.
-    pub(super) fn with_bottom_panel_at<F>(&mut self, index: usize, mut f: F)
+    pub(super) fn with_bottom_panel_at<F>(&mut self, index: usize, f: F)
     where
         F: FnMut(&mut dyn crate::panel::DockPanel, &mut Self),
     {
