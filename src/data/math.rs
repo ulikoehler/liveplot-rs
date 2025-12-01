@@ -28,21 +28,35 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-// Import filter helper functions and types from main crate's math module
-use crate::math::{
-    biquad_bandpass, biquad_highpass, biquad_lowpass, biquad_step, first_order_highpass,
-    first_order_lowpass, BiquadParams,
-};
-
 /// Identifier of a source trace by name.
 ///
 /// This is just a thin wrapper around `String` used to make math trace definitions
 /// more explicit. The inner string must match a key present in the `sources` map
 /// passed to computation routines.
-use crate::data::traces::TraceRef;
+pub use crate::data::traces::TraceRef;
 
-// Note: BiquadParams is now imported from crate::math to avoid duplicate type definitions.
+/// Parameters describing a biquad / low-order IIR filter in direct form I.
+///
+/// The coefficients are stored as arrays following the conventional biquad
+/// notation: feedforward numerator b = [b0, b1, b2] and feedback denominator
+/// a = [a0, a1, a2]. Implementations using these parameters must divide the
+/// b- and a-coefficients by a0 (if a0 != 1.0) before evaluating the filter to
+/// obtain the normalized difference equation:
+///
+/// y[n] = (b0/a0)*x[n] + (b1/a0)*x[n-1] + (b2/a0)*x[n-2] - (a1/a0)*y[n-1] - (a2/a0)*y[n-2]
+///
+/// We intentionally keep the raw a0 here since some generator formulas (RBJ
+/// cookbook) produce a0 != 1.0 and it is numerically preferable to normalize
+/// in the step function rather than in each generator.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct BiquadParams {
+    /// Feedforward coefficients b0,b1,b2
+    pub b: [f64; 3],
+    /// Feedback coefficients a0,a1,a2 (a0 typically 1.0)
+    pub a: [f64; 3],
+}
 
+/// Output mode for Min/Max tracker
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum MinMaxMode {
     Min,
@@ -915,5 +929,136 @@ impl MathTrace {
                 }
             }
         }
+    }
+}
+
+// =============================================================================
+// Filter helper functions (biquad and first-order IIR)
+// =============================================================================
+
+/// First-order lowpass mapped to a biquad-like parameterization.
+///
+/// The transform derives a simple one-pole lowpass performed via a direct-form
+/// I biquad with the returned coefficients. `fc` is the cutoff frequency in Hz
+/// and `dt` the sample interval in seconds.
+#[inline]
+pub fn first_order_lowpass(fc: f64, dt: f64) -> BiquadParams {
+    // Bilinear transform of RC lowpass: alpha = dt / (RC + dt), with RC = 1/(2*pi*fc)
+    let rc = 1.0 / (2.0 * std::f64::consts::PI * fc.max(1e-9));
+    let alpha = dt / (rc + dt);
+    // y[n] = y[n-1] + alpha*(x[n] - y[n-1])
+    // As biquad: b0=alpha, b1=0, b2=0; a0=1, a1=-(1-alpha), a2=0 (implemented in DF-I helper)
+    BiquadParams {
+        b: [alpha, 0.0, 0.0],
+        a: [1.0, -(1.0 - alpha), 0.0],
+    }
+}
+
+/// First-order highpass mapped to a biquad-like parameterization.
+///
+/// The transform derives a simple one-pole highpass performed via a direct-form
+/// I biquad with the returned coefficients. `fc` is the cutoff frequency in Hz
+/// and `dt` the sample interval in seconds.
+#[inline]
+pub fn first_order_highpass(fc: f64, dt: f64) -> BiquadParams {
+    let rc = 1.0 / (2.0 * std::f64::consts::PI * fc.max(1e-9));
+    let alpha = rc / (rc + dt);
+    // y[n] = alpha*(y[n-1] + x[n] - x[n-1])
+    BiquadParams {
+        b: [alpha, -alpha, 0.0],
+        a: [1.0, -alpha, 0.0],
+    }
+}
+
+/// Evaluate one sample of a biquad (Direct Form I) given parameters and
+/// previous delay-line values.
+///
+/// The function normalizes by `a0` (unless it is extremely close to zero) to
+/// produce the standard difference equation. The caller is responsible for
+/// shifting delay-line values after calling this function (i.e. updating x1,
+/// x2, y1, y2 as appropriate).
+#[inline]
+pub fn biquad_step(p: BiquadParams, x0: f64, x1: f64, x2: f64, y1: f64, y2: f64) -> f64 {
+    let a0 = if p.a[0].abs() < 1e-15 { 1.0 } else { p.a[0] };
+    let b0 = p.b[0] / a0;
+    let b1 = p.b[1] / a0;
+    let b2 = p.b[2] / a0;
+    let a1 = p.a[1] / a0;
+    let a2 = p.a[2] / a0;
+    b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+}
+
+/// RBJ audio EQ cookbook biquad lowpass coefficient generator.
+///
+/// Uses the RBJ audio EQ cookbook formula adapted to a sampling rate derived
+/// from `dt` (fs = 1/dt). The returned coefficients are in the same [b,a]
+/// layout as `BiquadParams` and should be normalized by a0 when used.
+#[inline]
+pub fn biquad_lowpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
+    let fs = (1.0 / dt).max(1.0);
+    let w0 = 2.0 * std::f64::consts::PI * (fc.max(1e-9) / fs);
+    let cosw0 = w0.cos();
+    let sinw0 = w0.sin();
+    let q = q.max(1e-6);
+    let alpha = sinw0 / (2.0 * q);
+    let b0 = (1.0 - cosw0) * 0.5;
+    let b1 = 1.0 - cosw0;
+    let b2 = (1.0 - cosw0) * 0.5;
+    let a0 = 1.0 + alpha;
+    let a1 = -2.0 * cosw0;
+    let a2 = 1.0 - alpha;
+    BiquadParams {
+        b: [b0, b1, b2],
+        a: [a0, a1, a2],
+    }
+}
+
+/// RBJ biquad highpass coefficient generator.
+///
+/// Uses the RBJ audio EQ cookbook formula adapted to a sampling rate derived
+/// from `dt` (fs = 1/dt). The returned coefficients are in the same [b,a]
+/// layout as `BiquadParams` and should be normalized by a0 when used.
+#[inline]
+pub fn biquad_highpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
+    let fs = (1.0 / dt).max(1.0);
+    let w0 = 2.0 * std::f64::consts::PI * (fc.max(1e-9) / fs);
+    let cosw0 = w0.cos();
+    let sinw0 = w0.sin();
+    let q = q.max(1e-6);
+    let alpha = sinw0 / (2.0 * q);
+    let b0 = (1.0 + cosw0) * 0.5;
+    let b1 = -(1.0 + cosw0);
+    let b2 = (1.0 + cosw0) * 0.5;
+    let a0 = 1.0 + alpha;
+    let a1 = -2.0 * cosw0;
+    let a2 = 1.0 - alpha;
+    BiquadParams {
+        b: [b0, b1, b2],
+        a: [a0, a1, a2],
+    }
+}
+
+/// RBJ biquad bandpass coefficient generator.
+///
+/// Produces coefficients that implement a band-pass with center frequency `fc`
+/// and quality factor `q` (constant skirt gain, peak gain = Q). As with the
+/// other biquad generators the caller should normalize the coefficients by a0.
+#[inline]
+pub fn biquad_bandpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
+    let fs = (1.0 / dt).max(1.0);
+    let w0 = 2.0 * std::f64::consts::PI * (fc.max(1e-9) / fs);
+    let cosw0 = w0.cos();
+    let sinw0 = w0.sin();
+    let q = q.max(1e-6);
+    let alpha = sinw0 / (2.0 * q);
+    let b0 = alpha;
+    let b1 = 0.0;
+    let b2 = -alpha;
+    let a0 = 1.0 + alpha;
+    let a1 = -2.0 * cosw0;
+    let a2 = 1.0 - alpha;
+    BiquadParams {
+        b: [b0, b1, b2],
+        a: [a0, a1, a2],
     }
 }

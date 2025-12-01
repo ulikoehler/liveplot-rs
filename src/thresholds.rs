@@ -18,16 +18,8 @@ use crate::LivePlotApp;
 
 use crate::math::TraceRef;
 
-/// Threshold condition kind.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ThresholdKind {
-    /// Event when value > `value`
-    GreaterThan { value: f64 },
-    /// Event when value < `value`
-    LessThan { value: f64 },
-    /// Event when `low <= value <= high`
-    InRange { low: f64, high: f64 },
-}
+// Re-export ThresholdKind from data::thresholds for backward compatibility
+pub use crate::data::thresholds::ThresholdKind;
 
 impl LivePlotApp {
     /// Apply threshold controller add/remove requests.
@@ -204,31 +196,6 @@ impl LivePlotApp {
         self.threshold_states
             .get(name)
             .map(|s| s.events.iter().cloned().collect())
-    }
-}
-
-impl ThresholdKind {
-    /// Compute the "excess" at value v relative to the threshold definition.
-    /// Excess is >= 0 when the threshold condition holds, 0 when not.
-    #[inline]
-    pub fn excess(&self, v: f64) -> f64 {
-        match self {
-            ThresholdKind::GreaterThan { value } => (v - *value).max(0.0),
-            ThresholdKind::LessThan { value } => (*value - v).max(0.0),
-            ThresholdKind::InRange { low, high } => {
-                if v >= *low && v <= *high {
-                    (v - *low).max(0.0)
-                } else {
-                    0.0
-                }
-            }
-        }
-    }
-
-    /// Whether the condition holds at value v
-    #[inline]
-    pub fn is_active(&self, v: f64) -> bool {
-        self.excess(v) > 0.0
     }
 }
 
