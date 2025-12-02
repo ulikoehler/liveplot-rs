@@ -14,7 +14,7 @@ use std::time::Duration;
 use crate::controllers::{TraceInfo, TracesInfo};
 use crate::sink::PlotCommand;
 
-use super::trace_look::TraceLook;
+use crate::data::trace_look::TraceLook;
 use super::types::TraceState;
 use super::LivePlotApp;
 

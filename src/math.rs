@@ -627,7 +627,7 @@ fn union_times<'a>(
 // trace configuration and runtime storage. Kept here so math-related logic
 // is colocated with the computation engine.
 
-use crate::trace_look::TraceLook;
+use crate::data::trace_look::TraceLook;
 use crate::types::TraceState;
 use crate::LivePlotApp;
 

@@ -9,6 +9,7 @@ use crate::thresholds::{ThresholdDef, ThresholdEvent, ThresholdKind};
 
 use super::app::LivePlotApp;
 use super::types::ThresholdBuilderState;
+use crate::data::trace_look::TraceLook;
 
 #[derive(Debug, Clone)]
 pub struct ThresholdsPanel {
@@ -17,9 +18,9 @@ pub struct ThresholdsPanel {
     pub editing: Option<String>,
     pub error: Option<String>,
     pub creating: bool,
-    pub looks: HashMap<String, super::trace_look::TraceLook>,
-    pub start_looks: HashMap<String, super::trace_look::TraceLook>,
-    pub stop_looks: HashMap<String, super::trace_look::TraceLook>,
+    pub looks: HashMap<String, TraceLook>,
+    pub start_looks: HashMap<String, TraceLook>,
+    pub stop_looks: HashMap<String, TraceLook>,
     pub events_filter: Option<String>,
 }
 

@@ -7,6 +7,7 @@
 
 use chrono::Local;
 use egui::{Align2, Color32};
+use crate::data::trace_look::TraceLook;
 use egui_plot::{HLine, Line, Plot, PlotPoint, Points, Text, VLine};
 
 use super::LivePlotApp;
@@ -266,7 +267,7 @@ impl LivePlotApp {
                             .get(&def.name)
                             .cloned()
                             .unwrap_or_else(|| {
-                                let mut l = super::trace_look::TraceLook::default();
+                                let mut l = TraceLook::default();
                                 if let Some(rgb) = def.color_hint {
                                     l.color = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
                                 } else {
@@ -281,7 +282,7 @@ impl LivePlotApp {
                             .get(&def.name)
                             .cloned()
                             .unwrap_or_else(|| {
-                                let mut l = super::trace_look::TraceLook::default();
+                                let mut l = TraceLook::default();
                                 l.color = thr_look.color;
                                 l.width = 2.0;
                                 l
@@ -292,7 +293,7 @@ impl LivePlotApp {
                             .get(&def.name)
                             .cloned()
                             .unwrap_or_else(|| {
-                                let mut l = super::trace_look::TraceLook::default();
+                                let mut l = TraceLook::default();
                                 l.color = thr_look.color;
                                 l.width = 2.0;
                                 l
