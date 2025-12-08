@@ -1,23 +1,30 @@
-//! New modular LivePlot architecture (work-in-progress reorg)
+//! LivePlot crate root: re-exports and module wiring.
+
+mod app;
+pub mod data;
+pub mod panels;
+pub mod persistence;
+// #[cfg(feature = "tiles")]
+// pub mod tiles;
 
 pub mod config;
 pub mod controllers;
-pub mod sink; // keep existing sink API unchanged
+pub mod sink;
 
-pub mod data;
-pub mod panels;
-
-pub mod app; // standalone runner and embedding entrypoints
-pub mod persistence;
-
-// Re-exports for external API compatibility with examples
-// pub use config::{LivePlotConfig, XDateFormat};
+// Public re-exports for a compact external API
+pub use app::run_liveplot;
 pub use controllers::{
-    FftController, FftDataRequest, FftPanelInfo, FftRawData, RawExportFormat, TraceInfo,
+    FFTController, FFTDataRequest, FFTPanelInfo, FFTRawData, RawExportFormat, TraceInfo,
     TracesController, TracesInfo, UiActionController, WindowController, WindowInfo,
 };
-pub use sink::{channel_multi, MultiPlotSink, MultiSample};
-// pub use data::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdKind};
-// pub use data::math::TraceRef; // reuse TraceRef type
+pub use data::traces::TraceRef;
+pub use panels::{Panel, PanelState};
+pub use sink::{channel_plot, PlotCommand, PlotPoint, PlotSink, Trace, TraceId};
+// Re-export individual panel types from panels module
+pub use panels::{
+    ExportPanel, LiveplotPanel, MathPanel, MeasurementPanel, ScopePanel as PanelScopePanel,
+    ThresholdsPanel, TracesPanel, TriggersPanel,
+};
 
-pub use app::{run_liveplot, run_liveplot_with_controllers, MainApp as ScopeAppMulti};
+// Re-exports from new modules
+pub use data::triggers::{Trigger, TriggerSlope};

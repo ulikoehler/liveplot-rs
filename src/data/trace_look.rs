@@ -1,7 +1,10 @@
-use egui::Color32;
+//! TraceLook: visual styling for plot traces.
+
+use eframe::egui::Color32;
 use egui_plot::{LineStyle, MarkerShape};
 
-#[derive(Clone, Debug)]
+/// The visual presentation of a trace (color, visibility, line style, markers).
+#[derive(Debug, Clone)]
 pub struct TraceLook {
     pub color: Color32,
     pub visible: bool,
@@ -15,39 +18,40 @@ pub struct TraceLook {
 impl Default for TraceLook {
     fn default() -> Self {
         Self {
-            color: Color32::WHITE,
+            color: Color32::GRAY,
             visible: true,
             width: 1.5,
             show_points: false,
             style: LineStyle::Solid,
-            point_size: 2.0,
+            point_size: 4.0,
             marker: MarkerShape::Circle,
         }
     }
 }
 
 impl TraceLook {
-    pub fn alloc_color(index: usize) -> Color32 {
-        // Simple distinct color palette
-        const PALETTE: [Color32; 10] = [
-            Color32::LIGHT_BLUE,
-            Color32::LIGHT_RED,
-            Color32::LIGHT_GREEN,
-            Color32::GOLD,
-            Color32::from_rgb(0xAA, 0x55, 0xFF), // purple
-            Color32::from_rgb(0xFF, 0xAA, 0x00), // orange
-            Color32::from_rgb(0x00, 0xDD, 0xDD), // cyan
-            Color32::from_rgb(0xDD, 0x00, 0xDD), // magenta
-            Color32::from_rgb(0x66, 0xCC, 0x66), // green2
-            Color32::from_rgb(0xCC, 0x66, 0x66), // red2
-        ];
-        PALETTE[index % PALETTE.len()]
-    }
-
+    /// Create a new TraceLook with a color allocated based on the trace index.
     pub fn new(index: usize) -> Self {
         Self {
             color: Self::alloc_color(index),
             ..Default::default()
         }
+    }
+
+    /// Allocate a distinct color for the given trace index.
+    pub fn alloc_color(index: usize) -> Color32 {
+        const PALETTE: [Color32; 10] = [
+            Color32::from_rgb(31, 119, 180),
+            Color32::from_rgb(255, 127, 14),
+            Color32::from_rgb(44, 160, 44),
+            Color32::from_rgb(214, 39, 40),
+            Color32::from_rgb(148, 103, 189),
+            Color32::from_rgb(140, 86, 75),
+            Color32::from_rgb(227, 119, 194),
+            Color32::from_rgb(127, 127, 127),
+            Color32::from_rgb(188, 189, 34),
+            Color32::from_rgb(23, 190, 207),
+        ];
+        PALETTE[index % PALETTE.len()]
     }
 }

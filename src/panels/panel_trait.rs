@@ -1,3 +1,5 @@
+//! Panel trait and state for the modular UI architecture.
+
 use egui::{Context, Ui};
 use egui_plot::PlotUi;
 
@@ -6,6 +8,7 @@ use crate::data::scope::ScopeData;
 use crate::data::traces::TracesCollection;
 use downcast_rs::{impl_downcast, Downcast};
 
+/// State for a panel (visibility, detachment, position, size).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PanelState {
     pub title: &'static str,
@@ -14,7 +17,7 @@ pub struct PanelState {
     pub request_docket: bool,
     pub window_pos: Option<[f32; 2]>,
     pub window_size: Option<[f32; 2]>,
-    // If set, the panel is shown in an external OS window with this ViewportId
+    /// If set, the panel is shown in an external OS window with this ViewportId
     pub viewport_id: Option<egui::ViewportId>,
 }
 
@@ -32,6 +35,7 @@ impl PanelState {
     }
 }
 
+/// Trait for modular panels that can be docked, detached, and rendered.
 pub trait Panel: Downcast {
     fn title(&self) -> &'static str {
         self.state().title
@@ -47,11 +51,9 @@ pub trait Panel: Downcast {
 
     fn update_data(&mut self, _data: &mut LivePlotData<'_>) {}
 
-    // Clear all internal runtime state / events / buffers specific to the panel.
-    // Default: no-op. Panels with internal collections override this.
+    /// Clear all internal runtime state / events / buffers specific to the panel.
+    /// Default: no-op. Panels with internal collections override this.
     fn clear_all(&mut self) {}
-
-    // fn panel_contents(&mut self, _ui: &mut Ui, _data: &mut ScopeData) {}
 
     fn show_detached_dialog(&mut self, ctx: &Context, data: &mut LivePlotData<'_>) {
         // Read minimal window state in a short borrow scope to avoid conflicts

@@ -1,6 +1,9 @@
+//! Scope data: axis settings, display state, and coordinate management.
+
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 use std::collections::{HashMap, VecDeque};
 
+/// Settings for a single axis (X or Y).
 pub struct AxisSettings {
     pub unit: Option<String>,
     pub log_scale: bool,
@@ -24,6 +27,7 @@ impl Default for AxisSettings {
 }
 
 impl AxisSettings {
+    /// Format a value with unit, using scientific notation when appropriate.
     pub fn format_value_with_unit(&self, v: f64, dec_pl: usize, step: f64) -> String {
         // Decide scientific formatting based on step magnitude vs precision:
         // - Use scientific if step < 10^-dec_pl (too fine to show with dec_pl)
@@ -63,6 +67,7 @@ impl AxisSettings {
         }
     }
 
+    /// Format a value, with optional chrono datetime format for time axes.
     pub fn format_value(&self, v: f64, dec_pl: usize, step: f64) -> String {
         // If a format string is provided, interpret it as a chrono DateTime format for
         // Unix timestamp seconds (used for time axes) and ignore dec_pl/sci.
@@ -77,28 +82,27 @@ impl AxisSettings {
                 .to_string();
         }
 
-        return self.format_value_with_unit(v, dec_pl, step);
+        self.format_value_with_unit(v, dec_pl, step)
     }
 }
 
-#[derive(PartialEq, Eq)]
+/// Scope type: time-based or XY mode.
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub enum ScopeType {
     TimeScope,
     XYScope,
 }
 
+/// Central state for the scope display.
 pub struct ScopeData {
-    // Y Settings
     pub y_axis: AxisSettings,
     pub x_axis: AxisSettings,
-    //pub max_points: usize,
     pub time_window: f64,
     pub scope_type: ScopeType,
     pub paused: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
 
-    //pub traces: HashMap<String, TraceData>,
     pub trace_order: Vec<TraceRef>,
     pub hover_trace: Option<TraceRef>,
     pub selection_trace: Option<TraceRef>,
@@ -114,14 +118,11 @@ impl Default for ScopeData {
         Self {
             y_axis: AxisSettings::default(),
             x_axis,
-            //max_points: 10_000,
             time_window: 10.0,
             scope_type: ScopeType::TimeScope,
             paused: false,
             show_legend: true,
             show_info_in_legend: false,
-            // rx: None,
-            //traces: HashMap::new(),
             trace_order: Vec::new(),
             hover_trace: None,
             selection_trace: None,
@@ -176,7 +177,7 @@ impl ScopeData {
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
         for (_name, trace) in traces.traces_iter() {
-            if trace.look.visible == false {
+            if !trace.look.visible {
                 continue;
             }
             let points = if self.paused {
@@ -208,7 +209,7 @@ impl ScopeData {
         let mut max_y = f64::MIN;
         let x_bounds = self.x_axis.bounds;
         for (_name, trace) in traces.traces_iter() {
-            if trace.look.visible == false {
+            if !trace.look.visible {
                 continue;
             }
             let points = if self.paused {
@@ -252,7 +253,7 @@ impl ScopeData {
     ) -> Option<VecDeque<[f64; 2]>> {
         if let Some(trace) = traces.get_points(name, self.paused) {
             if self.scope_type == ScopeType::XYScope {
-                Some(trace.clone())
+                Some(trace)
             } else {
                 Some(TraceData::cap_by_x_bounds(&trace, self.x_axis.bounds))
             }

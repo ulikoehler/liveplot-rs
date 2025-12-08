@@ -1,11 +1,25 @@
+//! Example: Threshold detection on a live sine trace
+//!
+//! What it demonstrates
+//! - Using `ThresholdController` to define thresholds (e.g. greater-than) and receiving
+//!   threshold events for traces streamed into LivePlot.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example thresholds_sine
+//! ```
+//! The example streams a sine wave and prints threshold events to stderr when the
+//! configured condition is met.
+
 use liveplot::{
-    channel_multi, run_liveplot, LivePlotConfig, ThresholdController, ThresholdDef, ThresholdKind,
-    TraceRef,
+    channel_plot, run_liveplot, LivePlotConfig, PlotPoint, ThresholdController, ThresholdDef,
+    ThresholdKind, TraceRef,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
-    let (sink, rx) = channel_multi();
+    let (sink, rx) = channel_plot();
+    let trace = sink.create_trace("signal", None);
 
     // Producer: 1 kHz sample rate, 3 Hz sine
     std::thread::spawn(move || {
@@ -16,11 +30,11 @@ fn main() -> eframe::Result<()> {
         loop {
             let t = n as f64 / FS_HZ;
             let val = (2.0 * std::f64::consts::PI * F_HZ * t).sin();
-            let now_us = SystemTime::now()
+            let t_s = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_micros() as i64)
-                .unwrap_or(0);
-            let _ = sink.send_value(n, val, now_us, "signal");
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            let _ = sink.send_point(&trace, PlotPoint { x: t_s, y: val });
             n = n.wrapping_add(1);
             std::thread::sleep(dt);
         }
@@ -46,17 +60,16 @@ fn main() -> eframe::Result<()> {
     }
     thr_ctrl.add_threshold(ThresholdDef {
         name: "gt_0_8".into(),
-        display_name: None,
         target: TraceRef("signal".into()),
         kind: ThresholdKind::GreaterThan { value: 0.8 },
-        color_hint: None,
         min_duration_s: 0.002,
         max_events: 100,
+        ..Default::default()
     });
 
     // Run the UI with the controller attached via config
     let mut cfg = LivePlotConfig::default();
-    cfg.title = Some("LivePlot (thresholds)".into());
+    cfg.title = "LivePlot (thresholds)".into();
     cfg.native_options = Some(eframe::NativeOptions::default());
     cfg.threshold_controller = Some(thr_ctrl);
     run_liveplot(rx, cfg)

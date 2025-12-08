@@ -1,12 +1,13 @@
 use eframe::egui;
 
-use crate::controllers::{FftController, TracesController, UiActionController, WindowController};
+use crate::controllers::{FFTController, TracesController, UiActionController, WindowController};
 use crate::data::export;
 use crate::data::traces::{TraceRef, TracesCollection};
 
 use crate::data::data::LivePlotData;
 use crate::panels::liveplot_ui::LiveplotPanel;
 use crate::panels::panel_trait::Panel;
+use crate::PlotCommand;
 
 // use crate::panels::{
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
@@ -33,11 +34,11 @@ pub struct MainPanel {
     pub(crate) window_ctrl: Option<WindowController>,
     pub(crate) ui_ctrl: Option<UiActionController>,
     pub(crate) traces_ctrl: Option<TracesController>,
-    pub(crate) fft_ctrl: Option<FftController>,
+    pub(crate) fft_ctrl: Option<FFTController>,
 }
 
 impl MainPanel {
-    pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
+    pub fn new(rx: std::sync::mpsc::Receiver<PlotCommand>) -> Self {
         Self {
             traces_data: TracesCollection::new(rx),
             liveplot_panel: LiveplotPanel::default(),
@@ -69,7 +70,7 @@ impl MainPanel {
         window_ctrl: Option<WindowController>,
         ui_ctrl: Option<UiActionController>,
         traces_ctrl: Option<TracesController>,
-        fft_ctrl: Option<FftController>,
+        fft_ctrl: Option<FFTController>,
     ) {
         self.window_ctrl = window_ctrl;
         self.ui_ctrl = ui_ctrl;
@@ -389,7 +390,7 @@ impl MainPanel {
         // FFT controller: publish basic info
         if let Some(ctrl) = &self.fft_ctrl {
             let mut inner = ctrl.inner.lock().unwrap();
-            let info = crate::controllers::FftPanelInfo {
+            let info = crate::controllers::FFTPanelInfo {
                 shown: inner.show,
                 current_size: None,
                 requested_size: inner.request_set_size,
@@ -472,7 +473,111 @@ impl MainPanel {
                         .set_file_name("liveplot_state.json")
                         .save_file()
                     {
-                        let _ = crate::persistence::save_mainpanel_to_path(ui.ctx(), self, &path);
+                        // Build a serializable `AppStateSerde` and write it using the
+                        // generic `save_state_to_path` API from `persistence.rs`.
+                        let ctx = ui.ctx();
+                        let rect = ctx.input(|i| i.content_rect());
+                        let win_size = Some([rect.width(), rect.height()]);
+                        let win_pos = Some([rect.left(), rect.top()]);
+
+                        let scope_data = self.liveplot_panel.get_data_mut();
+                        let scope_state = crate::persistence::ScopeStateSerde::from(&*scope_data);
+
+                        // Helper to convert Panel::state() to PanelVisSerde
+                        let mut panels_state: Vec<crate::persistence::PanelVisSerde> = Vec::new();
+                        let mut push_panel = |p: &Box<dyn Panel>| {
+                            let st = p.state();
+                            panels_state.push(crate::persistence::PanelVisSerde {
+                                title: st.title.to_string(),
+                                visible: st.visible,
+                                detached: st.detached,
+                                window_pos: st.window_pos,
+                                window_size: st.window_size,
+                            });
+                        };
+                        for p in &self.left_side_panels {
+                            push_panel(p);
+                        }
+                        for p in &self.right_side_panels {
+                            push_panel(p);
+                        }
+                        for p in &self.bottom_panels {
+                            push_panel(p);
+                        }
+                        for p in &self.detached_panels {
+                            push_panel(p);
+                        }
+                        for p in &self.empty_panels {
+                            push_panel(p);
+                        }
+
+                        // Trace styles: snapshot & convert to serializable form to avoid long-lived borrows
+                        let order = scope_data.trace_order.clone();
+                        let trace_styles: Vec<crate::persistence::TraceStyleSerde> = {
+                            let mut snapshot: Vec<(
+                                String,
+                                crate::data::trace_look::TraceLook,
+                                f64,
+                            )> = Vec::new();
+                            for name in order.iter() {
+                                if let Some(tr) = self.traces_data.get_trace(name) {
+                                    snapshot.push((name.0.clone(), tr.look.clone(), tr.offset));
+                                }
+                            }
+                            let mut out: Vec<crate::persistence::TraceStyleSerde> = Vec::new();
+                            for (n, look, off) in snapshot.into_iter() {
+                                out.push(crate::persistence::TraceStyleSerde {
+                                    name: n,
+                                    look: crate::persistence::TraceLookSerde::from(&look),
+                                    offset: off,
+                                });
+                            }
+                            out
+                        };
+
+                        // Thresholds & Triggers: extract from specialized panels, if present
+                        let mut thresholds_ser: Vec<crate::persistence::ThresholdSerde> =
+                            Vec::new();
+                        let mut triggers_ser: Vec<crate::persistence::TriggerSerde> = Vec::new();
+                        for p in self
+                            .left_side_panels
+                            .iter()
+                            .chain(self.right_side_panels.iter())
+                            .chain(self.bottom_panels.iter())
+                            .chain(self.detached_panels.iter())
+                            .chain(self.empty_panels.iter())
+                        {
+                            let any: &dyn Panel = &**p;
+                            if let Some(tp) =
+                                any.downcast_ref::<crate::panels::thresholds_ui::ThresholdsPanel>()
+                            {
+                                for (_n, d) in tp.thresholds.iter() {
+                                    thresholds_ser.push(
+                                        crate::persistence::ThresholdSerde::from_threshold(d),
+                                    );
+                                }
+                            }
+                            if let Some(trg) =
+                                any.downcast_ref::<crate::panels::triggers_ui::TriggersPanel>()
+                            {
+                                for (_n, t) in trg.triggers.iter() {
+                                    triggers_ser
+                                        .push(crate::persistence::TriggerSerde::from_trigger(t));
+                                }
+                            }
+                        }
+
+                        let state = crate::persistence::AppStateSerde {
+                            window_size: win_size,
+                            window_pos: win_pos,
+                            scope: scope_state,
+                            panels: panels_state,
+                            traces_style: trace_styles,
+                            thresholds: thresholds_ser,
+                            triggers: triggers_ser,
+                        };
+
+                        let _ = crate::persistence::save_state_to_path(&state, &path);
                     }
                 }
                 if ui.button("Load state...").clicked() {
@@ -480,7 +585,89 @@ impl MainPanel {
                         .add_filter("JSON", &["json"])
                         .pick_file()
                     {
-                        let _ = crate::persistence::load_mainpanel_from_path(ui.ctx(), self, &path);
+                        // Load serialized state and apply to the current UI structures
+                        if let Ok(loaded) = crate::persistence::load_state_from_path(&path) {
+                            // Window: attempt to request size/pos via ctx
+                            if let Some(sz) = loaded.window_size {
+                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::InnerSize(
+                                    egui::Vec2::new(sz[0], sz[1]),
+                                ));
+                            }
+                            // Scope: apply to scope data
+                            let scope_data = self.liveplot_panel.get_data_mut();
+                            loaded.scope.clone().apply_to(scope_data);
+
+                            // Panels: match by title and set visible/detached/pos/size
+                            let apply_panel_state = |p: &mut Box<dyn Panel>| {
+                                let st = p.state_mut();
+                                for pser in &loaded.panels {
+                                    if pser.title == st.title {
+                                        st.visible = pser.visible;
+                                        st.detached = pser.detached;
+                                        st.window_pos = pser.window_pos;
+                                        st.window_size = pser.window_size;
+                                        break;
+                                    }
+                                }
+                            };
+                            for p in &mut self.left_side_panels {
+                                apply_panel_state(p);
+                            }
+                            for p in &mut self.right_side_panels {
+                                apply_panel_state(p);
+                            }
+                            for p in &mut self.bottom_panels {
+                                apply_panel_state(p);
+                            }
+                            for p in &mut self.detached_panels {
+                                apply_panel_state(p);
+                            }
+                            for p in &mut self.empty_panels {
+                                apply_panel_state(p);
+                            }
+
+                            // Apply traces styles
+                            crate::persistence::apply_trace_styles(
+                                &loaded.traces_style,
+                                |name, look, off| {
+                                    let tref = TraceRef(name.to_string());
+                                    if let Some(tr) = self.traces_data.get_trace_mut(&tref) {
+                                        tr.look = look;
+                                        tr.offset = off;
+                                    }
+                                },
+                            );
+
+                            // Apply thresholds and triggers to specialized panels
+                            for p in self
+                                .left_side_panels
+                                .iter_mut()
+                                .chain(self.right_side_panels.iter_mut())
+                                .chain(self.bottom_panels.iter_mut())
+                                .chain(self.detached_panels.iter_mut())
+                                .chain(self.empty_panels.iter_mut())
+                            {
+                                let any: &mut dyn Panel = &mut **p;
+                                if let Some(tp) = any
+                                    .downcast_mut::<crate::panels::thresholds_ui::ThresholdsPanel>()
+                                {
+                                    tp.thresholds.clear();
+                                    for tser in &loaded.thresholds {
+                                        let def = tser.clone().into_threshold();
+                                        tp.thresholds.insert(def.name.clone(), def);
+                                    }
+                                }
+                                if let Some(trg) =
+                                    any.downcast_mut::<crate::panels::triggers_ui::TriggersPanel>()
+                                {
+                                    trg.triggers.clear();
+                                    for trser in &loaded.triggers {
+                                        let def = trser.clone().into_trigger();
+                                        trg.triggers.insert(def.name.clone(), def);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -742,11 +929,11 @@ pub struct MainApp {
     pub window_ctrl: Option<WindowController>,
     pub ui_ctrl: Option<UiActionController>,
     pub traces_ctrl: Option<TracesController>,
-    pub fft_ctrl: Option<FftController>,
+    pub fft_ctrl: Option<FFTController>,
 }
 
 impl MainApp {
-    pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
+    pub fn new(rx: std::sync::mpsc::Receiver<PlotCommand>) -> Self {
         Self {
             main_panel: MainPanel::new(rx),
             window_ctrl: None,
@@ -757,11 +944,11 @@ impl MainApp {
     }
 
     pub fn with_controllers(
-        rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>,
+        rx: std::sync::mpsc::Receiver<PlotCommand>,
         window_ctrl: Option<WindowController>,
         ui_ctrl: Option<UiActionController>,
         traces_ctrl: Option<TracesController>,
-        fft_ctrl: Option<FftController>,
+        fft_ctrl: Option<FFTController>,
     ) -> Self {
         Self {
             main_panel: MainPanel::new(rx),
@@ -924,13 +1111,13 @@ impl MainApp {
             inner.listeners.retain(|s| s.send(snapshot.clone()).is_ok());
         }
 
-        // FftController: reflect desired show state if FFT panel exists; publish panel size if present
+        // FFTController: reflect desired show state if FFT panel exists; publish panel size if present
         if let Some(ctrl) = &self.fft_ctrl {
             // Try to find an FFT panel and set its visibility/size
             // Currently not part of default layout; best-effort placeholder
             let mut inner = ctrl.inner.lock().unwrap();
             // We don't have actual panel size; set current_size to None for now
-            let info = crate::controllers::FftPanelInfo {
+            let info = crate::controllers::FFTPanelInfo {
                 shown: inner.show,
                 current_size: None,
                 requested_size: inner.request_set_size,
@@ -952,7 +1139,7 @@ impl eframe::App for MainApp {
     }
 }
 
-pub fn run_liveplot(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> eframe::Result<()> {
+pub fn run_liveplot(rx: std::sync::mpsc::Receiver<PlotCommand>) -> eframe::Result<()> {
     let app = MainApp::new(rx);
 
     let title = "LivePlot".to_string();
@@ -976,11 +1163,11 @@ pub fn run_liveplot(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> 
 }
 
 pub fn run_liveplot_with_controllers(
-    rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>,
+    rx: std::sync::mpsc::Receiver<PlotCommand>,
     window_ctrl: Option<WindowController>,
     ui_ctrl: Option<UiActionController>,
     traces_ctrl: Option<TracesController>,
-    fft_ctrl: Option<FftController>,
+    fft_ctrl: Option<FFTController>,
 ) -> eframe::Result<()> {
     let app = MainApp::with_controllers(rx, window_ctrl, ui_ctrl, traces_ctrl, fft_ctrl);
     let title = "LivePlot".to_string();

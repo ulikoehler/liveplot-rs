@@ -1,7 +1,10 @@
+//! LivePlotData: a view struct combining scope data and traces.
+
 use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 use std::collections::{HashMap, VecDeque};
 
+/// A view struct that combines scope data and traces for panel rendering.
 pub struct LivePlotData<'a> {
     pub scope_data: &'a mut ScopeData,
     pub traces: &'a mut TracesCollection,
@@ -34,7 +37,6 @@ impl<'a> LivePlotData<'a> {
     }
 
     pub fn get_drawn_points(&self, name: &TraceRef) -> Option<VecDeque<[f64; 2]>> {
-        // Delegate to ScopeData helper to ensure consistent bounds handling
         self.scope_data.get_drawn_points(name, &*self.traces)
     }
 

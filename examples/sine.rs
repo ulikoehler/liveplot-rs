@@ -1,9 +1,22 @@
-use liveplot::{channel_multi, run_liveplot};
+//! Example: Continuous sine wave producer
+//!
+//! What it demonstrates
+//! - Streaming samples into the multi-trace UI using `channel_plot()` and `PlotSink`.
+//! - Creating a trace with `create_trace` and sending points at a fixed sample rate.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example sine
+//! ```
+//! You should see a single trace named "signal" rendering a live sine wave.
+
+use liveplot::{channel_plot, run_liveplot, PlotPoint};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
     // Create multi-trace plot channel (we use a single trace labeled "signal")
-    let (sink, rx) = channel_multi();
+    let (sink, rx) = channel_plot();
+    let trace = sink.create_trace("signal", Some("Test Sine"));
 
     // Producer: 1 kHz sample rate, 3 Hz sine
     std::thread::spawn(move || {
@@ -14,12 +27,12 @@ fn main() -> eframe::Result<()> {
         loop {
             let t = n as f64 / FS_HZ;
             let val = (2.0 * std::f64::consts::PI * F_HZ * t).sin();
-            let now_us = SystemTime::now()
+            let t_s = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_micros() as i64)
-                .unwrap_or(0);
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
             // Ignore error if the UI closed (receiver dropped)
-            let _ = sink.send_value_with_info(n, val, now_us, "signal", "Test Sine Waaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaave");
+            let _ = sink.send_point(&trace, PlotPoint { x: t_s, y: val });
             n = n.wrapping_add(1);
             std::thread::sleep(dt);
         }

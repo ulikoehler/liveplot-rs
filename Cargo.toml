@@ -1,6 +1,6 @@
 [package]
 name = "liveplot"
-version = "0.3.0"
+version = "1.1.0"
 edition = "2021"
 autobins = false
 license = "Apache-2.0"
@@ -20,6 +20,7 @@ traces_table_debug = []
 grpc = [
 	"dep:tokio",
 	"dep:tonic",
+	"dep:tonic-prost",
 	"dep:prost",
 	"dep:prost-types",
 	"dep:async-stream",
@@ -40,35 +41,48 @@ window_control_display_info = [
 	"dep:display-info",
 ]
 
+# Optional tiles layout engine for helper APIs & examples
+tiles = ["dep:egui_tiles"]
+
 [dependencies]
 eframe = "0.33"
 egui = "0.33"
 egui_plot = "0.34"
+egui_tiles = { version = "0.14", optional = true }
 chrono = "0.4"
-rfd = "0.15"
+rfd = "0.16"
 image = "0.25"
-usvg = "0.45"
-resvg = "0.45"
-tiny-skia = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 egui_table = "0.5"
+serde_yaml = "0.9"
+downcast-rs = "2"
+usvg = "0.45"
+resvg = "0.45"
+tiny-skia = "0.11"
 rustfft = { version = "6", optional = true }
-tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "sync"], optional = true }
-tonic = { version = "0.12", features = ["tls", "transport"], optional = true }
-prost = { version = "0.13", optional = true }
-prost-types = { version = "0.13", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"], optional = true }
+tonic = { version = "0.14", features = ["transport"], optional = true }
+tonic-prost = { version = "0.14", optional = true }
+prost = { version = "0.14", optional = true }
+prost-types = { version = "0.14", optional = true }
 async-stream = { version = "0.3", optional = true }
 futures-core = { version = "0.3", optional = true }
-arrow-array = { version = "52", optional = true }
-arrow-schema = { version = "52", optional = true }
-parquet = { version = "52", optional = true, features = ["arrow"] }
+arrow-array = { version = "57", optional = true }
+arrow-schema = { version = "57", optional = true }
+parquet = { version = "57", optional = true, features = ["arrow"] }
 display-info = { version = "0.5", optional = true }
-downcast-rs = "1.2"
 egui-phosphor = "0.11"
 
 [build-dependencies]
-tonic-build = "0.12"
+tonic-prost-build = "0.14"
+
+## note: this repository uses `examples/embedded_tiles.rs` as the tiles example
+
+[[example]]
+name = "embedded_tiles"
+path = "examples/embedded_tiles.rs"
+required-features = ["tiles"]
 
 [[example]]
 name = "client"

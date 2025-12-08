@@ -21,9 +21,9 @@ macro_rules! traces_debug {
 }
 
 thread_local! {
-    static LAST_AVAIL_W: Cell<f32> = Cell::new(0.0);
-    static LAST_COL_HDR_W: RefCell<[f32; 6]> = RefCell::new([0.0; 6]);
-    static LAST_COL_ROW0_W: RefCell<[f32; 6]> = RefCell::new([0.0; 6]);
+    static LAST_AVAIL_W: Cell<f32> = const { Cell::new(0.0) };
+    static LAST_COL_HDR_W: RefCell<[f32; 6]> = const { RefCell::new([0.0; 6]) };
+    static LAST_COL_ROW0_W: RefCell<[f32; 6]> = const { RefCell::new([0.0; 6]) };
 }
 
 pub struct TracesPanel {
@@ -31,6 +31,7 @@ pub struct TracesPanel {
     pub look_editor_trace: Option<TraceRef>,
     pub hover_trace: Option<TraceRef>,
 }
+
 impl Default for TracesPanel {
     fn default() -> Self {
         Self {
@@ -390,20 +391,6 @@ impl Panel for TracesPanel {
             // Intentionally do nothing here so total width remains sum_min.
         }
 
-        // // Debug: print when width changes notably
-        // LAST_AVAIL_W.with(|c| {
-        //     let prev = c.get();
-        //     if (avail_w_f32 - prev).abs() > 1.0 {
-        //         c.set(avail_w_f32);
-        //         traces_debug!(
-        //             "[traces_ui] avail_w={:.1} sum_min={:.1} widths={:?}",
-        //             avail_w_f32,
-        //             min_w.iter().sum::<f32>(),
-        //             &w
-        //         );
-        //     }
-        // });
-
         let cols = vec![
             egui_table::Column::new(w[0]), // color edit
             egui_table::Column::new(w[1]), // name (stretches)
@@ -502,23 +489,3 @@ impl Panel for TracesPanel {
         }
     }
 }
-// Removed unused show_traces_dialog helper; dialogs are shown via DockPanel::show_detached_dialog
-
-// #[derive(Debug, Clone)]
-// pub struct TracesPanel {
-//     pub dock: DockState,
-//     pub look_editor_trace: Option<String>,
-// }
-
-// impl Default for TracesPanel {
-//     fn default() -> Self {
-//         Self { dock: DockState::new("Traces"), look_editor_trace: None }
-//     }
-// }
-
-// impl DockPanel for TracesPanel {
-//     fn dock_mut(&mut self) -> &mut DockState { &mut self.dock }
-//     fn panel_contents(&mut self, app: &mut ScopeAppMulti, ui: &mut egui::Ui) {
-//         traces_panel_contents(app, ui);
-//     }
-// }

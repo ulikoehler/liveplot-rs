@@ -1,8 +1,21 @@
-use liveplot::{channel_multi, run_liveplot, LivePlotConfig, WindowController};
+//! Example: Use WindowController to observe and control the plot window
+//!
+//! What it demonstrates
+//! - Attaching a `WindowController` to the UI to request window size/position changes
+//!   and receive updates about the actual window state.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example window_control
+//! ```
+//! The example streams a sine wave and logs window state changes to stderr.
+
+use liveplot::{channel_plot, run_liveplot, LivePlotConfig, PlotPoint, WindowController};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
-    let (sink, rx) = channel_multi();
+    let (sink, rx) = channel_plot();
+    let trace = sink.create_trace("signal", None);
 
     // Simple sine producer (1 kHz sample rate, 3 Hz sine)
     std::thread::spawn(move || {
@@ -13,11 +26,11 @@ fn main() -> eframe::Result<()> {
         loop {
             let t = n as f64 / FS_HZ;
             let val = (2.0 * std::f64::consts::PI * F_HZ * t).sin();
-            let now_us = SystemTime::now()
+            let t_s = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_micros() as i64)
-                .unwrap_or(0);
-            let _ = sink.send_value(n, val, now_us, "signal");
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0);
+            let _ = sink.send_point(&trace, PlotPoint { x: t_s, y: val });
             n = n.wrapping_add(1);
             std::thread::sleep(dt);
         }
@@ -63,7 +76,7 @@ fn main() -> eframe::Result<()> {
 
     // Run with default options but attach our window controller
     let mut cfg = LivePlotConfig::default();
-    cfg.title = Some("LivePlot (window control demo)".into());
+    cfg.title = "LivePlot (window control demo)".into();
     cfg.native_options = Some(eframe::NativeOptions::default());
     cfg.window_controller = Some(window_ctrl);
     run_liveplot(rx, cfg)

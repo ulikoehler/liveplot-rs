@@ -1,5 +1,7 @@
 use super::panel_trait::{Panel, PanelState};
-use crate::data::{data::LivePlotData, export, traces::TraceRef};
+use crate::data::data::LivePlotData;
+use crate::data::export; // main crate's export module
+use crate::data::traces::TraceRef;
 use egui::Ui;
 use std::collections::HashMap;
 
@@ -49,7 +51,7 @@ impl Panel for ExportPanel {
                     .add_filter("CSV", &["csv"])
                     .save_file()
                 {
-                    // Build series map based on paused/snapshot state
+                    // Build series map based on paused/snapshot state (convert TraceRef to String)
                     let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
                     for (name, tr) in data.traces.traces_iter() {
                         let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if data.is_paused() {
@@ -83,8 +85,8 @@ impl Panel for ExportPanel {
                         .add_filter("Parquet", &["parquet"])
                         .save_file()
                     {
-                        // Build series map like for CSV
-                        let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
+                        // Build series map like for CSV (convert TraceRef to String)
+                        let mut series: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
                         for name in data.scope_data.trace_order.iter() {
                             if let Some(tr) = data.traces.get_trace(name) {
                                 let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
@@ -98,15 +100,19 @@ impl Panel for ExportPanel {
                                         Box::new(tr.live.iter())
                                     };
                                 let vec: Vec<[f64; 2]> = iter.cloned().collect();
-                                series.insert(name.clone(), vec);
+                                series.insert(name.0.clone(), vec);
                             }
                         }
-                        if let Err(e) = export::write_parquet_aligned_path(
-                            &path,
-                            &data.scope_data.trace_order,
-                            &series,
-                            1e-9,
-                        ) {
+                        // Convert trace_order from Vec<TraceRef> to Vec<String>
+                        let trace_order: Vec<String> = data
+                            .scope_data
+                            .trace_order
+                            .iter()
+                            .map(|r| r.0.clone())
+                            .collect();
+                        if let Err(e) =
+                            export::write_parquet_aligned_path(&path, &trace_order, &series, 1e-9)
+                        {
                             eprintln!("Failed to export snapshot Parquet: {e}");
                         }
                     }

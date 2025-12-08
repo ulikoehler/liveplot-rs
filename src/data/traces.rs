@@ -1,8 +1,11 @@
+//! TraceRef and TracesCollection: trace identity and data management.
+
 use crate::data::trace_look::TraceLook;
-use crate::sink::MultiSample;
+use crate::sink::PlotCommand;
 use serde::{Deserialize, Serialize};
 use std::collections::{hash_map::Entry, HashMap, VecDeque};
 
+/// Identifier for a trace by name.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct TraceRef(pub String);
 
@@ -111,10 +114,13 @@ impl From<TraceRef> for String {
     }
 }
 
+/// Collection of all traces with their data.
 pub struct TracesCollection {
     traces: HashMap<TraceRef, TraceData>,
     pub max_points: usize,
-    rx: Option<std::sync::mpsc::Receiver<MultiSample>>,
+    rx: Option<std::sync::mpsc::Receiver<PlotCommand>>,
+    /// Mapping from numeric trace ID to trace name (for PlotCommand API)
+    id_to_name: HashMap<u32, String>,
 }
 
 impl Default for TracesCollection {
@@ -123,43 +129,205 @@ impl Default for TracesCollection {
             traces: HashMap::new(),
             max_points: 10_000,
             rx: None,
+            id_to_name: HashMap::new(),
         }
     }
 }
 
 impl TracesCollection {
-    pub fn new(rx: std::sync::mpsc::Receiver<crate::sink::MultiSample>) -> Self {
+    pub fn new(rx: std::sync::mpsc::Receiver<PlotCommand>) -> Self {
         let mut instance = Self::default();
         instance.set_rx(rx);
         instance
     }
 
-    pub fn set_rx(&mut self, rx: std::sync::mpsc::Receiver<MultiSample>) {
+    pub fn set_rx(&mut self, rx: std::sync::mpsc::Receiver<PlotCommand>) {
         self.rx = Some(rx);
     }
 
     fn update_rx(&mut self) {
         if let Some(rx) = &self.rx {
-            while let Ok(s) = rx.try_recv() {
-                let name = TraceRef(s.trace.clone());
-                let new_index = self.traces.len();
-                let entry = match self.traces.entry(name) {
-                    Entry::Occupied(entry) => entry.into_mut(),
-                    Entry::Vacant(entry) => entry.insert(TraceData {
-                        look: TraceLook::new(new_index),
-                        offset: 0.0,
-                        live: VecDeque::new(),
-                        snap: None,
-                        info: String::new(),
-                    }),
-                };
-                let t = s.timestamp_micros as f64 * 1e-6;
-                entry.live.push_back([t, s.value]);
-                if entry.live.len() > self.max_points {
-                    entry.live.pop_front();
-                }
-                if let Some(inf) = s.info {
-                    entry.info = inf;
+            while let Ok(cmd) = rx.try_recv() {
+                match cmd {
+                    PlotCommand::RegisterTrace { id, name, info } => {
+                        self.id_to_name.insert(id, name.clone());
+                        let tref = TraceRef(name.clone());
+                        let new_index = self.traces.len();
+                        let entry = match self.traces.entry(tref) {
+                            Entry::Occupied(entry) => entry.into_mut(),
+                            Entry::Vacant(entry) => entry.insert(TraceData {
+                                look: TraceLook::new(new_index),
+                                offset: 0.0,
+                                live: VecDeque::new(),
+                                snap: None,
+                                info: String::new(),
+                                #[cfg(feature = "fft")]
+                                last_fft: None,
+                                is_math: false,
+                            }),
+                        };
+                        if let Some(inf) = info {
+                            entry.info = inf;
+                        }
+                    }
+                    PlotCommand::Point { trace_id, point } => {
+                        if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                            let tref = TraceRef(name);
+                            let new_index = self.traces.len();
+                            let entry = match self.traces.entry(tref) {
+                                Entry::Occupied(entry) => entry.into_mut(),
+                                Entry::Vacant(entry) => entry.insert(TraceData {
+                                    look: TraceLook::new(new_index),
+                                    offset: 0.0,
+                                    live: VecDeque::new(),
+                                    snap: None,
+                                    info: String::new(),
+                                    #[cfg(feature = "fft")]
+                                    last_fft: None,
+                                    is_math: false,
+                                }),
+                            };
+                            entry.live.push_back([point.x, point.y]);
+                            if entry.live.len() > self.max_points {
+                                entry.live.pop_front();
+                            }
+                        } else {
+                            // Auto-register trace
+                            let name = format!("trace-{}", trace_id);
+                            self.id_to_name.insert(trace_id, name.clone());
+                            let tref = TraceRef(name);
+                            let new_index = self.traces.len();
+                            let entry = self.traces.entry(tref).or_insert_with(|| TraceData {
+                                look: TraceLook::new(new_index),
+                                offset: 0.0,
+                                live: VecDeque::new(),
+                                snap: None,
+                                info: String::new(),
+                                #[cfg(feature = "fft")]
+                                last_fft: None,
+                                is_math: false,
+                            });
+                            entry.live.push_back([point.x, point.y]);
+                        }
+                    }
+                    PlotCommand::Points { trace_id, points } => {
+                        if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                            let tref = TraceRef(name);
+                            let new_index = self.traces.len();
+                            let entry = match self.traces.entry(tref) {
+                                Entry::Occupied(entry) => entry.into_mut(),
+                                Entry::Vacant(entry) => entry.insert(TraceData {
+                                    look: TraceLook::new(new_index),
+                                    offset: 0.0,
+                                    live: VecDeque::new(),
+                                    snap: None,
+                                    info: String::new(),
+                                    #[cfg(feature = "fft")]
+                                    last_fft: None,
+                                    is_math: false,
+                                }),
+                            };
+                            for p in points {
+                                entry.live.push_back([p.x, p.y]);
+                            }
+                            while entry.live.len() > self.max_points {
+                                entry.live.pop_front();
+                            }
+                        }
+                    }
+                    PlotCommand::SetData { trace_id, points } => {
+                        if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                            let tref = TraceRef(name);
+                            let new_index = self.traces.len();
+                            let entry = match self.traces.entry(tref) {
+                                Entry::Occupied(entry) => entry.into_mut(),
+                                Entry::Vacant(entry) => entry.insert(TraceData {
+                                    look: TraceLook::new(new_index),
+                                    offset: 0.0,
+                                    live: VecDeque::new(),
+                                    snap: None,
+                                    info: String::new(),
+                                    #[cfg(feature = "fft")]
+                                    last_fft: None,
+                                    is_math: false,
+                                }),
+                            };
+                            entry.live.clear();
+                            for p in points {
+                                entry.live.push_back([p.x, p.y]);
+                            }
+                        }
+                    }
+                    PlotCommand::ClearData { trace_id } => {
+                        if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                            let tref = TraceRef(name);
+                            if let Some(tr) = self.traces.get_mut(&tref) {
+                                tr.live.clear();
+                            }
+                        }
+                    }
+                    PlotCommand::SetPointsY { trace_id, xs, y } => {
+                        if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                            let tref = TraceRef(name);
+                            if let Some(tr) = self.traces.get_mut(&tref) {
+                                for pt in tr.live.iter_mut() {
+                                    if xs.iter().any(|&x| (x - pt[0]).abs() < 1e-12) {
+                                        pt[1] = y;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    PlotCommand::DeletePointsX { trace_id, xs } => {
+                        if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                            let tref = TraceRef(name);
+                            if let Some(tr) = self.traces.get_mut(&tref) {
+                                tr.live
+                                    .retain(|pt| !xs.iter().any(|&x| (x - pt[0]).abs() < 1e-12));
+                            }
+                        }
+                    }
+                    PlotCommand::DeleteXRange {
+                        trace_id,
+                        x_min,
+                        x_max,
+                    } => {
+                        if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                            let tref = TraceRef(name);
+                            if let Some(tr) = self.traces.get_mut(&tref) {
+                                tr.live.retain(|pt| pt[0] < x_min || pt[0] > x_max);
+                            }
+                        }
+                    }
+                    PlotCommand::ApplyYFnAtX { trace_id, xs, f } => {
+                        if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                            let tref = TraceRef(name);
+                            if let Some(tr) = self.traces.get_mut(&tref) {
+                                for pt in tr.live.iter_mut() {
+                                    if xs.iter().any(|&x| (x - pt[0]).abs() < 1e-12) {
+                                        pt[1] = f(pt[1]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    PlotCommand::ApplyYFnInXRange {
+                        trace_id,
+                        x_min,
+                        x_max,
+                        f,
+                    } => {
+                        if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
+                            let tref = TraceRef(name);
+                            if let Some(tr) = self.traces.get_mut(&tref) {
+                                for pt in tr.live.iter_mut() {
+                                    if pt[0] >= x_min && pt[0] <= x_max {
+                                        pt[1] = f(pt[1]);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -218,6 +386,9 @@ impl TracesCollection {
                     live: VecDeque::new(),
                     snap: None,
                     info: String::new(),
+                    #[cfg(feature = "fft")]
+                    last_fft: None,
+                    is_math: false,
                 },
             );
         }
@@ -273,16 +444,29 @@ impl TracesCollection {
     pub fn keys(&self) -> impl Iterator<Item = &TraceRef> {
         self.traces.keys()
     }
+
+    pub fn len(&self) -> usize {
+        self.traces.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.traces.is_empty()
+    }
 }
 
+/// Per-trace data: live buffer, optional snapshot, and styling.
 #[derive(Default)]
 pub struct TraceData {
-    //pub name: String,
     pub look: TraceLook,
     pub offset: f64,
     pub live: VecDeque<[f64; 2]>,
     pub snap: Option<VecDeque<[f64; 2]>>,
     pub info: String,
+    /// Cached last computed FFT (frequency, magnitude)
+    #[cfg(feature = "fft")]
+    pub last_fft: Option<Vec<[f64; 2]>>,
+    /// Whether this trace is a derived math trace
+    pub is_math: bool,
 }
 
 impl TraceData {
@@ -314,12 +498,9 @@ impl TraceData {
     }
 
     pub fn cap_by_x_bounds(pts: &VecDeque<[f64; 2]>, bounds: (f64, f64)) -> VecDeque<[f64; 2]> {
-        let capped: VecDeque<[f64; 2]> = pts
-            .iter()
+        pts.iter()
             .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
             .cloned()
-            .collect();
-
-        capped
+            .collect()
     }
 }

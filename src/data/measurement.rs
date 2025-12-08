@@ -15,11 +15,11 @@ impl Default for Measurement {
 }
 
 impl Measurement {
+    /// Create a new measurement with the given name.
     pub fn new(name: &str) -> Self {
         Self {
             name: name.to_string(),
-            p1: None,
-            p2: None,
+            ..Default::default()
         }
     }
 

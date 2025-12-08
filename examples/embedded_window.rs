@@ -1,7 +1,19 @@
+//! Example: Embedding LivePlot into your own egui application window
+//!
+//! What it demonstrates
+//! - How to embed the `LivePlotApp` UI inside an existing `eframe`/`egui` application window.
+//! - Feeding data from the main app into the embedded plot via `PlotSink` and `Trace` handles.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example embedded_window
+//! ```
+//! Click "Open Plot Window" in the demo UI to show the embedded LivePlot view.
+
 use std::time::Duration;
 
 use eframe::{egui, NativeOptions};
-use liveplot::{channel_multi, MultiPlotSink, MultiSample, ScopeAppMulti};
+use liveplot::{channel_plot, LivePlotApp, PlotPoint, PlotSink, Trace};
 
 #[derive(Clone, Copy, PartialEq)]
 enum WaveKind {
@@ -12,22 +24,28 @@ enum WaveKind {
 struct DemoApp {
     kind: WaveKind,
     // data feed
-    sink: MultiPlotSink,
+    sink: PlotSink,
+    trace_sine: Trace,
+    trace_cos: Trace,
     // embedded plot app
-    plot: ScopeAppMulti,
+    plot: LivePlotApp,
     // show window flag
     show_plot_window: bool,
 }
 
 impl DemoApp {
     fn new() -> Self {
-        let (sink, rx) = channel_multi();
-        let mut plot = ScopeAppMulti::new(rx);
+        let (sink, rx) = channel_plot();
+        let trace_sine = sink.create_trace("sine", None);
+        let trace_cos = sink.create_trace("cosine", None);
+        let mut plot = LivePlotApp::new(rx);
         plot.time_window = 10.0;
         plot.max_points = 10_000;
         Self {
             kind: WaveKind::Sine,
             sink,
+            trace_sine,
+            trace_cos,
             plot,
             show_plot_window: false,
         }
@@ -80,17 +98,11 @@ impl eframe::App for DemoApp {
             WaveKind::Sine => phase.sin(),
             WaveKind::Cosine => phase.cos(),
         };
-        let trace = match self.kind {
-            WaveKind::Sine => "sine",
-            WaveKind::Cosine => "cosine",
+        let tr = match self.kind {
+            WaveKind::Sine => &self.trace_sine,
+            WaveKind::Cosine => &self.trace_cos,
         };
-        let _ = self.sink.send(MultiSample {
-            index: 0,
-            value: val,
-            timestamp_micros: now_us,
-            trace: trace.to_string(),
-            info: None,
-        });
+        let _ = self.sink.send_point(tr, PlotPoint { x: t, y: val });
 
         ctx.request_repaint_after(Duration::from_millis(16));
     }

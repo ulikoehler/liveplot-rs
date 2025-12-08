@@ -1,3 +1,14 @@
+//! Example: small gRPC server that streams synthetic sine samples
+//!
+//! What it demonstrates
+//! - A simple tonic gRPC server implementing a streaming RPC that emits sample messages.
+//! - Useful as a paired backend for the `client` example which subscribes and forwards samples into LivePlot.
+//!
+//! How to run
+//! ```bash
+//! cargo run --example grpc-server
+//! ```
+//!
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_stream::try_stream;

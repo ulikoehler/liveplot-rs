@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """
-A tiny 1 kHz CSV writer to demonstrate the csv_tail example.
+Example: CSV writer for `csv_tail` demo
 
-It appends to a CSV file with the following columns:
-index,timestamp_micros,sine,cosine
+What it demonstrates
+- Produces a simple 1 kHz CSV stream with columns: index,timestamp_micros,sine,cosine.
+- Useful to run in parallel with `examples/csv_tail.rs` to visualize a live CSV data feed.
 
-- Runs until interrupted (Ctrl+C)
-- Starts a new file and writes a header if the file does not exist
-- Appends if the file exists
+How to run
+```bash
+python3 examples/csv_writer.py [path/to/live_data.csv]
+```
+
+Notes
+- The script creates the file with a header if it does not exist and appends otherwise.
+- It runs until interrupted (Ctrl+C).
 """
 from __future__ import annotations
 import math

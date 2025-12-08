@@ -73,8 +73,6 @@ impl ScopePanel {
         self.render_plot(ui, &mut draw_overlays, traces);
     }
 
-    // legacy render_controls removed in favor of render_controls_ext
-
     // Extended controls with injectable prefix/suffix sections
     fn render_controls_ext<P, S>(
         &mut self,
@@ -295,10 +293,7 @@ impl ScopePanel {
     where
         F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
     {
-        // No extra controls in panel; top bar uses render_menu
-        // Render plot directly here (for now). Later we can separate draw() if needed.
         // First, handle any completed screenshot events from the OS/windowing backend.
-
         self.handle_screenshot_result(ui);
 
         let y_log = self.data.y_axis.log_scale;
@@ -345,14 +340,6 @@ impl ScopePanel {
                     zoom_factor.y = 1.0 + scroll_data.y * 0.001;
                 }
 
-                // if !self.data.paused {
-                //     let t_latest = self.data.x_axis.bounds.1;
-                //     plot_ui.set_plot_bounds_x(
-                //         t_latest - self.data.time_window * (2.0 - (zoom_factor.x as f64))
-                //             ..=t_latest,
-                //     );
-                //     zoom_factor.x = 1.0;
-                // }
                 plot_ui.zoom_bounds_around_hovered(zoom_factor);
             }
 
@@ -373,7 +360,7 @@ impl ScopePanel {
                     if !tr.look.visible {
                         continue;
                     }
-                    let shown_pts = match self.data.get_drawn_points(&name, &traces) {
+                    let shown_pts = match self.data.get_drawn_points(&name, traces) {
                         Some(pts) => pts,
                         None => continue,
                     };
@@ -451,7 +438,7 @@ impl ScopePanel {
             }
 
             // Additional overlays provided by caller (e.g., thresholds, markers)
-            draw_overlays(plot_ui, &self.data, &*traces);
+            draw_overlays(plot_ui, &self.data, traces);
 
             // Detect bounds changes via zoom box
             bounds_changed

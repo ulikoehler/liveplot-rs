@@ -259,5 +259,3 @@ mod tests {
         assert_eq!(lines[3], "2.000000000,,1.2");
     }
 }
-
-// (Legacy helper functions removed; panels now build aligned series directly.)
