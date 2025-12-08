@@ -1,8 +1,16 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use eframe::egui;
 
-use crate::controllers::{FFTController, TracesController, UiActionController, WindowController};
+use crate::controllers::{
+    FFTController, ThresholdController, TracesController, UiActionController, WindowController,
+};
 use crate::data::export;
 use crate::data::traces::{TraceRef, TracesCollection};
+use crate::data::hotkeys::{Hotkeys, HotkeyAction};
+use crate::data::hotkeys as hotkey_helpers;
 
 use crate::data::data::LivePlotData;
 use crate::panels::liveplot_ui::LiveplotPanel;
@@ -16,13 +24,15 @@ use crate::PlotCommand;
 #[cfg(feature = "fft")]
 use crate::panels::fft_ui::FftPanel;
 use crate::panels::{
-    export_ui::ExportPanel, math_ui::MathPanel, measurment_ui::MeasurementPanel,
-    thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel, triggers_ui::TriggersPanel,
+    export_ui::ExportPanel, hotkeys_ui::HotkeysPanel, math_ui::MathPanel,
+    measurment_ui::MeasurementPanel, thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel,
+    triggers_ui::TriggersPanel,
 };
 
 pub struct MainPanel {
     // Traces
     pub traces_data: TracesCollection,
+    pub hotkeys: Rc<RefCell<Hotkeys>>,
     // Panels
     pub liveplot_panel: LiveplotPanel,
     pub right_side_panels: Vec<Box<dyn Panel>>,
@@ -35,16 +45,21 @@ pub struct MainPanel {
     pub(crate) ui_ctrl: Option<UiActionController>,
     pub(crate) traces_ctrl: Option<TracesController>,
     pub(crate) fft_ctrl: Option<FFTController>,
+    pub(crate) threshold_ctrl: Option<ThresholdController>,
+    pub(crate) threshold_event_cursors: HashMap<String, usize>,
 }
 
 impl MainPanel {
     pub fn new(rx: std::sync::mpsc::Receiver<PlotCommand>) -> Self {
+        let hotkeys = Rc::new(RefCell::new(Hotkeys::default()));
         Self {
             traces_data: TracesCollection::new(rx),
+            hotkeys: hotkeys.clone(),
             liveplot_panel: LiveplotPanel::default(),
             right_side_panels: vec![
                 Box::new(TracesPanel::default()),
                 Box::new(MathPanel::default()),
+                Box::new(HotkeysPanel::new(hotkeys.clone())),
                 Box::new(ThresholdsPanel::default()),
                 Box::new(TriggersPanel::default()),
                 Box::new(MeasurementPanel::default()),
@@ -61,6 +76,8 @@ impl MainPanel {
             ui_ctrl: None,
             traces_ctrl: None,
             fft_ctrl: None,
+            threshold_ctrl: None,
+            threshold_event_cursors: HashMap::new(),
         }
     }
 
@@ -71,11 +88,13 @@ impl MainPanel {
         ui_ctrl: Option<UiActionController>,
         traces_ctrl: Option<TracesController>,
         fft_ctrl: Option<FFTController>,
+        threshold_ctrl: Option<ThresholdController>,
     ) {
         self.window_ctrl = window_ctrl;
         self.ui_ctrl = ui_ctrl;
         self.traces_ctrl = traces_ctrl;
         self.fft_ctrl = fft_ctrl;
+        self.threshold_ctrl = threshold_ctrl;
     }
 
     pub fn update(&mut self, ui: &mut egui::Ui) {
@@ -224,6 +243,10 @@ impl MainPanel {
     fn update_data(&mut self) {
         self.traces_data.update();
 
+        // Apply any queued threshold add/remove requests before processing data so new defs
+        // participate in this frame's evaluation.
+        self.apply_threshold_controller_requests();
+
         self.liveplot_panel.update_data(&self.traces_data);
         let data = &mut LivePlotData {
             scope_data: self.liveplot_panel.get_data_mut(),
@@ -245,6 +268,9 @@ impl MainPanel {
         for p in &mut self.empty_panels {
             p.update_data(data);
         }
+
+        // After threshold processing, forward freshly generated events to controller listeners.
+        self.publish_threshold_events();
     }
 
     /// Apply controller requests and publish state, for embedded usage (no stand-alone window frame).
@@ -272,6 +298,9 @@ impl MainPanel {
             inner.current_pos = Some(pos);
             inner.listeners.retain(|s| s.send(info.clone()).is_ok());
         }
+
+        self.apply_threshold_controller_requests();
+        self.publish_threshold_events();
 
         // UiActionController: pause/resume, screenshot, export
         if let Some(ctrl) = &self.ui_ctrl {
@@ -397,6 +426,134 @@ impl MainPanel {
             };
             inner.listeners.retain(|s| s.send(info.clone()).is_ok());
         }
+    }
+
+    fn thresholds_panel_mut(&mut self) -> Option<&mut ThresholdsPanel> {
+        for p in self
+            .left_side_panels
+            .iter_mut()
+            .chain(self.right_side_panels.iter_mut())
+            .chain(self.bottom_panels.iter_mut())
+            .chain(self.detached_panels.iter_mut())
+            .chain(self.empty_panels.iter_mut())
+        {
+            if let Some(tp) = p.downcast_mut::<ThresholdsPanel>() {
+                return Some(tp);
+            }
+        }
+        None
+    }
+
+    fn apply_threshold_controller_requests(&mut self) {
+        let Some(ctrl) = self.threshold_ctrl.clone() else {
+            return;
+        };
+
+        let (adds, removes) = {
+            let mut inner = ctrl.inner.lock().unwrap();
+            (
+                inner.add_requests.drain(..).collect::<Vec<_>>(),
+                inner.remove_requests.drain(..).collect::<Vec<_>>(),
+            )
+        };
+
+        if adds.is_empty() && removes.is_empty() {
+            return;
+        }
+
+        if let Some(tp) = self.thresholds_panel_mut() {
+            let mut added_names: Vec<String> = Vec::new();
+            for name in &removes {
+                tp.thresholds.remove(name);
+            }
+            for def in adds {
+                added_names.push(def.name.clone());
+                tp.thresholds.insert(def.name.clone(), def);
+            }
+
+            for name in removes {
+                self.threshold_event_cursors.remove(&name);
+            }
+            for name in added_names {
+                self.threshold_event_cursors.entry(name).or_insert(0);
+            }
+        }
+    }
+
+    fn publish_threshold_events(&mut self) {
+        let Some(ctrl) = self.threshold_ctrl.clone() else {
+            return;
+        };
+
+        let mut pending: Vec<crate::data::thresholds::ThresholdEvent> = Vec::new();
+        let mut collected: Vec<(String, Vec<crate::data::thresholds::ThresholdEvent>)> = Vec::new();
+
+        if let Some(tp) = self.thresholds_panel_mut() {
+            for (name, def) in tp.thresholds.iter() {
+                let events: Vec<crate::data::thresholds::ThresholdEvent> =
+                    def.get_runtime_state().events.iter().cloned().collect();
+                collected.push((name.clone(), events));
+            }
+        }
+
+        // Drop cursors for thresholds no longer present (e.g., removed via UI)
+        let present: HashMap<_, _> = collected
+            .iter()
+            .map(|(n, evts)| (n.clone(), evts.len()))
+            .collect();
+        self.threshold_event_cursors
+            .retain(|name, _| present.contains_key(name));
+
+        for (name, events) in collected {
+            let prev = self
+                .threshold_event_cursors
+                .get(&name)
+                .copied()
+                .unwrap_or(0);
+            let len = events.len();
+            if len < prev {
+                self.threshold_event_cursors.insert(name.clone(), len);
+                continue;
+            }
+            if len > prev {
+                pending.extend(events.into_iter().skip(prev));
+                self.threshold_event_cursors.insert(name.clone(), len);
+            }
+        }
+
+        if pending.is_empty() {
+            return;
+        }
+
+        let mut inner = ctrl.inner.lock().unwrap();
+        inner.listeners.retain(|s| {
+            for ev in &pending {
+                if s.send(ev.clone()).is_err() {
+                    return false;
+                }
+            }
+            true
+        });
+    }
+
+    fn toggle_panel_visibility<T: 'static + Panel>(&mut self) -> bool {
+        for p in self
+            .left_side_panels
+            .iter_mut()
+            .chain(self.right_side_panels.iter_mut())
+            .chain(self.bottom_panels.iter_mut())
+            .chain(self.detached_panels.iter_mut())
+            .chain(self.empty_panels.iter_mut())
+        {
+            if p.downcast_ref::<T>().is_some() {
+                let st = p.state_mut();
+                let currently_shown = st.visible && !st.detached;
+                st.visible = !currently_shown;
+                st.detached = false;
+                return true;
+            }
+        }
+        false
     }
 
     fn render_menu(&mut self, ui: &mut egui::Ui) {
@@ -930,6 +1087,9 @@ pub struct MainApp {
     pub ui_ctrl: Option<UiActionController>,
     pub traces_ctrl: Option<TracesController>,
     pub fft_ctrl: Option<FFTController>,
+    pub threshold_ctrl: Option<ThresholdController>,
+    pub headline: Option<String>,
+    pub subheadline: Option<String>,
 }
 
 impl MainApp {
@@ -940,6 +1100,9 @@ impl MainApp {
             ui_ctrl: None,
             traces_ctrl: None,
             fft_ctrl: None,
+            threshold_ctrl: None,
+            headline: None,
+            subheadline: None,
         }
     }
 
@@ -949,14 +1112,57 @@ impl MainApp {
         ui_ctrl: Option<UiActionController>,
         traces_ctrl: Option<TracesController>,
         fft_ctrl: Option<FFTController>,
+        threshold_ctrl: Option<ThresholdController>,
     ) -> Self {
+        let mut main_panel = MainPanel::new(rx);
+        main_panel.set_controllers(
+            window_ctrl.clone(),
+            ui_ctrl.clone(),
+            traces_ctrl.clone(),
+            fft_ctrl.clone(),
+            threshold_ctrl.clone(),
+        );
         Self {
-            main_panel: MainPanel::new(rx),
+            main_panel,
             window_ctrl,
             ui_ctrl,
             traces_ctrl,
             fft_ctrl,
+            threshold_ctrl,
+            headline: None,
+            subheadline: None,
         }
+    }
+
+    fn apply_config(&mut self, cfg: &crate::config::LivePlotConfig) {
+        // Axis/time window settings
+        {
+            let scope = self.main_panel.liveplot_panel.get_data_mut();
+            scope.time_window = cfg.time_window_secs;
+            scope.y_axis.unit = cfg.y_unit.clone();
+            scope.y_axis.log_scale = cfg.y_log;
+            scope.x_axis.format = Some(match cfg.x_date_format {
+                crate::config::XDateFormat::Iso8601WithDate => "%Y-%m-%d %H:%M:%S".to_string(),
+                crate::config::XDateFormat::Iso8601Time => "%H:%M:%S".to_string(),
+            });
+        }
+
+        // Trace storage limits
+        self.main_panel.traces_data.max_points = cfg.max_points;
+
+        // Hotkeys: configured or fallback to default path, then defaults.
+        {
+            let mut hk = self.main_panel.hotkeys.borrow_mut();
+            *hk = cfg
+                .hotkeys
+                .clone()
+                .or_else(|| crate::data::hotkeys::Hotkeys::load_from_default_path().ok())
+                .unwrap_or_default();
+        }
+
+        // Headline/subheadline for optional top banner
+        self.headline = cfg.headline.clone();
+        self.subheadline = cfg.subheadline.clone();
     }
 
     fn apply_controllers(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -1125,10 +1331,84 @@ impl MainApp {
             inner.listeners.retain(|s| s.send(info.clone()).is_ok());
         }
     }
+
+    // Hotkey helpers moved to `data/hotkeys.rs` (re-exported as `craft::hotkeys`).
+
+    fn handle_hotkeys(&mut self, ctx: &egui::Context) {
+        let hk = self.main_panel.hotkeys.borrow().clone();
+        let actions = hotkey_helpers::detect_hotkey_actions(&hk, ctx);
+        for act in actions {
+            match act {
+                HotkeyAction::Pause => {
+                    let data = self.main_panel.liveplot_panel.get_data_mut();
+                    let mut lp = LivePlotData {
+                        scope_data: data,
+                        traces: &mut self.main_panel.traces_data,
+                    };
+                    if lp.is_paused() {
+                        lp.resume();
+                        self.main_panel.traces_data.clear_snapshot();
+                    } else {
+                        lp.pause();
+                    }
+                }
+                HotkeyAction::FitView => {
+                    let data = self.main_panel.liveplot_panel.get_data_mut();
+                    data.fit_bounds(&self.main_panel.traces_data);
+                }
+                HotkeyAction::FitViewCont => {
+                    let data = self.main_panel.liveplot_panel.get_data_mut();
+                    data.y_axis.auto_fit = !data.y_axis.auto_fit;
+                    if data.y_axis.auto_fit {
+                        data.fit_y_bounds(&self.main_panel.traces_data);
+                    }
+                }
+                HotkeyAction::ResetMarkers => {
+                    let data = self.main_panel.liveplot_panel.get_data_mut();
+                    data.selection_trace = None;
+                    data.clicked_point = None;
+                }
+                HotkeyAction::ToggleTraces => {
+                    self.main_panel.toggle_panel_visibility::<TracesPanel>();
+                }
+                HotkeyAction::ToggleMath => {
+                    self.main_panel.toggle_panel_visibility::<MathPanel>();
+                }
+                HotkeyAction::ToggleThresholds => {
+                    self.main_panel.toggle_panel_visibility::<ThresholdsPanel>();
+                }
+                HotkeyAction::ToggleExport => {
+                    self.main_panel.toggle_panel_visibility::<ExportPanel>();
+                }
+                HotkeyAction::ToggleFft => {
+                    #[cfg(feature = "fft")]
+                    {
+                        self.main_panel.toggle_panel_visibility::<FftPanel>();
+                    }
+                }
+                HotkeyAction::SavePng => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for MainApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.handle_hotkeys(ctx);
+
+        if self.headline.is_some() || self.subheadline.is_some() {
+            egui::TopBottomPanel::top("liveplot_headline").show(ctx, |ui| {
+                if let Some(h) = &self.headline {
+                    ui.heading(h);
+                }
+                if let Some(sub) = &self.subheadline {
+                    ui.label(sub);
+                }
+            });
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             // Non-UI calculations first
             self.main_panel.update(ui);
@@ -1139,14 +1419,35 @@ impl eframe::App for MainApp {
     }
 }
 
-pub fn run_liveplot(rx: std::sync::mpsc::Receiver<PlotCommand>) -> eframe::Result<()> {
-    let app = MainApp::new(rx);
+pub fn run_liveplot(
+    rx: std::sync::mpsc::Receiver<PlotCommand>,
+    mut cfg: crate::config::LivePlotConfig,
+) -> eframe::Result<()> {
+    let window_ctrl = cfg.window_controller.take();
+    let ui_ctrl = cfg.ui_action_controller.take();
+    let traces_ctrl = cfg.traces_controller.take();
+    let fft_ctrl = cfg.fft_controller.take();
+    let threshold_ctrl = cfg.threshold_controller.take();
+    let mut app = MainApp::with_controllers(
+        rx,
+        window_ctrl,
+        ui_ctrl,
+        traces_ctrl,
+        fft_ctrl,
+        threshold_ctrl,
+    );
+    app.apply_config(&cfg);
 
-    let title = "LivePlot".to_string();
-    let mut opts = eframe::NativeOptions::default();
+    let title = cfg.title;
+    let mut opts = cfg
+        .native_options
+        .take()
+        .unwrap_or_else(eframe::NativeOptions::default);
     // Try to set application icon from icon.svg if available
-    if let Some(icon) = load_app_icon_svg() {
-        opts.viewport = egui::ViewportBuilder::default().with_icon(icon);
+    if opts.viewport.icon.is_none() {
+        if let Some(icon) = load_app_icon_svg() {
+            opts.viewport = egui::ViewportBuilder::default().with_icon(icon);
+        }
     }
     // opts.initial_window_size = Some(egui::vec2(1280.0, 720.0));
     eframe::run_native(
@@ -1154,31 +1455,6 @@ pub fn run_liveplot(rx: std::sync::mpsc::Receiver<PlotCommand>) -> eframe::Resul
         opts,
         Box::new(|cc| {
             // Install Phosphor icon font before creating the app
-            let mut fonts = egui::FontDefinitions::default();
-            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-            cc.egui_ctx.set_fonts(fonts);
-            Ok(Box::new(app))
-        }),
-    )
-}
-
-pub fn run_liveplot_with_controllers(
-    rx: std::sync::mpsc::Receiver<PlotCommand>,
-    window_ctrl: Option<WindowController>,
-    ui_ctrl: Option<UiActionController>,
-    traces_ctrl: Option<TracesController>,
-    fft_ctrl: Option<FFTController>,
-) -> eframe::Result<()> {
-    let app = MainApp::with_controllers(rx, window_ctrl, ui_ctrl, traces_ctrl, fft_ctrl);
-    let title = "LivePlot".to_string();
-    let mut opts = eframe::NativeOptions::default();
-    if let Some(icon) = load_app_icon_svg() {
-        opts.viewport = egui::ViewportBuilder::default().with_icon(icon);
-    }
-    eframe::run_native(
-        &title,
-        opts,
-        Box::new(|cc| {
             let mut fonts = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
             cc.egui_ctx.set_fonts(fonts);

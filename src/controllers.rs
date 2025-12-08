@@ -378,3 +378,47 @@ impl TracesController {
         rx
     }
 }
+
+/// Controller to manage threshold definitions and subscribe to threshold events.
+#[derive(Clone)]
+pub struct ThresholdController {
+    pub(crate) inner: Arc<Mutex<ThresholdCtrlInner>>, // crate-visible for UI
+}
+
+pub(crate) struct ThresholdCtrlInner {
+    pub(crate) add_requests: Vec<crate::data::thresholds::ThresholdDef>,
+    pub(crate) remove_requests: Vec<String>,
+    pub(crate) listeners: Vec<Sender<crate::data::thresholds::ThresholdEvent>>, // name + events
+}
+
+impl ThresholdController {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ThresholdCtrlInner {
+                add_requests: Vec::new(),
+                remove_requests: Vec::new(),
+                listeners: Vec::new(),
+            })),
+        }
+    }
+
+    /// Request adding a threshold definition to the UI.
+    pub fn request_add_threshold(&self, def: crate::data::thresholds::ThresholdDef) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.add_requests.push(def);
+    }
+
+    /// Request removing a threshold by name.
+    pub fn request_remove_threshold<S: Into<String>>(&self, name: S) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.remove_requests.push(name.into());
+    }
+
+    /// Subscribe to threshold events fired by the UI.
+    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<crate::data::thresholds::ThresholdEvent> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut inner = self.inner.lock().unwrap();
+        inner.listeners.push(tx);
+        rx
+    }
+}

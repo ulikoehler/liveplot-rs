@@ -1,4 +1,5 @@
 pub mod export_ui;
+pub mod hotkeys_ui;
 pub mod liveplot_ui;
 pub mod math_ui;
 pub mod measurment_ui;
@@ -13,6 +14,7 @@ pub mod triggers_ui;
 pub mod fft_ui;
 
 pub use export_ui::ExportPanel;
+pub use hotkeys_ui::HotkeysPanel;
 pub use liveplot_ui::LiveplotPanel;
 pub use math_ui::MathPanel;
 pub use measurment_ui::MeasurementPanel;

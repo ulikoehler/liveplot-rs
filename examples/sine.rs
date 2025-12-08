@@ -10,7 +10,7 @@
 //! ```
 //! You should see a single trace named "signal" rendering a live sine wave.
 
-use liveplot::{channel_plot, run_liveplot, PlotPoint};
+use liveplot::{channel_plot, run_liveplot, LivePlotConfig, PlotPoint};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
@@ -39,5 +39,5 @@ fn main() -> eframe::Result<()> {
     });
 
     // Run the UI until closed
-    run_liveplot(rx)
+    run_liveplot(rx, LivePlotConfig::default())
 }

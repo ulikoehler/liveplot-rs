@@ -7,6 +7,7 @@ pub mod thresholds;
 pub mod trace_look;
 pub mod traces;
 pub mod triggers;
+pub mod hotkeys;
 
 #[cfg(feature = "fft")]
 pub mod fft;
