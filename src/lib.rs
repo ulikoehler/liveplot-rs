@@ -2,7 +2,7 @@
 
 mod app;
 pub mod data;
-pub use data::hotkeys as hotkeys;
+pub use data::hotkeys;
 pub mod panels;
 pub mod persistence;
 // #[cfg(feature = "tiles")]

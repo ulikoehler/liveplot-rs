@@ -8,9 +8,9 @@ use crate::controllers::{
     FFTController, ThresholdController, TracesController, UiActionController, WindowController,
 };
 use crate::data::export;
-use crate::data::traces::{TraceRef, TracesCollection};
-use crate::data::hotkeys::{Hotkeys, HotkeyAction};
 use crate::data::hotkeys as hotkey_helpers;
+use crate::data::hotkeys::{HotkeyAction, Hotkeys};
+use crate::data::traces::{TraceRef, TracesCollection};
 
 use crate::data::data::LivePlotData;
 use crate::panels::liveplot_ui::LiveplotPanel;
@@ -154,72 +154,6 @@ impl MainPanel {
                             .chain(empty.borrow_mut().iter_mut())
                         {
                             p.clear_all();
-                        }
-                    }
-
-                    ui.separator();
-                    // Panels quick toggles (inline, mutually exclusive per region among attached panels)
-                    // Left group
-                    {
-                        let mut clicked: Option<usize> = None;
-                        let mut l = left.borrow_mut();
-                        for (i, p) in l.iter_mut().enumerate() {
-                            let active = p.state().visible && !p.state().detached;
-                            if ui.selectable_label(active, p.title()).clicked() {
-                                clicked = Some(i);
-                            }
-                        }
-                        if let Some(ci) = clicked {
-                            for (i, p) in l.iter_mut().enumerate() {
-                                if i == ci {
-                                    p.state_mut().detached = false;
-                                    p.state_mut().visible = true;
-                                } else if !p.state().detached {
-                                    p.state_mut().visible = false;
-                                }
-                            }
-                        }
-                    }
-                    // Right group
-                    {
-                        let mut clicked: Option<usize> = None;
-                        let mut r = right.borrow_mut();
-                        for (i, p) in r.iter_mut().enumerate() {
-                            let active = p.state().visible && !p.state().detached;
-                            if ui.selectable_label(active, p.title()).clicked() {
-                                clicked = Some(i);
-                            }
-                        }
-                        if let Some(ci) = clicked {
-                            for (i, p) in r.iter_mut().enumerate() {
-                                if i == ci {
-                                    p.state_mut().detached = false;
-                                    p.state_mut().visible = true;
-                                } else if !p.state().detached {
-                                    p.state_mut().visible = false;
-                                }
-                            }
-                        }
-                    }
-                    // Bottom group
-                    {
-                        let mut clicked: Option<usize> = None;
-                        let mut b = bottom.borrow_mut();
-                        for (i, p) in b.iter_mut().enumerate() {
-                            let active = p.state().visible && !p.state().detached;
-                            if ui.selectable_label(active, p.title()).clicked() {
-                                clicked = Some(i);
-                            }
-                        }
-                        if let Some(ci) = clicked {
-                            for (i, p) in b.iter_mut().enumerate() {
-                                if i == ci {
-                                    p.state_mut().detached = false;
-                                    p.state_mut().visible = true;
-                                } else if !p.state().detached {
-                                    p.state_mut().visible = false;
-                                }
-                            }
                         }
                     }
                 },
@@ -590,7 +524,6 @@ impl MainPanel {
                         .selectable_label(p.state_mut().visible, p.title())
                         .clicked()
                     {
-                        p.state_mut().detached = false;
                         p.state_mut().visible = true;
                     }
                 }
@@ -599,7 +532,6 @@ impl MainPanel {
                         .selectable_label(p.state_mut().visible, p.title())
                         .clicked()
                     {
-                        p.state_mut().detached = false;
                         p.state_mut().visible = true;
                     }
                 }
@@ -608,7 +540,6 @@ impl MainPanel {
                         .selectable_label(p.state_mut().visible, p.title())
                         .clicked()
                     {
-                        p.state_mut().detached = false;
                         p.state_mut().visible = true;
                     }
                 }
@@ -859,6 +790,33 @@ impl MainPanel {
                     self.render_tabs(ui, &mut list, egui::Align::Min);
                 });
             self.left_side_panels = list;
+        } else if !self.left_side_panels.is_empty() {
+            let mut list = std::mem::take(&mut self.left_side_panels);
+            egui::SidePanel::left("left_sidebar")
+                .resizable(true)
+                .default_width(30.0)
+                .min_width(30.0)
+                .show_inside(ui, |ui| {
+                    let mut clicked: Option<usize> = None;
+                    ui.vertical(|ui| {
+                        for (i, p) in list.iter_mut().enumerate() {
+                            let active = p.state().visible && !p.state().detached;
+                            if ui.button(p.title()).clicked() {
+                                clicked = Some(i);
+                            }
+                        }
+                    });
+                    if let Some(ci) = clicked {
+                        for (i, p) in list.iter_mut().enumerate() {
+                            if i == ci {
+                                p.state_mut().visible = true;
+                            } else if !p.state().detached {
+                                p.state_mut().visible = false;
+                            }
+                        }
+                    }
+                });
+            self.left_side_panels = list;
         }
         if show_right {
             let mut list = std::mem::take(&mut self.right_side_panels);
@@ -868,6 +826,33 @@ impl MainPanel {
                 .min_width(200.0)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list, egui::Align::Max);
+                });
+            self.right_side_panels = list;
+        } else if !self.right_side_panels.is_empty() {
+            let mut list = std::mem::take(&mut self.right_side_panels);
+            egui::SidePanel::right("right_sidebar")
+                .resizable(true)
+                .default_width(30.0)
+                .min_width(30.0)
+                .show_inside(ui, |ui| {
+                    let mut clicked: Option<usize> = None;
+                    ui.vertical(|ui| {
+                        for (i, p) in list.iter_mut().enumerate() {
+                            let active = p.state().visible && !p.state().detached;
+                            if ui.button(p.title()).clicked() {
+                                clicked = Some(i);
+                            }
+                        }
+                    });
+                    if let Some(ci) = clicked {
+                        for (i, p) in list.iter_mut().enumerate() {
+                            if i == ci {
+                                p.state_mut().visible = true;
+                            } else if !p.state().detached {
+                                p.state_mut().visible = false;
+                            }
+                        }
+                    }
                 });
             self.right_side_panels = list;
         }
@@ -880,6 +865,35 @@ impl MainPanel {
                 .min_height(120.0)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list, egui::Align::Max);
+                });
+            self.bottom_panels = list;
+        } else if !self.bottom_panels.is_empty() {
+            let mut list = std::mem::take(&mut self.bottom_panels);
+            egui::TopBottomPanel::bottom("bottom_bar")
+                .resizable(false)
+                .default_height(24.0)
+                .min_height(24.0)
+                .show_inside(ui, |ui| {
+                    let mut clicked: Option<usize> = None;
+                    ui.add_space(2.0);
+                    ui.horizontal(|ui| {
+                        for (i, p) in list.iter_mut().enumerate() {
+                            let active = p.state().visible && !p.state().detached;
+                            if ui.button(p.title()).clicked() {
+                                clicked = Some(i);
+                            }
+                        }
+                    });
+                    if let Some(ci) = clicked {
+                        for (i, p) in list.iter_mut().enumerate() {
+                            if i == ci {
+                                p.state_mut().visible = true;
+                                // TODO set focus on panel?
+                            } else if !p.state().detached {
+                                p.state_mut().visible = false;
+                            }
+                        }
+                    }
                 });
             self.bottom_panels = list;
         }

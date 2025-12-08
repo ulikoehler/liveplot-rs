@@ -172,8 +172,10 @@ impl Hotkeys {
         if !path.exists() {
             return Err(format!("Hotkeys file {:?} does not exist", path));
         }
-        let s = fs::read_to_string(&path).map_err(|e| format!("Failed to read {:?}: {}", path, e))?;
-        let hk: Hotkeys = serde_yaml::from_str(&s).map_err(|e| format!("Deserialization error: {}", e))?;
+        let s =
+            fs::read_to_string(&path).map_err(|e| format!("Failed to read {:?}: {}", path, e))?;
+        let hk: Hotkeys =
+            serde_yaml::from_str(&s).map_err(|e| format!("Deserialization error: {}", e))?;
         Ok(hk)
     }
 }
@@ -266,11 +268,80 @@ fn modifiers_match(mods: &egui::Modifiers, modifier: Modifier) -> bool {
 
 fn is_hotkey_pressed(hk: Option<&Hotkey>, input: &egui::InputState) -> bool {
     let Some(hk) = hk else { return false };
-    let Some(key) = key_from_char(hk.key) else { return false };
+    let Some(key) = key_from_char(hk.key) else {
+        return false;
+    };
     if !modifiers_match(&input.modifiers, hk.modifier) {
         return false;
     }
     input.key_pressed(key)
+}
+fn event_to_hotkey(ev: &egui::Event, mods: egui::Modifiers) -> Option<Hotkey> {
+    match ev {
+        egui::Event::Text(text) => text
+            .chars()
+            .next()
+            .map(|ch| Hotkey::new(mods_to_modifier(mods), ch.to_ascii_uppercase())),
+        egui::Event::Key {
+            key, pressed: true, ..
+        } => {
+            use egui::Key;
+            let ch_opt = match key {
+                Key::A => Some('A'),
+                Key::B => Some('B'),
+                Key::C => Some('C'),
+                Key::D => Some('D'),
+                Key::E => Some('E'),
+                Key::F => Some('F'),
+                Key::G => Some('G'),
+                Key::H => Some('H'),
+                Key::I => Some('I'),
+                Key::J => Some('J'),
+                Key::K => Some('K'),
+                Key::L => Some('L'),
+                Key::M => Some('M'),
+                Key::N => Some('N'),
+                Key::O => Some('O'),
+                Key::P => Some('P'),
+                Key::Q => Some('Q'),
+                Key::R => Some('R'),
+                Key::S => Some('S'),
+                Key::T => Some('T'),
+                Key::U => Some('U'),
+                Key::V => Some('V'),
+                Key::W => Some('W'),
+                Key::X => Some('X'),
+                Key::Y => Some('Y'),
+                Key::Z => Some('Z'),
+                Key::Num0 => Some('0'),
+                Key::Num1 => Some('1'),
+                Key::Num2 => Some('2'),
+                Key::Num3 => Some('3'),
+                Key::Num4 => Some('4'),
+                Key::Num5 => Some('5'),
+                Key::Num6 => Some('6'),
+                Key::Num7 => Some('7'),
+                Key::Num8 => Some('8'),
+                Key::Num9 => Some('9'),
+                _ => None,
+            };
+            ch_opt.map(|ch| Hotkey::new(mods_to_modifier(mods), ch))
+        }
+        _ => None,
+    }
+}
+
+fn mods_to_modifier(m: egui::Modifiers) -> Modifier {
+    match (m.ctrl, m.alt, m.shift) {
+        (false, false, false) => Modifier::None,
+        (true, false, false) => Modifier::Ctrl,
+        (false, true, false) => Modifier::Alt,
+        (false, false, true) => Modifier::Shift,
+        (true, true, false) => Modifier::CtrlAlt,
+        (true, false, true) => Modifier::CtrlShift,
+        (false, true, true) => Modifier::AltShift,
+        (true, true, true) => Modifier::CtrlAltShift,
+    }
 }
 
 pub fn detect_hotkey_actions(cfg: &Hotkeys, ctx: &egui::Context) -> Vec<HotkeyAction> {
@@ -280,37 +351,97 @@ pub fn detect_hotkey_actions(cfg: &Hotkeys, ctx: &egui::Context) -> Vec<HotkeyAc
         return actions;
     }
 
-    if is_hotkey_pressed(cfg.pause.as_ref(), &input) {
-        actions.push(HotkeyAction::Pause);
+    // First prefer event-based detection which preserves modifiers and works reliably
+    // across platforms (including Ctrl/Command variants).
+    for ev in input.events.iter().rev() {
+        if let Some(hk) = event_to_hotkey(ev, input.modifiers) {
+            // Compare to configured hotkeys and push matching actions once.
+            if let Some(cfg_hk) = cfg.pause.as_ref() {
+                if cfg_hk.modifier == hk.modifier && cfg_hk.key == hk.key {
+                    actions.push(HotkeyAction::Pause);
+                }
+            }
+            if let Some(cfg_hk) = cfg.fit_view.as_ref() {
+                if cfg_hk.modifier == hk.modifier && cfg_hk.key == hk.key {
+                    actions.push(HotkeyAction::FitView);
+                }
+            }
+            if let Some(cfg_hk) = cfg.fit_view_cont.as_ref() {
+                if cfg_hk.modifier == hk.modifier && cfg_hk.key == hk.key {
+                    actions.push(HotkeyAction::FitViewCont);
+                }
+            }
+            if let Some(cfg_hk) = cfg.reset_markers.as_ref() {
+                if cfg_hk.modifier == hk.modifier && cfg_hk.key == hk.key {
+                    actions.push(HotkeyAction::ResetMarkers);
+                }
+            }
+            if let Some(cfg_hk) = cfg.traces.as_ref() {
+                if cfg_hk.modifier == hk.modifier && cfg_hk.key == hk.key {
+                    actions.push(HotkeyAction::ToggleTraces);
+                }
+            }
+            if let Some(cfg_hk) = cfg.math.as_ref() {
+                if cfg_hk.modifier == hk.modifier && cfg_hk.key == hk.key {
+                    actions.push(HotkeyAction::ToggleMath);
+                }
+            }
+            if let Some(cfg_hk) = cfg.thresholds.as_ref() {
+                if cfg_hk.modifier == hk.modifier && cfg_hk.key == hk.key {
+                    actions.push(HotkeyAction::ToggleThresholds);
+                }
+            }
+            if let Some(cfg_hk) = cfg.export_data.as_ref() {
+                if cfg_hk.modifier == hk.modifier && cfg_hk.key == hk.key {
+                    actions.push(HotkeyAction::ToggleExport);
+                }
+            }
+            if let Some(cfg_hk) = cfg.save_png.as_ref() {
+                if cfg_hk.modifier == hk.modifier && cfg_hk.key == hk.key {
+                    actions.push(HotkeyAction::SavePng);
+                }
+            }
+            if let Some(cfg_hk) = cfg.fft.as_ref() {
+                if cfg_hk.modifier == hk.modifier && cfg_hk.key == hk.key {
+                    actions.push(HotkeyAction::ToggleFft);
+                }
+            }
+        }
     }
-    if is_hotkey_pressed(cfg.fit_view.as_ref(), &input) {
-        actions.push(HotkeyAction::FitView);
-    }
-    if is_hotkey_pressed(cfg.fit_view_cont.as_ref(), &input) {
-        actions.push(HotkeyAction::FitViewCont);
-    }
-    if is_hotkey_pressed(cfg.reset_markers.as_ref(), &input) {
-        actions.push(HotkeyAction::ResetMarkers);
-    }
-    if is_hotkey_pressed(cfg.traces.as_ref(), &input) {
-        actions.push(HotkeyAction::ToggleTraces);
-    }
-    if is_hotkey_pressed(cfg.math.as_ref(), &input) {
-        actions.push(HotkeyAction::ToggleMath);
-    }
-    if is_hotkey_pressed(cfg.thresholds.as_ref(), &input) {
-        actions.push(HotkeyAction::ToggleThresholds);
-    }
-    if is_hotkey_pressed(cfg.export_data.as_ref(), &input) {
-        actions.push(HotkeyAction::ToggleExport);
-    }
-    if is_hotkey_pressed(cfg.save_png.as_ref(), &input) {
-        actions.push(HotkeyAction::SavePng);
-    }
-    if is_hotkey_pressed(cfg.fft.as_ref(), &input) {
-        actions.push(HotkeyAction::ToggleFft);
+
+    // Fall back to InputState.key_pressed detection if no event-based matches found
+    if actions.is_empty() {
+        if is_hotkey_pressed(cfg.pause.as_ref(), &input) {
+            actions.push(HotkeyAction::Pause);
+        }
+        if is_hotkey_pressed(cfg.fit_view.as_ref(), &input) {
+            actions.push(HotkeyAction::FitView);
+        }
+        if is_hotkey_pressed(cfg.fit_view_cont.as_ref(), &input) {
+            actions.push(HotkeyAction::FitViewCont);
+        }
+        if is_hotkey_pressed(cfg.reset_markers.as_ref(), &input) {
+            actions.push(HotkeyAction::ResetMarkers);
+        }
+        if is_hotkey_pressed(cfg.traces.as_ref(), &input) {
+            actions.push(HotkeyAction::ToggleTraces);
+        }
+        if is_hotkey_pressed(cfg.math.as_ref(), &input) {
+            actions.push(HotkeyAction::ToggleMath);
+        }
+        if is_hotkey_pressed(cfg.thresholds.as_ref(), &input) {
+            actions.push(HotkeyAction::ToggleThresholds);
+        }
+        if is_hotkey_pressed(cfg.export_data.as_ref(), &input) {
+            actions.push(HotkeyAction::ToggleExport);
+        }
+        if is_hotkey_pressed(cfg.save_png.as_ref(), &input) {
+            actions.push(HotkeyAction::SavePng);
+        }
+        if is_hotkey_pressed(cfg.fft.as_ref(), &input) {
+            actions.push(HotkeyAction::ToggleFft);
+        }
     }
 
     actions
 }
-
