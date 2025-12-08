@@ -1,6 +1,6 @@
-use crate::data::scope::{ScopeData};
-use std::collections::{HashMap, VecDeque};
+use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
+use std::collections::{HashMap, VecDeque};
 
 pub struct LivePlotData<'a> {
     pub scope_data: &'a mut ScopeData,
@@ -8,7 +8,6 @@ pub struct LivePlotData<'a> {
 }
 
 impl<'a> LivePlotData<'a> {
-
     pub fn pause(&mut self) {
         self.scope_data.paused = true;
         self.traces.take_snapshot();

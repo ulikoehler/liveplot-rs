@@ -1,5 +1,5 @@
-use std::collections::{HashMap, VecDeque};
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
+use std::collections::{HashMap, VecDeque};
 
 pub struct AxisSettings {
     pub unit: Option<String>,
@@ -239,13 +239,17 @@ impl ScopeData {
             self.y_axis.bounds = (min_y, max_y);
         }
     }
-    
+
     pub fn fit_bounds(&mut self, traces: &TracesCollection) {
         self.fit_x_bounds(traces);
         self.fit_y_bounds(traces);
     }
 
-    pub fn get_drawn_points(&self, name: &TraceRef, traces: &TracesCollection) -> Option<VecDeque<[f64; 2]>> {
+    pub fn get_drawn_points(
+        &self,
+        name: &TraceRef,
+        traces: &TracesCollection,
+    ) -> Option<VecDeque<[f64; 2]>> {
         if let Some(trace) = traces.get_points(name, self.paused) {
             if self.scope_type == ScopeType::XYScope {
                 Some(trace.clone())
@@ -257,7 +261,10 @@ impl ScopeData {
         }
     }
 
-    pub fn get_all_drawn_points(&self, traces: &TracesCollection) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
+    pub fn get_all_drawn_points(
+        &self,
+        traces: &TracesCollection,
+    ) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
         let mut result = HashMap::new();
         for name in self.trace_order.iter() {
             if let Some(pts) = self.get_drawn_points(name, traces) {
@@ -266,5 +273,4 @@ impl ScopeData {
         }
         result
     }
-    
 }

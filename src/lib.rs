@@ -1,8 +1,8 @@
 //! New modular LivePlot architecture (work-in-progress reorg)
 
-pub mod sink; // keep existing sink API unchanged
 pub mod config;
 pub mod controllers;
+pub mod sink; // keep existing sink API unchanged
 
 pub mod data;
 pub mod panels;
@@ -13,8 +13,8 @@ pub mod persistence;
 // Re-exports for external API compatibility with examples
 // pub use config::{LivePlotConfig, XDateFormat};
 pub use controllers::{
-	FftController, FftPanelInfo, UiActionController, WindowController, WindowInfo,
-	RawExportFormat, FftRawData, FftDataRequest, TracesController, TracesInfo, TraceInfo,
+    FftController, FftDataRequest, FftPanelInfo, FftRawData, RawExportFormat, TraceInfo,
+    TracesController, TracesInfo, UiActionController, WindowController, WindowInfo,
 };
 pub use sink::{channel_multi, MultiPlotSink, MultiSample};
 // pub use data::thresholds::{ThresholdController, ThresholdDef, ThresholdEvent, ThresholdKind};

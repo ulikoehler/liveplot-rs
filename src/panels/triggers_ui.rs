@@ -1,8 +1,8 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::LivePlotData;
 use crate::data::scope::ScopeData;
-use crate::data::traces::TracesCollection;
 use crate::data::traces::TraceRef;
+use crate::data::traces::TracesCollection;
 use crate::data::triggers::{Trigger, TriggerSlope};
 use crate::panels::trace_look_ui::render_trace_look_editor;
 use egui::Ui;
@@ -57,15 +57,21 @@ impl Panel for TriggersPanel {
                 ui.close();
             }
             if ui.button("Start all").clicked() {
-                for (_n, trig) in self.triggers.iter_mut() { trig.start(); }
+                for (_n, trig) in self.triggers.iter_mut() {
+                    trig.start();
+                }
                 ui.close();
             }
             if ui.button("Stop all").clicked() {
-                for (_n, trig) in self.triggers.iter_mut() { trig.stop(); }
+                for (_n, trig) in self.triggers.iter_mut() {
+                    trig.stop();
+                }
                 ui.close();
             }
             if ui.button("Reset all").clicked() {
-                for (_n, trig) in self.triggers.iter_mut() { trig.reset_runtime_state(); }
+                for (_n, trig) in self.triggers.iter_mut() {
+                    trig.reset_runtime_state();
+                }
                 ui.close();
             }
         });
@@ -81,7 +87,12 @@ impl Panel for TriggersPanel {
         self.editing = None;
     }
 
-    fn draw(&mut self, plot_ui: &mut egui_plot::PlotUi, scope: &ScopeData, traces: &TracesCollection) {
+    fn draw(
+        &mut self,
+        plot_ui: &mut egui_plot::PlotUi,
+        scope: &ScopeData,
+        traces: &TracesCollection,
+    ) {
         if self.triggers.is_empty() {
             return;
         }
@@ -173,7 +184,8 @@ impl Panel for TriggersPanel {
                 if tr.check_trigger(data) {
                     if tr.is_triggered() {
                         let tr_time = tr.last_trigger_time().unwrap();
-                        let time_window = data.scope_data.x_axis.bounds.1 - data.scope_data.x_axis.bounds.0;
+                        let time_window =
+                            data.scope_data.x_axis.bounds.1 - data.scope_data.x_axis.bounds.0;
 
                         let tr_pos = tr.trigger_position;
                         data.scope_data.x_axis.bounds = (
@@ -391,13 +403,18 @@ impl Panel for TriggersPanel {
             });
 
             // Target trace selection
-            let trace_names= data.scope_data.trace_order.clone();
+            let trace_names = data.scope_data.trace_order.clone();
             let mut target_idx = trace_names
                 .iter()
                 .position(|n| n == &builder.target)
                 .unwrap_or(0);
             egui::ComboBox::from_label("Trace")
-                .selected_text(trace_names.get(target_idx).map(|t| t.to_string()).unwrap_or_default())
+                .selected_text(
+                    trace_names
+                        .get(target_idx)
+                        .map(|t| t.to_string())
+                        .unwrap_or_default(),
+                )
                 .show_ui(ui, |ui| {
                     for (i, n) in trace_names.iter().enumerate() {
                         if ui.selectable_label(target_idx == i, n.as_str()).clicked() {

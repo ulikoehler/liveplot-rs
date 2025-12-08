@@ -48,7 +48,8 @@ impl Panel for MathPanel {
     fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
         ui.menu_button("∫ Math", |ui| {
             if ui.button("New").clicked() {
-                self.builder = MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() });
+                self.builder =
+                    MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() });
                 self.editing = None;
                 self.creating = true;
                 self.error = None;
@@ -66,7 +67,9 @@ impl Panel for MathPanel {
             }
             if ui.button("X Clear All math traces").clicked() {
                 // Remove math traces & their underlying live data
-                for def in self.math_traces.iter() { data.traces.remove_trace(&def.name); }
+                for def in self.math_traces.iter() {
+                    data.traces.remove_trace(&def.name);
+                }
                 self.math_traces.clear();
                 self.editing = None;
                 self.creating = false;
@@ -407,7 +410,11 @@ impl Panel for MathPanel {
                                 .selected_text(selected.clone())
                                 .show_ui(ui, |ui| {
                                     for n in trace_names.iter() {
-                                        ui.selectable_value(&mut selected, n.0.clone(), n.0.clone());
+                                        ui.selectable_value(
+                                            &mut selected,
+                                            n.0.clone(),
+                                            n.0.clone(),
+                                        );
                                     }
                                 });
                             if selected != current_name {
@@ -643,11 +650,13 @@ impl Panel for MathPanel {
 
                                 if orig != tr.name {
                                     // Grab previous look, then remove the old backing trace
-                                    prev_look = data.traces.get_trace(&orig).map(|t| t.look.clone());
+                                    prev_look =
+                                        data.traces.get_trace(&orig).map(|t| t.look.clone());
                                     data.remove_trace(&orig);
                                 } else {
                                     // Keep current look when not renaming
-                                    prev_look = data.traces.get_trace(&orig).map(|t| t.look.clone());
+                                    prev_look =
+                                        data.traces.get_trace(&orig).map(|t| t.look.clone());
                                 }
                             }
 

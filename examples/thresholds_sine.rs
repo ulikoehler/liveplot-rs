@@ -1,4 +1,7 @@
-use liveplot::{channel_multi, run_liveplot, ThresholdController, ThresholdDef, ThresholdKind, TraceRef, LivePlotConfig};
+use liveplot::{
+    channel_multi, run_liveplot, LivePlotConfig, ThresholdController, ThresholdDef, ThresholdKind,
+    TraceRef,
+};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {

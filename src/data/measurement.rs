@@ -1,5 +1,3 @@
-
-
 pub struct Measurement {
     pub name: String,
     pub p1: Option<[f64; 2]>,
@@ -8,7 +6,11 @@ pub struct Measurement {
 
 impl Default for Measurement {
     fn default() -> Self {
-        Self { name: String::new(), p1: None, p2: None }
+        Self {
+            name: String::new(),
+            p1: None,
+            p2: None,
+        }
     }
 }
 
@@ -64,6 +66,4 @@ impl Measurement {
     pub fn has_both_points(&self) -> bool {
         self.p1.is_some() && self.p2.is_some()
     }
-
-
 }

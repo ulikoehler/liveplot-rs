@@ -114,9 +114,7 @@ impl ScopePanel {
                 .smart_aim(true)
                 .show_value(true)
                 .clamping(egui::SliderClamping::Edits)
-                .custom_formatter(|n, _| {
-                    self.data.x_axis.format_value_with_unit(n, 4, n)
-                });
+                .custom_formatter(|n, _| self.data.x_axis.format_value_with_unit(n, 4, n));
 
                 let sresp = ui.add(slider);
                 if sresp.changed() {

@@ -4,7 +4,10 @@ use eframe::{egui, NativeOptions};
 use liveplot::{channel_multi, MultiPlotSink, MultiSample, ScopeAppMulti};
 
 #[derive(Clone, Copy, PartialEq)]
-enum WaveKind { Sine, Cosine }
+enum WaveKind {
+    Sine,
+    Cosine,
+}
 
 struct DemoApp {
     kind: WaveKind,
@@ -22,7 +25,12 @@ impl DemoApp {
         let mut plot = ScopeAppMulti::new(rx);
         plot.time_window = 10.0;
         plot.max_points = 10_000;
-        Self { kind: WaveKind::Sine, sink, plot, show_plot_window: false }
+        Self {
+            kind: WaveKind::Sine,
+            sink,
+            plot,
+            show_plot_window: false,
+        }
     }
 }
 
@@ -33,7 +41,10 @@ impl eframe::App for DemoApp {
             ui.horizontal(|ui| {
                 ui.label("Select wave:");
                 egui::ComboBox::from_id_salt("wave_select")
-                    .selected_text(match self.kind { WaveKind::Sine => "Sine", WaveKind::Cosine => "Cosine" })
+                    .selected_text(match self.kind {
+                        WaveKind::Sine => "Sine",
+                        WaveKind::Cosine => "Cosine",
+                    })
                     .show_ui(ui, |ui| {
                         ui.selectable_value(&mut self.kind, WaveKind::Sine, "Sine");
                         ui.selectable_value(&mut self.kind, WaveKind::Cosine, "Cosine");
@@ -49,21 +60,37 @@ impl eframe::App for DemoApp {
         // Show the embedded plot in its own egui::Window when requested
         if self.show_plot_window {
             let mut open = true;
-            egui::Window::new("LivePlot Window").open(&mut open).show(ctx, |ui| {
-                // Optional minimal size for nicer layout
-                ui.set_min_size(egui::vec2(600.0, 300.0));
-                self.plot.ui_embed(ui);
-            });
-            if !open { self.show_plot_window = false; }
+            egui::Window::new("LivePlot Window")
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    // Optional minimal size for nicer layout
+                    ui.set_min_size(egui::vec2(600.0, 300.0));
+                    self.plot.ui_embed(ui);
+                });
+            if !open {
+                self.show_plot_window = false;
+            }
         }
 
         // Feed the chosen wave
         let now_us = chrono::Utc::now().timestamp_micros();
         let t = (now_us as f64) * 1e-6;
         let phase = t * 2.0 * std::f64::consts::PI;
-        let val = match self.kind { WaveKind::Sine => phase.sin(), WaveKind::Cosine => phase.cos() };
-        let trace = match self.kind { WaveKind::Sine => "sine", WaveKind::Cosine => "cosine" };
-    let _ = self.sink.send(MultiSample { index: 0, value: val, timestamp_micros: now_us, trace: trace.to_string(), info: None });
+        let val = match self.kind {
+            WaveKind::Sine => phase.sin(),
+            WaveKind::Cosine => phase.cos(),
+        };
+        let trace = match self.kind {
+            WaveKind::Sine => "sine",
+            WaveKind::Cosine => "cosine",
+        };
+        let _ = self.sink.send(MultiSample {
+            index: 0,
+            value: val,
+            timestamp_micros: now_us,
+            trace: trace.to_string(),
+            info: None,
+        });
 
         ctx.request_repaint_after(Duration::from_millis(16));
     }
