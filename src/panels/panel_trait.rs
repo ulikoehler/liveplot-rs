@@ -115,7 +115,24 @@ pub trait Panel: Downcast {
                 let st = self.state_mut();
                 st.detached = false;
                 st.visible = false;
+                st.request_focus = false;
                 return;
+            }
+
+            // If a caller requested focus for this panel, bring the window to the foreground.
+            // Use InputState to check whether the viewport is already focused to avoid redundant requests.
+            let should_focus = {
+                let st = self.state();
+                st.request_focus
+            };
+            if should_focus {
+                let already_focused = vctx.input(|i| i.viewport().focused.unwrap_or(false));
+                if !already_focused {
+                    // Request OS-level focus for this viewport
+                    vctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                // Clear the request flag so we don't refocus every frame
+                self.state_mut().request_focus = false;
             }
 
             let mut dock_clicked = false;
