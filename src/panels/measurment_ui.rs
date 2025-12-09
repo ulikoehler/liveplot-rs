@@ -74,8 +74,8 @@ impl Panel for MeasurementPanel {
         });
     }
 
-    fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
-        if let Some(point) = _data.scope_data.clicked_point {
+    fn update_data(&mut self, data: &mut LivePlotData<'_>) {
+        if let Some(point) = data.scope_data.clicked_point {
             if self.last_clicked_point == Some(point) {
                 return;
             }
@@ -97,6 +97,42 @@ impl Panel for MeasurementPanel {
                 0
             };
             let measurement = self.measurements.get_mut(target_idx).unwrap();
+
+            let sel_data_points: Option<Vec<[f64; 2]>> =
+                    if let Some(name) = &measurement.catch_trace{
+                        data.traces
+                            .get_points(name, data.scope_data.paused)
+                            .map(|v| v.into_iter().collect())
+                    } else {
+                        None
+                    };
+
+            let point = match (&measurement.catch_trace, &sel_data_points) {
+                    (Some(name), Some(data_points)) if !data_points.is_empty() => {
+                        let off = data.traces.get_trace(name).map(|t| t.offset).unwrap_or(0.0);
+                        let mut best_i = None;
+                        let mut best_d2 = f64::INFINITY;
+                        for (i, p) in data_points.iter().enumerate() {
+                            let x_plot = p[0];
+                            let y_plot = p[1] + off;
+                            let dx = x_plot - point[0];
+                            let dy = y_plot - point[1];
+                            let d2 = dx * dx + dy * dy;
+                            if d2 < best_d2 {
+                                best_d2 = d2;
+                                best_i = Some(i);
+                            }
+                        }
+                        if let Some(i) = best_i {
+                            data_points[i]
+                        }else{
+                            point
+                        }
+                    }
+                    _ => {
+                        point
+                    }
+                };
 
             if let Some(point_idx) = self.selected_point_index {
                 match point_idx {
@@ -373,6 +409,30 @@ impl Panel for MeasurementPanel {
                 let name_edit = ui.text_edit_singleline(&mut m.name);
                 if name_edit.clicked() {
                     self.selected_measurement = Some(i);
+                }
+
+                let catch_trace_names: Vec<String> = data
+                    .traces
+                    .keys().map(|name| name.0.clone()).collect();
+                let mut selected_trace_name = m.catch_trace.clone();
+                let selected_text = match &selected_trace_name {
+                    Some(t) => t.0.clone(),
+                    None => "Catch trace (none)".to_string(),
+                };
+                let combo = egui::ComboBox::from_id_salt(format!("catch_trace_{}", i))
+                    .selected_text(selected_text)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut selected_trace_name, None, "None");
+                        for name in &catch_trace_names {
+                            ui.selectable_value(
+                                &mut selected_trace_name,
+                                Some(crate::TraceRef(name.clone())),
+                                name.clone(),
+                            );
+                        }
+                    });
+                if combo.response.changed() {
+                    m.catch_trace = selected_trace_name.clone();
                 }
 
                 let clear_btn = ui.button("X Clear");

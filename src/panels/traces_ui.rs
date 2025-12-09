@@ -115,25 +115,16 @@ impl Panel for TracesPanel {
         #[derive(Clone)]
         struct Row {
             name: TraceRef,
-            is_free: bool,
         }
         let mut rows: Vec<Row> = Vec::new();
-        rows.push(Row {
-            name: TraceRef("Free".to_string()),
-            is_free: true,
-        });
         for n in data.scope_data.trace_order.iter() {
-            rows.push(Row {
-                name: n.clone(),
-                is_free: false,
-            });
+            rows.push(Row { name: n.clone() });
         }
 
         // Delegate for table rendering
         struct TracesDelegate<'a> {
             traces: &'a mut crate::data::traces::TracesCollection,
             hover_out: &'a mut Option<TraceRef>,
-            selection: &'a mut Option<TraceRef>,
             look_toggle: &'a mut Option<TraceRef>,
             rows: Vec<Row>,
             col_w: [f32; 6],
@@ -161,10 +152,9 @@ impl Panel for TracesPanel {
                         let text = match col {
                             0 => "",
                             1 => "Trace",
-                            2 => "Marker",
-                            3 => "Visible",
-                            4 => "Offset",
-                            5 => "Info",
+                            2 => "Visible",
+                            3 => "Offset",
+                            4 => "Info",
                             _ => "",
                         };
                         // Center certain headers; keep Name/Info left-aligned
@@ -217,10 +207,7 @@ impl Panel for TracesPanel {
                                         egui::Direction::LeftToRight,
                                     ),
                                     |cui| {
-                                        if r.is_free {
-                                            cui.label("");
-                                        } else if let Some(tr) = self.traces.get_trace_mut(&r.name)
-                                        {
+                                        if let Some(tr) = self.traces.get_trace_mut(&r.name) {
                                             let mut c = tr.look.color;
                                             let resp = cui
                                                 .color_edit_button_srgba(&mut c)
@@ -244,55 +231,20 @@ impl Panel for TracesPanel {
                                         .sense(egui::Sense::click()),
                                 );
                                 if resp.hovered() {
-                                    if !r.is_free {
-                                        *self.hover_out = Some(r.name.clone());
-                                    }
+                                    *self.hover_out = Some(r.name.clone());
                                 }
                                 if resp.clicked() {
-                                    if !r.is_free {
-                                        *self.look_toggle = Some(r.name.clone());
-                                    }
+                                    *self.look_toggle = Some(r.name.clone());
                                 }
                             }
                             2 => {
-                                // Marker radio centered: Free or exactly one name
-                                inner.with_layout(
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    ),
-                                    |cui| {
-                                        let mut sel = self.selection.clone();
-                                        let is_selected = (r.is_free && sel.is_none())
-                                            || (!r.is_free && sel.as_ref() == Some(&r.name));
-                                        let resp = cui.selectable_label(
-                                            is_selected,
-                                            if r.is_free { "Free" } else { "Use" },
-                                        );
-                                        if resp.hovered() && !r.is_free {
-                                            *self.hover_out = Some(r.name.clone());
-                                        }
-                                        if resp.clicked() {
-                                            sel = if r.is_free {
-                                                None
-                                            } else {
-                                                Some(r.name.clone())
-                                            };
-                                            *self.selection = sel;
-                                        }
-                                    },
-                                );
-                            }
-                            3 => {
                                 // Visible checkbox centered
                                 inner.with_layout(
                                     egui::Layout::centered_and_justified(
                                         egui::Direction::LeftToRight,
                                     ),
                                     |cui| {
-                                        if r.is_free {
-                                            cui.label("");
-                                        } else if let Some(tr) = self.traces.get_trace_mut(&r.name)
-                                        {
+                                        if let Some(tr) = self.traces.get_trace_mut(&r.name) {
                                             let mut vis = tr.look.visible;
                                             let resp = cui.checkbox(&mut vis, "");
                                             if resp.hovered() {
@@ -305,17 +257,14 @@ impl Panel for TracesPanel {
                                     },
                                 );
                             }
-                            4 => {
+                            3 => {
                                 // Offset DragValue centered
                                 inner.with_layout(
                                     egui::Layout::centered_and_justified(
                                         egui::Direction::LeftToRight,
                                     ),
                                     |cui| {
-                                        if r.is_free {
-                                            cui.label("");
-                                        } else if let Some(tr) = self.traces.get_trace_mut(&r.name)
-                                        {
+                                        if let Some(tr) = self.traces.get_trace_mut(&r.name) {
                                             let mut off = tr.offset;
                                             let resp = cui.add(
                                                 egui::DragValue::new(&mut off)
@@ -332,11 +281,9 @@ impl Panel for TracesPanel {
                                     },
                                 );
                             }
-                            5 => {
+                            4 => {
                                 inner.add_space(4.0);
-                                if r.is_free {
-                                    inner.label("");
-                                } else if let Some(tr) = self.traces.get_trace(&r.name) {
+                                if let Some(tr) = self.traces.get_trace(&r.name) {
                                     let text = tr.info.clone();
                                     let resp = inner.add(
                                         egui::Label::new(text.clone())
@@ -421,14 +368,12 @@ impl Panel for TracesPanel {
                 let rows_clone = rows.clone();
                 {
                     let mut hover_tmp: Option<TraceRef> = None;
-                    let mut selection_tmp = data.scope_data.selection_trace.clone();
                     let mut look_toggle_req: Option<TraceRef> = None;
                     // Borrow traces mutably for the table drawing scope only
                     let traces_ref = &mut *data.traces;
                     let mut delegate = TracesDelegate {
                         traces: traces_ref,
                         hover_out: &mut hover_tmp,
-                        selection: &mut selection_tmp,
                         look_toggle: &mut look_toggle_req,
                         rows: rows_clone,
                         col_w: w,
@@ -447,7 +392,6 @@ impl Panel for TracesPanel {
                         .show(&mut table_ui, &mut delegate);
                     // Write back hover and selection state after drawing table
                     self.hover_trace = hover_tmp;
-                    data.scope_data.selection_trace = selection_tmp;
                     if let Some(tn) = look_toggle_req {
                         if self.look_editor_trace.as_deref() == Some(tn.as_str()) {
                             self.look_editor_trace = None;

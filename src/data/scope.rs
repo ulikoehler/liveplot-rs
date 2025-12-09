@@ -105,7 +105,6 @@ pub struct ScopeData {
 
     pub trace_order: Vec<TraceRef>,
     pub hover_trace: Option<TraceRef>,
-    pub selection_trace: Option<TraceRef>,
     pub clicked_point: Option<[f64; 2]>,
 }
 
@@ -125,7 +124,6 @@ impl Default for ScopeData {
             show_info_in_legend: false,
             trace_order: Vec::new(),
             hover_trace: None,
-            selection_trace: None,
             clicked_point: None,
         }
     }

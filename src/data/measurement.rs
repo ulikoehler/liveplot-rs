@@ -1,7 +1,10 @@
+use crate::TraceRef;
+
 pub struct Measurement {
     pub name: String,
     pub p1: Option<[f64; 2]>,
     pub p2: Option<[f64; 2]>,
+    pub catch_trace: Option<TraceRef>,
 }
 
 impl Default for Measurement {
@@ -10,6 +13,7 @@ impl Default for Measurement {
             name: String::new(),
             p1: None,
             p2: None,
+            catch_trace: None,
         }
     }
 }

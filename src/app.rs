@@ -323,9 +323,6 @@ impl MainPanel {
             if let Some(ylog) = inner.y_log_request.take() {
                 data.y_axis.log_scale = ylog;
             }
-            if let Some(sel) = inner.selection_request.take() {
-                data.selection_trace = sel.map(TraceRef);
-            }
 
             let mut infos: Vec<crate::controllers::TraceInfo> = Vec::new();
             for name in data.trace_order.iter() {
@@ -343,7 +340,6 @@ impl MainPanel {
             let y_log = data.y_axis.log_scale;
             let snapshot = crate::controllers::TracesInfo {
                 traces: infos,
-                marker_selection: data.selection_trace.as_ref().map(|t| t.0.clone()),
                 y_unit,
                 y_log,
             };
@@ -1391,9 +1387,6 @@ impl MainApp {
             if let Some(ylog) = inner.y_log_request.take() {
                 data.y_axis.log_scale = ylog;
             }
-            if let Some(sel) = inner.selection_request.take() {
-                data.selection_trace = sel.map(TraceRef);
-            }
 
             // Publish current traces snapshot
             let mut infos: Vec<crate::controllers::TraceInfo> = Vec::new();
@@ -1412,7 +1405,6 @@ impl MainApp {
             let y_log = data.y_axis.log_scale;
             let snapshot = crate::controllers::TracesInfo {
                 traces: infos,
-                marker_selection: data.selection_trace.as_ref().map(|t| t.0.clone()),
                 y_unit,
                 y_log,
             };
@@ -1467,7 +1459,6 @@ impl MainApp {
                 }
                 HotkeyAction::ResetMarkers => {
                     let data = self.main_panel.liveplot_panel.get_data_mut();
-                    data.selection_trace = None;
                     data.clicked_point = None;
                 }
                 HotkeyAction::ToggleTraces => {

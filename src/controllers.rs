@@ -292,7 +292,6 @@ pub struct TraceInfo {
 #[derive(Debug, Clone)]
 pub struct TracesInfo {
     pub traces: Vec<TraceInfo>,
-    pub marker_selection: Option<String>, // None => Free
     pub y_unit: Option<String>,
     pub y_log: bool,
 }

@@ -290,7 +290,6 @@ pub struct ScopeStateSerde {
     pub scope_is_xy: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
-    pub selection_trace: Option<String>,
 }
 
 impl From<&ScopeData> for ScopeStateSerde {
@@ -302,7 +301,6 @@ impl From<&ScopeData> for ScopeStateSerde {
             scope_is_xy: matches!(s.scope_type, ScopeType::XYScope),
             show_legend: s.show_legend,
             show_info_in_legend: s.show_info_in_legend,
-            selection_trace: s.selection_trace.as_ref().map(|t| t.0.clone()),
         }
     }
 }
@@ -320,7 +318,6 @@ impl ScopeStateSerde {
         };
         scope.show_legend = self.show_legend;
         scope.show_info_in_legend = self.show_info_in_legend;
-        scope.selection_trace = self.selection_trace.map(TraceRef);
     }
 }
 
@@ -372,7 +369,6 @@ impl Default for AppStateSerde {
                 scope_is_xy: false,
                 show_legend: true,
                 show_info_in_legend: false,
-                selection_trace: None,
             },
             panels: Vec::new(),
             traces_style: Vec::new(),
