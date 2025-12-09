@@ -827,7 +827,12 @@ impl MainPanel {
                         ui.fonts_mut(|f| {
                             for p in list.iter() {
                                 let label = p.icon_only().unwrap_or(p.title()).to_string();
-                                let w = f.layout_no_wrap(label, button_font.clone(), egui::Color32::WHITE)
+                                let w = f
+                                    .layout_no_wrap(
+                                        label,
+                                        button_font.clone(),
+                                        egui::Color32::WHITE,
+                                    )
                                     .rect
                                     .width();
                                 if w > max_w {
@@ -887,7 +892,12 @@ impl MainPanel {
                         ui.fonts_mut(|f| {
                             for p in list.iter() {
                                 let label = p.icon_only().unwrap_or(p.title()).to_string();
-                                let w = f.layout_no_wrap(label, button_font.clone(), egui::Color32::WHITE)
+                                let w = f
+                                    .layout_no_wrap(
+                                        label,
+                                        button_font.clone(),
+                                        egui::Color32::WHITE,
+                                    )
                                     .rect
                                     .width();
                                 if w > max_w {
@@ -1065,11 +1075,14 @@ impl MainPanel {
                     })
                 };
                 let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
-                    // Measure combined label width (title + optional icon)
-                    let tabs_w: f32 = match count {
+                // Measure combined label width (title + optional icon)
+                let tabs_w: f32 = match count {
                     0 => 0.0,
-                        1 => txt_width(&list[0].title_and_icon(), ui) + pad,
-                        _ => list.iter().map(|p| txt_width(&p.title_and_icon(), ui) + pad).sum(),
+                    1 => txt_width(&list[0].title_and_icon(), ui) + pad,
+                    _ => list
+                        .iter()
+                        .map(|p| txt_width(&p.title_and_icon(), ui) + pad)
+                        .sum(),
                 };
                 let actions_w = txt_width("Pop out", ui) + pad + txt_width("Hide", ui) + pad;
                 tabs_w + actions_w > available
@@ -1545,7 +1558,10 @@ pub fn run_liveplot(
     // Use `ViewportBuilder::with_inner_size` (winit/egui window attributes) instead of the
     // non-existent `initial_window_size` on NativeOptions in this eframe/egui version.
     if opts.viewport.inner_size.is_none() {
-        opts.viewport = opts.viewport.clone().with_inner_size(egui::vec2(1400.0, 900.0));
+        opts.viewport = opts
+            .viewport
+            .clone()
+            .with_inner_size(egui::vec2(1400.0, 900.0));
     }
     eframe::run_native(
         &title,

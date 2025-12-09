@@ -58,7 +58,7 @@ fn main() -> eframe::Result<()> {
             }
         });
     }
-    thr_ctrl.add_threshold(ThresholdDef {
+    thr_ctrl.request_add_threshold(ThresholdDef {
         name: "gt_0_8".into(),
         target: TraceRef("signal".into()),
         kind: ThresholdKind::GreaterThan { value: 0.8 },

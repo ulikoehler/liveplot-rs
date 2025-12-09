@@ -22,6 +22,7 @@ pub use data::traces::TraceRef;
 pub use panels::{Panel, PanelState};
 pub use sink::{channel_plot, PlotCommand, PlotPoint, PlotSink, Trace, TraceId};
 // Re-export individual panel types from panels module
+pub use data::thresholds::{ThresholdDef, ThresholdKind};
 pub use panels::{
     ExportPanel, HotkeysPanel, LiveplotPanel, MathPanel, MeasurementPanel,
     ScopePanel as PanelScopePanel, ThresholdsPanel, TracesPanel, TriggersPanel,

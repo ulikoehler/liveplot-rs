@@ -346,6 +346,8 @@ impl Panel for MeasurementPanel {
                 let idx = self.measurements.len() + 1;
                 self.measurements
                     .push(Measurement::new(&format!("M{}", idx)));
+                self.selected_measurement = Some(self.measurements.len() - 1);
+                self.selected_point_index = None;
             }
             if ui.button("X Clear All").clicked() {
                 for m in &mut self.measurements {

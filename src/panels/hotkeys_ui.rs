@@ -19,8 +19,8 @@ pub struct HotkeysPanel {
 impl HotkeysPanel {
     pub fn new(shared_hotkeys: Rc<RefCell<Hotkeys>>) -> Self {
         Self {
-              // Use the basic keyboard glyph (no FE0F variation selector) to avoid double-char rendering
-              state: PanelState::new("Hotkeys", "⌨"),
+            // Use the basic keyboard glyph (no FE0F variation selector) to avoid double-char rendering
+            state: PanelState::new("Hotkeys", "⌨"),
             capturing_hotkey: None,
             hotkeys: shared_hotkeys,
         }

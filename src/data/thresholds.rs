@@ -68,7 +68,7 @@ pub struct ThresholdDef {
     pub max_events: usize,
 
     #[serde(skip)]
-    runtime_state: ThresholdRuntimeState,
+    pub runtime_state: ThresholdRuntimeState,
 }
 
 impl Default for ThresholdDef {
