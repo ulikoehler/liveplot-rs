@@ -63,6 +63,8 @@ pub struct LivePlotConfig {
     /// Optional subheadline rendered underneath the main headline (smaller).
     /// If None, no subheadline is shown.
     pub subheadline: Option<String>,
+    /// Whether to show the legend within the UI. Defaults to true.
+    pub show_legend: bool,
     /// Optional eframe/native window options. If not provided, sensible defaults are used.
     pub native_options: Option<eframe::NativeOptions>,
     /// Optional controllers to attach.
@@ -86,6 +88,7 @@ impl Default for LivePlotConfig {
             title: "LivePlot".to_string(),
             headline: None,
             subheadline: None,
+            show_legend: true,
             native_options: None,
             window_controller: None,
             fft_controller: None,

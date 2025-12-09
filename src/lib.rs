@@ -13,7 +13,7 @@ pub mod controllers;
 pub mod sink;
 
 // Public re-exports for a compact external API
-pub use app::run_liveplot;
+pub use app::{run_liveplot, MainApp};
 pub use controllers::{
     FFTController, FFTDataRequest, FFTPanelInfo, FFTRawData, RawExportFormat, ThresholdController,
     TraceInfo, TracesController, TracesInfo, UiActionController, WindowController, WindowInfo,

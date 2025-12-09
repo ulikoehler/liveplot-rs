@@ -1249,6 +1249,9 @@ impl MainApp {
         // Trace storage limits
         self.main_panel.traces_data.max_points = cfg.max_points;
 
+        // Show legend
+        self.main_panel.liveplot_panel.get_data_mut().show_legend = cfg.show_legend;
+
         // Hotkeys: configured or fallback to default path, then defaults.
         {
             let mut hk = self.main_panel.hotkeys.borrow_mut();

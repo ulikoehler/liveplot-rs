@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use eframe::{egui, NativeOptions};
-use liveplot::{channel_plot, LivePlotApp, PlotPoint, PlotSink, Trace};
+use liveplot::{channel_plot, MainApp, PlotPoint, PlotSink, Trace};
 
 #[derive(Clone, Copy, PartialEq)]
 enum WaveKind {
@@ -27,8 +27,8 @@ struct DemoApp {
     sink: PlotSink,
     trace_sine: Trace,
     trace_cos: Trace,
-    // embedded plot app
-    plot: LivePlotApp,
+    // embedded plot app (whole MainApp kept so we can access main_panel)
+    plot: MainApp,
     // show window flag
     show_plot_window: bool,
 }
@@ -38,9 +38,10 @@ impl DemoApp {
         let (sink, rx) = channel_plot();
         let trace_sine = sink.create_trace("sine", None);
         let trace_cos = sink.create_trace("cosine", None);
-        let mut plot = LivePlotApp::new(rx);
-        plot.time_window = 10.0;
-        plot.max_points = 10_000;
+        let mut plot = MainApp::new(rx);
+        // Configure the embedded main panel's data
+        plot.main_panel.liveplot_panel.get_data_mut().time_window = 10.0;
+        plot.main_panel.traces_data.max_points = 10_000;
         Self {
             kind: WaveKind::Sine,
             sink,
@@ -83,7 +84,7 @@ impl eframe::App for DemoApp {
                 .show(ctx, |ui| {
                     // Optional minimal size for nicer layout
                     ui.set_min_size(egui::vec2(600.0, 300.0));
-                    self.plot.ui_embed(ui);
+                    self.plot.main_panel.update_embedded(ui);
                 });
             if !open {
                 self.show_plot_window = false;

@@ -1,7 +1,7 @@
 //! Example: Display fixed (precomputed) trace data
 //!
 //! What it demonstrates
-//! - Loading and showing static time-series data using `LivePlotApp::set_trace_data`.
+//! - Loading and showing static time-series data using `PlotSink::set_data`.
 //! - Pausing the UI and auto-fitting to the provided dataset.
 //!
 //! How to run
@@ -10,8 +10,7 @@
 //! ```
 //! This example preloads 10 periods of a 1 Hz sine and cosine, then displays them as paused traces.
 
-use eframe::{egui, NativeOptions};
-use liveplot::{channel_plot, LivePlotApp};
+use liveplot::{channel_plot, run_liveplot, LivePlotConfig, PlotPoint};
 
 fn make_fixed_waves() -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
     // 10 periods of a 1 Hz sine and cosine wave.
@@ -39,47 +38,33 @@ fn make_fixed_waves() -> (Vec<[f64; 2]>, Vec<[f64; 2]>) {
     (sine, cosine)
 }
 
-struct FixedDataApp {
-    plot: LivePlotApp,
-}
-
-impl FixedDataApp {
-    fn new() -> Self {
-        // Create a plot app with an unused channel (no live data needed)
-        let (_sink, rx) = channel_plot();
-        let mut plot = LivePlotApp::new(rx);
-        plot.time_window = 10.0;
-        plot.max_points = 10_000;
-        plot.show_legend = true;
-
-        // Prepare and set fixed data
-        let (sine, cosine) = make_fixed_waves();
-        plot.set_trace_data("sine", sine);
-        plot.set_trace_data("cosine", cosine);
-        // Optional Y unit
-        // plot.y_unit = Some("V".into());
-
-        Self { plot }
-    }
-}
-
-impl eframe::App for FixedDataApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("top").show(ctx, |ui| {
-            ui.heading("Fixed data demo (10 periods of 1 Hz sine + cosine)");
-            ui.label("Data is preloaded via set_trace_data() and view is paused.");
-        });
-        egui::CentralPanel::default().show(ctx, |ui| {
-            self.plot.ui_embed(ui);
-        });
-    }
-}
-
 fn main() -> eframe::Result<()> {
-    let app = FixedDataApp::new();
-    eframe::run_native(
-        "LivePlot fixed data demo",
-        NativeOptions::default(),
-        Box::new(|_cc| Ok(Box::new(app))),
-    )
+    // Create the plot channel: we will create traces and push their data via `PlotSink`.
+    let (sink, rx) = channel_plot();
+
+    // Prepare fixed waves and convert to PlotPoint vectors
+    let (sine_v, cosine_v) = make_fixed_waves();
+    let sine_points: Vec<PlotPoint> = sine_v
+        .into_iter()
+        .map(|p| PlotPoint { x: p[0], y: p[1] })
+        .collect();
+    let cosine_points: Vec<PlotPoint> = cosine_v
+        .into_iter()
+        .map(|p| PlotPoint { x: p[0], y: p[1] })
+        .collect();
+
+    // Register traces and set full data via sink
+    let sine_t = sink.create_trace("sine", Some("Sine"));
+    let cos_t = sink.create_trace("cosine", Some("Cosine"));
+    let _ = sink.set_data(&sine_t, sine_points);
+    let _ = sink.set_data(&cos_t, cosine_points);
+
+    // Build configuration via LivePlotConfig instead of mutating the internal app fields
+    let mut cfg = LivePlotConfig::default();
+    cfg.time_window_secs = 10.0;
+    cfg.max_points = 10_000;
+    cfg.show_legend = true;
+
+    // Show the UI using the channel receiver and the config
+    run_liveplot(rx, cfg)
 }
