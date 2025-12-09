@@ -16,7 +16,7 @@ pub struct MeasurementPanel {
 impl Default for MeasurementPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("📏 Measurement"),
+            state: PanelState::new("Measurement", "📏"),
             measurements: vec![Measurement::new("M1")],
             selected_measurement: Some(0),
             selected_point_index: None,

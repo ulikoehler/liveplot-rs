@@ -30,7 +30,7 @@ pub struct ThresholdsPanel {
 impl Default for ThresholdsPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("⚠ Thresholds"),
+            state: PanelState::new("Thresholds", "⚠"),
             builder: ThresholdDef::default(),
             editing: None,
             error: None,

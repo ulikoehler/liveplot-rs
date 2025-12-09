@@ -35,7 +35,7 @@ pub struct TracesPanel {
 impl Default for TracesPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("📈 Traces"),
+            state: PanelState::new("Traces", "📈"),
             look_editor_trace: None,
             hover_trace: None,
         }

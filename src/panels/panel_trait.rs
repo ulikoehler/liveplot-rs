@@ -12,9 +12,12 @@ use downcast_rs::{impl_downcast, Downcast};
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PanelState {
     pub title: &'static str,
+    /// Optional icon string (emoji or glyph) used to represent the panel in compact views.
+    pub icon: Option<&'static str>,
     pub visible: bool,
     pub detached: bool,
     pub request_docket: bool,
+    pub request_focus: bool,
     pub window_pos: Option<[f32; 2]>,
     pub window_size: Option<[f32; 2]>,
     /// If set, the panel is shown in an external OS window with this ViewportId
@@ -22,12 +25,15 @@ pub struct PanelState {
 }
 
 impl PanelState {
-    pub fn new(title: &'static str) -> Self {
+    /// Create a PanelState with an explicit icon glyph/emoticon and title.
+    pub fn new(title: &'static str, icon: &'static str) -> Self {
         Self {
             title,
+            icon: Some(icon),
             visible: false,
             detached: false,
             request_docket: false,
+            request_focus: false,
             window_pos: None,
             window_size: None,
             viewport_id: None,
@@ -39,6 +45,21 @@ impl PanelState {
 pub trait Panel: Downcast {
     fn title(&self) -> &'static str {
         self.state().title
+    }
+
+    /// Icon only: returns Optional icon glyph that can be used in compact UI tabs.
+    fn icon_only(&self) -> Option<&'static str> {
+        self.state().icon
+    }
+
+    /// Title combined with optional icon (e.g., "⌨️ Hotkeys"). Returns an owned String so callers
+    /// can use it directly in `ui.button`, `ui.label`, etc.
+    fn title_and_icon(&self) -> String {
+        if let Some(ic) = self.state().icon {
+            format!("{} {}", ic, self.state().title)
+        } else {
+            self.state().title.to_string()
+        }
     }
 
     fn state(&self) -> &PanelState;

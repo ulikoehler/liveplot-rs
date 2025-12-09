@@ -25,7 +25,7 @@ pub struct MathPanel {
 impl Default for MathPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("∫ Math"), // already has integral symbol; keep as-is
+            state: PanelState::new("Math", "∫"), // split into icon + title
             builder: MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() }),
             builder_look: TraceLook::default(),
             editing: None,

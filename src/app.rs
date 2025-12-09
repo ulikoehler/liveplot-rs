@@ -490,6 +490,22 @@ impl MainPanel {
         false
     }
 
+    /// Hide the Hotkeys panel (useful when focus switches away via hotkeys)
+    pub fn hide_hotkeys_panel(&mut self) {
+        for p in self
+            .left_side_panels
+            .iter_mut()
+            .chain(self.right_side_panels.iter_mut())
+            .chain(self.bottom_panels.iter_mut())
+            .chain(self.detached_panels.iter_mut())
+            .chain(self.empty_panels.iter_mut())
+        {
+            if p.downcast_ref::<HotkeysPanel>().is_some() {
+                p.state_mut().visible = false;
+            }
+        }
+    }
+
     fn render_menu(&mut self, ui: &mut egui::Ui) {
         // Render Menu
 
@@ -521,35 +537,40 @@ impl MainPanel {
             ui.menu_button("Panels", |ui| {
                 for p in &mut self.left_side_panels {
                     if ui
-                        .selectable_label(p.state_mut().visible, p.title())
+                        .selectable_label(p.state_mut().visible, p.title_and_icon())
                         .clicked()
                     {
                         p.state_mut().visible = true;
+                        p.state_mut().request_focus = true;
                     }
                 }
                 for p in &mut self.right_side_panels {
                     if ui
-                        .selectable_label(p.state_mut().visible, p.title())
+                        .selectable_label(p.state_mut().visible, p.title_and_icon())
                         .clicked()
                     {
                         p.state_mut().visible = true;
+                        p.state_mut().request_focus = true;
                     }
                 }
                 for p in &mut self.bottom_panels {
                     if ui
-                        .selectable_label(p.state_mut().visible, p.title())
+                        .selectable_label(p.state_mut().visible, p.title_and_icon())
                         .clicked()
                     {
                         p.state_mut().visible = true;
+                        p.state_mut().request_focus = true;
                     }
                 }
                 for p in &mut self.detached_panels {
                     if ui
-                        .selectable_label(p.state_mut().visible, p.title())
+                        .selectable_label(p.state_mut().visible, p.title_and_icon())
                         .clicked()
                     {
                         p.state_mut().detached = true;
                         p.state_mut().visible = true;
+                        p.state_mut().request_docket = false;
+                        p.state_mut().request_focus = true;
                     }
                 }
             });
@@ -799,9 +820,30 @@ impl MainPanel {
                 .show_inside(ui, |ui| {
                     let mut clicked: Option<usize> = None;
                     ui.vertical(|ui| {
+                        // Compute max width for compact icons so buttons have consistent size
+                        let button_font = egui::TextStyle::Button.resolve(ui.style());
+                        let mut max_w = 0.0_f32;
+                        let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
+                        ui.fonts_mut(|f| {
+                            for p in list.iter() {
+                                let label = p.icon_only().unwrap_or(p.title()).to_string();
+                                let w = f.layout_no_wrap(label, button_font.clone(), egui::Color32::WHITE)
+                                    .rect
+                                    .width();
+                                if w > max_w {
+                                    max_w = w;
+                                }
+                            }
+                        });
+                        let btn_height = ui.spacing().interact_size.y;
+                        let button_size = egui::Vec2::new(max_w + pad, btn_height);
                         for (i, p) in list.iter_mut().enumerate() {
                             let active = p.state().visible && !p.state().detached;
-                            if ui.button(p.title()).clicked() {
+                            let label = p.icon_only().unwrap_or(p.title()).to_string();
+                            if ui
+                                .add_sized(button_size, egui::SelectableLabel::new(active, label))
+                                .clicked()
+                            {
                                 clicked = Some(i);
                             }
                         }
@@ -810,6 +852,7 @@ impl MainPanel {
                         for (i, p) in list.iter_mut().enumerate() {
                             if i == ci {
                                 p.state_mut().visible = true;
+                                p.state_mut().request_focus = true;
                             } else if !p.state().detached {
                                 p.state_mut().visible = false;
                             }
@@ -837,9 +880,30 @@ impl MainPanel {
                 .show_inside(ui, |ui| {
                     let mut clicked: Option<usize> = None;
                     ui.vertical(|ui| {
+                        // Compute max width for compact icons so buttons have consistent size
+                        let button_font = egui::TextStyle::Button.resolve(ui.style());
+                        let mut max_w = 0.0_f32;
+                        let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
+                        ui.fonts_mut(|f| {
+                            for p in list.iter() {
+                                let label = p.icon_only().unwrap_or(p.title()).to_string();
+                                let w = f.layout_no_wrap(label, button_font.clone(), egui::Color32::WHITE)
+                                    .rect
+                                    .width();
+                                if w > max_w {
+                                    max_w = w;
+                                }
+                            }
+                        });
+                        let btn_height = ui.spacing().interact_size.y;
+                        let button_size = egui::Vec2::new(max_w + pad, btn_height);
                         for (i, p) in list.iter_mut().enumerate() {
                             let active = p.state().visible && !p.state().detached;
-                            if ui.button(p.title()).clicked() {
+                            let label = p.icon_only().unwrap_or(p.title()).to_string();
+                            if ui
+                                .add_sized(button_size, egui::SelectableLabel::new(active, label))
+                                .clicked()
+                            {
                                 clicked = Some(i);
                             }
                         }
@@ -848,6 +912,7 @@ impl MainPanel {
                         for (i, p) in list.iter_mut().enumerate() {
                             if i == ci {
                                 p.state_mut().visible = true;
+                                p.state_mut().request_focus = true;
                             } else if !p.state().detached {
                                 p.state_mut().visible = false;
                             }
@@ -878,8 +943,8 @@ impl MainPanel {
                     ui.add_space(2.0);
                     ui.horizontal(|ui| {
                         for (i, p) in list.iter_mut().enumerate() {
-                            let active = p.state().visible && !p.state().detached;
-                            if ui.button(p.title()).clicked() {
+                            let label = p.title_and_icon();
+                            if ui.button(label).clicked() {
                                 clicked = Some(i);
                             }
                         }
@@ -888,7 +953,7 @@ impl MainPanel {
                         for (i, p) in list.iter_mut().enumerate() {
                             if i == ci {
                                 p.state_mut().visible = true;
-                                // TODO set focus on panel?
+                                p.state_mut().request_focus = true;
                             } else if !p.state().detached {
                                 p.state_mut().visible = false;
                             }
@@ -1000,10 +1065,11 @@ impl MainPanel {
                     })
                 };
                 let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
-                let tabs_w: f32 = match count {
+                    // Measure combined label width (title + optional icon)
+                    let tabs_w: f32 = match count {
                     0 => 0.0,
-                    1 => txt_width(list[0].title(), ui) + pad,
-                    _ => list.iter().map(|p| txt_width(p.title(), ui) + pad).sum(),
+                        1 => txt_width(&list[0].title_and_icon(), ui) + pad,
+                        _ => list.iter().map(|p| txt_width(&p.title_and_icon(), ui) + pad).sum(),
                 };
                 let actions_w = txt_width("Pop out", ui) + pad + txt_width("Hide", ui) + pad;
                 tabs_w + actions_w > available
@@ -1013,13 +1079,13 @@ impl MainPanel {
                 if count > 1 {
                     for (i, p) in list.iter_mut().enumerate() {
                         let active = p.state().visible && !p.state().detached;
-                        if ui.selectable_label(active, p.title()).clicked() {
+                        if ui.selectable_label(active, p.title_and_icon()).clicked() {
                             clicked = Some(i);
                         }
                     }
                 } else {
                     let p = &mut list[0];
-                    ui.label(p.title());
+                    ui.label(p.title_and_icon());
                     clicked = Some(0);
                 }
 
@@ -1036,6 +1102,9 @@ impl MainPanel {
                             for p in list.iter_mut() {
                                 if p.state().visible && !p.state().detached {
                                     p.state_mut().detached = true;
+                                    p.state_mut().request_docket = false;
+                                    p.state_mut().visible = true;
+                                    p.state_mut().request_focus = true;
                                 }
                             }
                         }
@@ -1057,6 +1126,9 @@ impl MainPanel {
                             for p in list.iter_mut() {
                                 if p.state().visible && !p.state().detached {
                                     p.state_mut().detached = true;
+                                    p.state_mut().request_docket = false;
+                                    p.state_mut().visible = true;
+                                    p.state_mut().request_focus = true;
                                 }
                             }
                         }
@@ -1384,20 +1456,26 @@ impl MainApp {
                 }
                 HotkeyAction::ToggleTraces => {
                     self.main_panel.toggle_panel_visibility::<TracesPanel>();
+                    // If we just toggled traces via hotkey, hide hotkeys panel
+                    self.main_panel.hide_hotkeys_panel();
                 }
                 HotkeyAction::ToggleMath => {
                     self.main_panel.toggle_panel_visibility::<MathPanel>();
+                    self.main_panel.hide_hotkeys_panel();
                 }
                 HotkeyAction::ToggleThresholds => {
                     self.main_panel.toggle_panel_visibility::<ThresholdsPanel>();
+                    self.main_panel.hide_hotkeys_panel();
                 }
                 HotkeyAction::ToggleExport => {
                     self.main_panel.toggle_panel_visibility::<ExportPanel>();
+                    self.main_panel.hide_hotkeys_panel();
                 }
                 HotkeyAction::ToggleFft => {
                     #[cfg(feature = "fft")]
                     {
                         self.main_panel.toggle_panel_visibility::<FftPanel>();
+                        self.main_panel.hide_hotkeys_panel();
                     }
                 }
                 HotkeyAction::SavePng => {
@@ -1452,7 +1530,7 @@ pub fn run_liveplot(
     );
     app.apply_config(&cfg);
 
-    let title = cfg.title;
+    let title = cfg.title.clone();
     let mut opts = cfg
         .native_options
         .take()
@@ -1463,7 +1541,12 @@ pub fn run_liveplot(
             opts.viewport = egui::ViewportBuilder::default().with_icon(icon);
         }
     }
-    // opts.initial_window_size = Some(egui::vec2(1280.0, 720.0));
+    // Set a bigger default window size if one is not provided by config
+    // Use `ViewportBuilder::with_inner_size` (winit/egui window attributes) instead of the
+    // non-existent `initial_window_size` on NativeOptions in this eframe/egui version.
+    if opts.viewport.inner_size.is_none() {
+        opts.viewport = opts.viewport.clone().with_inner_size(egui::vec2(1400.0, 900.0));
+    }
     eframe::run_native(
         &title,
         opts,

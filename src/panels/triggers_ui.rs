@@ -19,7 +19,7 @@ pub struct TriggersPanel {
 impl Default for TriggersPanel {
     fn default() -> Self {
         let mut panel = Self {
-            state: PanelState::new("🔔 Triggers"),
+            state: PanelState::new("Triggers", "🔔"),
             triggers: HashMap::new(),
             builder: None,
             editing: None,
