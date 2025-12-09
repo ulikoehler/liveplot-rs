@@ -8,13 +8,13 @@
 //! 1. Start the gRPC example server (`examples/grpc-server.rs`) in another terminal:
 //!
 //! ```bash
-//! cargo run --example grpc-server
+//! cargo run --example grpc-server --features="grpc"
 //! ```
 //!
 //! 2. Run this client example:
 //!
 //! ```bash
-//! cargo run --example client
+//! cargo run --example client --features="grpc"
 //! ```
 //!
 use std::sync::mpsc;

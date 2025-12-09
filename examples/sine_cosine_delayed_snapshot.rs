@@ -10,7 +10,7 @@
 //!
 //! How to run
 //! ```bash
-//! cargo run --example sine_cosine_delayed_snapshot
+//! cargo run --example sine_cosine_delayed_snapshot --features="parquet"
 //! ```
 use liveplot::{
     channel_plot, run_liveplot, LivePlotConfig, PlotPoint, RawExportFormat, UiActionController,

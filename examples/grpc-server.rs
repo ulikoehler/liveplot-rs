@@ -6,7 +6,7 @@
 //!
 //! How to run
 //! ```bash
-//! cargo run --example grpc-server
+//! cargo run --example grpc-server --features="grpc"
 //! ```
 //!
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

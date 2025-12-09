@@ -6,7 +6,7 @@
 //!
 //! How to run
 //! ```bash
-//! cargo run --example window_control
+//! cargo run --example window_control --feature="window_control_display_info"
 //! ```
 //! The example streams a sine wave and logs window state changes to stderr.
 
