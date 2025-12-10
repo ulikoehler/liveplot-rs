@@ -118,6 +118,7 @@ impl From<TraceRef> for String {
 pub struct TracesCollection {
     traces: HashMap<TraceRef, TraceData>,
     pub max_points: usize,
+    pub points_bounds: (usize, usize),
     rx: Option<std::sync::mpsc::Receiver<PlotCommand>>,
     /// Mapping from numeric trace ID to trace name (for PlotCommand API)
     id_to_name: HashMap<u32, String>,
@@ -128,6 +129,7 @@ impl Default for TracesCollection {
         Self {
             traces: HashMap::new(),
             max_points: 10_000,
+            points_bounds: (500, 200000),
             rx: None,
             id_to_name: HashMap::new(),
         }

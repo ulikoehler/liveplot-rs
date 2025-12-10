@@ -109,6 +109,29 @@ impl Panel for TracesPanel {
 
         ui.separator();
 
+        ui.label("Data Points:");
+        ui.add(egui::Slider::new(
+            &mut data.traces.max_points,
+            data.traces.points_bounds.0..=data.traces.points_bounds.1,
+        ));
+
+        ui.separator();
+
+        ui.horizontal(|ui| {
+            ui.button("All Visible").clicked().then(|| {
+                for (_name, tr) in data.traces.traces_iter_mut() {
+                    tr.look.visible = true;
+                }
+            });
+            ui.button("All Hidden").clicked().then(|| {
+                for (_name, tr) in data.traces.traces_iter_mut() {
+                    tr.look.visible = false;
+                }
+            });
+        });
+
+        ui.separator();
+
         self.hover_trace = None;
 
         // Build rows: include a synthetic "Free" row for marker selection only

@@ -7,14 +7,22 @@ https://img.shields.io/crates/v/:crate
 
 This crate provides a reusable plotting UI you can feed with a stream of `(timestamp, value)` samples.
 gRPC input is provided as an example of how to use the library, not as a built-in dependency.
-
+A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as [examples/sine.rs](examples/sine.rs).
 ## Features
+
+#### Tiles
+
+liveplot provides a `egui_tiles` API if enabled via the `tiles` feature. See the [examples/embedded_tiles.rs](examples/embedded_tiles.rs) example for usage.
+
+![LivePlot embedded tiles screenshot](docs/liveplot%20embedded%20tiles.png)
 
 #### Two-point analysis
 
 You can select one or two points on the plot to see the values and also delta-X and delta-Y plus slope between the points. You can also compare two different traces using this feature. There is also a "free" selection which does not track the nearest trace point.
 
 ![LivePlot screenshot](docs/liveplot%20point%20and%20slope.png)
+
+A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as [examples/sine.rs](examples/sine.rs).
 
 #### Multi-trace plotting
 
@@ -47,7 +55,7 @@ Capture the full UI viewport to a PNG file using the "Save PNG" action. Programm
 External code can observe and influence the UI through lightweight controllers:
 - `WindowController` — observe window size and request size/position changes.
 - `UiActionController` — pause/resume, trigger screenshots, export raw data, and subscribe/request raw FFT input data for a trace.
-- `FftController` — observe and request FFT panel visibility and size (when the `fft` feature is enabled).
+- `FFTController` — observe and request FFT panel visibility and size (when the `fft` feature is enabled).
 - `TracesController` — observe and modify trace colors/visibility, per-trace Y offsets, marker selection, and global Y unit and Y log mode.
 
 #### Threshold detection and event logging
@@ -156,8 +164,8 @@ Math traces auto-update as input traces change and behave like normal traces (le
 Programmatic API is also available if you build your own UI around the library. For example:
 
 ```rust
-use liveplot::{MathTraceDef, MathKind, FilterKind, TraceRef, ScopeAppMulti};
-// assuming you have a ScopeAppMulti `app`
+use liveplot::{MathTraceDef, MathKind, FilterKind, TraceRef, LivePlotApp};
+// assuming you have a LivePlotApp `app`
 let def = MathTraceDef { name: "sum".into(), color_hint: None, kind: MathKind::Add { inputs: vec![(TraceRef("a".into()), 1.0), (TraceRef("b".into()), -1.0)] } };
 // app.add_math_trace(def);
 ```
@@ -239,7 +247,7 @@ fn main() -> eframe::Result<()> {
 
 ## Simple example
 
-A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as `examples/sine.rs`.
+A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as [examples/sine.rs](examples/sine.rs).
 
 Run it with:
 
@@ -269,7 +277,7 @@ The examples use the proto in `proto/sine.proto` and are only compiled when the 
 
 ## Built-in synthetic example: `sine`
 
-A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as `examples/sine.rs`.
+A minimal example that produces a continuous 3 Hz sine wave sampled at 1 kHz is included as [examples/sine.rs](examples/sine.rs).
 
 Run it with:
 
@@ -334,7 +342,7 @@ cargo run --example window_control --features window_control_display_info
 
 This example demonstrates monitoring a CSV file that is continuously appended by an external process (for example, a data logger or the provided Python script) and plotting the values as they appear. It polls the file every 20 ms, reads any newly appended complete lines, and streams them into the UI.
 
-Companion writer (Python, ~1 kHz): `examples/csv_writer.py`.
+Companion writer (Python, ~1 kHz): [examples/csv_writer.py](examples/csv_writer.py).
 
 ### CSV format
 

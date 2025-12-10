@@ -6,14 +6,12 @@ use crate::data::traces::TracesCollection;
 
 pub struct LiveplotPanel {
     scope_ui: ScopePanel,
-    points_bounds: (usize, usize),
 }
 
 impl Default for LiveplotPanel {
     fn default() -> Self {
         Self {
             scope_ui: ScopePanel::default(),
-            points_bounds: (5000, 200000),
         }
     }
 }
@@ -50,13 +48,8 @@ impl LiveplotPanel {
             ui,
             draw_overlays,
             traces,
-            |ui, _scope, traces| {
+            |_ui, _scope, _traces| {
                 // Prefix controls
-                ui.label("Data Points:");
-                ui.add(egui::Slider::new(
-                    &mut traces.max_points,
-                    self.points_bounds.0..=self.points_bounds.1,
-                ));
             },
             |ui, scope, traces| {
                 // Suffix controls (core controls first)
