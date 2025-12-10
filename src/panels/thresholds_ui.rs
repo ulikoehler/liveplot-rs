@@ -737,7 +737,6 @@ impl Panel for ThresholdsPanel {
         // Delegate for rendering with egui_table
         struct EventsDelegate<'a> {
             items: &'a [&'a ThresholdEvent],
-            to_clear: Vec<String>,
             hover_threshold_out: &'a mut Option<String>,
             axis: &'a AxisSettings,
         }
@@ -751,7 +750,6 @@ impl Panel for ThresholdsPanel {
                     3 => "Duration (ms)",
                     4 => "Trace",
                     5 => "Area",
-                    6 => "",
                     _ => "",
                 };
                 ui.add_space(4.0);
@@ -789,18 +787,6 @@ impl Panel for ThresholdsPanel {
                         5 => {
                             ui.label(format!("{:.6}", e.area));
                         }
-                        6 => {
-                            let ev_clear = ui
-                                .small_button("🗑 Clear")
-                                .on_hover_text("Remove this event from the list");
-                            if ev_clear.hovered() {
-                                *self.hover_threshold_out = Some(e.threshold.clone());
-                            }
-                            if ev_clear.clicked() {
-                                // Queue clearing the entire threshold events (filter must be set)
-                                self.to_clear.push(e.threshold.clone());
-                            }
-                        }
                         _ => {}
                     }
                 }
@@ -811,18 +797,16 @@ impl Panel for ThresholdsPanel {
         let items_vec: Vec<&ThresholdEvent> = filtered.iter().collect();
         let mut delegate = EventsDelegate {
             items: items_vec.as_slice(),
-            to_clear: Vec::new(),
             hover_threshold_out: &mut self.hover_threshold,
             axis: &data.scope_data.x_axis,
         };
         let cols = vec![
-            egui_table::Column::new(152.0),
-            egui_table::Column::new(172.0),
-            egui_table::Column::new(172.0),
-            egui_table::Column::new(132.0),
-            egui_table::Column::new(132.0),
-            egui_table::Column::new(112.0),
-            egui_table::Column::new(72.0),
+            egui_table::Column::new(160.0),
+            egui_table::Column::new(180.0),
+            egui_table::Column::new(180.0),
+            egui_table::Column::new(140.0),
+            egui_table::Column::new(140.0),
+            egui_table::Column::new(120.0),
         ];
         let avail_w = ui.available_width();
         // Expand table to the bottom of the panel
@@ -839,14 +823,6 @@ impl Panel for ThresholdsPanel {
             .columns(cols)
             .headers(vec![EgHeaderRow::new(24.0)])
             .show(&mut table_ui, &mut delegate);
-        // Apply row clears after rendering: only clear when a specific threshold is selected via the filter
-        if !delegate.to_clear.is_empty() {
-            if let Some(ref thr) = self.events_filter {
-                if let Some(def) = self.thresholds.get_mut(thr) {
-                    def.clear_threshold_events();
-                }
-            }
-        }
     }
 }
 

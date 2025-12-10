@@ -433,10 +433,6 @@ impl Panel for MeasurementPanel {
                 // previous selection with the new selection to detect changes reliably.
                 if selected_trace_name != old_selected {
                     m.catch_trace = selected_trace_name.clone();
-                    println!(
-                        "Measurement {} catch_trace set to {:?}",
-                        m.name, m.catch_trace
-                    );
                 }
 
                 let clear_btn = ui.button("X Clear");
