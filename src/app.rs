@@ -130,34 +130,32 @@ impl MainPanel {
                     }
                 };
 
-            self.liveplot_panel.render_panel_with_suffix(
-                ui,
-                &mut draw_overlays,
-                &mut self.traces_data,
-                |ui, scope, traces| {
-                    // Global Clear All across tabs
-                    if ui
-                        .button("X Clear All")
-                        .on_hover_text("Clear all traces and per-panel buffers")
-                        .clicked()
-                    {
-                        traces.clear_all();
-                        // Also clear any last clicked point used by measurements/markers
-                        scope.clicked_point = None;
-                        // Broadcast clear_all to all panels (left/right/bottom/detached/empty)
-                        for p in right
-                            .borrow_mut()
-                            .iter_mut()
-                            .chain(left.borrow_mut().iter_mut())
-                            .chain(bottom.borrow_mut().iter_mut())
-                            .chain(detached.borrow_mut().iter_mut())
-                            .chain(empty.borrow_mut().iter_mut())
-                        {
-                            p.clear_all();
-                        }
-                    }
-                },
-            );
+            // Render the liveplot panel; `draw_overlays` supplies per-panel overlays.
+            self.liveplot_panel
+                .render_panel(ui, &mut draw_overlays, &mut self.traces_data);
+
+            // Global Clear All across tabs (rendered as a suffix-like element beneath the plot)
+            let scope = self.liveplot_panel.get_data_mut();
+            if ui
+                .button("X Clear All")
+                .on_hover_text("Clear all traces and per-panel buffers")
+                .clicked()
+            {
+                self.traces_data.clear_all();
+                // Also clear any last clicked point used by measurements/markers
+                scope.clicked_point = None;
+                // Broadcast clear_all to all panels (left/right/bottom/detached/empty)
+                for p in right
+                    .borrow_mut()
+                    .iter_mut()
+                    .chain(left.borrow_mut().iter_mut())
+                    .chain(bottom.borrow_mut().iter_mut())
+                    .chain(detached.borrow_mut().iter_mut())
+                    .chain(empty.borrow_mut().iter_mut())
+                {
+                    p.clear_all();
+                }
+            }
 
             // Return panel lists back to self
             self.left_side_panels = left.into_inner();
@@ -819,7 +817,7 @@ impl MainPanel {
                         // Compute max width for compact icons so buttons have consistent size
                         let button_font = egui::TextStyle::Button.resolve(ui.style());
                         let mut max_w = 0.0_f32;
-                        let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
+                        
                         ui.fonts_mut(|f| {
                             for p in list.iter() {
                                 let label = p.icon_only().unwrap_or(p.title()).to_string();
@@ -836,14 +834,11 @@ impl MainPanel {
                                 }
                             }
                         });
-                        let btn_height = ui.spacing().interact_size.y;
-                        let button_size = egui::Vec2::new(max_w + pad, btn_height);
+                        
                         for (i, p) in list.iter_mut().enumerate() {
                             let active = p.state().visible && !p.state().detached;
                             let label = p.icon_only().unwrap_or(p.title()).to_string();
-                            if ui
-                                .add_sized(button_size, egui::SelectableLabel::new(active, label))
-                                .clicked()
+                            if ui.selectable_label(active, label).clicked()
                             {
                                 clicked = Some(i);
                             }
@@ -884,7 +879,7 @@ impl MainPanel {
                         // Compute max width for compact icons so buttons have consistent size
                         let button_font = egui::TextStyle::Button.resolve(ui.style());
                         let mut max_w = 0.0_f32;
-                        let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
+                        
                         ui.fonts_mut(|f| {
                             for p in list.iter() {
                                 let label = p.icon_only().unwrap_or(p.title()).to_string();
@@ -901,14 +896,11 @@ impl MainPanel {
                                 }
                             }
                         });
-                        let btn_height = ui.spacing().interact_size.y;
-                        let button_size = egui::Vec2::new(max_w + pad, btn_height);
+                        
                         for (i, p) in list.iter_mut().enumerate() {
                             let active = p.state().visible && !p.state().detached;
                             let label = p.icon_only().unwrap_or(p.title()).to_string();
-                            if ui
-                                .add_sized(button_size, egui::SelectableLabel::new(active, label))
-                                .clicked()
+                            if ui.selectable_label(active, label).clicked()
                             {
                                 clicked = Some(i);
                             }

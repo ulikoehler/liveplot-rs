@@ -52,20 +52,45 @@ impl Panel for TracesPanel {
 
     fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
         ui.menu_button("📈 Traces", |ui| {
-            if ui.button("Show info in legend").clicked() {
-                data.scope_data.show_info_in_legend = !data.scope_data.show_info_in_legend;
+            // Show Traces: open the Traces panel and focus dock
+            if ui.button("Show Traces").clicked() {
                 let st = self.state_mut();
                 st.visible = true;
-                st.detached = false;
-                st.request_docket = true;
+                st.request_focus = true;
                 ui.close();
             }
+
+            ui.separator();
+
+            // Data Points slider (mirror of panel control)
+            ui.horizontal(|ui| {
+                ui.label("Data Points:");
+                ui.add(egui::Slider::new(
+                    &mut data.traces.max_points,
+                    data.traces.points_bounds.0..=data.traces.points_bounds.1,
+                ));
+            });
+
+            ui.separator();
+
+            // Visibility control: All Visible / All Hidden
+            if ui.button("All Visible").clicked() {
+                for (_name, tr) in data.traces.traces_iter_mut() {
+                    tr.look.visible = true;
+                }
+                ui.close();
+            }
+            if ui.button("All Hidden").clicked() {
+                for (_name, tr) in data.traces.traces_iter_mut() {
+                    tr.look.visible = false;
+                }
+                ui.close();
+            }
+
+            ui.separator();
+
             if ui.button("X Clear All").clicked() {
                 data.traces.clear_all();
-                let st = self.state_mut();
-                st.visible = true;
-                st.detached = false;
-                st.request_docket = true;
                 ui.close();
             }
         });

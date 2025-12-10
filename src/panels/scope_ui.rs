@@ -17,6 +17,8 @@ pub struct ScopePanel {
     data: ScopeData,
 
     // UI state
+    name: String,
+    controlls_in_toolbar: bool,
     zoom_mode: ZoomMode,
     time_slider_dragging: bool,
     time_window_bounds: (f64, f64),
@@ -26,6 +28,8 @@ impl Default for ScopePanel {
     fn default() -> Self {
         Self {
             data: ScopeData::default(),
+            name: "Scope".to_string(),
+            controlls_in_toolbar: false,
             zoom_mode: ZoomMode::X,
             time_slider_dragging: false,
             time_window_bounds: (0.1, 100.0),
@@ -42,6 +46,17 @@ impl ScopePanel {
         &mut self.data
     }
 
+    pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
+        ui.menu_button(self.name.to_string(), |ui| {
+
+            ui.checkbox(&mut self.controlls_in_toolbar, "Controls in Toolbar");
+
+            ui.separator();
+
+            self.render_controls(ui, traces);
+        });
+    }
+
     pub fn render_panel<F>(
         &mut self,
         ui: &mut Ui,
@@ -50,186 +65,158 @@ impl ScopePanel {
     ) where
         F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
     {
-        // Default: no extra prefix/suffix controls
-        self.render_controls_ext(ui, traces, |_, _, _| {}, |_, _, _| {});
-        ui.separator();
-        self.render_plot(ui, &mut draw_overlays, traces);
-    }
-
-    pub fn render_panel_ext<F, P, S>(
-        &mut self,
-        ui: &mut Ui,
-        mut draw_overlays: F,
-        traces: &mut TracesCollection,
-        mut prefix_controls: P,
-        mut suffix_controls: S,
-    ) where
-        F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
-        P: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
-        S: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
-    {
-        self.render_controls_ext(ui, traces, &mut prefix_controls, &mut suffix_controls);
-        ui.separator();
+        if self.controlls_in_toolbar {
+            ui.horizontal_wrapped(|ui| {
+                self.render_controls(ui, traces);
+            });
+            ui.separator();
+        }
         self.render_plot(ui, &mut draw_overlays, traces);
     }
 
     // Extended controls with injectable prefix/suffix sections
-    fn render_controls_ext<P, S>(
-        &mut self,
-        ui: &mut Ui,
-        traces: &mut TracesCollection,
-        mut prefix_controls: P,
-        mut suffix_controls: S,
-    ) where
-        P: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
-        S: FnMut(&mut Ui, &mut ScopeData, &mut TracesCollection),
-    {
-        ui.horizontal_wrapped(|ui| {
-            // Prefix controls injected by caller
-            prefix_controls(ui, &mut self.data, traces);
-
-            ui.separator();
-
-            ui.strong("X-Axis");
-            if self.data.scope_type == ScopeType::TimeScope {
-                ui.label("Time Window:");
-                let mut tw = self.data.time_window.max(1e-9);
-                if !self.time_slider_dragging {
-                    if tw <= self.time_window_bounds.0 {
-                        self.time_window_bounds.0 /= 10.0;
-                        self.time_window_bounds.1 /= 10.0;
-                    } else if tw >= self.time_window_bounds.1 {
-                        self.time_window_bounds.0 *= 10.0;
-                        self.time_window_bounds.1 *= 10.0;
-                    }
-                }
-
-                let slider = egui::Slider::new(
-                    &mut tw,
-                    self.time_window_bounds.0..=self.time_window_bounds.1,
-                )
-                .logarithmic(true)
-                .smart_aim(true)
-                .show_value(true)
-                .clamping(egui::SliderClamping::Edits)
-                .custom_formatter(|n, _| self.data.x_axis.format_value_with_unit(n, 4, n));
-
-                let sresp = ui.add(slider);
-                if sresp.changed() {
-                    self.data.time_window = tw;
-                }
-
-                self.time_slider_dragging = sresp.is_pointer_button_down_on();
-            } else {
-                let mut x_min_tmp = self.data.x_axis.bounds.0;
-                let mut x_max_tmp = self.data.x_axis.bounds.1;
-                let x_range = x_max_tmp - x_min_tmp;
-                ui.label("Min:");
-                let r1 = ui.add(
-                    egui::DragValue::new(&mut x_min_tmp)
-                        .speed(0.1)
-                        .custom_formatter(|n, _| {
-                            self.data.x_axis.format_value_with_unit(n, 4, x_range)
-                        }),
-                );
-                ui.label("Max:");
-                let r2 = ui.add(
-                    egui::DragValue::new(&mut x_max_tmp)
-                        .speed(0.1)
-                        .custom_formatter(|n, _| {
-                            self.data.x_axis.format_value_with_unit(n, 4, x_range)
-                        }),
-                );
-                if (r1.changed() || r2.changed()) && x_min_tmp < x_max_tmp {
-                    self.data.x_axis.bounds.0 = x_min_tmp;
-                    self.data.x_axis.bounds.1 = x_max_tmp;
-                    self.data.time_window = x_max_tmp - x_min_tmp;
+    fn render_controls(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
+        ui.strong("X-Axis");
+        if self.data.scope_type == ScopeType::TimeScope {
+            ui.label("Time Window:");
+            let mut tw = self.data.time_window.max(1e-9);
+            if !self.time_slider_dragging {
+                if tw <= self.time_window_bounds.0 {
+                    self.time_window_bounds.0 /= 10.0;
+                    self.time_window_bounds.1 /= 10.0;
+                } else if tw >= self.time_window_bounds.1 {
+                    self.time_window_bounds.0 *= 10.0;
+                    self.time_window_bounds.1 *= 10.0;
                 }
             }
 
-            if ui
-                .button("↔ Fit X")
-                .on_hover_text("Fit X to visible data")
-                .clicked()
-            {
-                self.data.fit_x_bounds(traces);
+            let slider = egui::Slider::new(
+                &mut tw,
+                self.time_window_bounds.0..=self.time_window_bounds.1,
+            )
+            .logarithmic(true)
+            .smart_aim(true)
+            .show_value(true)
+            .clamping(egui::SliderClamping::Edits)
+            .custom_formatter(|n, _| self.data.x_axis.format_value_with_unit(n, 4, n));
+
+            let sresp = ui.add(slider);
+            if sresp.changed() {
+                self.data.time_window = tw;
             }
 
-            ui.checkbox(&mut self.data.x_axis.auto_fit, "Auto Fit X");
-
-            ui.separator();
-
-            // Y controls
-            let mut y_min_tmp = self.data.y_axis.bounds.0;
-            let mut y_max_tmp = self.data.y_axis.bounds.1;
-            let y_range = y_max_tmp - y_min_tmp;
-            ui.strong("Y-Axis");
+            self.time_slider_dragging = sresp.is_pointer_button_down_on();
+        } else {
+            let mut x_min_tmp = self.data.x_axis.bounds.0;
+            let mut x_max_tmp = self.data.x_axis.bounds.1;
+            let x_range = x_max_tmp - x_min_tmp;
             ui.label("Min:");
             let r1 = ui.add(
-                egui::DragValue::new(&mut y_min_tmp)
+                egui::DragValue::new(&mut x_min_tmp)
                     .speed(0.1)
                     .custom_formatter(|n, _| {
-                        self.data.y_axis.format_value_with_unit(n, 4, y_range)
+                        self.data.x_axis.format_value_with_unit(n, 4, x_range)
                     }),
             );
             ui.label("Max:");
             let r2 = ui.add(
-                egui::DragValue::new(&mut y_max_tmp)
+                egui::DragValue::new(&mut x_max_tmp)
                     .speed(0.1)
                     .custom_formatter(|n, _| {
-                        self.data.y_axis.format_value_with_unit(n, 4, y_range)
+                        self.data.x_axis.format_value_with_unit(n, 4, x_range)
                     }),
             );
-            if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
-                self.data.y_axis.bounds.0 = y_min_tmp;
-                self.data.y_axis.bounds.1 = y_max_tmp;
+            if (r1.changed() || r2.changed()) && x_min_tmp < x_max_tmp {
+                self.data.x_axis.bounds.0 = x_min_tmp;
+                self.data.x_axis.bounds.1 = x_max_tmp;
+                self.data.time_window = x_max_tmp - x_min_tmp;
             }
+        }
 
-            if ui
-                .button("↕ Fit Y")
-                .on_hover_text("Fit Y to visible data")
-                .clicked()
-            {
-                self.data.fit_y_bounds(traces);
+        if ui
+            .button("↔ Fit X")
+            .on_hover_text("Fit X to visible data")
+            .clicked()
+        {
+            self.data.fit_x_bounds(traces);
+        }
+
+        ui.checkbox(&mut self.data.x_axis.auto_fit, "Auto Fit X");
+
+        ui.separator();
+
+        // Y controls
+        let mut y_min_tmp = self.data.y_axis.bounds.0;
+        let mut y_max_tmp = self.data.y_axis.bounds.1;
+        let y_range = y_max_tmp - y_min_tmp;
+        ui.strong("Y-Axis");
+        ui.label("Min:");
+        let r1 = ui.add(
+            egui::DragValue::new(&mut y_min_tmp)
+                .speed(0.1)
+                .custom_formatter(|n, _| self.data.y_axis.format_value_with_unit(n, 4, y_range)),
+        );
+        ui.label("Max:");
+        let r2 = ui.add(
+            egui::DragValue::new(&mut y_max_tmp)
+                .speed(0.1)
+                .custom_formatter(|n, _| self.data.y_axis.format_value_with_unit(n, 4, y_range)),
+        );
+        if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
+            self.data.y_axis.bounds.0 = y_min_tmp;
+            self.data.y_axis.bounds.1 = y_max_tmp;
+        }
+
+        if ui
+            .button("↕ Fit Y")
+            .on_hover_text("Fit Y to visible data")
+            .clicked()
+        {
+            self.data.fit_y_bounds(traces);
+        }
+
+        ui.checkbox(&mut self.data.y_axis.auto_fit, "Auto Fit Y");
+
+        ui.separator();
+
+        ui.strong("Zoom:");
+        ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "Off");
+        ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "X");
+        ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "Y");
+        ui.selectable_value(&mut self.zoom_mode, ZoomMode::Both, "Both");
+
+        ui.separator();
+
+        if ui
+            .button("🔍 Fit to View")
+            .on_hover_text("Fit both axes to visible data")
+            .clicked()
+        {
+            self.data.fit_bounds(traces);
+        }
+
+        ui.separator();
+
+        // Screenshot button kept in core controls
+        if ui
+            .button("🖼 Save Screenshot")
+            .on_hover_text("Take a screenshot of the entire window")
+            .clicked()
+        {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+        }
+
+        ui.separator();
+
+        if !self.data.paused {
+            if ui.button("⏸ Pause").clicked() {
+                self.data.paused = true;
+                traces.take_snapshot();
             }
-
-            ui.checkbox(&mut self.data.y_axis.auto_fit, "Auto Fit Y");
-
-            ui.separator();
-
-            ui.strong("Zoom:");
-            ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "Off");
-            ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "X");
-            ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "Y");
-            ui.selectable_value(&mut self.zoom_mode, ZoomMode::Both, "Both");
-
-            ui.separator();
-
-            if ui
-                .button("🔍 Fit to View")
-                .on_hover_text("Fit both axes to visible data")
-                .clicked()
-            {
-                self.data.fit_bounds(traces);
-            }
-
-            ui.separator();
-
-            // Screenshot button kept in core controls
-            if ui
-                .button("🖼 Save Screenshot")
-                .on_hover_text("Take a screenshot of the entire window")
-                .clicked()
-            {
-                ui.ctx()
-                    .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
-            }
-
-            ui.separator();
-
-            // Suffix controls injected by caller
-            suffix_controls(ui, &mut self.data, traces);
-        });
+        } else if ui.button("▶ Resume").clicked() {
+            self.data.paused = false;
+        }
     }
 
     // Handle a completed screenshot event and write the PNG to disk.

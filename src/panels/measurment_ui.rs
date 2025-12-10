@@ -45,6 +45,17 @@ impl Panel for MeasurementPanel {
 
     fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
         ui.menu_button("📏 Measurements", |ui| {
+
+            if ui.button("Show Measurements").clicked() {
+                let st = self.state_mut();
+                st.visible = true;
+                st.request_focus = true;
+                ui.close();
+            }
+
+            ui.separator();
+
+
             if ui.button("New measurement").clicked() {
                 let idx = self.measurements.len() + 1;
                 self.measurements
@@ -52,8 +63,7 @@ impl Panel for MeasurementPanel {
                 // Focus this panel
                 let st = self.state_mut();
                 st.visible = true;
-                st.detached = false;
-                st.request_docket = true;
+                st.request_focus = true;
                 ui.close();
             }
             if ui.button("X Clear All").clicked() {

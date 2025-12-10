@@ -44,6 +44,17 @@ impl Panel for TriggersPanel {
 
     fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
         ui.menu_button("🔔 Trigger", |ui| {
+
+            if ui.button("Show Triggers").clicked() {
+                let st = self.state_mut();
+                st.visible = true;
+                st.request_focus = true;
+                ui.close();
+            }
+
+            ui.separator();
+
+
             if ui.button("New").clicked() {
                 let mut t = crate::data::triggers::Trigger::default();
                 let idx = self.triggers.len() + 1;

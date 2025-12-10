@@ -37,16 +37,21 @@ impl Panel for FftPanel {
 
     fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
         ui.menu_button("📊 FFT", |ui| {
+            if ui.button("Show FFT").clicked() {
+                let st = self.state_mut();
+                st.visible = true;
+                st.request_focus = true;
+                ui.close();
+            }
+
+            ui.separator();
+
             let prev = self.fft_db;
             if ui
                 .button(if self.fft_db { "Linear" } else { "dB" })
                 .clicked()
             {
                 self.fft_db = !self.fft_db;
-                let st = self.state_mut();
-                st.visible = true;
-                st.detached = false;
-                st.request_docket = true;
             }
             ui.menu_button("Window", |ui| {
                 // Select FFT window function
@@ -57,11 +62,6 @@ impl Panel for FftPanel {
                         if self.fft_data.fft_window != w {
                             self.fft_data.fft_window = w;
                             self.pending_auto_fit = true; // re-fit after next update
-                                                          // Focus panel so user sees effect
-                            let st = self.state_mut();
-                            st.visible = true;
-                            st.detached = false;
-                            st.request_docket = true;
                         }
                         changed = true;
                     }

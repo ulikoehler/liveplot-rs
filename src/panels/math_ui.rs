@@ -47,6 +47,16 @@ impl Panel for MathPanel {
 
     fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
         ui.menu_button("∫ Math", |ui| {
+
+            if ui.button("Show Math").clicked() {
+                let st = self.state_mut();
+                st.visible = true;
+                st.request_focus = true;
+                ui.close();
+            }
+
+            ui.separator();
+
             if ui.button("New").clicked() {
                 self.builder =
                     MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() });
@@ -55,8 +65,7 @@ impl Panel for MathPanel {
                 self.error = None;
                 let st = self.state_mut();
                 st.visible = true;
-                st.detached = false;
-                st.request_docket = true;
+                st.request_focus = true;
                 ui.close();
             }
             if ui.button("Reset storage").clicked() {
