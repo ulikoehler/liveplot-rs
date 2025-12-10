@@ -103,9 +103,12 @@ impl Panel for ExportPanel {
                                 series.insert(name.clone(), vec);
                             }
                         }
-                        if let Err(e) =
-                            export::write_parquet_aligned_path(&path, &data.scope_data.trace_order, &series, 1e-9)
-                        {
+                        if let Err(e) = export::write_parquet_aligned_path(
+                            &path,
+                            &data.scope_data.trace_order,
+                            &series,
+                            1e-9,
+                        ) {
                             eprintln!("Failed to export snapshot Parquet: {e}");
                         }
                     }
