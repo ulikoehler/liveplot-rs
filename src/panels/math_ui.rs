@@ -46,8 +46,7 @@ impl Panel for MathPanel {
     }
 
     fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
-        ui.menu_button("∫ Math", |ui| {
-
+        ui.menu_button(self.title_and_icon(), |ui| {
             if ui.button("Show Math").clicked() {
                 let st = self.state_mut();
                 st.visible = true;

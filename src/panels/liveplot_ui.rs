@@ -31,11 +31,7 @@ impl LiveplotPanel {
     where
         F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
     {
-        self.scope_ui.render_panel(
-            ui,
-            draw_overlays,
-            traces,
-        );
+        self.scope_ui.render_panel(ui, draw_overlays, traces);
     }
 
     // Old specialized prefix/suffix helpers removed; functionality handled via closures.

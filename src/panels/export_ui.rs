@@ -24,7 +24,7 @@ impl Panel for ExportPanel {
     }
 
     fn render_menu(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
-        ui.menu_button("🗁 Export", |ui| {
+        ui.menu_button(self.title_and_icon(), |ui| {
             if ui
                 .button("🖼 Save Screenshot")
                 .on_hover_text("Take a screenshot of the entire window")
@@ -74,6 +74,27 @@ impl Panel for ExportPanel {
                     ) {
                         eprintln!("Failed to export snapshot CSV: {e}");
                     }
+                }
+                ui.close();
+            }
+            // Move Save/Load state into Export menu
+            ui.separator();
+            if ui.button("Save state...").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("JSON", &["json"])
+                    .set_file_name("liveplot_state.json")
+                    .save_file()
+                {
+                    data.request_save_state = Some(path);
+                }
+                ui.close();
+            }
+            if ui.button("Load state...").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("JSON", &["json"])
+                    .pick_file()
+                {
+                    data.request_load_state = Some(path);
                 }
                 ui.close();
             }

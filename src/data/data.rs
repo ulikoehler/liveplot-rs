@@ -8,6 +8,9 @@ use std::collections::{HashMap, VecDeque};
 pub struct LivePlotData<'a> {
     pub scope_data: &'a mut ScopeData,
     pub traces: &'a mut TracesCollection,
+    // Optional requests set by panel UI to trigger app-level persistence actions.
+    pub request_save_state: Option<std::path::PathBuf>,
+    pub request_load_state: Option<std::path::PathBuf>,
 }
 
 impl<'a> LivePlotData<'a> {

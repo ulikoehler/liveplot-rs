@@ -48,7 +48,6 @@ impl ScopePanel {
 
     pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
         ui.menu_button(self.name.to_string(), |ui| {
-
             ui.checkbox(&mut self.controlls_in_toolbar, "Controls in Toolbar");
 
             ui.separator();

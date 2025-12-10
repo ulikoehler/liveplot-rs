@@ -36,7 +36,7 @@ impl Panel for FftPanel {
     }
 
     fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
-        ui.menu_button("📊 FFT", |ui| {
+        ui.menu_button(self.title_and_icon(), |ui| {
             if ui.button("Show FFT").clicked() {
                 let st = self.state_mut();
                 st.visible = true;

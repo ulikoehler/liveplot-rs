@@ -52,8 +52,7 @@ impl Panel for ThresholdsPanel {
     }
 
     fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
-        ui.menu_button("⚠ Thresholds", |ui| {
-
+        ui.menu_button(self.title_and_icon(), |ui| {
             if ui.button("Show Thresholds").clicked() {
                 let st = self.state_mut();
                 st.visible = true;

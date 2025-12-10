@@ -51,7 +51,7 @@ impl Panel for TracesPanel {
     }
 
     fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
-        ui.menu_button("📈 Traces", |ui| {
+        ui.menu_button(self.title_and_icon(), |ui| {
             // Show Traces: open the Traces panel and focus dock
             if ui.button("Show Traces").clicked() {
                 let st = self.state_mut();

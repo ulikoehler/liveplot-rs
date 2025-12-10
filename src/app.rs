@@ -183,6 +183,8 @@ impl MainPanel {
         let data = &mut LivePlotData {
             scope_data: self.liveplot_panel.get_data_mut(),
             traces: &mut self.traces_data,
+            request_save_state: None,
+            request_load_state: None,
         };
 
         for p in &mut self.left_side_panels {
@@ -257,6 +259,8 @@ impl MainPanel {
                 let mut lp = LivePlotData {
                     scope_data: data,
                     traces: &mut self.traces_data,
+                    request_save_state: None,
+                    request_load_state: None,
                 };
                 if p {
                     lp.pause();
@@ -388,7 +392,6 @@ impl MainPanel {
         if adds.is_empty() && removes.is_empty() {
             return;
         }
-
         if let Some(tp) = self.thresholds_panel_mut() {
             let mut added_names: Vec<String> = Vec::new();
             for name in &removes {
@@ -506,274 +509,221 @@ impl MainPanel {
         egui::MenuBar::new().ui(ui, |ui| {
             self.liveplot_panel.render_menu(ui);
 
-            let scope_data = self.liveplot_panel.get_data_mut();
-            let data = &mut LivePlotData {
-                scope_data,
-                traces: &mut self.traces_data,
-            };
+            let (save_req, load_req) = {
+                let scope_data = self.liveplot_panel.get_data_mut();
+                let mut data = LivePlotData {
+                    scope_data,
+                    traces: &mut self.traces_data,
+                    request_save_state: None,
+                    request_load_state: None,
+                };
 
-            for p in &mut self.left_side_panels {
-                p.render_menu(ui, data);
-            }
-            for p in &mut self.right_side_panels {
-                p.render_menu(ui, data);
-            }
-            for p in &mut self.bottom_panels {
-                p.render_menu(ui, data);
-            }
-            for p in &mut self.detached_panels {
-                p.render_menu(ui, data);
-            }
-            for p in &mut self.empty_panels {
-                p.render_menu(ui, data);
-            }
-
-            ui.menu_button("Panels", |ui| {
                 for p in &mut self.left_side_panels {
-                    if ui
-                        .selectable_label(p.state_mut().visible, p.title_and_icon())
-                        .clicked()
-                    {
-                        p.state_mut().visible = true;
-                        p.state_mut().request_focus = true;
-                    }
+                    p.render_menu(ui, &mut data);
                 }
                 for p in &mut self.right_side_panels {
-                    if ui
-                        .selectable_label(p.state_mut().visible, p.title_and_icon())
-                        .clicked()
-                    {
-                        p.state_mut().visible = true;
-                        p.state_mut().request_focus = true;
-                    }
+                    p.render_menu(ui, &mut data);
                 }
                 for p in &mut self.bottom_panels {
-                    if ui
-                        .selectable_label(p.state_mut().visible, p.title_and_icon())
-                        .clicked()
-                    {
-                        p.state_mut().visible = true;
-                        p.state_mut().request_focus = true;
-                    }
+                    p.render_menu(ui, &mut data);
                 }
                 for p in &mut self.detached_panels {
-                    if ui
-                        .selectable_label(p.state_mut().visible, p.title_and_icon())
-                        .clicked()
+                    p.render_menu(ui, &mut data);
+                }
+                for p in &mut self.empty_panels {
+                    p.render_menu(ui, &mut data);
+                }
+
+                (
+                    data.request_save_state.take(),
+                    data.request_load_state.take(),
+                )
+            };
+
+            if let Some(path) = save_req {
+                // Save state: build a serializable AppStateSerde and write it
+                let ctx = ui.ctx();
+                let rect = ctx.input(|i| i.content_rect());
+                let win_size = Some([rect.width(), rect.height()]);
+                let win_pos = Some([rect.left(), rect.top()]);
+                let scope_data = self.liveplot_panel.get_data_mut();
+                let scope_state = crate::persistence::ScopeStateSerde::from(&*scope_data);
+
+                // Helper to convert Panel::state() to PanelVisSerde
+                let mut panels_state: Vec<crate::persistence::PanelVisSerde> = Vec::new();
+                let mut push_panel = |p: &Box<dyn Panel>| {
+                    let st = p.state();
+                    panels_state.push(crate::persistence::PanelVisSerde {
+                        title: st.title.to_string(),
+                        visible: st.visible,
+                        detached: st.detached,
+                        window_pos: st.window_pos,
+                        window_size: st.window_size,
+                    });
+                };
+                for p in &self.left_side_panels {
+                    push_panel(p);
+                }
+                for p in &self.right_side_panels {
+                    push_panel(p);
+                }
+                for p in &self.bottom_panels {
+                    push_panel(p);
+                }
+                for p in &self.detached_panels {
+                    push_panel(p);
+                }
+                for p in &self.empty_panels {
+                    push_panel(p);
+                }
+
+                // Trace styles: snapshot & convert to serializable form to avoid long-lived borrows
+                let order = scope_data.trace_order.clone();
+                let trace_styles: Vec<crate::persistence::TraceStyleSerde> = {
+                    let mut snapshot: Vec<(String, crate::data::trace_look::TraceLook, f64)> =
+                        Vec::new();
+                    for name in order.iter() {
+                        if let Some(tr) = self.traces_data.get_trace(name) {
+                            snapshot.push((name.0.clone(), tr.look.clone(), tr.offset));
+                        }
+                    }
+                    let mut out: Vec<crate::persistence::TraceStyleSerde> = Vec::new();
+                    for (n, look, off) in snapshot.into_iter() {
+                        out.push(crate::persistence::TraceStyleSerde {
+                            name: n,
+                            look: crate::persistence::TraceLookSerde::from(&look),
+                            offset: off,
+                        });
+                    }
+                    out
+                };
+
+                // Thresholds & Triggers: extract from specialized panels, if present
+                let mut thresholds_ser: Vec<crate::persistence::ThresholdSerde> = Vec::new();
+                let mut triggers_ser: Vec<crate::persistence::TriggerSerde> = Vec::new();
+                for p in self
+                    .left_side_panels
+                    .iter()
+                    .chain(self.right_side_panels.iter())
+                    .chain(self.bottom_panels.iter())
+                    .chain(self.detached_panels.iter())
+                    .chain(self.empty_panels.iter())
+                {
+                    let any: &dyn Panel = &**p;
+                    if let Some(tp) =
+                        any.downcast_ref::<crate::panels::thresholds_ui::ThresholdsPanel>()
                     {
-                        p.state_mut().detached = true;
-                        p.state_mut().visible = true;
-                        p.state_mut().request_docket = false;
-                        p.state_mut().request_focus = true;
+                        for (_n, d) in tp.thresholds.iter() {
+                            thresholds_ser
+                                .push(crate::persistence::ThresholdSerde::from_threshold(d));
+                        }
+                    }
+                    if let Some(trg) =
+                        any.downcast_ref::<crate::panels::triggers_ui::TriggersPanel>()
+                    {
+                        for (_n, t) in trg.triggers.iter() {
+                            triggers_ser.push(crate::persistence::TriggerSerde::from_trigger(t));
+                        }
                     }
                 }
-            });
 
-            ui.menu_button("State", |ui| {
-                if ui.button("Save state...").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("JSON", &["json"])
-                        .set_file_name("liveplot_state.json")
-                        .save_file()
+                let state = crate::persistence::AppStateSerde {
+                    window_size: win_size,
+                    window_pos: win_pos,
+                    scope: scope_state,
+                    panels: panels_state,
+                    traces_style: trace_styles,
+                    thresholds: thresholds_ser,
+                    triggers: triggers_ser,
+                };
+
+                let _ = crate::persistence::save_state_to_path(&state, &path);
+            }
+
+            if let Some(path) = load_req {
+                if let Ok(loaded) = crate::persistence::load_state_from_path(&path) {
+                    // Window: attempt to request size/pos via ctx
+                    if let Some(sz) = loaded.window_size {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::InnerSize(
+                            egui::Vec2::new(sz[0], sz[1]),
+                        ));
+                    }
+                    // Scope: apply to scope data
+                    let scope_data = self.liveplot_panel.get_data_mut();
+                    loaded.scope.clone().apply_to(scope_data);
+
+                    // Panels: match by title and set visible/detached/pos/size
+                    let apply_panel_state = |p: &mut Box<dyn Panel>| {
+                        let st = p.state_mut();
+                        for pser in &loaded.panels {
+                            if pser.title == st.title {
+                                st.visible = pser.visible;
+                                st.detached = pser.detached;
+                                st.window_pos = pser.window_pos;
+                                st.window_size = pser.window_size;
+                                break;
+                            }
+                        }
+                    };
+                    for p in &mut self.left_side_panels {
+                        apply_panel_state(p);
+                    }
+                    for p in &mut self.right_side_panels {
+                        apply_panel_state(p);
+                    }
+                    for p in &mut self.bottom_panels {
+                        apply_panel_state(p);
+                    }
+                    for p in &mut self.detached_panels {
+                        apply_panel_state(p);
+                    }
+                    for p in &mut self.empty_panels {
+                        apply_panel_state(p);
+                    }
+
+                    // Apply traces styles
+                    crate::persistence::apply_trace_styles(
+                        &loaded.traces_style,
+                        |name, look, off| {
+                            let tref = TraceRef(name.to_string());
+                            if let Some(tr) = self.traces_data.get_trace_mut(&tref) {
+                                tr.look = look;
+                                tr.offset = off;
+                            }
+                        },
+                    );
+
+                    // Apply thresholds and triggers to specialized panels
+                    for p in self
+                        .left_side_panels
+                        .iter_mut()
+                        .chain(self.right_side_panels.iter_mut())
+                        .chain(self.bottom_panels.iter_mut())
+                        .chain(self.detached_panels.iter_mut())
+                        .chain(self.empty_panels.iter_mut())
                     {
-                        // Build a serializable `AppStateSerde` and write it using the
-                        // generic `save_state_to_path` API from `persistence.rs`.
-                        let ctx = ui.ctx();
-                        let rect = ctx.input(|i| i.content_rect());
-                        let win_size = Some([rect.width(), rect.height()]);
-                        let win_pos = Some([rect.left(), rect.top()]);
-
-                        let scope_data = self.liveplot_panel.get_data_mut();
-                        let scope_state = crate::persistence::ScopeStateSerde::from(&*scope_data);
-
-                        // Helper to convert Panel::state() to PanelVisSerde
-                        let mut panels_state: Vec<crate::persistence::PanelVisSerde> = Vec::new();
-                        let mut push_panel = |p: &Box<dyn Panel>| {
-                            let st = p.state();
-                            panels_state.push(crate::persistence::PanelVisSerde {
-                                title: st.title.to_string(),
-                                visible: st.visible,
-                                detached: st.detached,
-                                window_pos: st.window_pos,
-                                window_size: st.window_size,
-                            });
-                        };
-                        for p in &self.left_side_panels {
-                            push_panel(p);
-                        }
-                        for p in &self.right_side_panels {
-                            push_panel(p);
-                        }
-                        for p in &self.bottom_panels {
-                            push_panel(p);
-                        }
-                        for p in &self.detached_panels {
-                            push_panel(p);
-                        }
-                        for p in &self.empty_panels {
-                            push_panel(p);
-                        }
-
-                        // Trace styles: snapshot & convert to serializable form to avoid long-lived borrows
-                        let order = scope_data.trace_order.clone();
-                        let trace_styles: Vec<crate::persistence::TraceStyleSerde> = {
-                            let mut snapshot: Vec<(
-                                String,
-                                crate::data::trace_look::TraceLook,
-                                f64,
-                            )> = Vec::new();
-                            for name in order.iter() {
-                                if let Some(tr) = self.traces_data.get_trace(name) {
-                                    snapshot.push((name.0.clone(), tr.look.clone(), tr.offset));
-                                }
-                            }
-                            let mut out: Vec<crate::persistence::TraceStyleSerde> = Vec::new();
-                            for (n, look, off) in snapshot.into_iter() {
-                                out.push(crate::persistence::TraceStyleSerde {
-                                    name: n,
-                                    look: crate::persistence::TraceLookSerde::from(&look),
-                                    offset: off,
-                                });
-                            }
-                            out
-                        };
-
-                        // Thresholds & Triggers: extract from specialized panels, if present
-                        let mut thresholds_ser: Vec<crate::persistence::ThresholdSerde> =
-                            Vec::new();
-                        let mut triggers_ser: Vec<crate::persistence::TriggerSerde> = Vec::new();
-                        for p in self
-                            .left_side_panels
-                            .iter()
-                            .chain(self.right_side_panels.iter())
-                            .chain(self.bottom_panels.iter())
-                            .chain(self.detached_panels.iter())
-                            .chain(self.empty_panels.iter())
+                        let any: &mut dyn Panel = &mut **p;
+                        if let Some(tp) =
+                            any.downcast_mut::<crate::panels::thresholds_ui::ThresholdsPanel>()
                         {
-                            let any: &dyn Panel = &**p;
-                            if let Some(tp) =
-                                any.downcast_ref::<crate::panels::thresholds_ui::ThresholdsPanel>()
-                            {
-                                for (_n, d) in tp.thresholds.iter() {
-                                    thresholds_ser.push(
-                                        crate::persistence::ThresholdSerde::from_threshold(d),
-                                    );
-                                }
-                            }
-                            if let Some(trg) =
-                                any.downcast_ref::<crate::panels::triggers_ui::TriggersPanel>()
-                            {
-                                for (_n, t) in trg.triggers.iter() {
-                                    triggers_ser
-                                        .push(crate::persistence::TriggerSerde::from_trigger(t));
-                                }
+                            tp.thresholds.clear();
+                            for tser in &loaded.thresholds {
+                                let def = tser.clone().into_threshold();
+                                tp.thresholds.insert(def.name.clone(), def);
                             }
                         }
-
-                        let state = crate::persistence::AppStateSerde {
-                            window_size: win_size,
-                            window_pos: win_pos,
-                            scope: scope_state,
-                            panels: panels_state,
-                            traces_style: trace_styles,
-                            thresholds: thresholds_ser,
-                            triggers: triggers_ser,
-                        };
-
-                        let _ = crate::persistence::save_state_to_path(&state, &path);
-                    }
-                }
-                if ui.button("Load state...").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("JSON", &["json"])
-                        .pick_file()
-                    {
-                        // Load serialized state and apply to the current UI structures
-                        if let Ok(loaded) = crate::persistence::load_state_from_path(&path) {
-                            // Window: attempt to request size/pos via ctx
-                            if let Some(sz) = loaded.window_size {
-                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::InnerSize(
-                                    egui::Vec2::new(sz[0], sz[1]),
-                                ));
-                            }
-                            // Scope: apply to scope data
-                            let scope_data = self.liveplot_panel.get_data_mut();
-                            loaded.scope.clone().apply_to(scope_data);
-
-                            // Panels: match by title and set visible/detached/pos/size
-                            let apply_panel_state = |p: &mut Box<dyn Panel>| {
-                                let st = p.state_mut();
-                                for pser in &loaded.panels {
-                                    if pser.title == st.title {
-                                        st.visible = pser.visible;
-                                        st.detached = pser.detached;
-                                        st.window_pos = pser.window_pos;
-                                        st.window_size = pser.window_size;
-                                        break;
-                                    }
-                                }
-                            };
-                            for p in &mut self.left_side_panels {
-                                apply_panel_state(p);
-                            }
-                            for p in &mut self.right_side_panels {
-                                apply_panel_state(p);
-                            }
-                            for p in &mut self.bottom_panels {
-                                apply_panel_state(p);
-                            }
-                            for p in &mut self.detached_panels {
-                                apply_panel_state(p);
-                            }
-                            for p in &mut self.empty_panels {
-                                apply_panel_state(p);
-                            }
-
-                            // Apply traces styles
-                            crate::persistence::apply_trace_styles(
-                                &loaded.traces_style,
-                                |name, look, off| {
-                                    let tref = TraceRef(name.to_string());
-                                    if let Some(tr) = self.traces_data.get_trace_mut(&tref) {
-                                        tr.look = look;
-                                        tr.offset = off;
-                                    }
-                                },
-                            );
-
-                            // Apply thresholds and triggers to specialized panels
-                            for p in self
-                                .left_side_panels
-                                .iter_mut()
-                                .chain(self.right_side_panels.iter_mut())
-                                .chain(self.bottom_panels.iter_mut())
-                                .chain(self.detached_panels.iter_mut())
-                                .chain(self.empty_panels.iter_mut())
-                            {
-                                let any: &mut dyn Panel = &mut **p;
-                                if let Some(tp) = any
-                                    .downcast_mut::<crate::panels::thresholds_ui::ThresholdsPanel>()
-                                {
-                                    tp.thresholds.clear();
-                                    for tser in &loaded.thresholds {
-                                        let def = tser.clone().into_threshold();
-                                        tp.thresholds.insert(def.name.clone(), def);
-                                    }
-                                }
-                                if let Some(trg) =
-                                    any.downcast_mut::<crate::panels::triggers_ui::TriggersPanel>()
-                                {
-                                    trg.triggers.clear();
-                                    for trser in &loaded.triggers {
-                                        let def = trser.clone().into_trigger();
-                                        trg.triggers.insert(def.name.clone(), def);
-                                    }
-                                }
+                        if let Some(trg) =
+                            any.downcast_mut::<crate::panels::triggers_ui::TriggersPanel>()
+                        {
+                            trg.triggers.clear();
+                            for trser in &loaded.triggers {
+                                let def = trser.clone().into_trigger();
+                                trg.triggers.insert(def.name.clone(), def);
                             }
                         }
                     }
                 }
-            });
+            }
         });
     }
 
@@ -817,7 +767,7 @@ impl MainPanel {
                         // Compute max width for compact icons so buttons have consistent size
                         let button_font = egui::TextStyle::Button.resolve(ui.style());
                         let mut max_w = 0.0_f32;
-                        
+
                         ui.fonts_mut(|f| {
                             for p in list.iter() {
                                 let label = p.icon_only().unwrap_or(p.title()).to_string();
@@ -834,12 +784,11 @@ impl MainPanel {
                                 }
                             }
                         });
-                        
+
                         for (i, p) in list.iter_mut().enumerate() {
                             let active = p.state().visible && !p.state().detached;
                             let label = p.icon_only().unwrap_or(p.title()).to_string();
-                            if ui.selectable_label(active, label).clicked()
-                            {
+                            if ui.selectable_label(active, label).clicked() {
                                 clicked = Some(i);
                             }
                         }
@@ -879,7 +828,7 @@ impl MainPanel {
                         // Compute max width for compact icons so buttons have consistent size
                         let button_font = egui::TextStyle::Button.resolve(ui.style());
                         let mut max_w = 0.0_f32;
-                        
+
                         ui.fonts_mut(|f| {
                             for p in list.iter() {
                                 let label = p.icon_only().unwrap_or(p.title()).to_string();
@@ -896,12 +845,11 @@ impl MainPanel {
                                 }
                             }
                         });
-                        
+
                         for (i, p) in list.iter_mut().enumerate() {
                             let active = p.state().visible && !p.state().detached;
                             let label = p.icon_only().unwrap_or(p.title()).to_string();
-                            if ui.selectable_label(active, label).clicked()
-                            {
+                            if ui.selectable_label(active, label).clicked() {
                                 clicked = Some(i);
                             }
                         }
@@ -970,6 +918,8 @@ impl MainPanel {
                     &mut LivePlotData {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
+                        request_save_state: None,
+                        request_load_state: None,
                     },
                 );
             }
@@ -983,6 +933,8 @@ impl MainPanel {
                     &mut LivePlotData {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
+                        request_save_state: None,
+                        request_load_state: None,
                     },
                 );
             }
@@ -996,6 +948,8 @@ impl MainPanel {
                     &mut LivePlotData {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
+                        request_save_state: None,
+                        request_load_state: None,
                     },
                 );
             }
@@ -1008,6 +962,8 @@ impl MainPanel {
                     &mut LivePlotData {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
+                        request_save_state: None,
+                        request_load_state: None,
                     },
                 );
             }
@@ -1028,6 +984,8 @@ impl MainPanel {
         let data = &mut LivePlotData {
             scope_data,
             traces: &mut self.traces_data,
+            request_save_state: None,
+            request_load_state: None,
         };
 
         if count > 0 {
@@ -1308,6 +1266,8 @@ impl MainApp {
                 let mut lp = LivePlotData {
                     scope_data: data,
                     traces: &mut self.main_panel.traces_data,
+                    request_save_state: None,
+                    request_load_state: None,
                 };
                 if p {
                     lp.pause();
@@ -1430,6 +1390,8 @@ impl MainApp {
                     let mut lp = LivePlotData {
                         scope_data: data,
                         traces: &mut self.main_panel.traces_data,
+                        request_save_state: None,
+                        request_load_state: None,
                     };
                     if lp.is_paused() {
                         lp.resume();

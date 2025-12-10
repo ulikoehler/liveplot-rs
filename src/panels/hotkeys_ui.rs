@@ -136,6 +136,26 @@ impl Panel for HotkeysPanel {
         &mut self.state
     }
 
+    fn render_menu(&mut self, ui: &mut egui::Ui, _data: &mut LivePlotData<'_>) {
+        // Panel menu item: show panel, reset defaults, save config
+        ui.menu_button(self.title_and_icon(), |ui| {
+            if ui.button("Show Hotkeys").clicked() {
+                let st = self.state_mut();
+                st.visible = true;
+                st.request_focus = true;
+                ui.close();
+            }
+            if ui.button("Reset to defaults").clicked() {
+                self.reset_defaults();
+                ui.close();
+            }
+            if ui.button("Save").clicked() {
+                let _ = self.hotkeys.borrow().save_to_default_path();
+                ui.close();
+            }
+        });
+    }
+
     fn render_panel(&mut self, ui: &mut egui::Ui, _data: &mut LivePlotData<'_>) {
         ui.label("Configure keyboard shortcuts for common actions.");
         ui.separator();
@@ -149,13 +169,13 @@ impl Panel for HotkeysPanel {
                               current: Option<Hotkey>| {
             ui.horizontal(|ui| {
                 let tip = match name {
-                    HotkeyName::Fft => "Show / hide FFT panel",
-                    HotkeyName::Math => "Show / hide Math panel",
+                    HotkeyName::Fft => "Show / Hide FFT panel",
+                    HotkeyName::Math => "Show / Hide Math panel",
                     HotkeyName::FitView => "Fit the current view to visible data",
                     HotkeyName::FitViewCont => "Toggle continuous fitting of the view",
                     HotkeyName::Pause => "Pause / resume plotting",
-                    HotkeyName::Traces => "Show / hide the Traces panel",
-                    HotkeyName::Thresholds => "Show / hide the Thresholds panel",
+                    HotkeyName::Traces => "Show / Hide the Traces panel",
+                    HotkeyName::Thresholds => "Show / Hide the Thresholds panel",
                     HotkeyName::SavePng => "Save a PNG screenshot of the window",
                     HotkeyName::ExportData => "Export traces or threshold events to CSV/Parquet",
                     HotkeyName::ResetMarkers => "Clear/reset selected markers",
