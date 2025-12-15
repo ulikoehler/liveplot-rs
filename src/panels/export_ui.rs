@@ -109,10 +109,11 @@ impl Panel for ExportPanel {
                     {
                         // Build series map like for CSV (convert TraceRef to String)
                         let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
-                        for name in data.scope_data.trace_order.iter() {
+                        let names = data.traces.all_trace_names();
+                        for name in names.iter() {
                             if let Some(tr) = data.traces.get_trace(name) {
                                 let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
-                                    if data.is_paused() {
+                                    if data.are_all_paused() {
                                         if let Some(snap) = &tr.snap {
                                             Box::new(snap.iter())
                                         } else {
@@ -125,12 +126,9 @@ impl Panel for ExportPanel {
                                 series.insert(name.clone(), vec);
                             }
                         }
-                        if let Err(e) = export::write_parquet_aligned_path(
-                            &path,
-                            &data.scope_data.trace_order,
-                            &series,
-                            1e-9,
-                        ) {
+                        if let Err(e) =
+                            export::write_parquet_aligned_path(&path, &names, &series, 1e-9)
+                        {
                             eprintln!("Failed to export snapshot Parquet: {e}");
                         }
                     }
