@@ -54,21 +54,22 @@ impl Panel for ExportPanel {
                     // Build series map based on paused/snapshot state (convert TraceRef to String)
                     let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
                     for (name, tr) in data.traces.traces_iter() {
-                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> = if data.is_paused() {
-                            if let Some(snap) = &tr.snap {
-                                Box::new(snap.iter())
+                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
+                            if data.are_all_paused() {
+                                if let Some(snap) = &tr.snap {
+                                    Box::new(snap.iter())
+                                } else {
+                                    Box::new(tr.live.iter())
+                                }
                             } else {
                                 Box::new(tr.live.iter())
-                            }
-                        } else {
-                            Box::new(tr.live.iter())
-                        };
+                            };
                         let vec: Vec<[f64; 2]> = iter.cloned().collect();
                         series.insert(name.clone(), vec);
                     }
                     if let Err(e) = export::write_csv_aligned_path(
                         &path,
-                        &data.scope_data.trace_order,
+                        &data.traces.all_trace_names(),
                         &series,
                         1e-9,
                     ) {

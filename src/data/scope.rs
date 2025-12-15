@@ -4,6 +4,7 @@ use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 use std::collections::{HashMap, VecDeque};
 
 /// Settings for a single axis (X or Y).
+#[derive(Clone)]
 pub struct AxisSettings {
     pub unit: Option<String>,
     pub log_scale: bool,
@@ -27,6 +28,15 @@ impl Default for AxisSettings {
 }
 
 impl AxisSettings {
+    pub fn new_time_axis() -> Self {
+        Self {
+            name: Some("Time".to_string()),
+            unit: Some("s".to_string()),
+            format: Some("%H:%M:%S".to_string()),
+            ..Default::default()
+        }
+    }
+
     /// Format a value with unit, using scientific notation when appropriate.
     pub fn format_value_with_unit(&self, v: f64, dec_pl: usize, step: f64) -> String {
         // Decide scientific formatting based on step magnitude vs precision:
@@ -95,6 +105,8 @@ pub enum ScopeType {
 
 /// Central state for the scope display.
 pub struct ScopeData {
+    pub id: usize,
+    pub name: String,
     pub y_axis: AxisSettings,
     pub x_axis: AxisSettings,
     pub time_window: f64,
@@ -104,26 +116,22 @@ pub struct ScopeData {
     pub show_info_in_legend: bool,
 
     pub trace_order: Vec<TraceRef>,
-    pub hover_trace: Option<TraceRef>,
     pub clicked_point: Option<[f64; 2]>,
 }
 
 impl Default for ScopeData {
     fn default() -> Self {
-        let mut x_axis = AxisSettings::default();
-        x_axis.name = Some("Time".to_string());
-        x_axis.format = Some("%H:%M:%S".to_string());
-        x_axis.unit = Some("s".to_string());
         Self {
+            id: 0,
+            name: "Scope".to_string(),
             y_axis: AxisSettings::default(),
-            x_axis,
+            x_axis: AxisSettings::new_time_axis(),
             time_window: 10.0,
             scope_type: ScopeType::TimeScope,
             paused: false,
             show_legend: true,
             show_info_in_legend: false,
             trace_order: Vec::new(),
-            hover_trace: None,
             clicked_point: None,
         }
     }
@@ -133,11 +141,6 @@ impl ScopeData {
     pub fn update(&mut self, traces: &TracesCollection) {
         // Keep trace_order in sync with current traces: drop missing, append new
         self.trace_order.retain(|n| traces.contains_key(n));
-        for name in traces.keys() {
-            if !self.trace_order.iter().any(|n| n == name) {
-                self.trace_order.push(name.clone());
-            }
-        }
 
         if self.x_axis.auto_fit {
             self.fit_x_bounds(traces);

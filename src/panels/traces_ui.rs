@@ -1,9 +1,13 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::{data::LivePlotData, traces::TraceRef};
 use eframe::egui;
-use egui::Ui;
+use egui::{Id, Ui};
+use egui_dnd::dnd;
+use egui_phosphor::regular::DOTS_SIX_VERTICAL;
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 
 use super::trace_look_ui::render_trace_look_editor;
 
@@ -26,10 +30,44 @@ thread_local! {
     static LAST_COL_ROW0_W: RefCell<[f32; 6]> = const { RefCell::new([0.0; 6]) };
 }
 
+#[derive(Clone, Hash)]
+enum ScopeListItem {
+    Header { scope_id: usize, name: String },
+    Trace { scope_id: usize, trace: TraceRef },
+}
+
+#[derive(Hash, PartialEq, Eq, Clone)]
+enum ScopeItemKind {
+    Header,
+    Trace(String),
+}
+
+#[derive(Hash, PartialEq, Eq, Clone)]
+struct ScopeItemId {
+    scope_id: usize,
+    kind: ScopeItemKind,
+}
+
+impl ScopeListItem {
+    fn dnd_id(&self) -> ScopeItemId {
+        match self {
+            ScopeListItem::Header { scope_id, .. } => ScopeItemId {
+                scope_id: *scope_id,
+                kind: ScopeItemKind::Header,
+            },
+            ScopeListItem::Trace { scope_id, trace } => ScopeItemId {
+                scope_id: *scope_id,
+                kind: ScopeItemKind::Trace(trace.0.clone()),
+            },
+        }
+    }
+}
+
 pub struct TracesPanel {
     pub state: PanelState,
     pub look_editor_trace: Option<TraceRef>,
     pub hover_trace: Option<TraceRef>,
+    pub dragging_trace: Option<TraceRef>,
 }
 
 impl Default for TracesPanel {
@@ -38,6 +76,7 @@ impl Default for TracesPanel {
             state: PanelState::new("Traces", "📈"),
             look_editor_trace: None,
             hover_trace: None,
+            dragging_trace: None,
         }
     }
 }
@@ -98,41 +137,22 @@ impl Panel for TracesPanel {
 
     fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         ui.label("Configure traces: marker selection, visibility, colors, offsets, Y axis options, and legend info.");
-        ui.horizontal(|ui| {
-            let mut v = data.scope_data.show_info_in_legend;
-            if ui
-                .checkbox(&mut v, "Show info in Legend")
-                .on_hover_text("Append each trace's info text to its legend label")
-                .changed()
-            {
-                data.scope_data.show_info_in_legend = v;
-            }
-        });
-        ui.separator();
 
-        ui.horizontal(|ui| {
-            let mut ylog = data.scope_data.y_axis.log_scale;
-            if ui
-                .checkbox(&mut ylog, "Y axis log scale")
-                .on_hover_text(
-                    "Use base-10 log of (value + offset). Non-positive values are omitted.",
-                )
-                .changed()
-            {
-                data.scope_data.y_axis.log_scale = ylog;
-            }
-            ui.label("Y unit:");
-            let mut unit = data.scope_data.y_axis.unit.clone().unwrap_or_default();
-            if ui.text_edit_singleline(&mut unit).changed() {
-                data.scope_data.y_axis.unit = if unit.trim().is_empty() {
-                    None
-                } else {
-                    Some(unit)
-                };
-            }
-        });
+        let scope_meta: Vec<(usize, String)> = data
+            .scope_data
+            .iter()
+            .map(|s| (s.id, s.name.clone()))
+            .collect();
 
-        ui.separator();
+        if data.scope_data.is_empty() {
+            ui.label("No scopes available.");
+            return;
+        }
+
+        if !scope_meta.is_empty() {
+            self.render_scope_assignments(ui, data, &scope_meta);
+            ui.separator();
+        }
 
         ui.label("Data Points:");
         ui.add(egui::Slider::new(
@@ -159,21 +179,22 @@ impl Panel for TracesPanel {
 
         self.hover_trace = None;
 
-        // Build rows: include a synthetic "Free" row for marker selection only
         #[derive(Clone)]
         struct Row {
             name: TraceRef,
         }
-        let mut rows: Vec<Row> = Vec::new();
-        for n in data.scope_data.trace_order.iter() {
-            rows.push(Row { name: n.clone() });
-        }
+        let rows: Vec<Row> = data
+            .traces
+            .all_trace_names()
+            .into_iter()
+            .map(|name| Row { name })
+            .collect();
 
-        // Delegate for table rendering
         struct TracesDelegate<'a> {
             traces: &'a mut crate::data::traces::TracesCollection,
             hover_out: &'a mut Option<TraceRef>,
             look_toggle: &'a mut Option<TraceRef>,
+            drag_out: &'a mut Option<TraceRef>,
             rows: Vec<Row>,
             col_w: [f32; 6],
         }
@@ -276,10 +297,15 @@ impl Panel for TracesPanel {
                                     egui::Label::new(r.name.0.clone())
                                         .truncate()
                                         .show_tooltip_when_elided(true)
-                                        .sense(egui::Sense::click()),
+                                        .sense(egui::Sense::click_and_drag()),
                                 );
                                 if resp.hovered() {
                                     *self.hover_out = Some(r.name.clone());
+                                }
+                                if resp.drag_started() || resp.dragged() {
+                                    *self.drag_out = Some(r.name.clone());
+                                    inner
+                                        .output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
                                 }
                                 if resp.clicked() {
                                     *self.look_toggle = Some(r.name.clone());
@@ -417,12 +443,14 @@ impl Panel for TracesPanel {
                 {
                     let mut hover_tmp: Option<TraceRef> = None;
                     let mut look_toggle_req: Option<TraceRef> = None;
+                    let mut drag_from_table: Option<TraceRef> = None;
                     // Borrow traces mutably for the table drawing scope only
                     let traces_ref = &mut *data.traces;
                     let mut delegate = TracesDelegate {
                         traces: traces_ref,
                         hover_out: &mut hover_tmp,
                         look_toggle: &mut look_toggle_req,
+                        drag_out: &mut drag_from_table,
                         rows: rows_clone,
                         col_w: w,
                     };
@@ -440,6 +468,9 @@ impl Panel for TracesPanel {
                         .show(&mut table_ui, &mut delegate);
                     // Write back hover and selection state after drawing table
                     self.hover_trace = hover_tmp;
+                    if let Some(dragged) = drag_from_table {
+                        self.dragging_trace = Some(dragged);
+                    }
                     if let Some(tn) = look_toggle_req {
                         if self.look_editor_trace.as_deref() == Some(tn.as_str()) {
                             self.look_editor_trace = None;
@@ -477,7 +508,185 @@ impl Panel for TracesPanel {
             });
 
         if let Some(hover_trace) = self.hover_trace.clone() {
-            data.scope_data.hover_trace = Some(hover_trace);
+            data.traces.hover_trace = Some(hover_trace.clone());
+        }
+
+        if ui.ctx().input(|i| i.pointer.any_released()) {
+            self.dragging_trace = None;
+        }
+    }
+}
+
+impl TracesPanel {
+    fn render_scope_assignments(
+        &mut self,
+        ui: &mut Ui,
+        data: &mut LivePlotData<'_>,
+        scope_meta: &[(usize, String)],
+    ) {
+        let can_remove_scope = data.scope_data.len() > 1;
+        if ui.button("➕ Add scope").clicked() {
+            data.request_add_scope = true;
+        }
+        ui.add_space(4.0);
+
+        let mut id_to_idx: HashMap<usize, usize> = HashMap::new();
+        for (idx, scope) in data.scope_data.iter().enumerate() {
+            id_to_idx.insert(scope.id, idx);
+        }
+
+        let mut items: Vec<ScopeListItem> = Vec::new();
+        for (idx, (id, name)) in scope_meta.iter().enumerate() {
+            items.push(ScopeListItem::Header {
+                scope_id: *id,
+                name: name.clone(),
+            });
+            if let Some(scope) = data.scope_data.get(idx) {
+                for tr in scope.trace_order.iter() {
+                    items.push(ScopeListItem::Trace {
+                        scope_id: scope.id,
+                        trace: tr.clone(),
+                    });
+                }
+            }
+        }
+
+        let pointer_pos = ui.input(|i| i.pointer.hover_pos());
+        let pointer_released = ui.input(|i| i.pointer.any_released());
+        let dragging = self.dragging_trace.clone();
+        let mut drop_request: Option<(usize, TraceRef)> = None;
+        let mut removed: HashSet<(usize, TraceRef)> = HashSet::new();
+
+        dnd(ui, "scope_traces_dnd").show_custom_vec(&mut items, |ui, items, iter| {
+            for (idx, item) in items.iter_mut().enumerate() {
+                let draggable = matches!(item, ScopeListItem::Trace { .. });
+                let id = Id::new(item.dnd_id());
+                iter.next(ui, id, idx, draggable, |ui, item_handle| match item {
+                    ScopeListItem::Header { name, scope_id } => {
+                        item_handle.ui(ui, |ui, _handle, _state| {
+                            let resp = ui.horizontal(|ui| {
+                                ui.separator();
+                                ui.add_space(4.0);
+                                ui.heading(format!("Scope {}:", scope_id));
+                                if ui.text_edit_singleline(name).changed() {
+                                    if let Some(idx) = id_to_idx.get(scope_id) {
+                                        if let Some(scope) = data.scope_data.get_mut(*idx) {
+                                            scope.name = name.clone();
+                                        }
+                                    }
+                                }
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        let remove_enabled = can_remove_scope;
+                                        if ui
+                                            .add_enabled(
+                                                remove_enabled,
+                                                egui::Button::new("🗑 Remove"),
+                                            )
+                                            .on_hover_text("Remove this scope from layout")
+                                            .clicked()
+                                        {
+                                            data.request_remove_scope = Some(*scope_id);
+                                        }
+                                    },
+                                );
+                            });
+                                if let (Some(pos), Some(trace_name)) = (pointer_pos, dragging.clone()) {
+                                if resp.response.rect.contains(pos) {
+                                    ui.painter().rect_stroke(
+                                        resp.response.rect.expand(2.0),
+                                        egui::CornerRadius::same(2),
+                                        ui.visuals().selection.stroke,
+                                        egui::StrokeKind::Outside,
+                                    );
+                                    if drop_request.is_none() && pointer_released {
+                                        drop_request = Some((*scope_id, trace_name));
+                                    }
+                                }
+                            }
+                        })
+                    }
+                    ScopeListItem::Trace { trace, scope_id } => {
+                        item_handle.ui(ui, |ui, handle, _state| {
+                            let resp = ui.horizontal(|ui| {
+                                handle.ui(ui, |ui| {
+                                    ui.label(DOTS_SIX_VERTICAL);
+                                });
+                                ui.label(trace.0.clone());
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui
+                                            .small_button("Remove")
+                                            .on_hover_text("Remove from this scope")
+                                            .clicked()
+                                        {
+                                            removed.insert((*scope_id, trace.clone()));
+                                        }
+                                    },
+                                );
+                            });
+                            if let (Some(pos), Some(trace_name)) = (pointer_pos, dragging.clone()) {
+                                if resp.response.rect.contains(pos) {
+                                    ui.painter().rect_stroke(
+                                        resp.response.rect.expand(2.0),
+                                        egui::CornerRadius::same(2),
+                                        ui.visuals().selection.stroke,
+                                        egui::StrokeKind::Outside,
+                                    );
+                                    if drop_request.is_none() && pointer_released {
+                                        drop_request = Some((*scope_id, trace_name));
+                                    }
+                                }
+                            }
+                        })
+                    }
+                });
+            }
+        });
+
+        let mut current_scope: Option<usize> = None;
+        for item in items.iter_mut() {
+            match item {
+                ScopeListItem::Header { scope_id, .. } => current_scope = Some(*scope_id),
+                ScopeListItem::Trace { scope_id, .. } => {
+                    if let Some(cs) = current_scope {
+                        *scope_id = cs;
+                    }
+                }
+            }
+        }
+
+        let mut new_orders: Vec<Vec<TraceRef>> = vec![Vec::new(); data.scope_data.len()];
+
+        for item in items.into_iter() {
+            if let ScopeListItem::Trace { scope_id, trace } = item {
+                if removed.contains(&(scope_id, trace.clone())) {
+                    continue;
+                }
+                if let Some(idx) = id_to_idx.get(&scope_id) {
+                    let slot = &mut new_orders[*idx];
+                    if !slot.contains(&trace) {
+                        slot.push(trace);
+                    }
+                }
+            }
+        }
+
+        if let Some((scope_id, trace)) = drop_request {
+            if let Some(idx) = id_to_idx.get(&scope_id) {
+                let slot = &mut new_orders[*idx];
+                if !slot.contains(&trace) {
+                    slot.push(trace);
+                }
+            }
+        }
+
+        for (idx, traces) in new_orders.into_iter().enumerate() {
+            if let Some(scope) = data.scope_data.get_mut(idx) {
+                scope.trace_order = traces;
+            }
         }
     }
 }

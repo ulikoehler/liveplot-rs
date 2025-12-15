@@ -155,7 +155,7 @@ impl Trigger {
             data
         } else {
             self.enabled = false;
-            if let Some(first) = data.scope_data.trace_order.first() {
+            if let Some(first) = data.traces.all_trace_names().first() {
                 self.target = first.clone();
             }
             return false;
@@ -230,7 +230,7 @@ impl Trigger {
             let needed: usize = (data.traces.max_points as f64 * pos).round() as usize;
 
             if needed == 0 {
-                data.pause();
+                data.pause_all();
                 self.last_triggered = self.trigger_pending;
                 self.trigger_pending = None;
             } else {
@@ -238,7 +238,7 @@ impl Trigger {
                 let have = livedata.iter().filter(|p| p[0] > t_trig).count();
 
                 if have >= needed {
-                    data.pause();
+                    data.pause_all();
                     self.last_triggered = self.trigger_pending;
                     self.trigger_pending = None;
                 }

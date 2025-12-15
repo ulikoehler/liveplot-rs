@@ -119,6 +119,7 @@ pub struct TracesCollection {
     traces: HashMap<TraceRef, TraceData>,
     pub max_points: usize,
     pub points_bounds: (usize, usize),
+    pub hover_trace: Option<TraceRef>,
     rx: Option<std::sync::mpsc::Receiver<PlotCommand>>,
     /// Mapping from numeric trace ID to trace name (for PlotCommand API)
     id_to_name: HashMap<u32, String>,
@@ -130,6 +131,7 @@ impl Default for TracesCollection {
             traces: HashMap::new(),
             max_points: 10_000,
             points_bounds: (500, 200000),
+            hover_trace: None,
             rx: None,
             id_to_name: HashMap::new(),
         }
@@ -147,7 +149,8 @@ impl TracesCollection {
         self.rx = Some(rx);
     }
 
-    fn update_rx(&mut self) {
+    fn update_rx(&mut self) -> Vec<TraceRef> {
+        let mut new_traces: Vec<TraceRef> = Vec::new();
         if let Some(rx) = &self.rx {
             while let Ok(cmd) = rx.try_recv() {
                 match cmd {
@@ -155,9 +158,11 @@ impl TracesCollection {
                         self.id_to_name.insert(id, name.clone());
                         let tref = TraceRef(name.clone());
                         let new_index = self.traces.len();
-                        let entry = match self.traces.entry(tref) {
+                        let entry = match self.traces.entry(tref.clone()) {
                             Entry::Occupied(entry) => entry.into_mut(),
-                            Entry::Vacant(entry) => entry.insert(TraceData {
+                            Entry::Vacant(entry) => {
+                                new_traces.push(tref.clone());
+                                entry.insert(TraceData {
                                 look: TraceLook::new(new_index),
                                 offset: 0.0,
                                 live: VecDeque::new(),
@@ -166,7 +171,8 @@ impl TracesCollection {
                                 #[cfg(feature = "fft")]
                                 last_fft: None,
                                 is_math: false,
-                            }),
+                                })
+                            }
                         };
                         if let Some(inf) = info {
                             entry.info = inf;
@@ -176,9 +182,11 @@ impl TracesCollection {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                             let tref = TraceRef(name);
                             let new_index = self.traces.len();
-                            let entry = match self.traces.entry(tref) {
+                            let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
-                                Entry::Vacant(entry) => entry.insert(TraceData {
+                                Entry::Vacant(entry) => {
+                                    new_traces.push(tref.clone());
+                                    entry.insert(TraceData {
                                     look: TraceLook::new(new_index),
                                     offset: 0.0,
                                     live: VecDeque::new(),
@@ -187,7 +195,8 @@ impl TracesCollection {
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
                                     is_math: false,
-                                }),
+                                    })
+                                }
                             };
                             entry.live.push_back([point.x, point.y]);
                             if entry.live.len() > self.max_points {
@@ -199,7 +208,9 @@ impl TracesCollection {
                             self.id_to_name.insert(trace_id, name.clone());
                             let tref = TraceRef(name);
                             let new_index = self.traces.len();
-                            let entry = self.traces.entry(tref).or_insert_with(|| TraceData {
+                            let entry = self.traces.entry(tref.clone()).or_insert_with(|| {
+                                new_traces.push(tref.clone());
+                                TraceData {
                                 look: TraceLook::new(new_index),
                                 offset: 0.0,
                                 live: VecDeque::new(),
@@ -208,6 +219,7 @@ impl TracesCollection {
                                 #[cfg(feature = "fft")]
                                 last_fft: None,
                                 is_math: false,
+                                }
                             });
                             entry.live.push_back([point.x, point.y]);
                         }
@@ -216,9 +228,11 @@ impl TracesCollection {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                             let tref = TraceRef(name);
                             let new_index = self.traces.len();
-                            let entry = match self.traces.entry(tref) {
+                            let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
-                                Entry::Vacant(entry) => entry.insert(TraceData {
+                                Entry::Vacant(entry) => {
+                                    new_traces.push(tref.clone());
+                                    entry.insert(TraceData {
                                     look: TraceLook::new(new_index),
                                     offset: 0.0,
                                     live: VecDeque::new(),
@@ -227,7 +241,8 @@ impl TracesCollection {
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
                                     is_math: false,
-                                }),
+                                    })
+                                }
                             };
                             for p in points {
                                 entry.live.push_back([p.x, p.y]);
@@ -241,9 +256,11 @@ impl TracesCollection {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                             let tref = TraceRef(name);
                             let new_index = self.traces.len();
-                            let entry = match self.traces.entry(tref) {
+                            let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
-                                Entry::Vacant(entry) => entry.insert(TraceData {
+                                Entry::Vacant(entry) => {
+                                    new_traces.push(tref.clone());
+                                    entry.insert(TraceData {
                                     look: TraceLook::new(new_index),
                                     offset: 0.0,
                                     live: VecDeque::new(),
@@ -252,7 +269,8 @@ impl TracesCollection {
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
                                     is_math: false,
-                                }),
+                                    })
+                                }
                             };
                             entry.live.clear();
                             for p in points {
@@ -333,6 +351,7 @@ impl TracesCollection {
                 }
             }
         }
+        new_traces
     }
 
     fn drain(&mut self) {
@@ -341,9 +360,10 @@ impl TracesCollection {
         }
     }
 
-    pub fn update(&mut self) {
-        self.update_rx();
+    pub fn update(&mut self) -> Vec<TraceRef> {
+        let new_traces = self.update_rx();
         self.drain();
+        new_traces
     }
 
     pub fn take_snapshot(&mut self) {
@@ -445,6 +465,10 @@ impl TracesCollection {
 
     pub fn keys(&self) -> impl Iterator<Item = &TraceRef> {
         self.traces.keys()
+    }
+
+    pub fn all_trace_names(&self) -> Vec<TraceRef> {
+        self.traces.keys().cloned().collect()
     }
 
     pub fn len(&self) -> usize {

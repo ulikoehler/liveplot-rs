@@ -10,6 +10,7 @@ use crate::controllers::{
 use crate::data::export;
 use crate::data::hotkeys as hotkey_helpers;
 use crate::data::hotkeys::{HotkeyAction, Hotkeys};
+use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceRef, TracesCollection};
 
 use crate::data::data::LivePlotData;
@@ -64,7 +65,6 @@ impl MainPanel {
                 Box::new(TriggersPanel::default()),
                 Box::new(MeasurementPanel::default()),
             ],
-            //vec![Box::new(TracesPanel::default()), Box::new(MathPanel::default()), Box::new(ThresholdsPanel::default()), Box::new(TriggersPanel::default()), Box::new(ExportPanel::default())],
             left_side_panels: vec![],
             #[cfg(feature = "fft")]
             bottom_panels: vec![Box::new(FftPanel::default())],
@@ -134,29 +134,6 @@ impl MainPanel {
             self.liveplot_panel
                 .render_panel(ui, &mut draw_overlays, &mut self.traces_data);
 
-            // Global Clear All across tabs (rendered as a suffix-like element beneath the plot)
-            let scope = self.liveplot_panel.get_data_mut();
-            if ui
-                .button("X Clear All")
-                .on_hover_text("Clear all traces and per-panel buffers")
-                .clicked()
-            {
-                self.traces_data.clear_all();
-                // Also clear any last clicked point used by measurements/markers
-                scope.clicked_point = None;
-                // Broadcast clear_all to all panels (left/right/bottom/detached/empty)
-                for p in right
-                    .borrow_mut()
-                    .iter_mut()
-                    .chain(left.borrow_mut().iter_mut())
-                    .chain(bottom.borrow_mut().iter_mut())
-                    .chain(detached.borrow_mut().iter_mut())
-                    .chain(empty.borrow_mut().iter_mut())
-                {
-                    p.clear_all();
-                }
-            }
-
             // Return panel lists back to self
             self.left_side_panels = left.into_inner();
             self.right_side_panels = right.into_inner();
@@ -173,7 +150,8 @@ impl MainPanel {
     }
 
     fn update_data(&mut self) {
-        self.traces_data.update();
+        // Process incoming plot commands; collect any newly created traces.
+        let new_traces = self.traces_data.update();
 
         // Apply any queued threshold add/remove requests before processing data so new defs
         // participate in this frame's evaluation.
@@ -185,7 +163,18 @@ impl MainPanel {
             traces: &mut self.traces_data,
             request_save_state: None,
             request_load_state: None,
+            request_add_scope: false,
+            request_remove_scope: None,
         };
+
+        // Attach newly created traces to the primary (first) scope only.
+        if let Some(scope) = data.primary_scope_mut() {
+            for name in new_traces {
+                if !scope.trace_order.iter().any(|n| n == &name) {
+                    scope.trace_order.push(name);
+                }
+            }
+        }
 
         for p in &mut self.left_side_panels {
             p.update_data(data);
@@ -254,18 +243,21 @@ impl MainPanel {
                 )
             };
 
-            let data = self.liveplot_panel.get_data_mut();
+            let mut data = LivePlotData {
+                scope_data: self.liveplot_panel.get_data_mut(),
+                traces: &mut self.traces_data,
+                request_save_state: None,
+                request_load_state: None,
+                request_add_scope: false,
+                request_remove_scope: None,
+            };
+            let primary_scope_id = data.primary_scope().map(|s| s.id);
+
             if let Some(p) = take_actions.0 {
-                let mut lp = LivePlotData {
-                    scope_data: data,
-                    traces: &mut self.traces_data,
-                    request_save_state: None,
-                    request_load_state: None,
-                };
                 if p {
-                    lp.pause();
+                    data.pause_all();
                 } else {
-                    lp.resume();
+                    data.resume_all();
                 }
             }
             if take_actions.1 {
@@ -276,20 +268,25 @@ impl MainPanel {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
             }
             if let Some((_fmt, path)) = take_actions.4.take() {
-                let tol = 1e-9;
-                let order = data.trace_order.clone();
-                let series = order
-                    .iter()
-                    .filter_map(|name| {
-                        data.get_drawn_points(name, &self.traces_data)
-                            .map(|v| (name.clone(), v.into_iter().collect()))
-                    })
-                    .collect();
-                let _ = if path.extension().and_then(|s| s.to_str()) == Some("csv") {
-                    export::write_csv_aligned_path(&path, &order, &series, tol)
-                } else {
-                    export::write_parquet_aligned_path(&path, &order, &series, tol)
-                };
+                if let Some(scope_id) = primary_scope_id {
+                    let tol = 1e-9;
+                    let order = data
+                        .primary_scope()
+                        .map(|s| s.trace_order.clone())
+                        .unwrap_or_default();
+                    let series = order
+                        .iter()
+                        .filter_map(|name| {
+                            data.get_drawn_points(name, scope_id)
+                                .map(|v| (name.clone(), v.into_iter().collect()))
+                        })
+                        .collect();
+                    let _ = if path.extension().and_then(|s| s.to_str()) == Some("csv") {
+                        export::write_csv_aligned_path(&path, &order, &series, tol)
+                    } else {
+                        export::write_parquet_aligned_path(&path, &order, &series, tol)
+                    };
+                }
             }
             if let Some(_req) = take_actions.5.take() {
                 // Placeholder for FFT data requests in embedded mode
@@ -299,53 +296,67 @@ impl MainPanel {
         // TracesController: apply queued changes and publish snapshot info
         if let Some(ctrl) = &self.traces_ctrl {
             let mut inner = ctrl.inner.lock().unwrap();
-            let data = self.liveplot_panel.get_data_mut();
-            let traces = &mut self.traces_data;
+            let mut data = LivePlotData {
+                scope_data: self.liveplot_panel.get_data_mut(),
+                traces: &mut self.traces_data,
+                request_save_state: None,
+                request_load_state: None,
+                request_add_scope: false,
+                request_remove_scope: None,
+            };
             for (name, rgb) in inner.color_requests.drain(..) {
                 let tref = TraceRef(name.clone());
-                if let Some(tr) = traces.get_trace_mut(&tref) {
+                if let Some(tr) = data.traces.get_trace_mut(&tref) {
                     tr.look.color = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
                 }
             }
             for (name, vis) in inner.visible_requests.drain(..) {
                 let tref = TraceRef(name.clone());
-                if let Some(tr) = traces.get_trace_mut(&tref) {
+                if let Some(tr) = data.traces.get_trace_mut(&tref) {
                     tr.look.visible = vis;
                 }
             }
             for (name, off) in inner.offset_requests.drain(..) {
                 let tref = TraceRef(name.clone());
-                if let Some(tr) = traces.get_trace_mut(&tref) {
+                if let Some(tr) = data.traces.get_trace_mut(&tref) {
                     tr.offset = off;
                 }
             }
             if let Some(unit) = inner.y_unit_request.take() {
-                data.y_axis.unit = unit;
+                for scope in data.scope_data.iter_mut() {
+                    let scope = &mut **scope;
+                    scope.y_axis.unit = unit.clone();
+                }
             }
             if let Some(ylog) = inner.y_log_request.take() {
-                data.y_axis.log_scale = ylog;
+                for scope in data.scope_data.iter_mut() {
+                    let scope = &mut **scope;
+                    scope.y_axis.log_scale = ylog;
+                }
             }
 
             let mut infos: Vec<crate::controllers::TraceInfo> = Vec::new();
-            for name in data.trace_order.iter() {
-                if let Some(tr) = self.traces_data.get_trace(name) {
-                    infos.push(crate::controllers::TraceInfo {
-                        name: name.0.clone(),
-                        color_rgb: [tr.look.color.r(), tr.look.color.g(), tr.look.color.b()],
-                        visible: tr.look.visible,
-                        is_math: false,
-                        offset: tr.offset,
-                    });
+            if let Some(scope) = data.primary_scope() {
+                for name in scope.trace_order.iter() {
+                    if let Some(tr) = data.traces.get_trace(name) {
+                        infos.push(crate::controllers::TraceInfo {
+                            name: name.0.clone(),
+                            color_rgb: [tr.look.color.r(), tr.look.color.g(), tr.look.color.b()],
+                            visible: tr.look.visible,
+                            is_math: false,
+                            offset: tr.offset,
+                        });
+                    }
                 }
+                let y_unit = scope.y_axis.unit.clone();
+                let y_log = scope.y_axis.log_scale;
+                let snapshot = crate::controllers::TracesInfo {
+                    traces: infos,
+                    y_unit,
+                    y_log,
+                };
+                inner.listeners.retain(|s| s.send(snapshot.clone()).is_ok());
             }
-            let y_unit = data.y_axis.unit.clone();
-            let y_log = data.y_axis.log_scale;
-            let snapshot = crate::controllers::TracesInfo {
-                traces: infos,
-                y_unit,
-                y_log,
-            };
-            inner.listeners.retain(|s| s.send(snapshot.clone()).is_ok());
         }
 
         // FFT controller: publish basic info
@@ -507,15 +518,17 @@ impl MainPanel {
         // Render Menu
 
         egui::MenuBar::new().ui(ui, |ui| {
-            self.liveplot_panel.render_menu(ui);
+            self.liveplot_panel.render_menu(ui, &mut self.traces_data);
 
-            let (save_req, load_req) = {
+            let (save_req, load_req, add_scope_req, remove_scope_req) = {
                 let scope_data = self.liveplot_panel.get_data_mut();
                 let mut data = LivePlotData {
                     scope_data,
                     traces: &mut self.traces_data,
                     request_save_state: None,
                     request_load_state: None,
+                    request_add_scope: false,
+                    request_remove_scope: None,
                 };
 
                 for p in &mut self.left_side_panels {
@@ -537,8 +550,17 @@ impl MainPanel {
                 (
                     data.request_save_state.take(),
                     data.request_load_state.take(),
+                    data.request_add_scope,
+                    data.request_remove_scope,
                 )
             };
+
+            if add_scope_req {
+                self.liveplot_panel.add_scope();
+            }
+            if let Some(scope_id) = remove_scope_req {
+                let _ = self.liveplot_panel.remove_scope_by_id(scope_id);
+            }
 
             if let Some(path) = save_req {
                 // Save state: build a serializable AppStateSerde and write it
@@ -546,8 +568,19 @@ impl MainPanel {
                 let rect = ctx.input(|i| i.content_rect());
                 let win_size = Some([rect.width(), rect.height()]);
                 let win_pos = Some([rect.left(), rect.top()]);
-                let scope_data = self.liveplot_panel.get_data_mut();
-                let scope_state = crate::persistence::ScopeStateSerde::from(&*scope_data);
+                let live_data = LivePlotData {
+                    scope_data: self.liveplot_panel.get_data_mut(),
+                    traces: &mut self.traces_data,
+                    request_save_state: None,
+                    request_load_state: None,
+                    request_add_scope: false,
+                    request_remove_scope: None,
+                };
+                let scope_state = if let Some(scope) = live_data.primary_scope() {
+                    crate::persistence::ScopeStateSerde::from(scope)
+                } else {
+                    crate::persistence::ScopeStateSerde::from(&ScopeData::default())
+                };
 
                 // Helper to convert Panel::state() to PanelVisSerde
                 let mut panels_state: Vec<crate::persistence::PanelVisSerde> = Vec::new();
@@ -578,12 +611,15 @@ impl MainPanel {
                 }
 
                 // Trace styles: snapshot & convert to serializable form to avoid long-lived borrows
-                let order = scope_data.trace_order.clone();
+                let order = live_data
+                    .primary_scope()
+                    .map(|s| s.trace_order.clone())
+                    .unwrap_or_default();
                 let trace_styles: Vec<crate::persistence::TraceStyleSerde> = {
                     let mut snapshot: Vec<(String, crate::data::trace_look::TraceLook, f64)> =
                         Vec::new();
                     for name in order.iter() {
-                        if let Some(tr) = self.traces_data.get_trace(name) {
+                        if let Some(tr) = live_data.traces.get_trace(name) {
                             snapshot.push((name.0.clone(), tr.look.clone(), tr.offset));
                         }
                     }
@@ -649,8 +685,17 @@ impl MainPanel {
                         ));
                     }
                     // Scope: apply to scope data
-                    let scope_data = self.liveplot_panel.get_data_mut();
-                    loaded.scope.clone().apply_to(scope_data);
+                    let mut live_data = LivePlotData {
+                        scope_data: self.liveplot_panel.get_data_mut(),
+                        traces: &mut self.traces_data,
+                        request_save_state: None,
+                        request_load_state: None,
+                        request_add_scope: false,
+                        request_remove_scope: None,
+                    };
+                    if let Some(scope) = live_data.primary_scope_mut() {
+                        loaded.scope.clone().apply_to(scope);
+                    }
 
                     // Panels: match by title and set visible/detached/pos/size
                     let apply_panel_state = |p: &mut Box<dyn Panel>| {
@@ -686,7 +731,7 @@ impl MainPanel {
                         &loaded.traces_style,
                         |name, look, off| {
                             let tref = TraceRef(name.to_string());
-                            if let Some(tr) = self.traces_data.get_trace_mut(&tref) {
+                            if let Some(tr) = live_data.traces.get_trace_mut(&tref) {
                                 tr.look = look;
                                 tr.offset = off;
                             }
@@ -920,6 +965,8 @@ impl MainPanel {
                         traces: &mut self.traces_data,
                         request_save_state: None,
                         request_load_state: None,
+                        request_add_scope: false,
+                        request_remove_scope: None,
                     },
                 );
             }
@@ -935,6 +982,8 @@ impl MainPanel {
                         traces: &mut self.traces_data,
                         request_save_state: None,
                         request_load_state: None,
+                        request_add_scope: false,
+                        request_remove_scope: None,
                     },
                 );
             }
@@ -950,6 +999,8 @@ impl MainPanel {
                         traces: &mut self.traces_data,
                         request_save_state: None,
                         request_load_state: None,
+                        request_add_scope: false,
+                        request_remove_scope: None,
                     },
                 );
             }
@@ -964,6 +1015,8 @@ impl MainPanel {
                         traces: &mut self.traces_data,
                         request_save_state: None,
                         request_load_state: None,
+                        request_add_scope: false,
+                        request_remove_scope: None,
                     },
                 );
             }
@@ -980,147 +1033,164 @@ impl MainPanel {
 
         let mut clicked: Option<usize> = None;
 
-        let scope_data = self.liveplot_panel.get_data_mut();
-        let data = &mut LivePlotData {
-            scope_data,
-            traces: &mut self.traces_data,
-            request_save_state: None,
-            request_load_state: None,
-        };
-
-        if count > 0 {
-            // Honor focus requests from panels (request_docket): make that panel the active attached tab
-            if let Some(req_idx) = list.iter().enumerate().find_map(|(i, p)| {
-                if p.state().request_docket {
-                    Some(i)
-                } else {
-                    None
-                }
-            }) {
-                for (j, p) in list.iter_mut().enumerate() {
-                    if j == req_idx {
-                        let st = p.state_mut();
-                        st.visible = true;
-                        st.detached = false;
-                        st.request_docket = false;
-                    } else if !p.state().detached {
-                        p.state_mut().visible = false;
-                    }
-                }
-            }
-            // Decide if actions fit on the same row; if not, render them on a new row.
-            let actions_need_row_below = {
-                let available = ui.available_width();
-                // Estimate width of tabs/labels
-                let button_font = egui::TextStyle::Button.resolve(ui.style());
-                let txt_width = |text: &str, ui: &egui::Ui| -> f32 {
-                    ui.fonts_mut(|f| {
-                        f.layout_no_wrap(text.to_owned(), button_font.clone(), egui::Color32::WHITE)
-                            .rect
-                            .width()
-                    })
-                };
-                let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
-                // Measure combined label width (title + optional icon)
-                let tabs_w: f32 = match count {
-                    0 => 0.0,
-                    1 => txt_width(&list[0].title_and_icon(), ui) + pad,
-                    _ => list
-                        .iter()
-                        .map(|p| txt_width(&p.title_and_icon(), ui) + pad)
-                        .sum(),
-                };
-                let actions_w = txt_width("Pop out", ui) + pad + txt_width("Hide", ui) + pad;
-                tabs_w + actions_w > available
+        let (add_scope_req, remove_scope_req) = {
+            let scope_data = self.liveplot_panel.get_data_mut();
+            let data = &mut LivePlotData {
+                scope_data,
+                traces: &mut self.traces_data,
+                request_save_state: None,
+                request_load_state: None,
+                request_add_scope: false,
+                request_remove_scope: None,
             };
 
-            ui.horizontal(|ui| {
-                if count > 1 {
-                    for (i, p) in list.iter_mut().enumerate() {
-                        let active = p.state().visible && !p.state().detached;
-                        if ui.selectable_label(active, p.title_and_icon()).clicked() {
-                            clicked = Some(i);
-                        }
+            if count > 0 {
+                // Honor focus requests from panels (request_docket): make that panel the active attached tab
+                if let Some(req_idx) = list.iter().enumerate().find_map(|(i, p)| {
+                    if p.state().request_docket {
+                        Some(i)
+                    } else {
+                        None
                     }
-                } else {
-                    let p = &mut list[0];
-                    ui.label(p.title_and_icon());
-                    clicked = Some(0);
-                }
-
-                if !actions_need_row_below {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Hide").clicked() {
-                            for p in list.iter_mut() {
-                                if !p.state().detached {
-                                    p.state_mut().visible = false;
-                                }
-                            }
-                        }
-                        if ui.button("Pop out").clicked() {
-                            for p in list.iter_mut() {
-                                if p.state().visible && !p.state().detached {
-                                    p.state_mut().detached = true;
-                                    p.state_mut().request_docket = false;
-                                    p.state_mut().visible = true;
-                                    p.state_mut().request_focus = true;
-                                }
-                            }
-                        }
-                    });
-                }
-            });
-
-            if actions_need_row_below {
-                ui.horizontal(|ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Hide").clicked() {
-                            for p in list.iter_mut() {
-                                if !p.state().detached {
-                                    p.state_mut().visible = false;
-                                }
-                            }
-                        }
-                        if ui.button("Pop out").clicked() {
-                            for p in list.iter_mut() {
-                                if p.state().visible && !p.state().detached {
-                                    p.state_mut().detached = true;
-                                    p.state_mut().request_docket = false;
-                                    p.state_mut().visible = true;
-                                    p.state_mut().request_focus = true;
-                                }
-                            }
-                        }
-                    });
-                });
-            }
-
-            // Apply clicked selection when multiple tabs are present
-            if count > 1 {
-                if let Some(i) = clicked {
+                }) {
                     for (j, p) in list.iter_mut().enumerate() {
-                        if j == i {
-                            p.state_mut().visible = true;
-                            p.state_mut().detached = false;
+                        if j == req_idx {
+                            let st = p.state_mut();
+                            st.visible = true;
+                            st.detached = false;
+                            st.request_docket = false;
                         } else if !p.state().detached {
                             p.state_mut().visible = false;
                         }
                     }
                 }
-            }
-        }
+                // Decide if actions fit on the same row; if not, render them on a new row.
+                let actions_need_row_below = {
+                    let available = ui.available_width();
+                    // Estimate width of tabs/labels
+                    let button_font = egui::TextStyle::Button.resolve(ui.style());
+                    let txt_width = |text: &str, ui: &egui::Ui| -> f32 {
+                        ui.fonts_mut(|f| {
+                            f.layout_no_wrap(
+                                text.to_owned(),
+                                button_font.clone(),
+                                egui::Color32::WHITE,
+                            )
+                            .rect
+                            .width()
+                        })
+                    };
+                    let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
+                    // Measure combined label width (title + optional icon)
+                    let tabs_w: f32 = match count {
+                        0 => 0.0,
+                        1 => txt_width(&list[0].title_and_icon(), ui) + pad,
+                        _ => list
+                            .iter()
+                            .map(|p| txt_width(&p.title_and_icon(), ui) + pad)
+                            .sum(),
+                    };
+                    let actions_w = txt_width("Pop out", ui) + pad + txt_width("Hide", ui) + pad;
+                    tabs_w + actions_w > available
+                };
 
-        ui.separator();
-        // Body: find first attached+visible panel
-        if let Some((idx, _)) = list
-            .iter()
-            .enumerate()
-            .find(|(_i, p)| p.state().visible && !p.state().detached)
-        {
-            let p = &mut list[idx];
-            p.render_panel(ui, data);
-        } else {
-            ui.label("No panel active");
+                ui.horizontal(|ui| {
+                    if count > 1 {
+                        for (i, p) in list.iter_mut().enumerate() {
+                            let active = p.state().visible && !p.state().detached;
+                            if ui.selectable_label(active, p.title_and_icon()).clicked() {
+                                clicked = Some(i);
+                            }
+                        }
+                    } else {
+                        let p = &mut list[0];
+                        ui.label(p.title_and_icon());
+                        clicked = Some(0);
+                    }
+
+                    if !actions_need_row_below {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Hide").clicked() {
+                                for p in list.iter_mut() {
+                                    if !p.state().detached {
+                                        p.state_mut().visible = false;
+                                    }
+                                }
+                            }
+                            if ui.button("Pop out").clicked() {
+                                for p in list.iter_mut() {
+                                    if p.state().visible && !p.state().detached {
+                                        p.state_mut().detached = true;
+                                        p.state_mut().request_docket = false;
+                                        p.state_mut().visible = true;
+                                        p.state_mut().request_focus = true;
+                                    }
+                                }
+                            }
+                        });
+                    }
+                });
+
+                if actions_need_row_below {
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Hide").clicked() {
+                                for p in list.iter_mut() {
+                                    if !p.state().detached {
+                                        p.state_mut().visible = false;
+                                    }
+                                }
+                            }
+                            if ui.button("Pop out").clicked() {
+                                for p in list.iter_mut() {
+                                    if p.state().visible && !p.state().detached {
+                                        p.state_mut().detached = true;
+                                        p.state_mut().request_docket = false;
+                                        p.state_mut().visible = true;
+                                        p.state_mut().request_focus = true;
+                                    }
+                                }
+                            }
+                        });
+                    });
+                }
+
+                // Apply clicked selection when multiple tabs are present
+                if count > 1 {
+                    if let Some(i) = clicked {
+                        for (j, p) in list.iter_mut().enumerate() {
+                            if j == i {
+                                p.state_mut().visible = true;
+                                p.state_mut().detached = false;
+                            } else if !p.state().detached {
+                                p.state_mut().visible = false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            ui.separator();
+            // Body: find first attached+visible panel
+            if let Some((idx, _)) = list
+                .iter()
+                .enumerate()
+                .find(|(_i, p)| p.state().visible && !p.state().detached)
+            {
+                let p = &mut list[idx];
+                p.render_panel(ui, data);
+            } else {
+                ui.label("No panel active");
+            }
+            (data.request_add_scope, data.request_remove_scope)
+        };
+
+        // Apply any scope add/remove requests issued by the rendered panel(s)
+        if add_scope_req {
+            self.liveplot_panel.add_scope();
+        }
+        if let Some(scope_id) = remove_scope_req {
+            let _ = self.liveplot_panel.remove_scope_by_id(scope_id);
         }
     }
 }
@@ -1183,20 +1253,20 @@ impl MainApp {
         // Axis/time window settings
         {
             let scope = self.main_panel.liveplot_panel.get_data_mut();
-            scope.time_window = cfg.time_window_secs;
-            scope.y_axis.unit = cfg.y_unit.clone();
-            scope.y_axis.log_scale = cfg.y_log;
-            scope.x_axis.format = Some(match cfg.x_date_format {
-                crate::config::XDateFormat::Iso8601WithDate => "%Y-%m-%d %H:%M:%S".to_string(),
-                crate::config::XDateFormat::Iso8601Time => "%H:%M:%S".to_string(),
-            });
+            for s in scope {
+                s.time_window = cfg.time_window_secs;
+                s.y_axis.unit = cfg.y_unit.clone();
+                s.y_axis.log_scale = cfg.y_log;
+                s.x_axis.format = Some(match cfg.x_date_format {
+                    crate::config::XDateFormat::Iso8601WithDate => "%Y-%m-%d %H:%M:%S".to_string(),
+                    crate::config::XDateFormat::Iso8601Time => "%H:%M:%S".to_string(),
+                });
+                s.show_legend = cfg.show_legend;
+            }
         }
 
         // Trace storage limits
         self.main_panel.traces_data.max_points = cfg.max_points;
-
-        // Show legend
-        self.main_panel.liveplot_panel.get_data_mut().show_legend = cfg.show_legend;
 
         // Hotkeys: configured or fallback to default path, then defaults.
         {
@@ -1259,108 +1329,110 @@ impl MainApp {
                 )
             };
 
-            let data = self.main_panel.liveplot_panel.get_data_mut();
+            let scopes = self.main_panel.liveplot_panel.get_data_mut();
 
-            // pause/resume
-            if let Some(p) = take_actions.0 {
-                let mut lp = LivePlotData {
-                    scope_data: data,
-                    traces: &mut self.main_panel.traces_data,
-                    request_save_state: None,
-                    request_load_state: None,
-                };
-                if p {
-                    lp.pause();
-                } else {
-                    lp.resume();
+            for scope in scopes {
+                // pause/resume
+                if let Some(p) = take_actions.0 {
+                    if p {
+                        scope.paused = true;
+                        self.main_panel.traces_data.take_snapshot();
+                    } else {
+                        scope.paused = false;
+                    }
                 }
-            }
-            // screenshot now
-            if take_actions.1 {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
-            }
-            // screenshot to path: set env var for scope handler and trigger capture
-            if let Some(path) = take_actions.2.take() {
-                std::env::set_var("LIVEPLOT_SAVE_SCREENSHOT_TO", path);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
-            }
-            // save raw aligned snapshot (CSV/Parquet) to path
-            if let Some((_fmt, path)) = take_actions.4.take() {
-                // Build aligned series from currently drawn points
-                let tol = 1e-9;
-                let order = data.trace_order.clone();
-                let series = order
-                    .iter()
-                    .filter_map(|name| {
-                        data.get_drawn_points(name, &self.main_panel.traces_data)
-                            .map(|v| (name.clone(), v.into_iter().collect()))
-                    })
-                    .collect();
-                let _ = if path.extension().and_then(|s| s.to_str()) == Some("csv") {
-                    export::write_csv_aligned_path(&path, &order, &series, tol)
-                } else {
-                    export::write_parquet_aligned_path(&path, &order, &series, tol)
-                };
-            }
-            // save raw without path not handled here (needs UI to ask for path)
+                // screenshot now
+                if take_actions.1 {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                }
+                // screenshot to path: set env var for scope handler and trigger capture
+                if let Some(path) = take_actions.2.take() {
+                    std::env::set_var("LIVEPLOT_SAVE_SCREENSHOT_TO", path);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                }
+                // save raw aligned snapshot (CSV/Parquet) to path
+                if let Some((_fmt, path)) = take_actions.4.take() {
+                    // Build aligned series from currently drawn points
+                    let tol = 1e-9;
+                    let order = scope.trace_order.clone();
+                    let series = order
+                        .iter()
+                        .filter_map(|name| {
+                            scope
+                                .get_drawn_points(name, &self.main_panel.traces_data)
+                                .map(|v| (name.clone(), v.into_iter().collect()))
+                        })
+                        .collect();
+                    let _ = if path.extension().and_then(|s| s.to_str()) == Some("csv") {
+                        export::write_csv_aligned_path(&path, &order, &series, tol)
+                    } else {
+                        export::write_parquet_aligned_path(&path, &order, &series, tol)
+                    };
+                }
 
-            // FFT requests not implemented in detail; clear them so callers don't block
-            if let Some(_req) = take_actions.5.take() {
-                // No-op: placeholder until FFT panel provides data pipeline
+                // save raw without path not handled here (needs UI to ask for path)
+
+                // FFT requests not implemented in detail; clear them so callers don't block
+                if let Some(_req) = take_actions.5.take() {
+                    // No-op: placeholder until FFT panel provides data pipeline
+                }
             }
         }
 
         // TracesController: apply queued changes and publish snapshot info
         if let Some(ctrl) = &self.traces_ctrl {
             let mut inner = ctrl.inner.lock().unwrap();
-            let data = self.main_panel.liveplot_panel.get_data_mut();
-            let traces = &mut self.main_panel.traces_data;
-            for (name, rgb) in inner.color_requests.drain(..) {
-                let tref = TraceRef(name.clone());
-                if let Some(tr) = traces.get_trace_mut(&tref) {
-                    tr.look.color = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
-                }
-            }
-            for (name, vis) in inner.visible_requests.drain(..) {
-                let tref = TraceRef(name.clone());
-                if let Some(tr) = traces.get_trace_mut(&tref) {
-                    tr.look.visible = vis;
-                }
-            }
-            for (name, off) in inner.offset_requests.drain(..) {
-                let tref = TraceRef(name.clone());
-                if let Some(tr) = traces.get_trace_mut(&tref) {
-                    tr.offset = off;
-                }
-            }
-            if let Some(unit) = inner.y_unit_request.take() {
-                data.y_axis.unit = unit;
-            }
-            if let Some(ylog) = inner.y_log_request.take() {
-                data.y_axis.log_scale = ylog;
-            }
+            let scopes = self.main_panel.liveplot_panel.get_data_mut();
 
-            // Publish current traces snapshot
-            let mut infos: Vec<crate::controllers::TraceInfo> = Vec::new();
-            for name in data.trace_order.iter() {
-                if let Some(tr) = self.main_panel.traces_data.get_trace(name) {
-                    infos.push(crate::controllers::TraceInfo {
-                        name: name.0.clone(),
-                        color_rgb: [tr.look.color.r(), tr.look.color.g(), tr.look.color.b()],
-                        visible: tr.look.visible,
-                        is_math: false, // no math differentiation here
-                        offset: tr.offset,
-                    });
+            for scope in scopes {
+                let traces = &mut self.main_panel.traces_data;
+                for (name, rgb) in inner.color_requests.drain(..) {
+                    let tref = TraceRef(name.clone());
+                    if let Some(tr) = traces.get_trace_mut(&tref) {
+                        tr.look.color = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                    }
                 }
+                for (name, vis) in inner.visible_requests.drain(..) {
+                    let tref = TraceRef(name.clone());
+                    if let Some(tr) = traces.get_trace_mut(&tref) {
+                        tr.look.visible = vis;
+                    }
+                }
+                for (name, off) in inner.offset_requests.drain(..) {
+                    let tref = TraceRef(name.clone());
+                    if let Some(tr) = traces.get_trace_mut(&tref) {
+                        tr.offset = off;
+                    }
+                }
+                if let Some(unit) = inner.y_unit_request.take() {
+                    scope.y_axis.unit = unit;
+                }
+                if let Some(ylog) = inner.y_log_request.take() {
+                    scope.y_axis.log_scale = ylog;
+                }
+
+                // Publish current traces snapshot
+                let mut infos: Vec<crate::controllers::TraceInfo> = Vec::new();
+                for name in scope.trace_order.iter() {
+                    if let Some(tr) = self.main_panel.traces_data.get_trace(name) {
+                        infos.push(crate::controllers::TraceInfo {
+                            name: name.0.clone(),
+                            color_rgb: [tr.look.color.r(), tr.look.color.g(), tr.look.color.b()],
+                            visible: tr.look.visible,
+                            is_math: false, // no math differentiation here
+                            offset: tr.offset,
+                        });
+                    }
+                }
+                let y_unit = scope.y_axis.unit.clone();
+                let y_log = scope.y_axis.log_scale;
+                let snapshot = crate::controllers::TracesInfo {
+                    traces: infos,
+                    y_unit,
+                    y_log,
+                };
+                inner.listeners.retain(|s| s.send(snapshot.clone()).is_ok());
             }
-            let y_unit = data.y_axis.unit.clone();
-            let y_log = data.y_axis.log_scale;
-            let snapshot = crate::controllers::TracesInfo {
-                traces: infos,
-                y_unit,
-                y_log,
-            };
-            inner.listeners.retain(|s| s.send(snapshot.clone()).is_ok());
         }
 
         // FFTController: reflect desired show state if FFT panel exists; publish panel size if present
@@ -1384,36 +1456,38 @@ impl MainApp {
         let hk = self.main_panel.hotkeys.borrow().clone();
         let actions = hotkey_helpers::detect_hotkey_actions(&hk, ctx);
         for act in actions {
+            let mut data = LivePlotData {
+                scope_data: self.main_panel.liveplot_panel.get_data_mut(),
+                traces: &mut self.main_panel.traces_data,
+                request_save_state: None,
+                request_load_state: None,
+                request_add_scope: false,
+                request_remove_scope: None,
+            };
             match act {
                 HotkeyAction::Pause => {
-                    let data = self.main_panel.liveplot_panel.get_data_mut();
-                    let mut lp = LivePlotData {
-                        scope_data: data,
-                        traces: &mut self.main_panel.traces_data,
-                        request_save_state: None,
-                        request_load_state: None,
-                    };
-                    if lp.is_paused() {
-                        lp.resume();
-                        self.main_panel.traces_data.clear_snapshot();
-                    } else {
-                        lp.pause();
-                    }
+                    data.toggle_pause();
                 }
                 HotkeyAction::FitView => {
-                    let data = self.main_panel.liveplot_panel.get_data_mut();
-                    data.fit_bounds(&self.main_panel.traces_data);
+                    data.fit_all_bounds();
                 }
                 HotkeyAction::FitViewCont => {
-                    let data = self.main_panel.liveplot_panel.get_data_mut();
-                    data.y_axis.auto_fit = !data.y_axis.auto_fit;
-                    if data.y_axis.auto_fit {
-                        data.fit_y_bounds(&self.main_panel.traces_data);
+                    let mut scopes = self.main_panel.liveplot_panel.get_data_mut();
+                    let auto_fit = scopes
+                        .first()
+                        .map(|s| (**s).y_axis.auto_fit)
+                        .unwrap_or(false);
+                    for scope in scopes.iter_mut() {
+                        let scope = &mut **scope;
+                        scope.y_axis.auto_fit = !auto_fit;
                     }
                 }
                 HotkeyAction::ResetMarkers => {
-                    let data = self.main_panel.liveplot_panel.get_data_mut();
-                    data.clicked_point = None;
+                    let mut scopes = self.main_panel.liveplot_panel.get_data_mut();
+                    for scope in scopes.iter_mut() {
+                        let scope = &mut **scope;
+                        scope.clicked_point = None;
+                    }
                 }
                 HotkeyAction::ToggleTraces => {
                     self.main_panel.toggle_panel_visibility::<TracesPanel>();

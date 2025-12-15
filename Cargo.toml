@@ -13,7 +13,7 @@ name = "liveplot"
 path = "src/lib.rs"
 
 [features]
-default = []
+default = ["tiles"]
 # Opt-in tracing for traces table width debugging (silenced by default)
 traces_table_debug = []
 # Enable building gRPC examples and proto codegen
@@ -49,6 +49,7 @@ eframe = "0.33"
 egui = "0.33"
 egui_plot = "0.34"
 egui_tiles = { version = "0.14", optional = true }
+egui_dnd = "0.14"
 chrono = "0.4"
 rfd = "0.16"
 image = "0.25"

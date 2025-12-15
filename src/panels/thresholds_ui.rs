@@ -248,7 +248,11 @@ impl Panel for ThresholdsPanel {
     }
 
     fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
-        let sources = _data.get_all_drawn_points();
+        let sources = if let Some(scope) = _data.primary_scope() {
+            _data.get_all_drawn_points(scope.id)
+        } else {
+            HashMap::new()
+        };
         for def in self.thresholds.values_mut() {
             def.process_threshold(sources.clone());
         }
@@ -305,7 +309,12 @@ impl Panel for ThresholdsPanel {
                 }
 
                 // Info text like math traces: target + condition; hover highlights target trace
-                let info_text = def.get_info(&data.scope_data.y_axis);
+                let default_axis = AxisSettings::default();
+                let axis_setting = data
+                    .scope_containing_trace(&def.target)
+                    .map(|scope| &scope.y_axis)
+                    .unwrap_or(&default_axis);
+                let info_text = def.get_info(axis_setting);
                 let info_resp = ui.add(
                     egui::Label::new(info_text)
                         .truncate()
@@ -453,7 +462,7 @@ impl Panel for ThresholdsPanel {
                     let _resp = resp.on_hover_text("Enter a unique name for this threshold");
                 }
             });
-            let trace_names = data.scope_data.trace_order.clone();
+            let trace_names = data.traces.all_trace_names();
             let mut target_idx = trace_names
                 .iter()
                 .position(|n| n == &self.builder.target)
@@ -804,10 +813,17 @@ impl Panel for ThresholdsPanel {
 
         // Build items slice with a longer-lived binding to avoid temporary drop issues
         let items_vec: Vec<&ThresholdEvent> = filtered.iter().collect();
+
+        let default_axis = AxisSettings::new_time_axis();
+        let axis_setting = data
+            .primary_scope()
+            .map(|scope| &scope.x_axis)
+            .unwrap_or(&default_axis);
+
         let mut delegate = EventsDelegate {
             items: items_vec.as_slice(),
             hover_threshold_out: &mut self.hover_threshold,
-            axis: &data.scope_data.x_axis,
+            axis: axis_setting,
         };
         let cols = vec![
             egui_table::Column::new(160.0),

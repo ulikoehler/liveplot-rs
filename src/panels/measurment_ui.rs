@@ -1,6 +1,7 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::LivePlotData;
 use crate::data::measurement::Measurement;
+use crate::data::scope::ScopeData;
 use egui::{Align2, Color32};
 use egui_plot::{Line, PlotPoint, Points, Text};
 
@@ -68,7 +69,10 @@ impl Panel for MeasurementPanel {
                 for m in &mut self.measurements {
                     m.clear();
                 }
-                data.scope_data.clicked_point = None;
+                for scope in data.scope_data.iter_mut() {
+                    let scope = &mut **scope;
+                    scope.clicked_point = None;
+                }
                 ui.close();
             }
             if ui.button("Take P1 at click").clicked() {
@@ -83,72 +87,77 @@ impl Panel for MeasurementPanel {
     }
 
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
-        if let Some(point) = data.scope_data.clicked_point {
-            if self.last_clicked_point == Some(point) {
-                return;
-            }
-            self.last_clicked_point = Some(point);
-
-            if self.measurements.is_empty() {
-                self.measurements.push(Measurement::default());
-            }
-
-            // Choose target measurement index safely to avoid borrow conflicts
-            let target_idx = if let Some(idx) = self.selected_measurement {
-                if idx < self.measurements.len() {
-                    idx
-                } else {
-                    self.selected_measurement = None;
-                    0
+        for scope in data.scope_data.iter_mut() {
+            let scope = &mut **scope;
+            if let Some(point) = scope.clicked_point {
+                if self.last_clicked_point == Some(point) {
+                    continue;
                 }
-            } else {
-                0
-            };
-            let measurement = self.measurements.get_mut(target_idx).unwrap();
+                self.last_clicked_point = Some(point);
 
-            let sel_data_points: Option<Vec<[f64; 2]>> =
-                if let Some(name) = &measurement.catch_trace {
-                    data.traces
-                        .get_points(name, data.scope_data.paused)
-                        .map(|v| v.into_iter().collect())
+                if self.measurements.is_empty() {
+                    self.measurements.push(Measurement::default());
+                }
+
+                // Choose target measurement index safely to avoid borrow conflicts
+                let target_idx = if let Some(idx) = self.selected_measurement {
+                    if idx < self.measurements.len() {
+                        idx
+                    } else {
+                        self.selected_measurement = None;
+                        0
+                    }
                 } else {
-                    None
+                    0
                 };
+                let measurement = self.measurements.get_mut(target_idx).unwrap();
 
-            let point = match (&measurement.catch_trace, &sel_data_points) {
-                (Some(name), Some(data_points)) if !data_points.is_empty() => {
-                    let off = data.traces.get_trace(name).map(|t| t.offset).unwrap_or(0.0);
-                    let mut best_i = None;
-                    let mut best_d2 = f64::INFINITY;
-                    for (i, p) in data_points.iter().enumerate() {
-                        let x_plot = p[0];
-                        let y_plot = p[1] + off;
-                        let dx = x_plot - point[0];
-                        let dy = y_plot - point[1];
-                        let d2 = dx * dx + dy * dy;
-                        if d2 < best_d2 {
-                            best_d2 = d2;
-                            best_i = Some(i);
+                let sel_data_points: Option<Vec<[f64; 2]>> =
+                    if let Some(name) = &measurement.catch_trace {
+                        data.traces
+                            .get_points(name, scope.paused)
+                            .map(|v| v.into_iter().collect())
+                    } else {
+                        None
+                    };
+
+                let point = match (&measurement.catch_trace, &sel_data_points) {
+                    (Some(name), Some(data_points)) if !data_points.is_empty() => {
+                        let off = data.traces.get_trace(name).map(|t| t.offset).unwrap_or(0.0);
+                        let mut best_i = None;
+                        let mut best_d2 = f64::INFINITY;
+                        for (i, p) in data_points.iter().enumerate() {
+                            let x_plot = p[0];
+                            let y_plot = p[1] + off;
+                            let dx = x_plot - point[0];
+                            let dy = y_plot - point[1];
+                            let d2 = dx * dx + dy * dy;
+                            if d2 < best_d2 {
+                                best_d2 = d2;
+                                best_i = Some(i);
+                            }
+                        }
+                        if let Some(i) = best_i {
+                            data_points[i]
+                        } else {
+                            point
                         }
                     }
-                    if let Some(i) = best_i {
-                        data_points[i]
-                    } else {
-                        point
-                    }
-                }
-                _ => point,
-            };
+                    _ => point,
+                };
 
-            if let Some(point_idx) = self.selected_point_index {
-                match point_idx {
-                    0 => measurement.set_point1(point),
-                    1 => measurement.set_point2(point),
-                    _ => measurement.set_point(point),
+                if let Some(point_idx) = self.selected_point_index {
+                    match point_idx {
+                        0 => measurement.set_point1(point),
+                        1 => measurement.set_point2(point),
+                        _ => measurement.set_point(point),
+                    }
+                    self.selected_point_index = None;
+                } else {
+                    measurement.set_point(point);
                 }
-                self.selected_point_index = None;
-            } else {
-                measurement.set_point(point);
+
+                measurement.scope_id = Some(scope.id);
             }
         }
     }
@@ -458,28 +467,37 @@ impl Panel for MeasurementPanel {
                 };
             });
 
+            let scope: &ScopeData = if let Some(scope_id) = self.measurements[i].scope_id {
+                if let Some(scope) = data.scope_by_id(scope_id) {
+                    scope
+                } else {
+                    self.measurements[i].clear();
+                    return;
+                }
+            } else if let Some(name) = &self.measurements[i].catch_trace {
+                if let Some(scope) = data.scope_containing_trace(name) {
+                    scope
+                } else {
+                    self.measurements[i].clear();
+                    return;
+                }
+            } else {
+                self.measurements[i].clear();
+                return;
+            };
+
             // Show values for P1/P2 and delta if available
             let (p1, p2) = self.measurements[i].get_points();
-            let x_range = (data.scope_data.x_axis.bounds.1 - data.scope_data.x_axis.bounds.0).abs();
-            let y_range = (data.scope_data.y_axis.bounds.1 - data.scope_data.y_axis.bounds.0).abs();
+            let x_range = (scope.x_axis.bounds.1 - scope.x_axis.bounds.0).abs();
+            let y_range = (scope.y_axis.bounds.1 - scope.y_axis.bounds.0).abs();
             ui.horizontal(|ui| {
                 let mut p1_label = if let Some(p) = p1 {
-                    let x_lin = if data.scope_data.x_axis.log_scale {
-                        10f64.powf(p[0])
-                    } else {
-                        p[0]
-                    };
-                    let y_lin = if data.scope_data.y_axis.log_scale {
-                        10f64.powf(p[1])
-                    } else {
-                        p[1]
-                    };
+                    let x_lin = p[0];
+                    let y_lin = p[1];
                     let p1_text = format!(
                         "P1: x={}  y={}",
-                        data.scope_data.x_axis.format_value(x_lin, 6, x_range),
-                        data.scope_data
-                            .y_axis
-                            .format_value_with_unit(y_lin, 6, y_range)
+                        scope.x_axis.format_value(x_lin, 6, x_range),
+                        scope.y_axis.format_value_with_unit(y_lin, 6, y_range)
                     );
                     let resp = ui.colored_label(Color32::YELLOW, p1_text.clone());
                     if resp.double_clicked() {
@@ -497,22 +515,12 @@ impl Panel for MeasurementPanel {
                 // double-click handled above when value exists
 
                 let mut p2_label = if let Some(p) = p2 {
-                    let x_lin = if data.scope_data.x_axis.log_scale {
-                        10f64.powf(p[0])
-                    } else {
-                        p[0]
-                    };
-                    let y_lin = if data.scope_data.y_axis.log_scale {
-                        10f64.powf(p[1])
-                    } else {
-                        p[1]
-                    };
+                    let x_lin = p[0];
+                    let y_lin = p[1];
                     let p2_text = format!(
                         "P2: x={}  y={}",
-                        data.scope_data.x_axis.format_value(x_lin, 6, x_range),
-                        data.scope_data
-                            .y_axis
-                            .format_value_with_unit(y_lin, 6, y_range)
+                        scope.x_axis.format_value(x_lin, 6, x_range),
+                        scope.y_axis.format_value_with_unit(y_lin, 6, y_range)
                     );
                     let resp = ui.colored_label(Color32::LIGHT_BLUE, p2_text.clone());
                     if resp.double_clicked() {
@@ -534,26 +542,10 @@ impl Panel for MeasurementPanel {
                 };
             });
             if let (Some(p1), Some(p2)) = (p1, p2) {
-                let x1 = if data.scope_data.x_axis.log_scale {
-                    10f64.powf(p1[0])
-                } else {
-                    p1[0]
-                };
-                let x2 = if data.scope_data.x_axis.log_scale {
-                    10f64.powf(p2[0])
-                } else {
-                    p2[0]
-                };
-                let y1 = if data.scope_data.y_axis.log_scale {
-                    10f64.powf(p1[1])
-                } else {
-                    p1[1]
-                };
-                let y2 = if data.scope_data.y_axis.log_scale {
-                    10f64.powf(p2[1])
-                } else {
-                    p2[1]
-                };
+                let x1: f64 = p1[0];
+                let x2 = p2[0];
+                let y1 = p1[1];
+                let y2 = p2[1];
                 let dx = x2 - x1;
                 let dy = y2 - y1;
                 let slope = if dx.abs() > 1e-12 {
@@ -565,17 +557,13 @@ impl Panel for MeasurementPanel {
                     format!(
                         "Δx={:.6}  Δy={}  slope={:.4}",
                         dx,
-                        data.scope_data
-                            .y_axis
-                            .format_value_with_unit(dy, 6, y_range),
+                        scope.y_axis.format_value_with_unit(dy, 6, y_range),
                         slope
                     )
                 } else {
                     format!(
                         "Δx=0  Δy={}",
-                        data.scope_data
-                            .y_axis
-                            .format_value_with_unit(dy, 6, y_range)
+                        scope.y_axis.format_value_with_unit(dy, 6, y_range)
                     )
                 };
                 let mut diff_label = ui.colored_label(Color32::LIGHT_GREEN, diff_txt.clone());

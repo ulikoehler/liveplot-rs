@@ -17,7 +17,6 @@ pub struct ScopePanel {
     data: ScopeData,
 
     // UI state
-    name: String,
     controlls_in_toolbar: bool,
     zoom_mode: ZoomMode,
     time_slider_dragging: bool,
@@ -28,7 +27,6 @@ impl Default for ScopePanel {
     fn default() -> Self {
         Self {
             data: ScopeData::default(),
-            name: "Scope".to_string(),
             controlls_in_toolbar: false,
             zoom_mode: ZoomMode::X,
             time_slider_dragging: false,
@@ -38,6 +36,29 @@ impl Default for ScopePanel {
 }
 
 impl ScopePanel {
+    pub fn new(id: usize) -> Self {
+        let mut pane = Self::default();
+        let name = format!("Scope {}", id + 1);
+        let data = pane.get_data_mut();
+        data.id = id;
+        data.name = name;
+        pane
+    }
+
+    pub fn name(&self) -> &str {
+        &self.data.name
+    }
+
+    pub fn id(&self) -> usize {
+        self.data.id
+    }
+
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        let n = name.into();
+        self.data.name = n.clone();
+        self.data.name = n;
+    }
+
     pub fn update_data(&mut self, traces: &TracesCollection) {
         self.data.update(traces);
     }
@@ -47,12 +68,32 @@ impl ScopePanel {
     }
 
     pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
-        ui.menu_button(self.name.to_string(), |ui| {
-            ui.checkbox(&mut self.controlls_in_toolbar, "Controls in Toolbar");
+        ui.checkbox(&mut self.controlls_in_toolbar, "Controls in Toolbar");
 
-            ui.separator();
+        ui.separator();
 
-            self.render_controls(ui, traces);
+        self.render_controls(ui, traces);
+
+        ui.separator();
+
+        ui.checkbox(&mut self.data.show_info_in_legend, "Show info in Legend")
+            .on_hover_text("Append each trace's info text to its legend label");
+
+        ui.separator();
+
+        ui.checkbox(&mut self.data.y_axis.log_scale, "Y axis log scale")
+            .on_hover_text("Use base-10 log of (value + offset). Non-positive values are omitted.");
+
+        ui.horizontal(|ui| {
+            ui.label("Y unit:");
+            let mut unit = self.data.y_axis.unit.clone().unwrap_or_default();
+            if ui.text_edit_singleline(&mut unit).changed() {
+                self.data.y_axis.unit = if unit.trim().is_empty() {
+                    None
+                } else {
+                    Some(unit)
+                };
+            }
         });
     }
 
@@ -76,113 +117,127 @@ impl ScopePanel {
     // Extended controls with injectable prefix/suffix sections
     fn render_controls(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
         ui.strong("X-Axis");
-        if self.data.scope_type == ScopeType::TimeScope {
-            ui.label("Time Window:");
-            let mut tw = self.data.time_window.max(1e-9);
-            if !self.time_slider_dragging {
-                if tw <= self.time_window_bounds.0 {
-                    self.time_window_bounds.0 /= 10.0;
-                    self.time_window_bounds.1 /= 10.0;
-                } else if tw >= self.time_window_bounds.1 {
-                    self.time_window_bounds.0 *= 10.0;
-                    self.time_window_bounds.1 *= 10.0;
+        ui.horizontal(|ui| {
+            if self.data.scope_type == ScopeType::TimeScope {
+                ui.label("Time Window:");
+                let mut tw = self.data.time_window.max(1e-9);
+                if !self.time_slider_dragging {
+                    if tw <= self.time_window_bounds.0 {
+                        self.time_window_bounds.0 /= 10.0;
+                        self.time_window_bounds.1 /= 10.0;
+                    } else if tw >= self.time_window_bounds.1 {
+                        self.time_window_bounds.0 *= 10.0;
+                        self.time_window_bounds.1 *= 10.0;
+                    }
+                }
+
+                let slider = egui::Slider::new(
+                    &mut tw,
+                    self.time_window_bounds.0..=self.time_window_bounds.1,
+                )
+                .logarithmic(true)
+                .smart_aim(true)
+                .show_value(true)
+                .clamping(egui::SliderClamping::Edits)
+                .custom_formatter(|n, _| self.data.x_axis.format_value_with_unit(n, 4, n));
+
+                let sresp = ui.add(slider);
+                if sresp.changed() {
+                    self.data.time_window = tw;
+                }
+
+                self.time_slider_dragging = sresp.is_pointer_button_down_on();
+            } else {
+                let mut x_min_tmp = self.data.x_axis.bounds.0;
+                let mut x_max_tmp = self.data.x_axis.bounds.1;
+                let x_range = x_max_tmp - x_min_tmp;
+                ui.label("Min:");
+                let r1 = ui.add(
+                    egui::DragValue::new(&mut x_min_tmp)
+                        .speed(0.1)
+                        .custom_formatter(|n, _| {
+                            self.data.x_axis.format_value_with_unit(n, 4, x_range)
+                        }),
+                );
+                ui.label("Max:");
+                let r2 = ui.add(
+                    egui::DragValue::new(&mut x_max_tmp)
+                        .speed(0.1)
+                        .custom_formatter(|n, _| {
+                            self.data.x_axis.format_value_with_unit(n, 4, x_range)
+                        }),
+                );
+                if (r1.changed() || r2.changed()) && x_min_tmp < x_max_tmp {
+                    self.data.x_axis.bounds.0 = x_min_tmp;
+                    self.data.x_axis.bounds.1 = x_max_tmp;
+                    self.data.time_window = x_max_tmp - x_min_tmp;
                 }
             }
+        });
 
-            let slider = egui::Slider::new(
-                &mut tw,
-                self.time_window_bounds.0..=self.time_window_bounds.1,
-            )
-            .logarithmic(true)
-            .smart_aim(true)
-            .show_value(true)
-            .clamping(egui::SliderClamping::Edits)
-            .custom_formatter(|n, _| self.data.x_axis.format_value_with_unit(n, 4, n));
-
-            let sresp = ui.add(slider);
-            if sresp.changed() {
-                self.data.time_window = tw;
+        ui.horizontal(|ui| {
+            if ui
+                .button("↔ Fit X")
+                .on_hover_text("Fit X to visible data")
+                .clicked()
+            {
+                self.data.fit_x_bounds(traces);
             }
 
-            self.time_slider_dragging = sresp.is_pointer_button_down_on();
-        } else {
-            let mut x_min_tmp = self.data.x_axis.bounds.0;
-            let mut x_max_tmp = self.data.x_axis.bounds.1;
-            let x_range = x_max_tmp - x_min_tmp;
-            ui.label("Min:");
-            let r1 = ui.add(
-                egui::DragValue::new(&mut x_min_tmp)
-                    .speed(0.1)
-                    .custom_formatter(|n, _| {
-                        self.data.x_axis.format_value_with_unit(n, 4, x_range)
-                    }),
-            );
-            ui.label("Max:");
-            let r2 = ui.add(
-                egui::DragValue::new(&mut x_max_tmp)
-                    .speed(0.1)
-                    .custom_formatter(|n, _| {
-                        self.data.x_axis.format_value_with_unit(n, 4, x_range)
-                    }),
-            );
-            if (r1.changed() || r2.changed()) && x_min_tmp < x_max_tmp {
-                self.data.x_axis.bounds.0 = x_min_tmp;
-                self.data.x_axis.bounds.1 = x_max_tmp;
-                self.data.time_window = x_max_tmp - x_min_tmp;
-            }
-        }
-
-        if ui
-            .button("↔ Fit X")
-            .on_hover_text("Fit X to visible data")
-            .clicked()
-        {
-            self.data.fit_x_bounds(traces);
-        }
-
-        ui.checkbox(&mut self.data.x_axis.auto_fit, "Auto Fit X");
+            ui.checkbox(&mut self.data.x_axis.auto_fit, "Auto Fit X");
+        });
 
         ui.separator();
 
         // Y controls
-        let mut y_min_tmp = self.data.y_axis.bounds.0;
-        let mut y_max_tmp = self.data.y_axis.bounds.1;
-        let y_range = y_max_tmp - y_min_tmp;
-        ui.strong("Y-Axis");
-        ui.label("Min:");
-        let r1 = ui.add(
-            egui::DragValue::new(&mut y_min_tmp)
-                .speed(0.1)
-                .custom_formatter(|n, _| self.data.y_axis.format_value_with_unit(n, 4, y_range)),
-        );
-        ui.label("Max:");
-        let r2 = ui.add(
-            egui::DragValue::new(&mut y_max_tmp)
-                .speed(0.1)
-                .custom_formatter(|n, _| self.data.y_axis.format_value_with_unit(n, 4, y_range)),
-        );
-        if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
-            self.data.y_axis.bounds.0 = y_min_tmp;
-            self.data.y_axis.bounds.1 = y_max_tmp;
-        }
+        ui.horizontal(|ui| {
+            let mut y_min_tmp = self.data.y_axis.bounds.0;
+            let mut y_max_tmp = self.data.y_axis.bounds.1;
+            let y_range = y_max_tmp - y_min_tmp;
+            ui.strong("Y-Axis");
+            ui.label("Min:");
+            let r1 = ui.add(
+                egui::DragValue::new(&mut y_min_tmp)
+                    .speed(0.1)
+                    .custom_formatter(|n, _| {
+                        self.data.y_axis.format_value_with_unit(n, 4, y_range)
+                    }),
+            );
+            ui.label("Max:");
+            let r2 = ui.add(
+                egui::DragValue::new(&mut y_max_tmp)
+                    .speed(0.1)
+                    .custom_formatter(|n, _| {
+                        self.data.y_axis.format_value_with_unit(n, 4, y_range)
+                    }),
+            );
+            if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
+                self.data.y_axis.bounds.0 = y_min_tmp;
+                self.data.y_axis.bounds.1 = y_max_tmp;
+            }
+        });
 
-        if ui
-            .button("↕ Fit Y")
-            .on_hover_text("Fit Y to visible data")
-            .clicked()
-        {
-            self.data.fit_y_bounds(traces);
-        }
+        ui.horizontal(|ui| {
+            if ui
+                .button("↕ Fit Y")
+                .on_hover_text("Fit Y to visible data")
+                .clicked()
+            {
+                self.data.fit_y_bounds(traces);
+            }
 
-        ui.checkbox(&mut self.data.y_axis.auto_fit, "Auto Fit Y");
+            ui.checkbox(&mut self.data.y_axis.auto_fit, "Auto Fit Y");
+        });
 
         ui.separator();
 
-        ui.strong("Zoom:");
-        ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "Off");
-        ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "X");
-        ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "Y");
-        ui.selectable_value(&mut self.zoom_mode, ZoomMode::Both, "Both");
+        ui.horizontal(|ui| {
+            ui.strong("Zoom:");
+            ui.selectable_value(&mut self.zoom_mode, ZoomMode::Off, "Off");
+            ui.selectable_value(&mut self.zoom_mode, ZoomMode::X, "X");
+            ui.selectable_value(&mut self.zoom_mode, ZoomMode::Y, "Y");
+            ui.selectable_value(&mut self.zoom_mode, ZoomMode::Both, "Both");
+        });
 
         ui.separator();
 
@@ -284,7 +339,7 @@ impl ScopePanel {
 
         let y_log = self.data.y_axis.log_scale;
         let x_log = self.data.x_axis.log_scale;
-        let plot = Plot::new("scope_plot")
+        let plot = Plot::new(format!("scope_plot_{}", self.data.name))
             .allow_scroll(false)
             .allow_zoom(false)
             .allow_boxed_zoom(true)
@@ -378,7 +433,7 @@ impl ScopePanel {
                     let mut color = tr.look.color;
                     let mut width: f32 = tr.look.width.max(0.1);
                     let style = tr.look.style;
-                    if let Some(hov) = &self.data.hover_trace {
+                    if let Some(hov) = &traces.hover_trace {
                         if name != *hov {
                             // Strongly dim non-hovered traces
                             color = Color32::from_rgba_unmultiplied(
@@ -408,7 +463,7 @@ impl ScopePanel {
                     if tr.look.show_points {
                         if !pts_vec.is_empty() {
                             let mut radius = tr.look.point_size.max(0.5);
-                            if let Some(hov) = &self.data.hover_trace {
+                            if let Some(hov) = &traces.hover_trace {
                                 if name == *hov {
                                     radius = (radius * 1.25).max(radius + 0.5);
                                 }
@@ -450,7 +505,7 @@ impl ScopePanel {
 
         self.handle_plot_click(&plot_resp, traces);
 
-        self.data.hover_trace = None;
+        traces.hover_trace = None;
     }
 
     /// Handle click selection on the plot using nearest point logic.

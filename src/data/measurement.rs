@@ -5,6 +5,7 @@ pub struct Measurement {
     pub p1: Option<[f64; 2]>,
     pub p2: Option<[f64; 2]>,
     pub catch_trace: Option<TraceRef>,
+    pub scope_id: Option<usize>,
 }
 
 impl Default for Measurement {
@@ -14,6 +15,7 @@ impl Default for Measurement {
             p1: None,
             p2: None,
             catch_trace: None,
+            scope_id: None,
         }
     }
 }
@@ -65,6 +67,7 @@ impl Measurement {
     pub fn clear(&mut self) {
         self.p1 = None;
         self.p2 = None;
+        self.scope_id = None;
     }
 
     pub fn has_both_points(&self) -> bool {

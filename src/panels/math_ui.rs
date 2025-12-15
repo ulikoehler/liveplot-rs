@@ -247,7 +247,7 @@ impl Panel for MathPanel {
             }
         }
         if let Some(nm) = hover_trace_intern {
-            data.scope_data.hover_trace = Some(nm);
+            data.traces.hover_trace = Some(nm);
         }
 
         // Style popup removed; the editor is part of the new/edit dialog above
@@ -340,9 +340,8 @@ impl Panel for MathPanel {
             ir.response.on_hover_text("Operation");
             // Available source names, excluding the math trace's own name to avoid self-references
             let trace_names: Vec<TraceRef> = data
-                .scope_data
-                .trace_order
-                .clone()
+                .traces
+                .all_trace_names()
                 .into_iter()
                 .filter(|n| *n != self.builder.name)
                 .collect();
@@ -394,7 +393,7 @@ impl Panel for MathPanel {
                 let future_idx = if data.traces.contains_key(&self.builder.name) {
                     None
                 } else {
-                    Some(data.scope_data.trace_order.len())
+                    Some(data.traces.len())
                 };
                 if let Some(idx) = future_idx {
                     self.builder_look.color = TraceLook::alloc_color(idx);

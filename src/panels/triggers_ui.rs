@@ -189,18 +189,20 @@ impl Panel for TriggersPanel {
             .any(|tr| tr.single_shot && tr.is_triggered());
 
         if !is_single_shot_triggered {
-            for (_name, tr) in self.triggers.iter_mut() {
-                if tr.check_trigger(data) {
-                    if tr.is_triggered() {
-                        let tr_time = tr.last_trigger_time().unwrap();
-                        let time_window =
-                            data.scope_data.x_axis.bounds.1 - data.scope_data.x_axis.bounds.0;
+            let scope_ids: Vec<usize> = data.scope_data.iter().map(|scope| (**scope).id).collect();
+            for scope_id in scope_ids {
+                for (_name, tr) in self.triggers.iter_mut() {
+                    if tr.check_trigger(data) && tr.is_triggered() {
+                        if let Some(scope) = data.scope_by_id_mut(scope_id) {
+                            let tr_time = tr.last_trigger_time().unwrap();
+                            let time_window = scope.x_axis.bounds.1 - scope.x_axis.bounds.0;
 
-                        let tr_pos = tr.trigger_position;
-                        data.scope_data.x_axis.bounds = (
-                            tr_time - time_window * tr_pos,
-                            tr_time + time_window * (1.0 - tr_pos),
-                        );
+                            let tr_pos = tr.trigger_position;
+                            scope.x_axis.bounds = (
+                                tr_time - time_window * tr_pos,
+                                tr_time + time_window * (1.0 - tr_pos),
+                            );
+                        }
                     }
                 }
             }
@@ -220,7 +222,7 @@ impl Panel for TriggersPanel {
                 .clicked()
             {
                 // Resume if paused due to any trigger, then clear their state
-                data.resume();
+                data.resume_all();
                 for (_name, tr) in self.triggers.iter_mut() {
                     tr.reset();
                 }
@@ -231,7 +233,7 @@ impl Panel for TriggersPanel {
                 .clicked()
             {
                 // Resume stream and enable+start all triggers
-                data.resume();
+                data.resume_all();
                 for (_name, tr) in self.triggers.iter_mut() {
                     tr.enabled = true;
                     tr.start();
@@ -245,6 +247,9 @@ impl Panel for TriggersPanel {
         for (name, tr) in self.triggers.iter_mut() {
             let name_str = name.clone();
             let mut to_remove = false;
+            let scope_axes = data
+                .scope_containing_trace(&tr.target)
+                .map(|scope| (scope.x_axis.clone(), scope.y_axis.clone()));
 
             // Main row: enable toggle, name/info, remove button
             let row = ui.horizontal(|ui| {
@@ -255,7 +260,11 @@ impl Panel for TriggersPanel {
                 let name_resp =
                     ui.add(egui::Label::new(tr.name.clone()).sense(egui::Sense::click()));
                 // Short info text
-                let info = tr.get_info(&data.scope_data.y_axis);
+
+                let info = scope_axes
+                    .as_ref()
+                    .map(|(_, y_axis)| tr.get_info(y_axis))
+                    .unwrap_or_default();
                 let info_resp = ui.add(egui::Label::new(info).sense(egui::Sense::click()));
                 if name_resp.clicked() || info_resp.clicked() {
                     // Open editor with a copy of current settings
@@ -278,7 +287,7 @@ impl Panel for TriggersPanel {
                 if name_resp.hovered() || info_resp.hovered() {
                     // Highlight target trace when hovering the name
                     if !tr.target.0.is_empty() {
-                        data.scope_data.hover_trace = Some(tr.target.clone());
+                        data.traces.hover_trace = Some(tr.target.clone());
                     }
                 }
 
@@ -292,7 +301,7 @@ impl Panel for TriggersPanel {
             // Hovering the whole row also highlights target trace
             if row.response.hovered() {
                 if !tr.target.0.is_empty() {
-                    data.scope_data.hover_trace = Some(tr.target.clone());
+                    data.traces.hover_trace = Some(tr.target.clone());
                 }
             }
 
@@ -306,7 +315,11 @@ impl Panel for TriggersPanel {
             let mut toggle_start: Option<bool> = None; // Some(true)=Start, Some(false)=Stop
             let (last_text, last_exists) = if let Some(t) = tr.last_trigger_time() {
                 // Use x-axis formatter for time display
-                let start_fmt = data.scope_data.x_axis.format_value(t, 4, 1.0);
+                let start_fmt = if let Some((x_axis, _)) = scope_axes.as_ref() {
+                    x_axis.format_value(t, 4, 1.0)
+                } else {
+                    format!("{:.4}", t)
+                };
                 (format!("Last: {}", start_fmt), true)
             } else {
                 (String::from("Last: –"), false)
@@ -343,13 +356,13 @@ impl Panel for TriggersPanel {
 
             if do_reset {
                 if tr.is_triggered() {
-                    data.resume();
+                    data.resume_all();
                 }
                 tr.reset();
             }
             if let Some(start) = toggle_start {
                 if start {
-                    data.resume();
+                    data.resume_all();
                     tr.start();
                 } else {
                     tr.stop();
@@ -412,7 +425,7 @@ impl Panel for TriggersPanel {
             });
 
             // Target trace selection
-            let trace_names = data.scope_data.trace_order.clone();
+            let trace_names = data.traces.all_trace_names();
             let mut target_idx = trace_names
                 .iter()
                 .position(|n| n == &builder.target)
