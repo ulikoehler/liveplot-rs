@@ -163,14 +163,14 @@ impl TracesCollection {
                             Entry::Vacant(entry) => {
                                 new_traces.push(tref.clone());
                                 entry.insert(TraceData {
-                                look: TraceLook::new(new_index),
-                                offset: 0.0,
-                                live: VecDeque::new(),
-                                snap: None,
-                                info: String::new(),
-                                #[cfg(feature = "fft")]
-                                last_fft: None,
-                                is_math: false,
+                                    look: TraceLook::new(new_index),
+                                    offset: 0.0,
+                                    live: VecDeque::new(),
+                                    snap: None,
+                                    info: String::new(),
+                                    #[cfg(feature = "fft")]
+                                    last_fft: None,
+                                    is_math: false,
                                 })
                             }
                         };
@@ -187,14 +187,14 @@ impl TracesCollection {
                                 Entry::Vacant(entry) => {
                                     new_traces.push(tref.clone());
                                     entry.insert(TraceData {
-                                    look: TraceLook::new(new_index),
-                                    offset: 0.0,
-                                    live: VecDeque::new(),
-                                    snap: None,
-                                    info: String::new(),
-                                    #[cfg(feature = "fft")]
-                                    last_fft: None,
-                                    is_math: false,
+                                        look: TraceLook::new(new_index),
+                                        offset: 0.0,
+                                        live: VecDeque::new(),
+                                        snap: None,
+                                        info: String::new(),
+                                        #[cfg(feature = "fft")]
+                                        last_fft: None,
+                                        is_math: false,
                                     })
                                 }
                             };
@@ -211,14 +211,14 @@ impl TracesCollection {
                             let entry = self.traces.entry(tref.clone()).or_insert_with(|| {
                                 new_traces.push(tref.clone());
                                 TraceData {
-                                look: TraceLook::new(new_index),
-                                offset: 0.0,
-                                live: VecDeque::new(),
-                                snap: None,
-                                info: String::new(),
-                                #[cfg(feature = "fft")]
-                                last_fft: None,
-                                is_math: false,
+                                    look: TraceLook::new(new_index),
+                                    offset: 0.0,
+                                    live: VecDeque::new(),
+                                    snap: None,
+                                    info: String::new(),
+                                    #[cfg(feature = "fft")]
+                                    last_fft: None,
+                                    is_math: false,
                                 }
                             });
                             entry.live.push_back([point.x, point.y]);
@@ -233,14 +233,14 @@ impl TracesCollection {
                                 Entry::Vacant(entry) => {
                                     new_traces.push(tref.clone());
                                     entry.insert(TraceData {
-                                    look: TraceLook::new(new_index),
-                                    offset: 0.0,
-                                    live: VecDeque::new(),
-                                    snap: None,
-                                    info: String::new(),
-                                    #[cfg(feature = "fft")]
-                                    last_fft: None,
-                                    is_math: false,
+                                        look: TraceLook::new(new_index),
+                                        offset: 0.0,
+                                        live: VecDeque::new(),
+                                        snap: None,
+                                        info: String::new(),
+                                        #[cfg(feature = "fft")]
+                                        last_fft: None,
+                                        is_math: false,
                                     })
                                 }
                             };
@@ -261,14 +261,14 @@ impl TracesCollection {
                                 Entry::Vacant(entry) => {
                                     new_traces.push(tref.clone());
                                     entry.insert(TraceData {
-                                    look: TraceLook::new(new_index),
-                                    offset: 0.0,
-                                    live: VecDeque::new(),
-                                    snap: None,
-                                    info: String::new(),
-                                    #[cfg(feature = "fft")]
-                                    last_fft: None,
-                                    is_math: false,
+                                        look: TraceLook::new(new_index),
+                                        offset: 0.0,
+                                        live: VecDeque::new(),
+                                        snap: None,
+                                        info: String::new(),
+                                        #[cfg(feature = "fft")]
+                                        last_fft: None,
+                                        is_math: false,
                                     })
                                 }
                             };

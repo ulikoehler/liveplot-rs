@@ -613,7 +613,9 @@ impl TracesPanel {
                                 handle.ui(ui, |ui| {
                                     ui.label(DOTS_SIX_VERTICAL);
                                 });
-                                ui.label(trace.0.clone());
+                                if ui.label(trace.0.clone()).hovered() {
+                                    data.traces.hover_trace = Some(trace.clone());
+                                }
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
@@ -627,6 +629,9 @@ impl TracesPanel {
                                     },
                                 );
                             });
+                            if resp.response.hovered() {
+                                data.traces.hover_trace = Some(trace.clone());
+                            }
                             if let (Some(pos), Some(trace_name)) = (pointer_pos, dragging.clone()) {
                                 if resp.response.rect.contains(pos) {
                                     ui.painter().rect_stroke(

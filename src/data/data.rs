@@ -119,8 +119,14 @@ impl<'a> LivePlotData<'a> {
                 // duplicates (by X within a small tolerance).
                 if let Some(existing) = result.get_mut(&name) {
                     // Merge existing and pts into a new sorted, deduped vector
-                    let mut merged: Vec<[f64; 2]> = existing.iter().cloned().chain(pts.iter().cloned()).collect();
-                    merged.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal));
+                    let mut merged: Vec<[f64; 2]> = existing
+                        .iter()
+                        .cloned()
+                        .chain(pts.iter().cloned())
+                        .collect();
+                    merged.sort_by(|a, b| {
+                        a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal)
+                    });
                     // Deduplicate by timestamp (x) with a small tolerance
                     let mut deduped: VecDeque<[f64; 2]> = VecDeque::new();
                     let eps = 1e-12_f64;
@@ -142,7 +148,10 @@ impl<'a> LivePlotData<'a> {
         result
     }
 
-    pub fn get_all_drawn_points_from_scope(&self, scope_id: usize) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
+    pub fn get_all_drawn_points_from_scope(
+        &self,
+        scope_id: usize,
+    ) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
         self.scope_data
             .iter()
             .find_map(|scope| {

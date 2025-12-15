@@ -78,7 +78,6 @@ impl ScopePanel {
 
         ui.checkbox(&mut self.data.show_info_in_legend, "Show info in Legend")
             .on_hover_text("Append each trace's info text to its legend label");
-
     }
 
     pub fn render_panel<F>(
@@ -100,7 +99,6 @@ impl ScopePanel {
 
     // Extended controls with injectable prefix/suffix sections
     fn render_controls(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
-
         if !self.data.paused {
             if ui.button("⏸ Pause").clicked() {
                 self.data.paused = true;
@@ -271,8 +269,6 @@ impl ScopePanel {
             ui.ctx()
                 .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
-
-        
     }
 
     // Handle a completed screenshot event and write the PNG to disk.
@@ -506,8 +502,6 @@ impl ScopePanel {
         }
 
         self.handle_plot_click(&plot_resp, traces);
-
-        traces.hover_trace = None;
     }
 
     /// Handle click selection on the plot using nearest point logic.

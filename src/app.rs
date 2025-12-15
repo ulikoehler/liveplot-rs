@@ -140,6 +140,8 @@ impl MainPanel {
             self.bottom_panels = bottom.into_inner();
             self.detached_panels = detached.into_inner();
             self.empty_panels = empty.into_inner();
+
+            self.traces_data.hover_trace = None;
         });
     }
 
