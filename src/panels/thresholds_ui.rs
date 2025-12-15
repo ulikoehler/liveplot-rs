@@ -248,11 +248,8 @@ impl Panel for ThresholdsPanel {
     }
 
     fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
-        let sources = if let Some(scope) = _data.primary_scope() {
-            _data.get_all_drawn_points(scope.id)
-        } else {
-            HashMap::new()
-        };
+        let sources = _data.get_all_drawn_points();
+
         for def in self.thresholds.values_mut() {
             def.process_threshold(sources.clone());
         }
