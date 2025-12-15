@@ -10,6 +10,12 @@ use std::str::FromStr;
 
 use eframe::egui;
 
+use crate::app::MainPanel;
+use crate::data::data::LivePlotData;
+#[cfg(feature = "fft")]
+use crate::panels::fft_ui::FftPanel;
+use crate::panels::{ExportPanel, MathPanel, ThresholdsPanel, TracesPanel};
+
 // Types
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Modifier {
@@ -444,4 +450,71 @@ pub fn detect_hotkey_actions(cfg: &Hotkeys, ctx: &egui::Context) -> Vec<HotkeyAc
     }
 
     actions
+}
+
+pub fn handle_hotkeys(main_panel: &mut MainPanel, ctx: &egui::Context) {
+    let hk = main_panel.hotkeys.borrow().clone();
+    let actions = detect_hotkey_actions(&hk, ctx);
+    for act in actions {
+        let mut data = LivePlotData {
+            scope_data: main_panel.liveplot_panel.get_data_mut(),
+            traces: &mut main_panel.traces_data,
+            request_save_state: None,
+            request_load_state: None,
+            request_add_scope: false,
+            request_remove_scope: None,
+        };
+        match act {
+            HotkeyAction::Pause => {
+                data.toggle_pause();
+            }
+            HotkeyAction::FitView => {
+                data.fit_all_bounds();
+            }
+            HotkeyAction::FitViewCont => {
+                let mut scopes = main_panel.liveplot_panel.get_data_mut();
+                let auto_fit = scopes
+                    .first()
+                    .map(|s| (**s).y_axis.auto_fit)
+                    .unwrap_or(false);
+                for scope in scopes.iter_mut() {
+                    let scope = &mut **scope;
+                    scope.y_axis.auto_fit = !auto_fit;
+                }
+            }
+            HotkeyAction::ResetMarkers => {
+                let mut scopes = main_panel.liveplot_panel.get_data_mut();
+                for scope in scopes.iter_mut() {
+                    let scope = &mut **scope;
+                    scope.clicked_point = None;
+                }
+            }
+            HotkeyAction::ToggleTraces => {
+                main_panel.toggle_panel_visibility::<TracesPanel>();
+                main_panel.hide_hotkeys_panel();
+            }
+            HotkeyAction::ToggleMath => {
+                main_panel.toggle_panel_visibility::<MathPanel>();
+                main_panel.hide_hotkeys_panel();
+            }
+            HotkeyAction::ToggleThresholds => {
+                main_panel.toggle_panel_visibility::<ThresholdsPanel>();
+                main_panel.hide_hotkeys_panel();
+            }
+            HotkeyAction::ToggleExport => {
+                main_panel.toggle_panel_visibility::<ExportPanel>();
+                main_panel.hide_hotkeys_panel();
+            }
+            HotkeyAction::ToggleFft => {
+                #[cfg(feature = "fft")]
+                {
+                    main_panel.toggle_panel_visibility::<FftPanel>();
+                    main_panel.hide_hotkeys_panel();
+                }
+            }
+            HotkeyAction::SavePng => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+            }
+        }
+    }
 }

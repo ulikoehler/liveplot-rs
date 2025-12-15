@@ -9,7 +9,7 @@ use crate::controllers::{
 };
 use crate::data::export;
 use crate::data::hotkeys as hotkey_helpers;
-use crate::data::hotkeys::{HotkeyAction, Hotkeys};
+use crate::data::hotkeys::Hotkeys;
 use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceRef, TracesCollection};
 
@@ -480,7 +480,7 @@ impl MainPanel {
         });
     }
 
-    fn toggle_panel_visibility<T: 'static + Panel>(&mut self) -> bool {
+    pub(crate) fn toggle_panel_visibility<T: 'static + Panel>(&mut self) -> bool {
         for p in self
             .left_side_panels
             .iter_mut()
@@ -1461,81 +1461,11 @@ impl MainApp {
             inner.listeners.retain(|s| s.send(info.clone()).is_ok());
         }
     }
-
-    // Hotkey helpers moved to `data/hotkeys.rs` (re-exported as `craft::hotkeys`).
-
-    fn handle_hotkeys(&mut self, ctx: &egui::Context) {
-        let hk = self.main_panel.hotkeys.borrow().clone();
-        let actions = hotkey_helpers::detect_hotkey_actions(&hk, ctx);
-        for act in actions {
-            let mut data = LivePlotData {
-                scope_data: self.main_panel.liveplot_panel.get_data_mut(),
-                traces: &mut self.main_panel.traces_data,
-                request_save_state: None,
-                request_load_state: None,
-                request_add_scope: false,
-                request_remove_scope: None,
-            };
-            match act {
-                HotkeyAction::Pause => {
-                    data.toggle_pause();
-                }
-                HotkeyAction::FitView => {
-                    data.fit_all_bounds();
-                }
-                HotkeyAction::FitViewCont => {
-                    let mut scopes = self.main_panel.liveplot_panel.get_data_mut();
-                    let auto_fit = scopes
-                        .first()
-                        .map(|s| (**s).y_axis.auto_fit)
-                        .unwrap_or(false);
-                    for scope in scopes.iter_mut() {
-                        let scope = &mut **scope;
-                        scope.y_axis.auto_fit = !auto_fit;
-                    }
-                }
-                HotkeyAction::ResetMarkers => {
-                    let mut scopes = self.main_panel.liveplot_panel.get_data_mut();
-                    for scope in scopes.iter_mut() {
-                        let scope = &mut **scope;
-                        scope.clicked_point = None;
-                    }
-                }
-                HotkeyAction::ToggleTraces => {
-                    self.main_panel.toggle_panel_visibility::<TracesPanel>();
-                    // If we just toggled traces via hotkey, hide hotkeys panel
-                    self.main_panel.hide_hotkeys_panel();
-                }
-                HotkeyAction::ToggleMath => {
-                    self.main_panel.toggle_panel_visibility::<MathPanel>();
-                    self.main_panel.hide_hotkeys_panel();
-                }
-                HotkeyAction::ToggleThresholds => {
-                    self.main_panel.toggle_panel_visibility::<ThresholdsPanel>();
-                    self.main_panel.hide_hotkeys_panel();
-                }
-                HotkeyAction::ToggleExport => {
-                    self.main_panel.toggle_panel_visibility::<ExportPanel>();
-                    self.main_panel.hide_hotkeys_panel();
-                }
-                HotkeyAction::ToggleFft => {
-                    #[cfg(feature = "fft")]
-                    {
-                        self.main_panel.toggle_panel_visibility::<FftPanel>();
-                        self.main_panel.hide_hotkeys_panel();
-                    }
-                }
-                HotkeyAction::SavePng => {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
-                }
-            }
-        }
-    }
 }
 
 impl eframe::App for MainApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        self.handle_hotkeys(ctx);
+        hotkey_helpers::handle_hotkeys(&mut self.main_panel, ctx);
 
         if self.headline.is_some() || self.subheadline.is_some() {
             egui::TopBottomPanel::top("liveplot_headline").show(ctx, |ui| {
