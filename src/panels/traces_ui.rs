@@ -564,10 +564,10 @@ impl TracesPanel {
                 iter.next(ui, id, idx, draggable, |ui, item_handle| match item {
                     ScopeListItem::Header { name, scope_id } => {
                         item_handle.ui(ui, |ui, _handle, _state| {
+                            ui.separator();
+                            ui.add_space(4.0);
+                            ui.heading(format!("Scope {}:", *scope_id + 1));
                             let resp = ui.horizontal(|ui| {
-                                ui.separator();
-                                ui.add_space(4.0);
-                                ui.heading(format!("Scope {}:", scope_id));
                                 if ui.text_edit_singleline(name).changed() {
                                     if let Some(idx) = id_to_idx.get(scope_id) {
                                         if let Some(scope) = data.scope_data.get_mut(*idx) {
@@ -592,7 +592,7 @@ impl TracesPanel {
                                     },
                                 );
                             });
-                                if let (Some(pos), Some(trace_name)) = (pointer_pos, dragging.clone()) {
+                            if let (Some(pos), Some(trace_name)) = (pointer_pos, dragging.clone()) {
                                 if resp.response.rect.contains(pos) {
                                     ui.painter().rect_stroke(
                                         resp.response.rect.expand(2.0),

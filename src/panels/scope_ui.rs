@@ -79,22 +79,6 @@ impl ScopePanel {
         ui.checkbox(&mut self.data.show_info_in_legend, "Show info in Legend")
             .on_hover_text("Append each trace's info text to its legend label");
 
-        ui.separator();
-
-        ui.checkbox(&mut self.data.y_axis.log_scale, "Y axis log scale")
-            .on_hover_text("Use base-10 log of (value + offset). Non-positive values are omitted.");
-
-        ui.horizontal(|ui| {
-            ui.label("Y unit:");
-            let mut unit = self.data.y_axis.unit.clone().unwrap_or_default();
-            if ui.text_edit_singleline(&mut unit).changed() {
-                self.data.y_axis.unit = if unit.trim().is_empty() {
-                    None
-                } else {
-                    Some(unit)
-                };
-            }
-        });
     }
 
     pub fn render_panel<F>(
@@ -116,6 +100,18 @@ impl ScopePanel {
 
     // Extended controls with injectable prefix/suffix sections
     fn render_controls(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
+
+        if !self.data.paused {
+            if ui.button("⏸ Pause").clicked() {
+                self.data.paused = true;
+                traces.take_snapshot();
+            }
+        } else if ui.button("▶ Resume").clicked() {
+            self.data.paused = false;
+        }
+
+        ui.separator();
+        // X controls
         ui.strong("X-Axis");
         ui.horizontal(|ui| {
             if self.data.scope_type == ScopeType::TimeScope {
@@ -229,6 +225,21 @@ impl ScopePanel {
             ui.checkbox(&mut self.data.y_axis.auto_fit, "Auto Fit Y");
         });
 
+        ui.checkbox(&mut self.data.y_axis.log_scale, "Log scale")
+            .on_hover_text("Use base-10 log of (value + offset). Non-positive values are omitted.");
+
+        ui.horizontal(|ui| {
+            ui.label("Unit:");
+            let mut unit = self.data.y_axis.unit.clone().unwrap_or_default();
+            if ui.text_edit_singleline(&mut unit).changed() {
+                self.data.y_axis.unit = if unit.trim().is_empty() {
+                    None
+                } else {
+                    Some(unit)
+                };
+            }
+        });
+
         ui.separator();
 
         ui.horizontal(|ui| {
@@ -261,16 +272,7 @@ impl ScopePanel {
                 .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
         }
 
-        ui.separator();
-
-        if !self.data.paused {
-            if ui.button("⏸ Pause").clicked() {
-                self.data.paused = true;
-                traces.take_snapshot();
-            }
-        } else if ui.button("▶ Resume").clicked() {
-            self.data.paused = false;
-        }
+        
     }
 
     // Handle a completed screenshot event and write the PNG to disk.

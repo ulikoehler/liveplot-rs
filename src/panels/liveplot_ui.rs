@@ -33,6 +33,11 @@ impl LiveplotPanel {
             })
             .collect();
 
+        // Ensure a stable, predictable ordering by scope id (ascending).
+        // New scopes are allocated with increasing ids, so this keeps newly
+        // added scopes at the end of the returned list.
+        let mut scopes_data = scopes_data;
+        scopes_data.sort_by_key(|s| s.id);
         scopes_data
     }
 
@@ -54,7 +59,9 @@ impl LiveplotPanel {
             .count()
             > 1;
 
-        let pane_ids: Vec<TileId> = self
+        // Collect pane ids and sort them by panel id (scope id) so menus show
+        // scopes in ascending id order (newer scopes last).
+        let mut pane_ids: Vec<TileId> = self
             .tree
             .tiles
             .iter()
@@ -63,8 +70,19 @@ impl LiveplotPanel {
                 _ => None,
             })
             .collect();
+        pane_ids.sort_by_key(|tid| {
+            self.tree
+                .tiles
+                .get(*tid)
+                .and_then(|t| match t {
+                    Tile::Pane(p) => Some(p.id()),
+                    _ => None,
+                })
+                .unwrap_or(0usize)
+        });
 
-        ui.menu_button("Scopes", |ui| {
+        // Add an icon to the Scopes menu for easier recognition
+        ui.menu_button("🔭 Scopes", |ui| {
             if ui.button("Add scope").clicked() {
                 self.add_scope();
             }
@@ -76,14 +94,16 @@ impl LiveplotPanel {
                     let name = panel.name().to_string();
                     ui.menu_button(name, |ui| {
                         panel.render_menu(ui, traces);
-                        if can_remove
-                            && ui
+                        if can_remove {
+                            ui.separator();
+                            if ui
                                 .button("Remove scope")
                                 .on_hover_text("Remove this scope from layout")
                                 .clicked()
-                        {
-                            remove_target = Some(tile_id);
-                            ui.close();
+                            {
+                                remove_target = Some(tile_id);
+                                ui.close();
+                            }
                         }
                     });
                 }

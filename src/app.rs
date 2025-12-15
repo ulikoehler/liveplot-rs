@@ -547,6 +547,16 @@ impl MainPanel {
                     p.render_menu(ui, &mut data);
                 }
 
+                // Add Pasue Button to Menu Bar
+                ui.separator();
+                if !data.are_all_paused() {
+                    if ui.button("⏸ Pause").clicked() {
+                        data.pause_all();
+                    }
+                } else if ui.button("▶ Resume").clicked() {
+                    data.resume_all();
+                }
+
                 (
                     data.request_save_state.take(),
                     data.request_load_state.take(),
