@@ -9,11 +9,12 @@ use crate::controllers::{
 };
 use crate::data::export;
 use crate::data::hotkeys as hotkey_helpers;
-use crate::data::hotkeys::Hotkeys;
+use crate::data::hotkeys::{HotkeyName, Hotkeys};
 use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceRef, TracesCollection};
+use egui_phosphor::regular::BROOM;
 
-use crate::data::data::LivePlotData;
+use crate::data::data::{LivePlotData, LivePlotRequests};
 use crate::panels::liveplot_ui::LiveplotPanel;
 use crate::panels::panel_trait::Panel;
 use crate::PlotCommand;
@@ -48,6 +49,8 @@ pub struct MainPanel {
     pub(crate) fft_ctrl: Option<FFTController>,
     pub(crate) threshold_ctrl: Option<ThresholdController>,
     pub(crate) threshold_event_cursors: HashMap<String, usize>,
+
+    pub pending_requests: LivePlotRequests,
 }
 
 impl MainPanel {
@@ -78,6 +81,7 @@ impl MainPanel {
             fft_ctrl: None,
             threshold_ctrl: None,
             threshold_event_cursors: HashMap::new(),
+            pending_requests: LivePlotRequests::default(),
         }
     }
 
@@ -163,10 +167,7 @@ impl MainPanel {
         let data = &mut LivePlotData {
             scope_data: self.liveplot_panel.get_data_mut(),
             traces: &mut self.traces_data,
-            request_save_state: None,
-            request_load_state: None,
-            request_add_scope: false,
-            request_remove_scope: None,
+            pending_requests: &mut self.pending_requests,
         };
 
         // Attach newly created traces to the primary (first) scope only.
@@ -248,10 +249,7 @@ impl MainPanel {
             let mut data = LivePlotData {
                 scope_data: self.liveplot_panel.get_data_mut(),
                 traces: &mut self.traces_data,
-                request_save_state: None,
-                request_load_state: None,
-                request_add_scope: false,
-                request_remove_scope: None,
+                pending_requests: &mut self.pending_requests,
             };
             let primary_scope_id = data.primary_scope().map(|s| s.id);
 
@@ -301,10 +299,7 @@ impl MainPanel {
             let mut data = LivePlotData {
                 scope_data: self.liveplot_panel.get_data_mut(),
                 traces: &mut self.traces_data,
-                request_save_state: None,
-                request_load_state: None,
-                request_add_scope: false,
-                request_remove_scope: None,
+                pending_requests: &mut self.pending_requests,
             };
             for (name, rgb) in inner.color_requests.drain(..) {
                 let tref = TraceRef(name.clone());
@@ -527,10 +522,7 @@ impl MainPanel {
                 let mut data = LivePlotData {
                     scope_data,
                     traces: &mut self.traces_data,
-                    request_save_state: None,
-                    request_load_state: None,
-                    request_add_scope: false,
-                    request_remove_scope: None,
+                    pending_requests: &mut self.pending_requests,
                 };
 
                 for p in &mut self.left_side_panels {
@@ -559,11 +551,15 @@ impl MainPanel {
                     data.resume_all();
                 }
 
+                if ui.button(format!("{BROOM} Clear All")).clicked() {
+                    data.request_clear_all();
+                }
+
                 (
-                    data.request_save_state.take(),
-                    data.request_load_state.take(),
-                    data.request_add_scope,
-                    data.request_remove_scope,
+                    data.pending_requests.save_state.take(),
+                    data.pending_requests.load_state.take(),
+                    data.pending_requests.add_scope,
+                    data.pending_requests.remove_scope,
                 )
             };
 
@@ -583,10 +579,7 @@ impl MainPanel {
                 let live_data = LivePlotData {
                     scope_data: self.liveplot_panel.get_data_mut(),
                     traces: &mut self.traces_data,
-                    request_save_state: None,
-                    request_load_state: None,
-                    request_add_scope: false,
-                    request_remove_scope: None,
+                    pending_requests: &mut self.pending_requests,
                 };
                 let scope_state = if let Some(scope) = live_data.primary_scope() {
                     crate::persistence::ScopeStateSerde::from(scope)
@@ -700,10 +693,7 @@ impl MainPanel {
                     let mut live_data = LivePlotData {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
-                        request_save_state: None,
-                        request_load_state: None,
-                        request_add_scope: false,
-                        request_remove_scope: None,
+                        pending_requests: &mut self.pending_requests,
                     };
                     if let Some(scope) = live_data.primary_scope_mut() {
                         loaded.scope.clone().apply_to(scope);
@@ -809,7 +799,7 @@ impl MainPanel {
                 .default_width(280.0)
                 .min_width(160.0)
                 .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list, egui::Align::Min);
+                    self.render_tabs(ui, &mut list);
                 });
             self.left_side_panels = list;
         } else if !self.left_side_panels.is_empty() {
@@ -870,7 +860,7 @@ impl MainPanel {
                 .default_width(320.0)
                 .min_width(200.0)
                 .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list, egui::Align::Max);
+                    self.render_tabs(ui, &mut list);
                 });
             self.right_side_panels = list;
         } else if !self.right_side_panels.is_empty() {
@@ -932,7 +922,7 @@ impl MainPanel {
                 .default_height(220.0)
                 .min_height(120.0)
                 .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list, egui::Align::Max);
+                    self.render_tabs(ui, &mut list);
                 });
             self.bottom_panels = list;
         } else if !self.bottom_panels.is_empty() {
@@ -975,10 +965,7 @@ impl MainPanel {
                     &mut LivePlotData {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
-                        request_save_state: None,
-                        request_load_state: None,
-                        request_add_scope: false,
-                        request_remove_scope: None,
+                        pending_requests: &mut self.pending_requests,
                     },
                 );
             }
@@ -992,10 +979,7 @@ impl MainPanel {
                     &mut LivePlotData {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
-                        request_save_state: None,
-                        request_load_state: None,
-                        request_add_scope: false,
-                        request_remove_scope: None,
+                        pending_requests: &mut self.pending_requests,
                     },
                 );
             }
@@ -1009,10 +993,7 @@ impl MainPanel {
                     &mut LivePlotData {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
-                        request_save_state: None,
-                        request_load_state: None,
-                        request_add_scope: false,
-                        request_remove_scope: None,
+                        pending_requests: &mut self.pending_requests,
                     },
                 );
             }
@@ -1025,22 +1006,14 @@ impl MainPanel {
                     &mut LivePlotData {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
-                        request_save_state: None,
-                        request_load_state: None,
-                        request_add_scope: false,
-                        request_remove_scope: None,
+                        pending_requests: &mut self.pending_requests,
                     },
                 );
             }
         }
     }
 
-    fn render_tabs(
-        &mut self,
-        ui: &mut egui::Ui,
-        list: &mut Vec<Box<dyn Panel>>,
-        _align: egui::Align,
-    ) {
+    fn render_tabs(&mut self, ui: &mut egui::Ui, list: &mut Vec<Box<dyn Panel>>) {
         let count = list.len();
 
         let mut clicked: Option<usize> = None;
@@ -1050,10 +1023,7 @@ impl MainPanel {
             let data = &mut LivePlotData {
                 scope_data,
                 traces: &mut self.traces_data,
-                request_save_state: None,
-                request_load_state: None,
-                request_add_scope: false,
-                request_remove_scope: None,
+                pending_requests: &mut self.pending_requests,
             };
 
             if count > 0 {
@@ -1194,7 +1164,10 @@ impl MainPanel {
             } else {
                 ui.label("No panel active");
             }
-            (data.request_add_scope, data.request_remove_scope)
+            (
+                data.pending_requests.add_scope,
+                data.pending_requests.remove_scope,
+            )
         };
 
         // Apply any scope add/remove requests issued by the rendered panel(s)

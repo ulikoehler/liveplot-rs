@@ -3,6 +3,7 @@ use crate::data::data::LivePlotData;
 use crate::data::measurement::Measurement;
 use crate::data::scope::ScopeData;
 use egui::{Align2, Color32};
+use egui_phosphor::regular::BROOM;
 use egui_plot::{Line, PlotPoint, Points, Text};
 
 pub struct MeasurementPanel {
@@ -37,7 +38,9 @@ impl Panel for MeasurementPanel {
     }
 
     fn clear_all(&mut self) {
-        self.measurements.clear();
+        for m in &mut self.measurements {
+            m.clear();
+        }
         self.selected_measurement = None;
         self.selected_point_index = None;
         self.last_clicked_point = None;
@@ -65,10 +68,12 @@ impl Panel for MeasurementPanel {
                 st.request_focus = true;
                 ui.close();
             }
-            if ui.button("X Clear All").clicked() {
-                for m in &mut self.measurements {
-                    m.clear();
-                }
+            if ui
+                .button(format!("{BROOM} Clear measurements"))
+                .on_hover_text("Clear measurement markers across all scopes")
+                .clicked()
+            {
+                self.clear_all();
                 for scope in data.scope_data.iter_mut() {
                     let scope = &mut **scope;
                     scope.clicked_point = None;
@@ -87,6 +92,11 @@ impl Panel for MeasurementPanel {
     }
 
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
+        if data.pending_requests.clear_measurements {
+            self.clear_all();
+            data.pending_requests.clear_measurements = false;
+        }
+
         for scope in data.scope_data.iter_mut() {
             let scope = &mut **scope;
             if let Some(point) = scope.clicked_point {

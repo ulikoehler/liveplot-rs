@@ -309,6 +309,7 @@ pub(crate) struct TracesCtrlInner {
     pub(crate) y_unit_request: Option<Option<String>>,
     pub(crate) y_log_request: Option<bool>,
     pub(crate) selection_request: Option<Option<String>>, // Some(None)=Free, Some(Some(name))=select, None=no-op
+    pub(crate) hover_request: Option<Option<String>>, // Some(None)=clear, Some(Some(name))=highlight
     pub(crate) listeners: Vec<Sender<TracesInfo>>,
 }
 
@@ -322,6 +323,7 @@ impl TracesController {
                 y_unit_request: None,
                 y_log_request: None,
                 selection_request: None,
+                hover_request: None,
                 listeners: Vec::new(),
             })),
         }
@@ -367,6 +369,18 @@ impl TracesController {
     pub fn request_select_marker_trace<S: Into<String>>(&self, name: S) {
         let mut inner = self.inner.lock().unwrap();
         inner.selection_request = Some(Some(name.into()));
+    }
+
+    /// Request highlighting a trace (similar to hovering it in the UI).
+    pub fn request_highlight_trace<S: Into<String>>(&self, name: S) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.hover_request = Some(Some(name.into()));
+    }
+
+    /// Clear any externally requested highlight.
+    pub fn clear_highlight(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.hover_request = Some(None);
     }
 
     /// Subscribe to receive updates about traces and current selection.

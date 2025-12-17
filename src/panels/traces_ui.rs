@@ -526,7 +526,7 @@ impl TracesPanel {
     ) {
         let can_remove_scope = data.scope_data.len() > 1;
         if ui.button("➕ Add scope").clicked() {
-            data.request_add_scope = true;
+            data.pending_requests.add_scope = true;
         }
         ui.add_space(4.0);
 
@@ -587,7 +587,7 @@ impl TracesPanel {
                                             .on_hover_text("Remove this scope from layout")
                                             .clicked()
                                         {
-                                            data.request_remove_scope = Some(*scope_id);
+                                            data.pending_requests.remove_scope = Some(*scope_id);
                                         }
                                     },
                                 );
@@ -613,8 +613,29 @@ impl TracesPanel {
                                 handle.ui(ui, |ui| {
                                     ui.label(DOTS_SIX_VERTICAL);
                                 });
-                                if ui.label(trace.0.clone()).hovered() {
+                                let name_resp = ui.add(
+                                    egui::Label::new(trace.0.clone())
+                                        .truncate()
+                                        .show_tooltip_when_elided(true)
+                                        .sense(egui::Sense::click()),
+                                );
+                                if name_resp.hovered() {
                                     data.traces.hover_trace = Some(trace.clone());
+                                }
+                                if let Some(tr_data) = data.traces.get_trace(trace) {
+                                    let info = tr_data.info.clone();
+                                    if !info.is_empty() {
+                                        let info_resp = ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(info.clone()).small().weak(),
+                                            )
+                                            .truncate()
+                                            .show_tooltip_when_elided(true),
+                                        );
+                                        if info_resp.hovered() {
+                                            data.traces.hover_trace = Some(trace.clone());
+                                        }
+                                    }
                                 }
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),

@@ -2,6 +2,7 @@ use super::scope_ui::ScopePanel;
 use crate::data::scope::ScopeData;
 use crate::data::traces::TracesCollection;
 use egui::{Ui, WidgetText};
+use egui_phosphor::regular::{BROOM, PLUS};
 use egui_tiles::{Behavior, Container, Tabs, Tile, TileId, Tiles, Tree, UiResponse};
 
 pub struct LiveplotPanel {
@@ -83,8 +84,22 @@ impl LiveplotPanel {
 
         // Add an icon to the Scopes menu for easier recognition
         ui.menu_button("🔭 Scopes", |ui| {
-            if ui.button("Add scope").clicked() {
+            if ui.button(format!("{PLUS} Add scope")).clicked() {
                 self.add_scope();
+            }
+
+            if ui
+                .button(format!("{BROOM} Clear all"))
+                .on_hover_text("Clear all trace data")
+                .clicked()
+            {
+                traces.clear_all();
+                for tile in self.tree.tiles.tiles_mut() {
+                    if let Tile::Pane(pane) = tile {
+                        pane.get_data_mut().clicked_point = None;
+                    }
+                }
+                ui.close();
             }
 
             ui.separator();

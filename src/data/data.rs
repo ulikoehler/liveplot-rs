@@ -4,16 +4,38 @@ use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 use std::collections::{HashMap, VecDeque};
 
+pub struct LivePlotRequests {
+    pub save_state: Option<std::path::PathBuf>,
+    pub load_state: Option<std::path::PathBuf>,
+    pub add_scope: bool,
+    pub remove_scope: Option<usize>,
+    pub clear_math: bool,
+    pub clear_measurements: bool,
+    pub clear_thresholds: bool,
+    pub clear_triggers: bool,
+}
+
+impl Default for LivePlotRequests {
+    fn default() -> Self {
+        Self {
+            save_state: None,
+            load_state: None,
+            add_scope: false,
+            remove_scope: None,
+            clear_math: false,
+            clear_measurements: false,
+            clear_thresholds: false,
+            clear_triggers: false,
+        }
+    }
+}
+
 /// A view struct that combines scope data and traces for panel rendering.
 pub struct LivePlotData<'a> {
     pub scope_data: Vec<&'a mut ScopeData>,
     pub traces: &'a mut TracesCollection,
     // Optional requests set by panel UI to trigger app-level persistence actions.
-    pub request_save_state: Option<std::path::PathBuf>,
-    pub request_load_state: Option<std::path::PathBuf>,
-    // Scope management requests (consumed by the app after panel rendering)
-    pub request_add_scope: bool,
-    pub request_remove_scope: Option<usize>,
+    pub pending_requests: &'a mut LivePlotRequests,
 }
 
 impl<'a> LivePlotData<'a> {
@@ -31,6 +53,18 @@ impl<'a> LivePlotData<'a> {
             scope.paused = false;
         }
         self.traces.clear_snapshot();
+    }
+
+    pub fn request_clear_all(&mut self) {
+        self.traces.clear_all();
+        for scope in self.scope_data.iter_mut() {
+            let scope = &mut **scope;
+            scope.clicked_point = None;
+        }
+        self.pending_requests.clear_measurements = true;
+        self.pending_requests.clear_thresholds = true;
+        self.pending_requests.clear_triggers = true;
+        self.pending_requests.clear_math = true;
     }
 
     pub fn toggle_pause(&mut self) {
@@ -202,6 +236,13 @@ impl<'a> LivePlotData<'a> {
         for scope in self.scope_data.iter_mut() {
             let scope = &mut **scope;
             scope.fit_bounds(&*self.traces);
+        }
+    }
+
+    pub fn fit_all_y_bounds(&mut self) {
+        for scope in self.scope_data.iter_mut() {
+            let scope = &mut **scope;
+            scope.fit_y_bounds(&*self.traces);
         }
     }
 

@@ -33,13 +33,18 @@ impl HotkeysPanel {
                 HotkeyName::Fft => hk.fft = value,
                 HotkeyName::Math => hk.math = value,
                 HotkeyName::FitView => hk.fit_view = value,
+                HotkeyName::FitY => hk.fit_y = value,
                 HotkeyName::FitViewCont => hk.fit_view_cont = value,
                 HotkeyName::Pause => hk.pause = value,
                 HotkeyName::Traces => hk.traces = value,
                 HotkeyName::Thresholds => hk.thresholds = value,
+                HotkeyName::Measurements => hk.measurements = value,
+                HotkeyName::Triggers => hk.triggers = value,
+                HotkeyName::HotkeysPanel => hk.hotkeys_panel = value,
                 HotkeyName::SavePng => hk.save_png = value,
                 HotkeyName::ExportData => hk.export_data = value,
-                HotkeyName::ResetMarkers => hk.reset_markers = value,
+                HotkeyName::ClearAll => hk.clear_all = value,
+                HotkeyName::ResetMeasurements => hk.reset_measurements = value,
             }
             let _ = hk.save_to_default_path();
         }
@@ -112,6 +117,7 @@ impl HotkeysPanel {
                     Key::Num7 => Some('7'),
                     Key::Num8 => Some('8'),
                     Key::Num9 => Some('9'),
+                    Key::Space => Some(' '),
                     _ => None,
                 };
                 ch_opt.map(|ch| Hotkey::new(Self::mods_to_modifier(mods), ch))
@@ -163,92 +169,141 @@ impl Panel for HotkeysPanel {
         // Snapshot current to avoid borrow conflicts while mutating later.
         let current = self.hotkeys.borrow().clone();
 
-        let mut render_row = |ui: &mut egui::Ui,
-                              label: &str,
-                              name: HotkeyName,
-                              current: Option<Hotkey>| {
-            ui.horizontal(|ui| {
-                let tip = match name {
-                    HotkeyName::Fft => "Show / Hide FFT panel",
-                    HotkeyName::Math => "Show / Hide Math panel",
-                    HotkeyName::FitView => "Fit the current view to visible data",
-                    HotkeyName::FitViewCont => "Toggle continuous fitting of the view",
-                    HotkeyName::Pause => "Pause / resume plotting",
-                    HotkeyName::Traces => "Show / Hide the Traces panel",
-                    HotkeyName::Thresholds => "Show / Hide the Thresholds panel",
-                    HotkeyName::SavePng => "Save a PNG screenshot of the window",
-                    HotkeyName::ExportData => "Export traces or threshold events to CSV/Parquet",
-                    HotkeyName::ResetMarkers => "Clear/reset selected markers",
-                };
-                ui.label(label).on_hover_text(tip);
+        let mut render_row =
+            |ui: &mut egui::Ui, label: &str, name: HotkeyName, current: Option<Hotkey>| {
+                ui.horizontal(|ui| {
+                    let tip = match name {
+                        HotkeyName::Fft => "Show / Hide FFT panel",
+                        HotkeyName::Math => "Show / Hide Math panel",
+                        HotkeyName::FitView => "Fit the current view to visible data",
+                        HotkeyName::FitY => "Fit the Y axis to visible data",
+                        HotkeyName::FitViewCont => "Toggle continuous fitting of the view",
+                        HotkeyName::Pause => "Pause / resume plotting (Space also toggles)",
+                        HotkeyName::Traces => "Show / Hide the Traces panel",
+                        HotkeyName::Thresholds => "Show / Hide the Thresholds panel",
+                        HotkeyName::Measurements => "Show / Hide the Measurements panel",
+                        HotkeyName::Triggers => "Show / Hide the Triggers panel",
+                        HotkeyName::HotkeysPanel => "Show / Hide the Hotkeys panel",
+                        HotkeyName::SavePng => "Save a PNG screenshot of the window",
+                        HotkeyName::ExportData => "Show / Hide the Export panel",
+                        HotkeyName::ClearAll => "Clear all trace data",
+                        HotkeyName::ResetMeasurements => "Clear all measurement points",
+                    };
+                    ui.label(label).on_hover_text(tip);
 
-                let capturing_this = self.capturing_hotkey == Some(name);
-                let btn_text = if capturing_this {
-                    "⏺ Press keys...".to_owned()
-                } else {
-                    match current {
-                        Some(h) => h.to_string(),
-                        None => "None".to_string(),
-                    }
-                };
+                    let capturing_this = self.capturing_hotkey == Some(name);
+                    let btn_text = if capturing_this {
+                        "⏺ Press keys...".to_owned()
+                    } else {
+                        match current {
+                            Some(h) => h.to_string(),
+                            None => "None".to_string(),
+                        }
+                    };
 
-                if ui
-                    .button(btn_text)
-                    .on_hover_text("Click to assign; press desired keys; Esc to cancel")
-                    .clicked()
-                {
-                    if !capturing_this {
-                        self.capturing_hotkey = Some(name);
-                    }
-                }
-
-                if capturing_this && ui.button("Cancel").clicked() {
-                    self.capturing_hotkey = None;
-                }
-
-                if !capturing_this {
                     if ui
-                        .button("Clear")
-                        .on_hover_text("Disable this hotkey")
+                        .button(btn_text)
+                        .on_hover_text("Click to assign; press desired keys; Esc to cancel")
                         .clicked()
                     {
-                        self.set_hotkey(name, None);
+                        if !capturing_this {
+                            self.capturing_hotkey = Some(name);
+                        }
                     }
-                }
-            });
-        };
 
-        #[cfg(feature = "fft")]
-        render_row(ui, "FFT:", HotkeyName::Fft, current.fft);
-        render_row(ui, "Math:", HotkeyName::Math, current.math);
-        render_row(ui, "Fit view:", HotkeyName::FitView, current.fit_view);
-        render_row(
-            ui,
-            "Fit view continously:",
-            HotkeyName::FitViewCont,
-            current.fit_view_cont,
-        );
-        render_row(ui, "Traces:", HotkeyName::Traces, current.traces);
-        render_row(ui, "Pause:", HotkeyName::Pause, current.pause);
-        render_row(
-            ui,
-            "Reset markers:",
-            HotkeyName::ResetMarkers,
-            current.reset_markers,
-        );
-        render_row(
-            ui,
-            "Thresholds:",
-            HotkeyName::Thresholds,
-            current.thresholds,
-        );
-        render_row(ui, "Save PNG:", HotkeyName::SavePng, current.save_png);
-        render_row(
-            ui,
-            "Export data:",
-            HotkeyName::ExportData,
-            current.export_data,
-        );
+                    if capturing_this && ui.button("Cancel").clicked() {
+                        self.capturing_hotkey = None;
+                    }
+
+                    if !capturing_this {
+                        if ui
+                            .button("Clear")
+                            .on_hover_text("Disable this hotkey")
+                            .clicked()
+                        {
+                            self.set_hotkey(name, None);
+                        }
+                    }
+                });
+            };
+
+        let panel_rows = vec![
+            #[cfg(feature = "fft")]
+            ("FFT:", HotkeyName::Fft, current.fft.clone()),
+            ("Traces:", HotkeyName::Traces, current.traces.clone()),
+            (
+                "Thresholds:",
+                HotkeyName::Thresholds,
+                current.thresholds.clone(),
+            ),
+            ("Math:", HotkeyName::Math, current.math.clone()),
+            (
+                "Measurements:",
+                HotkeyName::Measurements,
+                current.measurements.clone(),
+            ),
+            ("Triggers:", HotkeyName::Triggers, current.triggers.clone()),
+            (
+                "Hotkeys:",
+                HotkeyName::HotkeysPanel,
+                current.hotkeys_panel.clone(),
+            ),
+        ];
+
+        let view_rows = vec![
+            ("Fit view:", HotkeyName::FitView, current.fit_view.clone()),
+            ("Fit Y:", HotkeyName::FitY, current.fit_y.clone()),
+            (
+                "Fit view continuously:",
+                HotkeyName::FitViewCont,
+                current.fit_view_cont.clone(),
+            ),
+        ];
+
+        let control_rows = vec![
+            ("Pause:", HotkeyName::Pause, current.pause.clone()),
+            (
+                "Export:",
+                HotkeyName::ExportData,
+                current.export_data.clone(),
+            ),
+            (
+                "Reset measurements:",
+                HotkeyName::ResetMeasurements,
+                current.reset_measurements.clone(),
+            ),
+        ];
+
+        let data_rows = vec![
+            (
+                "Clear all data:",
+                HotkeyName::ClearAll,
+                current.clear_all.clone(),
+            ),
+            ("Save PNG:", HotkeyName::SavePng, current.save_png.clone()),
+        ];
+
+        let sections: Vec<(&str, Vec<(&str, HotkeyName, Option<Hotkey>)>)> = vec![
+            ("Panels", panel_rows),
+            ("View", view_rows),
+            ("Controls", control_rows),
+            ("Data", data_rows),
+        ];
+        let total_sections = sections.len();
+
+        for (idx, (heading, rows)) in sections.into_iter().enumerate() {
+            ui.heading(heading);
+            ui.add_space(4.0);
+            for (label, name, value) in rows {
+                render_row(ui, label, name, value);
+            }
+            if heading == "Controls" {
+                ui.label(egui::RichText::new("Space always toggles pause.").weak());
+            }
+            if idx + 1 < total_sections {
+                ui.separator();
+            }
+        }
 
         // Capture input events if waiting for assignment.
         if let Some(target) = self.capturing_hotkey {

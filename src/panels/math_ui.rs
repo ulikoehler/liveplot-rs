@@ -86,32 +86,39 @@ impl Panel for MathPanel {
         });
     }
 
-    fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
+    fn update_data(&mut self, data: &mut LivePlotData<'_>) {
+        if data.pending_requests.clear_math {
+            for def in self.math_traces.iter() {
+                data.traces.clear_trace(&def.name);
+            }
+            data.pending_requests.clear_math = false;
+        }
+
         let mut sources: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
-        for (name, tr) in _data.traces.traces_iter() {
+        for (name, tr) in data.traces.traces_iter() {
             sources.insert(name.clone(), tr.live.iter().copied().collect());
         }
 
         for def in self.math_traces.iter_mut() {
             let out = def.compute_math_trace(sources.clone());
 
-            let tr = _data.get_trace_or_new(&def.name);
+            let tr = data.get_trace_or_new(&def.name);
             tr.live = out.iter().copied().collect();
 
             sources.insert(def.name.clone(), out);
         }
 
         sources.clear();
-        for (name, tr) in _data.traces.traces_iter() {
-            if let Some(data) = tr.snap.clone() {
-                sources.insert(name.clone(), data.iter().copied().collect());
+        for (name, tr) in data.traces.traces_iter() {
+            if let Some(d) = tr.snap.clone() {
+                sources.insert(name.clone(), d.iter().copied().collect());
             }
         }
 
         for def in self.math_traces.iter_mut() {
             let out = def.compute_math_trace(sources.clone());
 
-            let tr = _data.get_trace_or_new(&def.name);
+            let tr = data.get_trace_or_new(&def.name);
             tr.snap = Some(out.iter().copied().collect());
 
             sources.insert(def.name.clone(), out);

@@ -183,6 +183,11 @@ impl Panel for TriggersPanel {
     }
 
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
+        if data.pending_requests.clear_triggers {
+            self.clear_all();
+            data.pending_requests.clear_triggers = false;
+        }
+
         let is_single_shot_triggered = self
             .triggers
             .values()

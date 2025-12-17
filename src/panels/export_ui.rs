@@ -86,7 +86,7 @@ impl Panel for ExportPanel {
                     .set_file_name("liveplot_state.json")
                     .save_file()
                 {
-                    data.request_save_state = Some(path);
+                    data.pending_requests.save_state = Some(path);
                 }
                 ui.close();
             }
@@ -95,7 +95,7 @@ impl Panel for ExportPanel {
                     .add_filter("JSON", &["json"])
                     .pick_file()
                 {
-                    data.request_load_state = Some(path);
+                    data.pending_requests.load_state = Some(path);
                 }
                 ui.close();
             }

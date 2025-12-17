@@ -483,6 +483,11 @@ impl ScopePanel {
             bounds_changed
         });
 
+        let double_clicked = plot_resp.response.double_clicked();
+        if double_clicked {
+            self.data.fit_bounds(traces);
+        }
+
         // After plot: if bounds changed, sync time_window and Y limits from actual plot bounds
         if plot_resp.inner {
             let b = plot_resp.transform.bounds();
@@ -511,6 +516,9 @@ impl ScopePanel {
         traces: &mut TracesCollection,
     ) {
         self.data.clicked_point = None;
+        if plot_response.response.double_clicked() {
+            return;
+        }
         if plot_response.response.clicked() {
             if !self.data.paused {
                 self.data.paused = true;

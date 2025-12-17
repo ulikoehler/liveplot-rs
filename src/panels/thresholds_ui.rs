@@ -247,8 +247,13 @@ impl Panel for ThresholdsPanel {
         }
     }
 
-    fn update_data(&mut self, _data: &mut LivePlotData<'_>) {
-        let sources = _data.get_all_drawn_points();
+    fn update_data(&mut self, data: &mut LivePlotData<'_>) {
+        if data.pending_requests.clear_thresholds {
+            self.clear_all();
+            data.pending_requests.clear_thresholds = false;
+        }
+
+        let sources = data.get_all_drawn_points();
 
         for def in self.thresholds.values_mut() {
             def.process_threshold(sources.clone());
