@@ -9,7 +9,7 @@ use crate::controllers::{
 };
 use crate::data::export;
 use crate::data::hotkeys as hotkey_helpers;
-use crate::data::hotkeys::{HotkeyName, Hotkeys};
+use crate::data::hotkeys::Hotkeys;
 use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceRef, TracesCollection};
 use egui_phosphor::regular::BROOM;
