@@ -40,7 +40,9 @@ impl DemoApp {
         let trace_cos = sink.create_trace("cosine", None);
         let mut plot = MainApp::new(rx);
         // Configure the embedded main panel's data
-        plot.main_panel.liveplot_panel.get_data_mut().time_window = 10.0;
+        for scope in plot.main_panel.liveplot_panel.get_data_mut() {
+            scope.time_window = 10.0;
+        }
         plot.main_panel.traces_data.max_points = 10_000;
         Self {
             kind: WaveKind::Sine,

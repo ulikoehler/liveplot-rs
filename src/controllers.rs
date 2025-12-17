@@ -4,8 +4,14 @@
 //! non-UI code can observe window/panel state and push simple requests (like
 //! toggling the FFT panel).
 
+use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+
+use crate::data::scope::AxisSettings;
+use crate::data::scope::ScopeType;
+use crate::data::traces::TraceRef;
+use egui_plot::LineStyle;
 
 /// Current window information (physical pixels).
 #[derive(Debug, Clone)]
@@ -222,6 +228,7 @@ pub(crate) struct FFTCtrlInner {
     pub(crate) show: bool,
     pub(crate) current_size: Option<[f32; 2]>,
     pub(crate) request_set_size: Option<[f32; 2]>,
+    pub(crate) last_info: Option<FFTPanelInfo>,
     pub(crate) listeners: Vec<Sender<FFTPanelInfo>>,
 }
 
@@ -233,6 +240,7 @@ impl FFTController {
                 show: false,
                 current_size: None,
                 request_set_size: None,
+                last_info: None,
                 listeners: Vec::new(),
             })),
         }
@@ -253,6 +261,7 @@ impl FFTController {
             current_size: inner.current_size,
             requested_size: inner.request_set_size,
         };
+        inner.last_info = Some(info.clone());
         inner.listeners.retain(|s| s.send(info.clone()).is_ok());
     }
 
@@ -273,7 +282,15 @@ impl FFTController {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut inner = self.inner.lock().unwrap();
         inner.listeners.push(tx);
+        if let Some(info) = inner.last_info.clone() {
+            let _ = inner.listeners.last().unwrap().send(info);
+        }
         rx
+    }
+
+    /// Get the last published FFT panel info, if any.
+    pub fn get_last_info(&self) -> Option<FFTPanelInfo> {
+        self.inner.lock().unwrap().last_info.clone()
     }
 }
 
@@ -296,6 +313,28 @@ pub struct TracesInfo {
     pub y_log: bool,
 }
 
+/// Rich state snapshot for the traces panel, used by the new controller API.
+#[derive(Clone, Debug)]
+pub struct TracesPanelState {
+    pub max_points: usize,
+    pub points_bounds: (usize, usize),
+    pub hover_trace: Option<TraceRef>,
+    pub traces: Vec<TraceControlState>,
+    pub show: bool,
+    pub detached: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct TraceControlState {
+    pub name: TraceRef,
+    pub color_rgb: [u8; 3],
+    pub width: f32,
+    pub style: LineStyle,
+    pub visible: bool,
+    pub offset: f64,
+    pub is_math: bool,
+}
+
 /// Controller to observe and modify traces UI state (color/visibility/marker selection).
 #[derive(Clone)]
 pub struct TracesController {
@@ -310,7 +349,17 @@ pub(crate) struct TracesCtrlInner {
     pub(crate) y_log_request: Option<bool>,
     pub(crate) selection_request: Option<Option<String>>, // Some(None)=Free, Some(Some(name))=select, None=no-op
     pub(crate) hover_request: Option<Option<String>>, // Some(None)=clear, Some(Some(name))=highlight
+    pub(crate) max_points_request: Option<usize>,
+    pub(crate) points_bounds_request: Option<(usize, usize)>,
+    pub(crate) hover_trace_request: Option<Option<TraceRef>>,
+    pub(crate) show_request: Option<bool>,
+    pub(crate) detached_request: Option<bool>,
+    pub(crate) width_requests: Vec<(String, f32)>,
+    pub(crate) style_requests: Vec<(String, LineStyle)>,
     pub(crate) listeners: Vec<Sender<TracesInfo>>,
+    pub(crate) panel_listeners: Vec<Sender<TracesPanelState>>,
+    pub(crate) last_snapshot: Option<TracesInfo>,
+    pub(crate) last_panel_state: Option<TracesPanelState>,
 }
 
 impl TracesController {
@@ -324,7 +373,17 @@ impl TracesController {
                 y_log_request: None,
                 selection_request: None,
                 hover_request: None,
+                max_points_request: None,
+                points_bounds_request: None,
+                hover_trace_request: None,
+                show_request: None,
+                detached_request: None,
+                width_requests: Vec::new(),
+                style_requests: Vec::new(),
                 listeners: Vec::new(),
+                panel_listeners: Vec::new(),
+                last_snapshot: None,
+                last_panel_state: None,
             })),
         }
     }
@@ -345,6 +404,42 @@ impl TracesController {
     pub fn request_set_offset<S: Into<String>>(&self, name: S, offset: f64) {
         let mut inner = self.inner.lock().unwrap();
         inner.offset_requests.push((name.into(), offset));
+    }
+
+    pub fn request_set_max_points(&self, v: usize) {
+        self.inner.lock().unwrap().max_points_request = Some(v);
+    }
+
+    pub fn request_set_points_bounds(&self, bounds: (usize, usize)) {
+        self.inner.lock().unwrap().points_bounds_request = Some(bounds);
+    }
+
+    pub fn request_set_hover_trace(&self, trace: Option<TraceRef>) {
+        self.inner.lock().unwrap().hover_trace_request = Some(trace);
+    }
+
+    pub fn request_set_show(&self, show: bool) {
+        self.inner.lock().unwrap().show_request = Some(show);
+    }
+
+    pub fn request_set_detached(&self, detached: bool) {
+        self.inner.lock().unwrap().detached_request = Some(detached);
+    }
+
+    pub fn request_set_width<S: Into<String>>(&self, name: S, width: f32) {
+        self.inner
+            .lock()
+            .unwrap()
+            .width_requests
+            .push((name.into(), width));
+    }
+
+    pub fn request_set_style<S: Into<String>>(&self, name: S, style: LineStyle) {
+        self.inner
+            .lock()
+            .unwrap()
+            .style_requests
+            .push((name.into(), style));
     }
 
     /// Request setting the global Y unit label (None for no unit).
@@ -388,7 +483,31 @@ impl TracesController {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut inner = self.inner.lock().unwrap();
         inner.listeners.push(tx);
+        if let Some(last) = inner.last_snapshot.clone() {
+            let _ = inner.listeners.last().unwrap().send(last);
+        }
         rx
+    }
+
+    /// Subscribe to the richer panel state (max points, bounds, show/detached, styles).
+    pub fn subscribe_panel_state(&self) -> std::sync::mpsc::Receiver<TracesPanelState> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut inner = self.inner.lock().unwrap();
+        inner.panel_listeners.push(tx);
+        if let Some(last) = inner.last_panel_state.clone() {
+            let _ = inner.panel_listeners.last().unwrap().send(last);
+        }
+        rx
+    }
+
+    /// Get the last published traces snapshot, if any.
+    pub fn get_last_snapshot(&self) -> Option<TracesInfo> {
+        self.inner.lock().unwrap().last_snapshot.clone()
+    }
+
+    /// Get the last published traces panel state, if any.
+    pub fn get_last_panel_state(&self) -> Option<TracesPanelState> {
+        self.inner.lock().unwrap().last_panel_state.clone()
     }
 }
 
@@ -402,6 +521,213 @@ pub(crate) struct ThresholdCtrlInner {
     pub(crate) add_requests: Vec<crate::data::thresholds::ThresholdDef>,
     pub(crate) remove_requests: Vec<String>,
     pub(crate) listeners: Vec<Sender<crate::data::thresholds::ThresholdEvent>>, // name + events
+}
+
+/// Per-scope control/state snapshot.
+#[derive(Clone, Debug)]
+pub struct ScopeControlState {
+    pub id: usize,
+    pub name: String,
+    pub y_axis: AxisSettings,
+    pub x_axis: AxisSettings,
+    pub time_window: f64,
+    pub paused: bool,
+    pub show_legend: bool,
+    pub show_info_in_legend: bool,
+    pub trace_order: Vec<TraceRef>,
+    pub scope_type: ScopeType,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScopesState {
+    pub scopes: Vec<ScopeControlState>,
+    pub show: bool,
+    pub detached: bool,
+}
+
+#[derive(Default)]
+pub struct ScopeRequests {
+    pub set_show: Option<bool>,
+    pub set_detached: Option<bool>,
+    pub set_scopes: Vec<ScopeControlState>,
+    pub add_scope: bool,
+    pub remove_scope: Option<usize>,
+    pub reorder: Option<Vec<usize>>, // new order by scope id
+    pub save_screenshot: bool,
+}
+
+#[derive(Clone)]
+pub struct ScopesController {
+    pub(crate) inner: Arc<Mutex<ScopeCtrlInner>>, // crate-visible for UI
+}
+
+pub(crate) struct ScopeCtrlInner {
+    pub(crate) requests: ScopeRequests,
+    pub(crate) last_state: Option<ScopesState>,
+    pub(crate) listeners: Vec<Sender<ScopesState>>,
+}
+
+impl ScopesController {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(ScopeCtrlInner {
+                requests: ScopeRequests::default(),
+                last_state: None,
+                listeners: Vec::new(),
+            })),
+        }
+    }
+
+    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<ScopesState> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut inner = self.inner.lock().unwrap();
+        inner.listeners.push(tx);
+        if let Some(last) = inner.last_state.clone() {
+            let _ = inner.listeners.last().unwrap().send(last);
+        }
+        rx
+    }
+
+    /// Get the last published scopes state, if any.
+    pub fn get_last_state(&self) -> Option<ScopesState> {
+        self.inner.lock().unwrap().last_state.clone()
+    }
+
+    pub fn request_set_show(&self, show: bool) {
+        self.inner.lock().unwrap().requests.set_show = Some(show);
+    }
+
+    pub fn request_set_detached(&self, detached: bool) {
+        self.inner.lock().unwrap().requests.set_detached = Some(detached);
+    }
+
+    pub fn request_add_scope(&self) {
+        self.inner.lock().unwrap().requests.add_scope = true;
+    }
+
+    pub fn request_remove_scope(&self, id: usize) {
+        self.inner.lock().unwrap().requests.remove_scope = Some(id);
+    }
+
+    pub fn request_reorder(&self, order_by_id: Vec<usize>) {
+        self.inner.lock().unwrap().requests.reorder = Some(order_by_id);
+    }
+
+    pub fn request_save_screenshot(&self) {
+        self.inner.lock().unwrap().requests.save_screenshot = true;
+    }
+
+    pub fn request_replace_scopes(&self, scopes: Vec<ScopeControlState>) {
+        self.inner.lock().unwrap().requests.set_scopes = scopes;
+    }
+}
+
+/// Global liveplot controller (window/frame + high-level actions).
+#[derive(Clone, Debug)]
+pub struct LiveplotState {
+    pub paused: bool,
+    pub show: bool,
+    pub detached: bool,
+    pub window_size: Option<[f32; 2]>,
+    pub window_pos: Option<[f32; 2]>,
+    pub fft_size: Option<usize>,
+}
+
+#[derive(Default)]
+pub struct LiveplotRequests {
+    pub pause_all: Option<bool>,
+    pub clear_all: bool,
+    pub save_state: Option<PathBuf>,
+    pub load_state: Option<PathBuf>,
+    pub set_window_size: Option<[f32; 2]>,
+    pub set_window_pos: Option<[f32; 2]>,
+    pub request_focus: bool,
+    pub set_fft_size: Option<usize>,
+    pub add_scope: bool,
+    pub remove_scope: Option<usize>,
+    pub reorder_scopes: Option<Vec<usize>>, // ids in order
+}
+
+#[derive(Clone)]
+pub struct LiveplotController {
+    pub(crate) inner: Arc<Mutex<LiveplotCtrlInner>>, // crate-visible for UI
+}
+
+pub(crate) struct LiveplotCtrlInner {
+    pub(crate) requests: LiveplotRequests,
+    pub(crate) last_state: Option<LiveplotState>,
+    pub(crate) listeners: Vec<Sender<LiveplotState>>,
+}
+
+impl LiveplotController {
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(LiveplotCtrlInner {
+                requests: LiveplotRequests::default(),
+                last_state: None,
+                listeners: Vec::new(),
+            })),
+        }
+    }
+
+    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<LiveplotState> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut inner = self.inner.lock().unwrap();
+        inner.listeners.push(tx);
+        if let Some(last) = inner.last_state.clone() {
+            let _ = inner.listeners.last().unwrap().send(last);
+        }
+        rx
+    }
+
+    /// Get the last published liveplot state, if any.
+    pub fn get_last_state(&self) -> Option<LiveplotState> {
+        self.inner.lock().unwrap().last_state.clone()
+    }
+
+    pub fn request_pause_all(&self, pause: bool) {
+        self.inner.lock().unwrap().requests.pause_all = Some(pause);
+    }
+
+    pub fn request_clear_all(&self) {
+        self.inner.lock().unwrap().requests.clear_all = true;
+    }
+
+    pub fn request_save_state<P: Into<PathBuf>>(&self, path: P) {
+        self.inner.lock().unwrap().requests.save_state = Some(path.into());
+    }
+
+    pub fn request_load_state<P: Into<PathBuf>>(&self, path: P) {
+        self.inner.lock().unwrap().requests.load_state = Some(path.into());
+    }
+
+    pub fn request_set_window_size(&self, size: [f32; 2]) {
+        self.inner.lock().unwrap().requests.set_window_size = Some(size);
+    }
+
+    pub fn request_set_window_pos(&self, pos: [f32; 2]) {
+        self.inner.lock().unwrap().requests.set_window_pos = Some(pos);
+    }
+
+    pub fn request_focus(&self) {
+        self.inner.lock().unwrap().requests.request_focus = true;
+    }
+
+    pub fn request_set_fft_size(&self, size: usize) {
+        self.inner.lock().unwrap().requests.set_fft_size = Some(size);
+    }
+
+    pub fn request_add_scope(&self) {
+        self.inner.lock().unwrap().requests.add_scope = true;
+    }
+
+    pub fn request_remove_scope(&self, id: usize) {
+        self.inner.lock().unwrap().requests.remove_scope = Some(id);
+    }
+
+    pub fn request_reorder_scopes(&self, order: Vec<usize>) {
+        self.inner.lock().unwrap().requests.reorder_scopes = Some(order);
+    }
 }
 
 impl ThresholdController {

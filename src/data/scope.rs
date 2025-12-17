@@ -4,7 +4,7 @@ use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 use std::collections::{HashMap, VecDeque};
 
 /// Settings for a single axis (X or Y).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct AxisSettings {
     pub unit: Option<String>,
     pub log_scale: bool,
@@ -97,7 +97,7 @@ impl AxisSettings {
 }
 
 /// Scope type: time-based or XY mode.
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum ScopeType {
     TimeScope,
     XYScope,
