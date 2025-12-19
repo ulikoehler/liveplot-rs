@@ -229,7 +229,10 @@ impl ScopePanel {
         ui.horizontal(|ui| {
             ui.label("Unit:");
             let mut unit = self.data.y_axis.unit.clone().unwrap_or_default();
-            if ui.text_edit_singleline(&mut unit).changed() {
+            if ui
+                .add(egui::TextEdit::singleline(&mut unit).desired_width(80.0))
+                .changed()
+            {
                 self.data.y_axis.unit = if unit.trim().is_empty() {
                     None
                 } else {
