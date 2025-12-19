@@ -202,6 +202,18 @@ impl ScopeData {
         if min_x < max_x {
             self.x_axis.bounds = (min_x, max_x);
             self.time_window = max_x - min_x;
+        } else if min_x == min_x {
+            if min_x < 0.0 {
+                self.y_axis.bounds = (min_x, 0.0);
+                self.time_window = -min_x;
+            } else if min_x > 0.0 {
+                self.y_axis.bounds = (0.0, min_x);
+                self.time_window = min_x;
+            } else {
+                // Both min and max are zero; set to -1.0 to 1.0
+                self.y_axis.bounds = (-1.0, 1.0);
+                self.time_window = 2.0;
+            }
         }
     }
 
@@ -239,6 +251,15 @@ impl ScopeData {
         }
         if min_y < max_y {
             self.y_axis.bounds = (min_y, max_y);
+        } else if min_y == max_y {
+            if min_y < 0.0 {
+                self.y_axis.bounds = (min_y, 0.0);
+            } else if min_y > 0.0 {
+                self.y_axis.bounds = (0.0, max_y);
+            } else {
+                // Both min and max are zero; set to -1.0 to 1.0
+                self.y_axis.bounds = (-1.0, 1.0);
+            }
         }
     }
 
