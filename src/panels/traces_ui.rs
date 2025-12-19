@@ -5,30 +5,10 @@ use egui::{Id, Ui};
 use egui_dnd::dnd;
 use egui_phosphor::regular::DOTS_SIX_VERTICAL;
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
-use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 use super::trace_look_ui::render_trace_look_editor;
-
-// Feature-gated debug logging for traces table widths.
-// Enable prints with: cargo run --features traces_table_debug --example sine
-// or for your binary accordingly. When the feature is disabled, logs are compiled out.
-#[cfg(feature = "traces_table_debug")]
-#[allow(unused_macros)]
-macro_rules! traces_debug { ($($arg:tt)*) => { eprintln!($($arg)*); } }
-
-#[cfg(not(feature = "traces_table_debug"))]
-#[allow(unused_macros)]
-macro_rules! traces_debug {
-    ($($arg:tt)*) => {{ /* no-op */ }};
-}
-
-thread_local! {
-    static LAST_AVAIL_W: Cell<f32> = const { Cell::new(0.0) };
-    static LAST_COL_HDR_W: RefCell<[f32; 6]> = const { RefCell::new([0.0; 6]) };
-    static LAST_COL_ROW0_W: RefCell<[f32; 6]> = const { RefCell::new([0.0; 6]) };
-}
 
 #[derive(Clone, Hash)]
 enum ScopeListItem {
@@ -136,8 +116,6 @@ impl Panel for TracesPanel {
     }
 
     fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
-        ui.label("Configure traces: marker selection, visibility, colors, offsets, Y axis options, and legend info.");
-
         let scope_meta: Vec<(usize, String)> = data
             .scope_data
             .iter()
@@ -196,51 +174,32 @@ impl Panel for TracesPanel {
             look_toggle: &'a mut Option<TraceRef>,
             drag_out: &'a mut Option<TraceRef>,
             rows: Vec<Row>,
-            col_w: [f32; 6],
         }
         impl<'a> TableDelegate for TracesDelegate<'a> {
             fn header_cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::HeaderCellInfo) {
                 let col = cell.col_range.start;
-                // Reserve exact width for this column and render content within
-                let (rect, _resp) =
-                    ui.allocate_exact_size(egui::vec2(self.col_w[col], 20.0), egui::Sense::hover());
-                ui.scope_builder(
-                    egui::UiBuilder::new()
-                        .max_rect(rect)
-                        .layout(egui::Layout::left_to_right(egui::Align::Center)),
-                    |inner| {
-                        // Debug: actual header cell allocated width per column
-                        let w = inner.max_rect().width();
-                        LAST_COL_HDR_W.with(|arr| {
-                            let mut a = arr.borrow_mut();
-                            if (a[col] - w).abs() > 0.5 {
-                                a[col] = w;
-                                traces_debug!("[traces_ui] header col{} width={:.1}", col, w);
-                            }
-                        });
-                        let text = match col {
-                            0 => "",
-                            1 => "Trace",
-                            2 => "Visible",
-                            3 => "Offset",
-                            4 => "Info",
-                            _ => "",
-                        };
-                        // Center certain headers; keep Name/Info left-aligned
-                        let centered_cols = [0usize, 2, 3, 4];
-                        if centered_cols.contains(&col) {
-                            // Use a full-width centered-and-justified layout to ensure true horizontal centering
-                            let layout =
-                                egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
-                            inner.allocate_ui_with_layout(inner.max_rect().size(), layout, |ui2| {
-                                ui2.strong(text);
-                            });
-                        } else {
-                            inner.add_space(4.0);
-                            inner.strong(text);
-                        }
-                    },
-                );
+                let text = match col {
+                    0 => "",
+                    1 => "Trace",
+                    2 => "Visible",
+                    3 => "Offset",
+                    4 => "Info",
+                    _ => "",
+                };
+
+                // Center certain headers; keep Trace/Info left-aligned.
+                let centered_cols = [0usize, 2, 3];
+                if centered_cols.contains(&col) {
+                    ui.with_layout(
+                        egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                        |ui| {
+                            ui.strong(text);
+                        },
+                    );
+                } else {
+                    ui.add_space(4.0);
+                    ui.strong(text);
+                }
             }
             fn cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::CellInfo) {
                 let row = cell.row_nr as usize;
@@ -249,182 +208,123 @@ impl Panel for TracesPanel {
                     return;
                 }
                 let r = &self.rows[row];
-                // Reserve exact width and render within this rect
-                let (rect, _resp) =
-                    ui.allocate_exact_size(egui::vec2(self.col_w[col], 20.0), egui::Sense::hover());
-                ui.scope_builder(
-                    egui::UiBuilder::new()
-                        .max_rect(rect)
-                        .layout(egui::Layout::left_to_right(egui::Align::Center)),
-                    |inner| {
-                        // Debug: first row cell allocated width per column
-                        if row == 0 {
-                            let w = inner.max_rect().width();
-                            LAST_COL_ROW0_W.with(|arr| {
-                                let mut a = arr.borrow_mut();
-                                if (a[col] - w).abs() > 0.5 {
-                                    a[col] = w;
-                                    traces_debug!("[traces_ui] row0 col{} width={:.1}", col, w);
+
+                match col {
+                    0 => {
+                        // Color editor centered.
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                if let Some(tr) = self.traces.get_trace_mut(&r.name) {
+                                    let mut c = tr.look.color;
+                                    let resp = ui
+                                        .color_edit_button_srgba(&mut c)
+                                        .on_hover_text("Change trace color");
+                                    if resp.hovered() {
+                                        *self.hover_out = Some(r.name.clone());
+                                    }
+                                    if resp.changed() {
+                                        tr.look.color = c;
+                                    }
                                 }
-                            });
+                            },
+                        );
+                    }
+                    1 => {
+                        ui.add_space(4.0);
+                        let resp = ui.add(
+                            egui::Label::new(r.name.0.clone())
+                                .truncate()
+                                .show_tooltip_when_elided(true)
+                                .sense(egui::Sense::click_and_drag()),
+                        );
+                        if resp.hovered() {
+                            *self.hover_out = Some(r.name.clone());
                         }
-                        match col {
-                            0 => {
-                                // Color editor centered (moved from former column 5)
-                                inner.with_layout(
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    ),
-                                    |cui| {
-                                        if let Some(tr) = self.traces.get_trace_mut(&r.name) {
-                                            let mut c = tr.look.color;
-                                            let resp = cui
-                                                .color_edit_button_srgba(&mut c)
-                                                .on_hover_text("Change trace color");
-                                            if resp.hovered() {
-                                                *self.hover_out = Some(r.name.clone());
-                                            }
-                                            if resp.changed() {
-                                                tr.look.color = c;
-                                            }
-                                        }
-                                    },
-                                );
-                            }
-                            1 => {
-                                let col_width = rect.width();
-                                inner.set_min_width(col_width);
-                                inner.set_max_width(col_width);
-                                inner.add_space(4.0);
-                                let resp = inner.add(
-                                    egui::Label::new(r.name.0.clone())
-                                        .truncate()
-                                        .show_tooltip_when_elided(true)
-                                        .sense(egui::Sense::click_and_drag()),
-                                );
-                                if resp.hovered() {
-                                    *self.hover_out = Some(r.name.clone());
+                        if resp.drag_started() || resp.dragged() {
+                            *self.drag_out = Some(r.name.clone());
+                            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
+                        }
+                        if resp.clicked() {
+                            *self.look_toggle = Some(r.name.clone());
+                        }
+                    }
+                    2 => {
+                        // Visible checkbox centered.
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                if let Some(tr) = self.traces.get_trace_mut(&r.name) {
+                                    let mut vis = tr.look.visible;
+                                    let resp = ui.checkbox(&mut vis, "");
+                                    if resp.hovered() {
+                                        *self.hover_out = Some(r.name.clone());
+                                    }
+                                    if resp.changed() {
+                                        tr.look.visible = vis;
+                                    }
                                 }
-                                if resp.drag_started() || resp.dragged() {
-                                    *self.drag_out = Some(r.name.clone());
-                                    inner
-                                        .output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
-                                }
-                                if resp.clicked() {
-                                    *self.look_toggle = Some(r.name.clone());
-                                }
-                            }
-                            2 => {
-                                // Visible checkbox centered
-                                inner.with_layout(
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    ),
-                                    |cui| {
-                                        if let Some(tr) = self.traces.get_trace_mut(&r.name) {
-                                            let mut vis = tr.look.visible;
-                                            let resp = cui.checkbox(&mut vis, "");
-                                            if resp.hovered() {
-                                                *self.hover_out = Some(r.name.clone());
-                                            }
-                                            if resp.changed() {
-                                                tr.look.visible = vis;
-                                            }
-                                        }
-                                    },
-                                );
-                            }
-                            3 => {
-                                // Offset DragValue centered
-                                inner.with_layout(
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    ),
-                                    |cui| {
-                                        if let Some(tr) = self.traces.get_trace_mut(&r.name) {
-                                            let mut off = tr.offset;
-                                            let resp = cui.add(
-                                                egui::DragValue::new(&mut off)
-                                                    .speed(0.01)
-                                                    .range(-1.0e12..=1.0e12),
-                                            );
-                                            if resp.hovered() {
-                                                *self.hover_out = Some(r.name.clone());
-                                            }
-                                            if resp.changed() {
-                                                tr.offset = off;
-                                            }
-                                        }
-                                    },
-                                );
-                            }
-                            4 => {
-                                let col_width = rect.width();
-                                inner.set_min_width(col_width);
-                                inner.set_max_width(col_width);
-                                inner.add_space(4.0);
-                                if let Some(tr) = self.traces.get_trace(&r.name) {
-                                    let text = tr.info.clone();
-                                    let resp = inner.add(
-                                        egui::Label::new(text.clone())
-                                            .truncate()
-                                            .show_tooltip_when_elided(true)
-                                            .sense(egui::Sense::click()),
+                            },
+                        );
+                    }
+                    3 => {
+                        // Offset DragValue centered.
+                        ui.with_layout(
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            |ui| {
+                                if let Some(tr) = self.traces.get_trace_mut(&r.name) {
+                                    let mut off = tr.offset;
+                                    let resp = ui.add(
+                                        egui::DragValue::new(&mut off)
+                                            .speed(0.01)
+                                            .range(-1.0e12..=1.0e12),
                                     );
                                     if resp.hovered() {
                                         *self.hover_out = Some(r.name.clone());
                                     }
-                                    if resp.clicked() {
-                                        inner.ctx().copy_text(text.clone());
+                                    if resp.changed() {
+                                        tr.offset = off;
                                     }
                                 }
+                            },
+                        );
+                    }
+                    4 => {
+                        ui.add_space(4.0);
+                        if let Some(tr) = self.traces.get_trace(&r.name) {
+                            let text = tr.info.clone();
+                            let resp = ui.add(
+                                egui::Label::new(text.clone())
+                                    .truncate()
+                                    .show_tooltip_when_elided(true)
+                                    .sense(egui::Sense::click()),
+                            );
+                            if resp.hovered() {
+                                *self.hover_out = Some(r.name.clone());
                             }
-                            _ => {}
+                            if resp.clicked() {
+                                ui.ctx().copy_text(text);
+                            }
                         }
-                    },
-                );
+                    }
+                    _ => {}
+                }
             }
         }
 
-        // Compute dynamic column widths
-        // Policy:
-        // - All columns have a minimum width (min_w)
-        // - If available width is less than the sum of minima, we DO NOT shrink below minima;
-        //   instead we enable horizontal scrolling so fixed columns never get smaller.
-        // - If there's extra space, only Name (1) and Info (5) expand using weights.
-        let avail_w = ui.available_width();
-        let avail_w_f32: f32 = avail_w;
-        // Preferred minima for each column [0..5]
-        let min_w = [12.0, 70.0, 42.0, 42.0, 32.0, 300.0];
-        let mut w = min_w;
-        // Current total at minima
-        let sum_min: f32 = w.iter().sum();
-        let name_weight = 0.45_f32;
-        let info_weight = 0.55_f32;
-        let weight_sum = name_weight + info_weight;
-        if avail_w_f32 > sum_min {
-            // We have extra space beyond all minima: distribute only to Name/Info by weights
-            let extra = avail_w_f32 - sum_min;
-            w[1] = min_w[1] + extra * (name_weight / weight_sum);
-            w[5] = min_w[5] + extra * (info_weight / weight_sum);
-            // Optional: ensure we fill the available width exactly (avoid tiny rounding gaps)
-            let sum_now: f32 = w.iter().sum();
-            let delta = avail_w_f32 - sum_now;
-            if delta.abs() > 0.5 {
-                w[5] = (w[5] + delta).max(0.0);
-            }
-        } else {
-            // Narrow panel: keep all columns at their minima; we'll scroll horizontally.
-            // Intentionally do nothing here so total width remains sum_min.
-        }
-
+        // Auto-size columns, but constrain them with min/max ranges.
+        // Columns: Color, Trace, Visible, Offset, Info.
         let cols = vec![
-            egui_table::Column::new(w[0]), // color edit
-            egui_table::Column::new(w[1]), // name (stretches)
-            egui_table::Column::new(w[2]), // marker
-            egui_table::Column::new(w[3]), // visible
-            egui_table::Column::new(w[4]), // offset
-            egui_table::Column::new(w[5]), // info (stretches)
+            // Color editor: compact
+            egui_table::Column::new(28.0).range(egui::Rangef::new(22.0, 40.0)),
+            // Trace name: flexible
+            egui_table::Column::new(140.0).range(egui::Rangef::new(80.0, 600.0)),
+            // Visible checkbox: small
+            egui_table::Column::new(50.0).range(egui::Rangef::new(50.0, 50.0)),
+            // Offset: medium
+            egui_table::Column::new(50.0).range(egui::Rangef::new(50.0, 50.0)),
+            // Info: flexible (large max so the table can still fill wide panels)
+            egui_table::Column::new(260.0).range(egui::Rangef::new(100.0, 2000.0)),
         ];
         // Compute a preferred height for the table; size it relative to available height
         let header_h = 24.0_f32;
@@ -441,77 +341,74 @@ impl Panel for TracesPanel {
         };
         let table_h = preferred.clamp(120.0, max_h);
 
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, true])
-            .show(ui, |ui| {
-                // Clone rows and draw the table first (style editor is rendered below)
-                let rows_clone = rows.clone();
-                {
-                    let mut hover_tmp: Option<TraceRef> = None;
-                    let mut look_toggle_req: Option<TraceRef> = None;
-                    let mut drag_from_table: Option<TraceRef> = None;
-                    // Borrow traces mutably for the table drawing scope only
-                    let traces_ref = &mut *data.traces;
-                    let mut delegate = TracesDelegate {
-                        traces: traces_ref,
-                        hover_out: &mut hover_tmp,
-                        look_toggle: &mut look_toggle_req,
-                        drag_out: &mut drag_from_table,
-                        rows: rows_clone,
-                        col_w: w,
-                    };
-                    let (rect, _resp) =
-                        ui.allocate_exact_size(egui::vec2(avail_w, table_h), egui::Sense::hover());
-                    let ui_builder = egui::UiBuilder::new()
-                        .max_rect(rect)
-                        .layout(egui::Layout::left_to_right(egui::Align::Min));
-                    let mut table_ui = ui.new_child(ui_builder);
-                    Table::new()
-                        .id_salt(("traces_table", avail_w.to_bits()))
-                        .num_rows(delegate.rows.len() as u64)
-                        .columns(cols)
-                        .headers(vec![EgHeaderRow::new(24.0)])
-                        .show(&mut table_ui, &mut delegate);
-                    // Write back hover and selection state after drawing table
-                    self.hover_trace = hover_tmp;
-                    if let Some(dragged) = drag_from_table {
-                        self.dragging_trace = Some(dragged);
-                    }
-                    if let Some(tn) = look_toggle_req {
-                        if self.look_editor_trace.as_deref() == Some(tn.as_str()) {
-                            self.look_editor_trace = None;
-                        } else {
-                            self.look_editor_trace = Some(tn);
-                            self.hover_trace = None;
-                        }
-                    }
-                }
+        // Draw the table first (style editor is rendered below).
+        let rows_clone = rows.clone();
+        {
+            let mut hover_tmp: Option<TraceRef> = None;
+            let mut look_toggle_req: Option<TraceRef> = None;
+            let mut drag_from_table: Option<TraceRef> = None;
+            // Borrow traces mutably for the table drawing scope only.
+            let traces_ref = &mut *data.traces;
+            let mut delegate = TracesDelegate {
+                traces: traces_ref,
+                hover_out: &mut hover_tmp,
+                look_toggle: &mut look_toggle_req,
+                drag_out: &mut drag_from_table,
+                rows: rows_clone,
+            };
 
-                // Render inline style editor beneath the table
-                if let Some(tn) = self.look_editor_trace.clone() {
-                    if let Some(tr) = data.traces.get_trace_mut(&tn) {
-                        ui.add_space(8.0);
-                        egui::Frame::group(ui.style()).show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.strong(format!("Style: {}", tn));
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if ui.small_button("✖ Close").clicked() {
-                                            self.look_editor_trace = None;
-                                        }
-                                    },
-                                );
-                            });
-                            ui.separator();
-                            render_trace_look_editor(&mut tr.look, ui, true);
-                        });
-                    } else {
-                        ui.label("Trace not found.");
-                        self.look_editor_trace = None;
-                    }
+            let avail_w = ui.available_width();
+            let (rect, _resp) =
+                ui.allocate_exact_size(egui::vec2(avail_w, table_h), egui::Sense::hover());
+            let ui_builder = egui::UiBuilder::new()
+                .max_rect(rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Min));
+            let mut table_ui = ui.new_child(ui_builder);
+
+            Table::new()
+                .id_salt("traces_table")
+                .auto_size_mode(egui_table::AutoSizeMode::OnParentResize)
+                .num_rows(delegate.rows.len() as u64)
+                .columns(cols)
+                .headers(vec![EgHeaderRow::new(24.0)])
+                .show(&mut table_ui, &mut delegate);
+
+            // Write back hover and selection state after drawing table.
+            self.hover_trace = hover_tmp;
+            if let Some(dragged) = drag_from_table {
+                self.dragging_trace = Some(dragged);
+            }
+            if let Some(tn) = look_toggle_req {
+                if self.look_editor_trace.as_deref() == Some(tn.as_str()) {
+                    self.look_editor_trace = None;
+                } else {
+                    self.look_editor_trace = Some(tn);
+                    self.hover_trace = None;
                 }
-            });
+            }
+        }
+
+        // Render inline style editor beneath the table.
+        if let Some(tn) = self.look_editor_trace.clone() {
+            if let Some(tr) = data.traces.get_trace_mut(&tn) {
+                ui.add_space(8.0);
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.strong(format!("Style: {}", tn));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("✖ Close").clicked() {
+                                self.look_editor_trace = None;
+                            }
+                        });
+                    });
+                    ui.separator();
+                    render_trace_look_editor(&mut tr.look, ui, true);
+                });
+            } else {
+                ui.label("Trace not found.");
+                self.look_editor_trace = None;
+            }
+        }
 
         if let Some(hover_trace) = self.hover_trace.clone() {
             data.traces.hover_trace = Some(hover_trace.clone());

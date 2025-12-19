@@ -149,17 +149,13 @@ impl ScopePanel {
                 let r1 = ui.add(
                     egui::DragValue::new(&mut x_min_tmp)
                         .speed(0.1)
-                        .custom_formatter(|n, _| {
-                            self.data.x_axis.format_value(n, 4, x_range)
-                        }),
+                        .custom_formatter(|n, _| self.data.x_axis.format_value(n, 4, x_range)),
                 );
                 ui.label("Max:");
                 let r2 = ui.add(
                     egui::DragValue::new(&mut x_max_tmp)
                         .speed(0.1)
-                        .custom_formatter(|n, _| {
-                            self.data.x_axis.format_value(n, 4, x_range)
-                        }),
+                        .custom_formatter(|n, _| self.data.x_axis.format_value(n, 4, x_range)),
                 );
                 if (r1.changed() || r2.changed()) && x_min_tmp < x_max_tmp {
                     self.data.x_axis.bounds.0 = x_min_tmp;
@@ -193,17 +189,13 @@ impl ScopePanel {
             let r1 = ui.add(
                 egui::DragValue::new(&mut y_min_tmp)
                     .speed(0.1)
-                    .custom_formatter(|n, _| {
-                        self.data.y_axis.format_value(n, 4, y_range)
-                    }),
+                    .custom_formatter(|n, _| self.data.y_axis.format_value(n, 4, y_range)),
             );
             ui.label("Max:");
             let r2 = ui.add(
                 egui::DragValue::new(&mut y_max_tmp)
                     .speed(0.1)
-                    .custom_formatter(|n, _| {
-                        self.data.y_axis.format_value(n, 4, y_range)
-                    }),
+                    .custom_formatter(|n, _| self.data.y_axis.format_value(n, 4, y_range)),
             );
             if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
                 self.data.y_axis.bounds.0 = y_min_tmp;

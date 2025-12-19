@@ -361,7 +361,15 @@ impl Panel for MeasurementPanel {
                 let txt = format!(
                     "{}:\n{}",
                     name,
-                    self.format_delta_summary(&scope, dx_lin, dy_lin, slope, x_max_lin - x_min_lin, y_range, true)
+                    self.format_delta_summary(
+                        &scope,
+                        dx_lin,
+                        dy_lin,
+                        slope,
+                        x_max_lin - x_min_lin,
+                        y_range,
+                        true
+                    )
                 );
                 let slope_plot = if dx != 0.0 || oy != 0.0 || ox != 0.0 {
                     (dy / oy) / (dx / ox)
@@ -567,13 +575,7 @@ impl Panel for MeasurementPanel {
                     f64::INFINITY
                 };
                 let diff_txt = self.format_delta_summary(
-                    &scope,
-                    dx_lin,
-                    dy_lin,
-                    slope_lin,
-                    x_range,
-                    y_range,
-                    false,
+                    &scope, dx_lin, dy_lin, slope_lin, x_range, y_range, false,
                 );
                 let mut diff_label = ui.colored_label(Color32::LIGHT_GREEN, diff_txt.clone());
                 diff_label = diff_label.on_hover_text("Delta between P1 and P2");
@@ -638,10 +640,18 @@ impl MeasurementPanel {
             crate::data::scope::AxisType::Time(_) => {
                 let (u, scale, dec) = Self::choose_time_unit_and_scale(dx_lin);
                 let val = dx_lin * scale;
-                let s = if dec == 0 { format!("{}", val.round() as i128) } else { format!("{:.*}", dec, val) };
+                let s = if dec == 0 {
+                    format!("{}", val.round() as i128)
+                } else {
+                    format!("{:.*}", dec, val)
+                };
                 (s + " " + u, Some(u.to_string()), scale)
             }
-            _ => (scope.x_axis.format_value(dx_lin, 6, x_range), scope.x_axis.get_unit(), 1.0),
+            _ => (
+                scope.x_axis.format_value(dx_lin, 6, x_range),
+                scope.x_axis.get_unit(),
+                1.0,
+            ),
         };
 
         // Δy formatting
@@ -649,10 +659,18 @@ impl MeasurementPanel {
             crate::data::scope::AxisType::Time(_) => {
                 let (u, scale, dec) = Self::choose_time_unit_and_scale(dy_lin);
                 let val = dy_lin * scale;
-                let s = if dec == 0 { format!("{}", val.round() as i128) } else { format!("{:.*}", dec, val) };
+                let s = if dec == 0 {
+                    format!("{}", val.round() as i128)
+                } else {
+                    format!("{:.*}", dec, val)
+                };
                 (s + " " + u, Some(u.to_string()), scale)
             }
-            _ => (scope.y_axis.format_value(dy_lin, 6, y_range), scope.y_axis.get_unit(), 1.0),
+            _ => (
+                scope.y_axis.format_value(dy_lin, 6, y_range),
+                scope.y_axis.get_unit(),
+                1.0,
+            ),
         };
 
         if slope.is_finite() {

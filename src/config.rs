@@ -5,7 +5,6 @@ use crate::controllers::TracesController;
 use crate::controllers::{FFTController, UiActionController, WindowController};
 use crate::data::hotkeys::Hotkeys;
 
-
 /// Configuration options for the live plot runtime (single- and multi-trace).
 #[derive(Clone)]
 pub struct LivePlotConfig {

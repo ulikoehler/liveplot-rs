@@ -1448,96 +1448,133 @@ impl MainPanel {
                         }
                     }
                 }
-                // Decide if actions fit on the same row; if not, render them on a new row.
-                let actions_need_row_below = {
-                    let available = ui.available_width();
-                    // Estimate width of tabs/labels
-                    let button_font = egui::TextStyle::Button.resolve(ui.style());
-                    let txt_width = |text: &str, ui: &egui::Ui| -> f32 {
-                        ui.fonts_mut(|f| {
-                            f.layout_no_wrap(
-                                text.to_owned(),
-                                button_font.clone(),
-                                egui::Color32::WHITE,
-                            )
+                // Keep action buttons pinned in the top-right corner.
+                // If space gets tight, render tabs as icon-only with a tooltip; if still tight,
+                // wrap only the tabs onto additional lines (actions never wrap/move).
+                let available = ui.available_width();
+                let button_font = egui::TextStyle::Button.resolve(ui.style());
+                let txt_width = |text: &str, ui: &egui::Ui| -> f32 {
+                    ui.fonts_mut(|f| {
+                        f.layout_no_wrap(text.to_owned(), button_font.clone(), egui::Color32::WHITE)
                             .rect
                             .width()
-                        })
-                    };
-                    let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
-                    // Measure combined label width (title + optional icon)
-                    let tabs_w: f32 = match count {
-                        0 => 0.0,
-                        1 => txt_width(&list[0].title_and_icon(), ui) + pad,
-                        _ => list
-                            .iter()
-                            .map(|p| txt_width(&p.title_and_icon(), ui) + pad)
-                            .sum(),
-                    };
-                    let actions_w = txt_width("Pop out", ui) + pad + txt_width("Hide", ui) + pad;
-                    tabs_w + actions_w > available
+                    })
+                };
+                let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
+
+                let actions_w = txt_width("Pop out", ui) + pad + txt_width("Hide", ui) + pad;
+
+                let full_tabs_w: f32 = match count {
+                    0 => 0.0,
+                    1 => txt_width(&list[0].title_and_icon(), ui) + pad,
+                    _ => list
+                        .iter()
+                        .map(|p| txt_width(&p.title_and_icon(), ui) + pad)
+                        .sum(),
                 };
 
-                ui.horizontal(|ui| {
-                    if count > 1 {
-                        for (i, p) in list.iter_mut().enumerate() {
-                            let active = p.state().visible && !p.state().detached;
-                            if ui.selectable_label(active, p.title_and_icon()).clicked() {
-                                clicked = Some(i);
+                let icon_tabs_w: f32 = match count {
+                    0 => 0.0,
+                    1 => {
+                        let label = list[0]
+                            .icon_only()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| list[0].title_and_icon());
+                        txt_width(&label, ui) + pad
+                    }
+                    _ => list
+                        .iter()
+                        .map(|p| {
+                            let label = p
+                                .icon_only()
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| p.title_and_icon());
+                            txt_width(&label, ui) + pad
+                        })
+                        .sum(),
+                };
+
+                let use_icon_only = full_tabs_w + actions_w > available;
+                let wrap_tabs = use_icon_only && (icon_tabs_w + actions_w > available);
+
+                // Single header area:
+                // - actions are always pinned top-right
+                // - tabs take remaining space to the left, and can wrap beneath if needed
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                    // Right: actions
+                    if ui.button("Hide").clicked() {
+                        for p in list.iter_mut() {
+                            if !p.state().detached {
+                                p.state_mut().visible = false;
                             }
                         }
-                    } else {
-                        let p = &mut list[0];
-                        ui.label(p.title_and_icon());
-                        clicked = Some(0);
+                    }
+                    if ui.button("Pop out").clicked() {
+                        for p in list.iter_mut() {
+                            if p.state().visible && !p.state().detached {
+                                p.state_mut().detached = true;
+                                p.state_mut().request_docket = false;
+                                p.state_mut().visible = true;
+                                p.state_mut().request_focus = true;
+                            }
+                        }
                     }
 
-                    if !actions_need_row_below {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Hide").clicked() {
-                                for p in list.iter_mut() {
-                                    if !p.state().detached {
-                                        p.state_mut().visible = false;
-                                    }
-                                }
-                            }
-                            if ui.button("Pop out").clicked() {
-                                for p in list.iter_mut() {
-                                    if p.state().visible && !p.state().detached {
-                                        p.state_mut().detached = true;
-                                        p.state_mut().request_docket = false;
-                                        p.state_mut().visible = true;
-                                        p.state_mut().request_focus = true;
-                                    }
-                                }
-                            }
-                        });
-                    }
-                });
+                    // Left: tabs in remaining width
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
+                        let render_tabs = |ui: &mut egui::Ui,
+                                           list: &mut Vec<Box<dyn Panel>>,
+                                           clicked: &mut Option<usize>,
+                                           use_icon_only: bool,
+                                           count: usize| {
+                            if count > 1 {
+                                for (i, p) in list.iter_mut().enumerate() {
+                                    let active = p.state().visible && !p.state().detached;
 
-                if actions_need_row_below {
-                    ui.horizontal(|ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Hide").clicked() {
-                                for p in list.iter_mut() {
-                                    if !p.state().detached {
-                                        p.state_mut().visible = false;
+                                    let (label, tooltip) = if use_icon_only {
+                                        if let Some(icon) = p.icon_only() {
+                                            (icon.to_string(), Some(p.title().to_string()))
+                                        } else {
+                                            (p.title_and_icon(), None)
+                                        }
+                                    } else {
+                                        (p.title_and_icon(), None)
+                                    };
+
+                                    let mut resp = ui.selectable_label(active, label);
+                                    if let Some(tt) = tooltip {
+                                        resp = resp.on_hover_text(tt);
+                                    }
+                                    if resp.clicked() {
+                                        *clicked = Some(i);
                                     }
                                 }
-                            }
-                            if ui.button("Pop out").clicked() {
-                                for p in list.iter_mut() {
-                                    if p.state().visible && !p.state().detached {
-                                        p.state_mut().detached = true;
-                                        p.state_mut().request_docket = false;
-                                        p.state_mut().visible = true;
-                                        p.state_mut().request_focus = true;
+                            } else {
+                                let p = &mut list[0];
+                                if use_icon_only {
+                                    if let Some(icon) = p.icon_only() {
+                                        ui.label(icon).on_hover_text(p.title());
+                                    } else {
+                                        ui.label(p.title_and_icon());
                                     }
+                                } else {
+                                    ui.label(p.title_and_icon());
                                 }
+                                *clicked = Some(0);
                             }
-                        });
+                        };
+
+                        if wrap_tabs {
+                            ui.horizontal_wrapped(|ui| {
+                                render_tabs(ui, list, &mut clicked, use_icon_only, count);
+                            });
+                        } else {
+                            ui.horizontal(|ui| {
+                                render_tabs(ui, list, &mut clicked, use_icon_only, count);
+                            });
+                        }
                     });
-                }
+                });
 
                 // Apply clicked selection when multiple tabs are present
                 if count > 1 {
@@ -1655,7 +1692,8 @@ impl MainApp {
                 s.y_axis.set_unit(cfg.y_unit.clone());
                 s.y_axis.log_scale = cfg.y_log;
                 // Set X axis to a time axis using default time format (per-scope formatting chooses date/time based on bounds)
-                s.x_axis.axis_type = crate::data::scope::AxisType::Time(crate::data::scope::XDateFormat::default());
+                s.x_axis.axis_type =
+                    crate::data::scope::AxisType::Time(crate::data::scope::XDateFormat::default());
                 s.show_legend = cfg.show_legend;
             }
         }
