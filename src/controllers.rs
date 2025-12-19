@@ -418,6 +418,10 @@ impl TracesController {
         self.inner.lock().unwrap().hover_trace_request = Some(trace);
     }
 
+    /// Request setting the Y axis unit (value axes only). Pass `None` to clear.
+    pub fn request_set_y_unit<S: Into<Option<String>>>(&self, unit: S) {
+        self.inner.lock().unwrap().y_unit_request = Some(unit.into());
+    }
     pub fn request_set_show(&self, show: bool) {
         self.inner.lock().unwrap().show_request = Some(show);
     }
@@ -440,12 +444,6 @@ impl TracesController {
             .unwrap()
             .style_requests
             .push((name.into(), style));
-    }
-
-    /// Request setting the global Y unit label (None for no unit).
-    pub fn request_set_y_unit<S: Into<String>>(&self, unit: Option<S>) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.y_unit_request = Some(unit.map(|s| s.into()));
     }
 
     /// Request toggling Y log scale.

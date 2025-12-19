@@ -292,6 +292,9 @@ impl Panel for TracesPanel {
                                 );
                             }
                             1 => {
+                                let col_width = rect.width();
+                                inner.set_min_width(col_width);
+                                inner.set_max_width(col_width);
                                 inner.add_space(4.0);
                                 let resp = inner.add(
                                     egui::Label::new(r.name.0.clone())
@@ -356,6 +359,9 @@ impl Panel for TracesPanel {
                                 );
                             }
                             4 => {
+                                let col_width = rect.width();
+                                inner.set_min_width(col_width);
+                                inner.set_max_width(col_width);
                                 inner.add_space(4.0);
                                 if let Some(tr) = self.traces.get_trace(&r.name) {
                                     let text = tr.info.clone();

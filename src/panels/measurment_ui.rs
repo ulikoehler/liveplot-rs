@@ -1,7 +1,7 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::LivePlotData;
 use crate::data::measurement::Measurement;
-use crate::data::scope::ScopeData;
+use crate::data::scope::{AxisSettings, ScopeData};
 use egui::{Align2, Color32};
 use egui_phosphor::regular::BROOM;
 use egui_plot::{Line, PlotPoint, Points, Text};
@@ -291,7 +291,7 @@ impl Panel for MeasurementPanel {
                 let x_range = (x_max_lin - x_min_lin).abs();
                 let y_range = (y_max_lin - y_min_lin).abs();
                 let x_txt = scope.x_axis.format_value(x_lin, 6, x_range);
-                let y_txt = scope.y_axis.format_value_with_unit(y_lin, 6, y_range);
+                let y_txt = scope.y_axis.format_value(y_lin, 6, y_range);
                 let txt = format!("P1\nx = {}\ny = {}", x_txt, y_txt);
                 let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
@@ -317,7 +317,7 @@ impl Panel for MeasurementPanel {
                 let x_range = (x_max_lin - x_min_lin).abs();
                 let y_range = (y_max_lin - y_min_lin).abs();
                 let x_txt = scope.x_axis.format_value(x_lin, 6, x_range);
-                let y_txt = scope.y_axis.format_value_with_unit(y_lin, 6, y_range);
+                let y_txt = scope.y_axis.format_value(y_lin, 6, y_range);
                 let txt = format!("P2\nx = {}\ny = {}", x_txt, y_txt);
                 let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
@@ -358,15 +358,11 @@ impl Panel for MeasurementPanel {
                 };
                 let mid = [(p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5];
                 let y_range = (y_max_lin - y_min_lin).abs();
-                let dy_txt = scope.y_axis.format_value_with_unit(dy_lin, 6, y_range);
-                let txt = if slope.is_finite() {
-                    format!(
-                        "{}:\nΔx={:.6}\nΔy={}\nslope={:.4}",
-                        name, dx_lin, dy_txt, slope
-                    )
-                } else {
-                    format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
-                };
+                let txt = format!(
+                    "{}:\n{}",
+                    name,
+                    self.format_delta_summary(&scope, dx_lin, dy_lin, slope, x_max_lin - x_min_lin, y_range, true)
+                );
                 let slope_plot = if dx != 0.0 || oy != 0.0 || ox != 0.0 {
                     (dy / oy) / (dx / ox)
                 } else {
@@ -500,14 +496,21 @@ impl Panel for MeasurementPanel {
             let (p1, p2) = self.measurements[i].get_points();
             let x_range = (scope.x_axis.bounds.1 - scope.x_axis.bounds.0).abs();
             let y_range = (scope.y_axis.bounds.1 - scope.y_axis.bounds.0).abs();
+            let to_axis_value = |axis: &AxisSettings, v_plot: f64| -> f64 {
+                if axis.log_scale && v_plot > 0.0 {
+                    10f64.powf(v_plot)
+                } else {
+                    v_plot
+                }
+            };
             ui.horizontal(|ui| {
                 let mut p1_label = if let Some(p) = p1 {
-                    let x_lin = p[0];
-                    let y_lin = p[1];
+                    let x_lin = to_axis_value(&scope.x_axis, p[0]);
+                    let y_lin = to_axis_value(&scope.y_axis, p[1]);
                     let p1_text = format!(
                         "P1: x={}  y={}",
                         scope.x_axis.format_value(x_lin, 6, x_range),
-                        scope.y_axis.format_value_with_unit(y_lin, 6, y_range)
+                        scope.y_axis.format_value(y_lin, 6, y_range)
                     );
                     let resp = ui.colored_label(Color32::YELLOW, p1_text.clone());
                     if resp.double_clicked() {
@@ -525,12 +528,12 @@ impl Panel for MeasurementPanel {
                 // double-click handled above when value exists
 
                 let mut p2_label = if let Some(p) = p2 {
-                    let x_lin = p[0];
-                    let y_lin = p[1];
+                    let x_lin = to_axis_value(&scope.x_axis, p[0]);
+                    let y_lin = to_axis_value(&scope.y_axis, p[1]);
                     let p2_text = format!(
                         "P2: x={}  y={}",
                         scope.x_axis.format_value(x_lin, 6, x_range),
-                        scope.y_axis.format_value_with_unit(y_lin, 6, y_range)
+                        scope.y_axis.format_value(y_lin, 6, y_range)
                     );
                     let resp = ui.colored_label(Color32::LIGHT_BLUE, p2_text.clone());
                     if resp.double_clicked() {
@@ -552,30 +555,26 @@ impl Panel for MeasurementPanel {
                 };
             });
             if let (Some(p1), Some(p2)) = (p1, p2) {
-                let x1: f64 = p1[0];
-                let x2 = p2[0];
-                let y1 = p1[1];
-                let y2 = p2[1];
-                let dx = x2 - x1;
-                let dy = y2 - y1;
-                let slope = if dx.abs() > 1e-12 {
-                    dy / dx
+                let x1_lin: f64 = to_axis_value(&scope.x_axis, p1[0]);
+                let x2_lin = to_axis_value(&scope.x_axis, p2[0]);
+                let y1_lin = to_axis_value(&scope.y_axis, p1[1]);
+                let y2_lin = to_axis_value(&scope.y_axis, p2[1]);
+                let dx_lin = x2_lin - x1_lin;
+                let dy_lin = y2_lin - y1_lin;
+                let slope_lin = if dx_lin.abs() > 1e-12 {
+                    dy_lin / dx_lin
                 } else {
                     f64::INFINITY
                 };
-                let diff_txt = if slope.is_finite() {
-                    format!(
-                        "Δx={:.6}  Δy={}  slope={:.4}",
-                        dx,
-                        scope.y_axis.format_value_with_unit(dy, 6, y_range),
-                        slope
-                    )
-                } else {
-                    format!(
-                        "Δx=0  Δy={}",
-                        scope.y_axis.format_value_with_unit(dy, 6, y_range)
-                    )
-                };
+                let diff_txt = self.format_delta_summary(
+                    &scope,
+                    dx_lin,
+                    dy_lin,
+                    slope_lin,
+                    x_range,
+                    y_range,
+                    false,
+                );
                 let mut diff_label = ui.colored_label(Color32::LIGHT_GREEN, diff_txt.clone());
                 diff_label = diff_label.on_hover_text("Delta between P1 and P2");
                 if diff_label.hovered() {
@@ -606,6 +605,86 @@ impl MeasurementPanel {
     pub fn clear_all(&mut self) {
         for m in &mut self.measurements {
             m.clear();
+        }
+    }
+
+    /// Format Δx/Δy and slope consistently for UI and plot overlays.
+    fn choose_time_unit_and_scale(delta_secs: f64) -> (&'static str, f64, usize) {
+        // Return (unit_label, scale_multiplier, decimals)
+        let a = delta_secs.abs();
+        if a >= 1.0 {
+            ("s", 1.0, 6)
+        } else if a >= 1e-3 {
+            ("ms", 1e3, 3)
+        } else if a >= 1e-6 {
+            ("us", 1e6, 0)
+        } else {
+            ("ns", 1e9, 0)
+        }
+    }
+
+    fn format_delta_summary(
+        &self,
+        scope: &ScopeData,
+        dx_lin: f64,
+        dy_lin: f64,
+        slope: f64,
+        x_range: f64,
+        y_range: f64,
+        multiline: bool,
+    ) -> String {
+        // Δx formatting: if x axis is time, show a duration using s/ms/us/ns; otherwise use axis formatting
+        let (dx_txt, dx_unit_opt, x_scale) = match scope.x_axis.axis_type {
+            crate::data::scope::AxisType::Time(_) => {
+                let (u, scale, dec) = Self::choose_time_unit_and_scale(dx_lin);
+                let val = dx_lin * scale;
+                let s = if dec == 0 { format!("{}", val.round() as i128) } else { format!("{:.*}", dec, val) };
+                (s + " " + u, Some(u.to_string()), scale)
+            }
+            _ => (scope.x_axis.format_value(dx_lin, 6, x_range), scope.x_axis.get_unit(), 1.0),
+        };
+
+        // Δy formatting
+        let (dy_txt, dy_unit_opt, y_scale) = match scope.y_axis.axis_type {
+            crate::data::scope::AxisType::Time(_) => {
+                let (u, scale, dec) = Self::choose_time_unit_and_scale(dy_lin);
+                let val = dy_lin * scale;
+                let s = if dec == 0 { format!("{}", val.round() as i128) } else { format!("{:.*}", dec, val) };
+                (s + " " + u, Some(u.to_string()), scale)
+            }
+            _ => (scope.y_axis.format_value(dy_lin, 6, y_range), scope.y_axis.get_unit(), 1.0),
+        };
+
+        if slope.is_finite() {
+            // Compute displayed slope adjusting for unit scales: slope_display = slope * (y_scale / x_scale)
+            let slope_disp = slope * (y_scale / x_scale);
+            let num = if slope_disp == 0.0 {
+                "0".to_string()
+            } else if slope_disp.abs() < 1e-4 || slope_disp.abs() >= 1e6 {
+                format!("{:.4e}", slope_disp)
+            } else {
+                format!("{:.4}", slope_disp)
+            };
+
+            // Build unit string from chosen units
+            let unit_str = match (dy_unit_opt.as_deref(), dx_unit_opt.as_deref()) {
+                (Some(y), Some(x)) => format!(" {}/{}", y, x),
+                (Some(y), None) => format!(" {}", y),
+                (None, Some(x)) => format!(" 1/{}", x),
+                (None, None) => String::new(),
+            };
+
+            if multiline {
+                format!("Δx={}\nΔy={}\nslope={}{}", dx_txt, dy_txt, num, unit_str)
+            } else {
+                format!("Δx={}  Δy={}  slope={}{}", dx_txt, dy_txt, num, unit_str)
+            }
+        } else {
+            if multiline {
+                format!("Δx=0\nΔy={}\nslope=∞", dy_txt)
+            } else {
+                format!("Δx=0  Δy={}", dy_txt)
+            }
         }
     }
 }

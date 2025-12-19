@@ -19,8 +19,11 @@ use crate::data::triggers::{Trigger, TriggerSlope};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AxisSettingsSerde {
     pub unit: Option<String>,
+    /// "time" or "value"
+    pub axis_type: String,
+    /// Time format string (optional). Examples: "%H:%M:%S" or "%Y-%m-%d %H:%M:%S"
+    pub time_format: Option<String>,
     pub log_scale: bool,
-    pub format: Option<String>,
     pub name: Option<String>,
     pub bounds: [f64; 2],
     pub auto_fit: bool,
@@ -28,10 +31,22 @@ pub struct AxisSettingsSerde {
 
 impl From<&AxisSettings> for AxisSettingsSerde {
     fn from(a: &AxisSettings) -> Self {
+        use crate::data::scope::{AxisType, XDateFormat};
+        let (axis_type, time_format) = match &a.axis_type {
+            AxisType::Value(_) => ("value".to_string(), None),
+            AxisType::Time(fmt) => (
+                "time".to_string(),
+                Some(match fmt {
+                    XDateFormat::Iso8601WithDate => "%Y-%m-%d %H:%M:%S".to_string(),
+                    XDateFormat::Iso8601Time => "%H:%M:%S".to_string(),
+                }),
+            ),
+        };
         Self {
-            unit: a.unit.clone(),
+            unit: a.get_unit(),
+            axis_type,
+            time_format,
             log_scale: a.log_scale,
-            format: a.format.clone(),
             name: a.name.clone(),
             bounds: [a.bounds.0, a.bounds.1],
             auto_fit: a.auto_fit,
@@ -42,12 +57,30 @@ impl From<&AxisSettings> for AxisSettingsSerde {
 impl AxisSettingsSerde {
     /// Apply stored settings to an AxisSettings instance.
     pub fn apply_to(self, a: &mut AxisSettings) {
-        a.unit = self.unit;
+        use crate::data::scope::{AxisType, XDateFormat};
         a.log_scale = self.log_scale;
-        a.format = self.format;
         a.name = self.name;
         a.bounds = (self.bounds[0], self.bounds[1]);
         a.auto_fit = self.auto_fit;
+        match self.axis_type.as_str() {
+            "time" => {
+                let fmt = if let Some(tf) = &self.time_format {
+                    if tf.contains("%Y") {
+                        XDateFormat::Iso8601WithDate
+                    } else {
+                        XDateFormat::Iso8601Time
+                    }
+                } else {
+                    XDateFormat::default()
+                };
+                a.axis_type = AxisType::Time(fmt);
+                // Ensure unit applied after axis type (time axes ignore unit)
+                a.set_unit(self.unit.clone());
+            }
+            _ => {
+                a.axis_type = AxisType::Value(self.unit.clone());
+            }
+        }
     }
 }
 
@@ -351,16 +384,18 @@ impl Default for AppStateSerde {
             scope: ScopeStateSerde {
                 x_axis: AxisSettingsSerde {
                     unit: None,
+                    axis_type: "time".to_string(),
+                    time_format: Some("%H:%M:%S".to_string()),
                     log_scale: false,
-                    format: None,
                     name: None,
                     bounds: [0.0, 1.0],
                     auto_fit: true,
                 },
                 y_axis: AxisSettingsSerde {
                     unit: None,
+                    axis_type: "value".to_string(),
+                    time_format: None,
                     log_scale: false,
-                    format: None,
                     name: None,
                     bounds: [0.0, 1.0],
                     auto_fit: true,

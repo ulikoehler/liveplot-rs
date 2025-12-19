@@ -133,7 +133,7 @@ impl ScopePanel {
                 .smart_aim(true)
                 .show_value(true)
                 .clamping(egui::SliderClamping::Edits)
-                .custom_formatter(|n, _| self.data.x_axis.format_value_with_unit(n, 4, n));
+                .custom_formatter(|n, _| self.data.x_axis.format_value(n, 4, n));
 
                 let sresp = ui.add(slider);
                 if sresp.changed() {
@@ -150,7 +150,7 @@ impl ScopePanel {
                     egui::DragValue::new(&mut x_min_tmp)
                         .speed(0.1)
                         .custom_formatter(|n, _| {
-                            self.data.x_axis.format_value_with_unit(n, 4, x_range)
+                            self.data.x_axis.format_value(n, 4, x_range)
                         }),
                 );
                 ui.label("Max:");
@@ -158,7 +158,7 @@ impl ScopePanel {
                     egui::DragValue::new(&mut x_max_tmp)
                         .speed(0.1)
                         .custom_formatter(|n, _| {
-                            self.data.x_axis.format_value_with_unit(n, 4, x_range)
+                            self.data.x_axis.format_value(n, 4, x_range)
                         }),
                 );
                 if (r1.changed() || r2.changed()) && x_min_tmp < x_max_tmp {
@@ -194,7 +194,7 @@ impl ScopePanel {
                 egui::DragValue::new(&mut y_min_tmp)
                     .speed(0.1)
                     .custom_formatter(|n, _| {
-                        self.data.y_axis.format_value_with_unit(n, 4, y_range)
+                        self.data.y_axis.format_value(n, 4, y_range)
                     }),
             );
             ui.label("Max:");
@@ -202,7 +202,7 @@ impl ScopePanel {
                 egui::DragValue::new(&mut y_max_tmp)
                     .speed(0.1)
                     .custom_formatter(|n, _| {
-                        self.data.y_axis.format_value_with_unit(n, 4, y_range)
+                        self.data.y_axis.format_value(n, 4, y_range)
                     }),
             );
             if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
@@ -228,16 +228,16 @@ impl ScopePanel {
 
         ui.horizontal(|ui| {
             ui.label("Unit:");
-            let mut unit = self.data.y_axis.unit.clone().unwrap_or_default();
+            let mut unit = self.data.y_axis.get_unit().unwrap_or_default();
             if ui
                 .add(egui::TextEdit::singleline(&mut unit).desired_width(80.0))
                 .changed()
             {
-                self.data.y_axis.unit = if unit.trim().is_empty() {
+                self.data.y_axis.set_unit(if unit.trim().is_empty() {
                     None
                 } else {
                     Some(unit)
-                };
+                });
             }
         });
 

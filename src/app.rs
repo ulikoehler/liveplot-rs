@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use eframe::egui;
+use eframe::egui::scroll_area::{ScrollBarVisibility, ScrollSource};
 
 use crate::controllers::{
     FFTController, LiveplotController, ScopesController, ThresholdController, TracesController,
@@ -336,7 +337,7 @@ impl MainPanel {
                 if let Some(unit) = inner.y_unit_request.take() {
                     for scope in data.scope_data.iter_mut() {
                         let scope = &mut **scope;
-                        scope.y_axis.unit = unit.clone();
+                        scope.y_axis.set_unit(unit.clone());
                     }
                 }
                 if let Some(ylog) = inner.y_log_request.take() {
@@ -385,7 +386,7 @@ impl MainPanel {
                             });
                         }
                     }
-                    let y_unit = scope.y_axis.unit.clone();
+                    let y_unit = scope.y_axis.get_unit();
                     let y_log = scope.y_axis.log_scale;
                     let snapshot = crate::controllers::TracesInfo {
                         traces: infos,
@@ -1190,7 +1191,12 @@ impl MainPanel {
                 .default_width(280.0)
                 .min_width(160.0)
                 .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list);
+                    egui::ScrollArea::vertical()
+                        .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
+                        .scroll_source(ScrollSource::NONE)
+                        .show(ui, |ui| {
+                            self.render_tabs(ui, &mut list);
+                        });
                 });
             self.left_side_panels = list;
         } else if !self.left_side_panels.is_empty() {
@@ -1200,47 +1206,52 @@ impl MainPanel {
                 .default_width(30.0)
                 .min_width(30.0)
                 .show_inside(ui, |ui| {
-                    let mut clicked: Option<usize> = None;
-                    ui.vertical(|ui| {
-                        // Compute max width for compact icons so buttons have consistent size
-                        let button_font = egui::TextStyle::Button.resolve(ui.style());
-                        let mut max_w = 0.0_f32;
+                    egui::ScrollArea::vertical()
+                        .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
+                        .scroll_source(ScrollSource::NONE)
+                        .show(ui, |ui| {
+                            let mut clicked: Option<usize> = None;
+                            ui.vertical(|ui| {
+                                // Compute max width for compact icons so buttons have consistent size
+                                let button_font = egui::TextStyle::Button.resolve(ui.style());
+                                let mut max_w = 0.0_f32;
 
-                        ui.fonts_mut(|f| {
-                            for p in list.iter() {
-                                let label = p.icon_only().unwrap_or(p.title()).to_string();
-                                let w = f
-                                    .layout_no_wrap(
-                                        label,
-                                        button_font.clone(),
-                                        egui::Color32::WHITE,
-                                    )
-                                    .rect
-                                    .width();
-                                if w > max_w {
-                                    max_w = w;
+                                ui.fonts_mut(|f| {
+                                    for p in list.iter() {
+                                        let label = p.icon_only().unwrap_or(p.title()).to_string();
+                                        let w = f
+                                            .layout_no_wrap(
+                                                label,
+                                                button_font.clone(),
+                                                egui::Color32::WHITE,
+                                            )
+                                            .rect
+                                            .width();
+                                        if w > max_w {
+                                            max_w = w;
+                                        }
+                                    }
+                                });
+
+                                for (i, p) in list.iter_mut().enumerate() {
+                                    let active = p.state().visible && !p.state().detached;
+                                    let label = p.icon_only().unwrap_or(p.title()).to_string();
+                                    if ui.selectable_label(active, label).clicked() {
+                                        clicked = Some(i);
+                                    }
+                                }
+                            });
+                            if let Some(ci) = clicked {
+                                for (i, p) in list.iter_mut().enumerate() {
+                                    if i == ci {
+                                        p.state_mut().visible = true;
+                                        p.state_mut().request_focus = true;
+                                    } else if !p.state().detached {
+                                        p.state_mut().visible = false;
+                                    }
                                 }
                             }
                         });
-
-                        for (i, p) in list.iter_mut().enumerate() {
-                            let active = p.state().visible && !p.state().detached;
-                            let label = p.icon_only().unwrap_or(p.title()).to_string();
-                            if ui.selectable_label(active, label).clicked() {
-                                clicked = Some(i);
-                            }
-                        }
-                    });
-                    if let Some(ci) = clicked {
-                        for (i, p) in list.iter_mut().enumerate() {
-                            if i == ci {
-                                p.state_mut().visible = true;
-                                p.state_mut().request_focus = true;
-                            } else if !p.state().detached {
-                                p.state_mut().visible = false;
-                            }
-                        }
-                    }
                 });
             self.left_side_panels = list;
         }
@@ -1641,12 +1652,10 @@ impl MainApp {
             let scope = self.main_panel.liveplot_panel.get_data_mut();
             for s in scope {
                 s.time_window = cfg.time_window_secs;
-                s.y_axis.unit = cfg.y_unit.clone();
+                s.y_axis.set_unit(cfg.y_unit.clone());
                 s.y_axis.log_scale = cfg.y_log;
-                s.x_axis.format = Some(match cfg.x_date_format {
-                    crate::config::XDateFormat::Iso8601WithDate => "%Y-%m-%d %H:%M:%S".to_string(),
-                    crate::config::XDateFormat::Iso8601Time => "%H:%M:%S".to_string(),
-                });
+                // Set X axis to a time axis using default time format (per-scope formatting chooses date/time based on bounds)
+                s.x_axis.axis_type = crate::data::scope::AxisType::Time(crate::data::scope::XDateFormat::default());
                 s.show_legend = cfg.show_legend;
             }
         }
@@ -1798,7 +1807,7 @@ impl MainApp {
                 if let Some(unit) = inner.y_unit_request.take() {
                     for scope in data.scope_data.iter_mut() {
                         let scope = &mut **scope;
-                        scope.y_axis.unit = unit.clone();
+                        scope.y_axis.set_unit(unit.clone());
                     }
                 }
                 if let Some(ylog) = inner.y_log_request.take() {
@@ -1847,7 +1856,7 @@ impl MainApp {
                             });
                         }
                     }
-                    let y_unit = scope.y_axis.unit.clone();
+                    let y_unit = scope.y_axis.get_unit();
                     let y_log = scope.y_axis.log_scale;
                     let snapshot = crate::controllers::TracesInfo {
                         traces: infos,

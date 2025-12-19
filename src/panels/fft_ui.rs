@@ -139,18 +139,19 @@ impl Panel for FftPanel {
         let scope_data = self.scope_ui.get_data_mut();
         scope_data.scope_type = ScopeType::XYScope;
         scope_data.x_axis.name = Some("Frequency".to_string());
-        scope_data.x_axis.unit = Some("Hz".to_string());
-        scope_data.x_axis.format = None; // plain numeric
+        scope_data.x_axis.set_unit(Some("Hz".to_string()));
+        // plain numeric axis type: ensure value axis
+        scope_data.x_axis.axis_type = crate::data::scope::AxisType::Value(None); // plain numeric
         scope_data.y_axis.name = Some(if self.fft_db {
             "Magnitude (dB)".to_string()
         } else {
             "Magnitude".to_string()
         });
-        scope_data.y_axis.unit = if self.fft_db {
+        scope_data.y_axis.set_unit(if self.fft_db {
             Some("dB".to_string())
         } else {
             None
-        };
+        });
         scope_data.y_axis.log_scale = false;
 
         // Update scope ordering
