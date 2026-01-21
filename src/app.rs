@@ -950,8 +950,8 @@ impl MainPanel {
                 (
                     data.pending_requests.save_state.take(),
                     data.pending_requests.load_state.take(),
-                    data.pending_requests.add_scope,
-                    data.pending_requests.remove_scope,
+                    std::mem::take(&mut data.pending_requests.add_scope),
+                    data.pending_requests.remove_scope.take(),
                 )
             };
 
@@ -1604,8 +1604,8 @@ impl MainPanel {
                 ui.label("No panel active");
             }
             (
-                data.pending_requests.add_scope,
-                data.pending_requests.remove_scope,
+                std::mem::take(&mut data.pending_requests.add_scope),
+                data.pending_requests.remove_scope.take(),
             )
         };
 

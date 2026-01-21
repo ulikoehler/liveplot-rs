@@ -1,5 +1,6 @@
 //! Scope data: axis settings, display state, and coordinate management.
 
+use crate::data::trace_look::TraceLook;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 use std::collections::{HashMap, VecDeque};
 
@@ -206,6 +207,7 @@ pub struct ScopeData {
     pub x_axis: AxisSettings,
     pub time_window: f64,
     pub scope_type: ScopeType,
+    pub xy_pairs: Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)>,
     pub paused: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
@@ -223,6 +225,7 @@ impl Default for ScopeData {
             x_axis: AxisSettings::new_time_axis(),
             time_window: 10.0,
             scope_type: ScopeType::TimeScope,
+            xy_pairs: Vec::new(),
             paused: false,
             show_legend: true,
             show_info_in_legend: false,
@@ -233,9 +236,30 @@ impl Default for ScopeData {
 }
 
 impl ScopeData {
+    pub fn remove_trace(&mut self, trace: &TraceRef) {
+        self.trace_order.retain(|t| t != trace);
+        for (x, y, _look) in self.xy_pairs.iter_mut() {
+            if x.as_ref() == Some(trace) {
+                *x = None;
+            }
+            if y.as_ref() == Some(trace) {
+                *y = None;
+            }
+        }
+        self.xy_pairs.retain(|(x, y, _)| x.is_some() || y.is_some());
+    }
+
     pub fn update(&mut self, traces: &TracesCollection) {
         // Keep trace_order in sync with current traces: drop missing, append new
         self.trace_order.retain(|n| traces.contains_key(n));
+
+        // Keep XY pairs in sync with current traces.
+        // Incomplete pairs (None) are allowed, but are not rendered/used until complete.
+        self.xy_pairs.retain(|(x, y, _)| {
+            let x_ok = x.as_ref().is_none_or(|t| traces.contains_key(t));
+            let y_ok = y.as_ref().is_none_or(|t| traces.contains_key(t));
+            x_ok && y_ok && !(x.is_none() && y.is_none())
+        });
 
         if self.x_axis.auto_fit {
             self.fit_x_bounds(traces);
@@ -270,6 +294,61 @@ impl ScopeData {
     }
 
     pub fn fit_x_bounds(&mut self, traces: &TracesCollection) {
+        if self.scope_type == ScopeType::XYScope && !self.xy_pairs.is_empty() {
+            let mut min_x = f64::MAX;
+            let mut max_x = f64::MIN;
+            let tol = 1e-9_f64;
+
+            for (x_name, y_name, _pair_look) in self.xy_pairs.iter() {
+                let (Some(x_name), Some(y_name)) = (x_name.as_ref(), y_name.as_ref()) else {
+                    continue;
+                };
+
+                let (Some(x_tr), Some(y_tr)) = (traces.get_trace(x_name), traces.get_trace(y_name))
+                else {
+                    continue;
+                };
+                if !x_tr.look.visible || !y_tr.look.visible {
+                    continue;
+                }
+
+                let x_pts = traces.get_points(x_name, self.paused);
+                let y_pts = traces.get_points(y_name, self.paused);
+                let (Some(x_pts), Some(y_pts)) = (x_pts, y_pts) else {
+                    continue;
+                };
+
+                let mut i = 0usize;
+                let mut j = 0usize;
+                while i < x_pts.len() && j < y_pts.len() {
+                    let tx = x_pts[i][0];
+                    let ty = y_pts[j][0];
+                    let dt = tx - ty;
+                    if dt.abs() <= tol {
+                        let x = x_pts[i][1] + x_tr.offset;
+                        if x < min_x {
+                            min_x = x;
+                        }
+                        if x > max_x {
+                            max_x = x;
+                        }
+                        i += 1;
+                        j += 1;
+                    } else if dt < 0.0 {
+                        i += 1;
+                    } else {
+                        j += 1;
+                    }
+                }
+            }
+
+            if min_x < max_x {
+                self.x_axis.bounds = (min_x, max_x);
+                self.time_window = max_x - min_x;
+            }
+            return;
+        }
+
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
         for (_name, trace) in traces.traces_iter() {
@@ -313,6 +392,60 @@ impl ScopeData {
     }
 
     pub fn fit_y_bounds(&mut self, traces: &TracesCollection) {
+        if self.scope_type == ScopeType::XYScope && !self.xy_pairs.is_empty() {
+            let mut min_y = f64::MAX;
+            let mut max_y = f64::MIN;
+            let tol = 1e-9_f64;
+
+            for (x_name, y_name, _pair_look) in self.xy_pairs.iter() {
+                let (Some(x_name), Some(y_name)) = (x_name.as_ref(), y_name.as_ref()) else {
+                    continue;
+                };
+
+                let (Some(x_tr), Some(y_tr)) = (traces.get_trace(x_name), traces.get_trace(y_name))
+                else {
+                    continue;
+                };
+                if !x_tr.look.visible || !y_tr.look.visible {
+                    continue;
+                }
+
+                let x_pts = traces.get_points(x_name, self.paused);
+                let y_pts = traces.get_points(y_name, self.paused);
+                let (Some(x_pts), Some(y_pts)) = (x_pts, y_pts) else {
+                    continue;
+                };
+
+                let mut i = 0usize;
+                let mut j = 0usize;
+                while i < x_pts.len() && j < y_pts.len() {
+                    let tx = x_pts[i][0];
+                    let ty = y_pts[j][0];
+                    let dt = tx - ty;
+                    if dt.abs() <= tol {
+                        let y = y_pts[j][1] + y_tr.offset;
+                        if y < min_y {
+                            min_y = y;
+                        }
+                        if y > max_y {
+                            max_y = y;
+                        }
+                        i += 1;
+                        j += 1;
+                    } else if dt < 0.0 {
+                        i += 1;
+                    } else {
+                        j += 1;
+                    }
+                }
+            }
+
+            if min_y < max_y {
+                self.y_axis.bounds = (min_y, max_y);
+            }
+            return;
+        }
+
         let mut min_y = f64::MAX;
         let mut max_y = f64::MIN;
         let x_bounds = self.x_axis.bounds;

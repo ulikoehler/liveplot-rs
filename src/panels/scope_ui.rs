@@ -389,19 +389,37 @@ impl ScopePanel {
             }
 
             // Draw traces
-            for name in self.data.trace_order.clone().into_iter() {
-                if let Some(tr) = traces.get_trace(&name) {
-                    if !tr.look.visible {
+            if self.data.scope_type == ScopeType::XYScope && !self.data.xy_pairs.is_empty() {
+                let tol = 1e-9_f64;
+                for (x_name, y_name, pair_look) in self.data.xy_pairs.clone().into_iter() {
+                    let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
+                        continue;
+                    };
+                    let (Some(x_tr), Some(y_tr)) =
+                        (traces.get_trace(&x_name), traces.get_trace(&y_name))
+                    else {
+                        continue;
+                    };
+                    if !pair_look.visible || !x_tr.look.visible || !y_tr.look.visible {
                         continue;
                     }
-                    let shown_pts = match self.data.get_drawn_points(&name, traces) {
-                        Some(pts) => pts,
-                        None => continue,
+
+                    let x_pts = traces.get_points(&x_name, self.data.paused);
+                    let y_pts = traces.get_points(&y_name, self.data.paused);
+                    let (Some(x_pts), Some(y_pts)) = (x_pts, y_pts) else {
+                        continue;
                     };
-                    let pts_vec: Vec<[f64; 2]> = shown_pts
-                        .into_iter()
-                        .map(|p| {
-                            let y_lin = p[1] + tr.offset;
+
+                    let mut derived: Vec<[f64; 2]> = Vec::new();
+                    let mut i = 0usize;
+                    let mut j = 0usize;
+                    while i < x_pts.len() && j < y_pts.len() {
+                        let tx = x_pts[i][0];
+                        let ty = y_pts[j][0];
+                        let dt = tx - ty;
+                        if dt.abs() <= tol {
+                            let x_lin = x_pts[i][1] + x_tr.offset;
+                            let y_lin = y_pts[j][1] + y_tr.offset;
                             let y = if self.data.y_axis.log_scale {
                                 if y_lin > 0.0 {
                                     y_lin.log10()
@@ -412,23 +430,43 @@ impl ScopePanel {
                                 y_lin
                             };
                             let x = if self.data.x_axis.log_scale {
-                                if p[0] > 0.0 {
-                                    p[0].log10()
+                                if x_lin > 0.0 {
+                                    x_lin.log10()
                                 } else {
                                     f64::NAN
                                 }
                             } else {
-                                p[0]
+                                x_lin
                             };
-                            [x, y]
-                        })
-                        .collect();
-                    let mut color = tr.look.color;
-                    let mut width: f32 = tr.look.width.max(0.1);
-                    let style = tr.look.style;
+                            derived.push([x, y]);
+                            i += 1;
+                            j += 1;
+                        } else if dt < 0.0 {
+                            i += 1;
+                        } else {
+                            j += 1;
+                        }
+                    }
+
+                    if derived.is_empty() {
+                        continue;
+                    }
+
+                    // Use per-pair style.
+                    let mut color = pair_look.color;
+                    let mut width: f32 = pair_look.width.max(0.1);
+                    let style = pair_look.style;
+
+                    let legend_label = if self.data.show_info_in_legend && !y_tr.info.is_empty() {
+                        format!("{} vs {} — {}", y_name, x_name, y_tr.info)
+                    } else {
+                        format!("{} vs {}", y_name, x_name)
+                    };
+
                     if let Some(hov) = &traces.hover_trace {
-                        if name != *hov {
-                            // Strongly dim non-hovered traces
+                        // Hover on either trace highlights this pair.
+                        let is_pair_hover = *hov == x_name || *hov == y_name;
+                        if !is_pair_hover {
                             color = Color32::from_rgba_unmultiplied(
                                 color.r(),
                                 color.g(),
@@ -436,36 +474,121 @@ impl ScopePanel {
                                 40,
                             );
                         } else {
-                            // Emphasize hovered trace
                             width = (width * 1.6).max(width + 1.0);
                         }
                     }
-                    let mut line = Line::new(name.clone(), pts_vec.clone())
-                        .color(color)
-                        .width(width)
-                        .style(style);
-                    let legend_label = if self.data.show_info_in_legend && !tr.info.is_empty() {
-                        format!("{} — {}", name, tr.info)
-                    } else {
-                        name.0.clone()
-                    };
-                    line = line.name(legend_label.clone());
-                    plot_ui.line(line);
 
-                    // Optional point markers for each datapoint
-                    if tr.look.show_points {
-                        if !pts_vec.is_empty() {
-                            let mut radius = tr.look.point_size.max(0.5);
-                            if let Some(hov) = &traces.hover_trace {
-                                if name == *hov {
-                                    radius = (radius * 1.25).max(radius + 0.5);
-                                }
-                            }
-                            let points = Points::new(legend_label, pts_vec.clone())
+                    plot_ui.line(
+                        Line::new(legend_label.clone(), derived.clone())
+                            .name(legend_label.clone())
+                            .color(color)
+                            .width(width)
+                            .style(style),
+                    );
+
+                    let highlight_newest = pair_look.highlight_newest_point;
+
+                    if pair_look.show_points {
+                        let radius = pair_look.point_size.max(0.5);
+                        plot_ui.points(
+                            Points::new(legend_label.clone(), derived.clone())
                                 .radius(radius)
-                                .shape(tr.look.marker)
-                                .color(color);
-                            plot_ui.points(points);
+                                .shape(pair_look.marker)
+                                .color(color),
+                        );
+                    }
+
+                    if highlight_newest {
+                        // Add a second pass for the newest point with increased size.
+                        let last = *derived.last().unwrap();
+                        let radius = (pair_look.point_size.max(0.5) * 2.0).max(2.0);
+                        plot_ui.points(
+                            Points::new(format!("{legend_label} (last)"), vec![last])
+                                .radius(radius)
+                                .shape(pair_look.marker)
+                                .color(color),
+                        );
+                    }
+                }
+            } else {
+                for name in self.data.trace_order.clone().into_iter() {
+                    if let Some(tr) = traces.get_trace(&name) {
+                        if !tr.look.visible {
+                            continue;
+                        }
+                        let shown_pts = match self.data.get_drawn_points(&name, traces) {
+                            Some(pts) => pts,
+                            None => continue,
+                        };
+                        let pts_vec: Vec<[f64; 2]> = shown_pts
+                            .into_iter()
+                            .map(|p| {
+                                let y_lin = p[1] + tr.offset;
+                                let y = if self.data.y_axis.log_scale {
+                                    if y_lin > 0.0 {
+                                        y_lin.log10()
+                                    } else {
+                                        f64::NAN
+                                    }
+                                } else {
+                                    y_lin
+                                };
+                                let x = if self.data.x_axis.log_scale {
+                                    if p[0] > 0.0 {
+                                        p[0].log10()
+                                    } else {
+                                        f64::NAN
+                                    }
+                                } else {
+                                    p[0]
+                                };
+                                [x, y]
+                            })
+                            .collect();
+                        let mut color = tr.look.color;
+                        let mut width: f32 = tr.look.width.max(0.1);
+                        let style = tr.look.style;
+                        if let Some(hov) = &traces.hover_trace {
+                            if name != *hov {
+                                // Strongly dim non-hovered traces
+                                color = Color32::from_rgba_unmultiplied(
+                                    color.r(),
+                                    color.g(),
+                                    color.b(),
+                                    40,
+                                );
+                            } else {
+                                // Emphasize hovered trace
+                                width = (width * 1.6).max(width + 1.0);
+                            }
+                        }
+                        let mut line = Line::new(name.clone(), pts_vec.clone())
+                            .color(color)
+                            .width(width)
+                            .style(style);
+                        let legend_label = if self.data.show_info_in_legend && !tr.info.is_empty() {
+                            format!("{} — {}", name, tr.info)
+                        } else {
+                            name.0.clone()
+                        };
+                        line = line.name(legend_label.clone());
+                        plot_ui.line(line);
+
+                        // Optional point markers for each datapoint
+                        if tr.look.show_points {
+                            if !pts_vec.is_empty() {
+                                let mut radius = tr.look.point_size.max(0.5);
+                                if let Some(hov) = &traces.hover_trace {
+                                    if name == *hov {
+                                        radius = (radius * 1.25).max(radius + 0.5);
+                                    }
+                                }
+                                let points = Points::new(legend_label, pts_vec.clone())
+                                    .radius(radius)
+                                    .shape(tr.look.marker)
+                                    .color(color);
+                                plot_ui.points(points);
+                            }
                         }
                     }
                 }

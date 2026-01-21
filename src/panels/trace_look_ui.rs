@@ -61,6 +61,8 @@ pub fn render_trace_look_editor(look: &mut TraceLook, ui: &mut Ui, allow_points:
     if allow_points {
         ui.separator();
         ui.checkbox(&mut look.show_points, "Points");
+        ui.checkbox(&mut look.highlight_newest_point, "Highlight newest point")
+            .on_hover_text("Draw the newest sample as a larger marker in XY scopes");
         ui.horizontal(|ui| {
             ui.label("Size");
             ui.add_enabled(

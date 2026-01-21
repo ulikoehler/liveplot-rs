@@ -45,7 +45,7 @@ window_control_display_info = [
 tiles = ["dep:egui_tiles"]
 
 [dependencies]
-eframe = "0.33"
+eframe = { version = "0.33", features = ["wgpu"] }
 egui = "0.33"
 egui_plot = "0.34"
 egui_tiles = { version = "0.14", optional = true }

@@ -89,4 +89,7 @@
         "cfenv": "cpp"
     },
     "rust-analyzer.initializeStopped": true,
+    "chat.tools.terminal.autoApprove": {
+        "cargo fmt": true
+    },
 }
