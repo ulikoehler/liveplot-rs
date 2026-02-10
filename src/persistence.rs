@@ -7,6 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::data::math::MathTrace;
 use crate::data::scope::{AxisSettings, ScopeData, ScopeType};
 use crate::data::thresholds::{ThresholdDef, ThresholdKind};
 use crate::data::trace_look::TraceLook;
@@ -317,6 +318,14 @@ impl ThresholdSerde {
     }
 }
 
+/// Serializable XY pair entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XYPairSerde {
+    pub x: Option<String>,
+    pub y: Option<String>,
+    pub look: TraceLookSerde,
+}
+
 /// Serializable scope state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScopeStateSerde {
@@ -326,6 +335,18 @@ pub struct ScopeStateSerde {
     pub scope_is_xy: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
+    /// Scope id (for multi-scope layouts).
+    #[serde(default)]
+    pub id: Option<usize>,
+    /// Scope display name.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Ordered list of trace names assigned to this scope (time-scope mode).
+    #[serde(default)]
+    pub trace_order: Vec<String>,
+    /// XY pair assignments (xy-scope mode).
+    #[serde(default)]
+    pub xy_pairs: Vec<XYPairSerde>,
 }
 
 impl From<&ScopeData> for ScopeStateSerde {
@@ -337,6 +358,18 @@ impl From<&ScopeData> for ScopeStateSerde {
             scope_is_xy: matches!(s.scope_type, ScopeType::XYScope),
             show_legend: s.show_legend,
             show_info_in_legend: s.show_info_in_legend,
+            id: Some(s.id),
+            name: Some(s.name.clone()),
+            trace_order: s.trace_order.iter().map(|t| t.0.clone()).collect(),
+            xy_pairs: s
+                .xy_pairs
+                .iter()
+                .map(|(x, y, look)| XYPairSerde {
+                    x: x.as_ref().map(|t| t.0.clone()),
+                    y: y.as_ref().map(|t| t.0.clone()),
+                    look: TraceLookSerde::from(look),
+                })
+                .collect(),
         }
     }
 }
@@ -354,6 +387,19 @@ impl ScopeStateSerde {
         };
         scope.show_legend = self.show_legend;
         scope.show_info_in_legend = self.show_info_in_legend;
+        if let Some(name) = self.name {
+            scope.name = name;
+        }
+        if !self.trace_order.is_empty() {
+            scope.trace_order = self.trace_order.into_iter().map(TraceRef).collect();
+        }
+        if !self.xy_pairs.is_empty() {
+            scope.xy_pairs = self
+                .xy_pairs
+                .into_iter()
+                .map(|p| (p.x.map(TraceRef), p.y.map(TraceRef), p.look.into_look()))
+                .collect();
+        }
     }
 }
 
@@ -372,11 +418,35 @@ pub struct PanelVisSerde {
 pub struct AppStateSerde {
     pub window_size: Option<[f32; 2]>,
     pub window_pos: Option<[f32; 2]>,
-    pub scope: ScopeStateSerde,
+    /// Legacy single-scope field for backward compatibility.
+    #[serde(default, skip_serializing)]
+    pub scope: Option<ScopeStateSerde>,
+    /// All scope states (replaces `scope` for new saves).
+    #[serde(default)]
+    pub scopes: Vec<ScopeStateSerde>,
     pub panels: Vec<PanelVisSerde>,
     pub traces_style: Vec<TraceStyleSerde>,
     pub thresholds: Vec<ThresholdSerde>,
     pub triggers: Vec<TriggerSerde>,
+    /// Math trace definitions.
+    #[serde(default)]
+    pub math_traces: Vec<MathTrace>,
+    /// Next scope index counter for consistent naming.
+    #[serde(default)]
+    pub next_scope_idx: Option<usize>,
+}
+
+impl AppStateSerde {
+    /// Get all scope states, migrating legacy single-scope format if needed.
+    pub fn all_scopes(&self) -> Vec<ScopeStateSerde> {
+        if !self.scopes.is_empty() {
+            self.scopes.clone()
+        } else if let Some(s) = &self.scope {
+            vec![s.clone()]
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 impl Default for AppStateSerde {
@@ -384,7 +454,8 @@ impl Default for AppStateSerde {
         Self {
             window_size: None,
             window_pos: None,
-            scope: ScopeStateSerde {
+            scope: None,
+            scopes: vec![ScopeStateSerde {
                 x_axis: AxisSettingsSerde {
                     unit: None,
                     axis_type: "time".to_string(),
@@ -407,11 +478,17 @@ impl Default for AppStateSerde {
                 scope_is_xy: false,
                 show_legend: true,
                 show_info_in_legend: false,
-            },
+                id: Some(0),
+                name: Some("Scope".to_string()),
+                trace_order: Vec::new(),
+                xy_pairs: Vec::new(),
+            }],
             panels: Vec::new(),
             traces_style: Vec::new(),
             thresholds: Vec::new(),
             triggers: Vec::new(),
+            math_traces: Vec::new(),
+            next_scope_idx: None,
         }
     }
 }

@@ -23,6 +23,21 @@ impl Default for LiveplotPanel {
 }
 
 impl LiveplotPanel {
+    /// Get immutable references to all scope data, sorted by id.
+    pub fn get_data(&self) -> Vec<&ScopeData> {
+        let mut scopes_data: Vec<&ScopeData> = self
+            .tree
+            .tiles
+            .tiles()
+            .filter_map(|tile| match tile {
+                Tile::Pane(pane) => Some(pane.get_data()),
+                _ => None,
+            })
+            .collect();
+        scopes_data.sort_by_key(|s| s.id);
+        scopes_data
+    }
+
     pub fn get_data_mut(&mut self) -> Vec<&mut ScopeData> {
         let scopes_data: Vec<&mut ScopeData> = self
             .tree
@@ -236,6 +251,61 @@ impl LiveplotPanel {
             return true;
         }
         false
+    }
+
+    /// Return the current next_scope_idx counter.
+    pub fn next_scope_idx(&self) -> usize {
+        self.next_scope_idx
+    }
+
+    /// Replace all scope panels with the given scope data states.
+    ///
+    /// Existing scopes are cleared and new ScopePanels are created with the
+    /// provided data. `next_idx` restores the counter so new scopes get
+    /// non-colliding ids.
+    pub fn restore_scopes(
+        &mut self,
+        scope_states: Vec<crate::persistence::ScopeStateSerde>,
+        next_idx: Option<usize>,
+    ) {
+        if scope_states.is_empty() {
+            return;
+        }
+
+        // Remove all existing panes
+        let _pane_ids: Vec<TileId> = self
+            .tree
+            .tiles
+            .iter()
+            .filter_map(|(id, tile)| match tile {
+                Tile::Pane(_) => Some(*id),
+                _ => None,
+            })
+            .collect();
+
+        // Clear tree
+        self.tree = Tree::new(
+            "liveplot_scopes",
+            TileId::from_u64(0), // dummy, replaced below
+            Tiles::default(),
+        );
+
+        // Create scope panels from the saved states
+        let mut tile_ids = Vec::new();
+        let mut max_id: usize = 0;
+        for ss in scope_states {
+            let scope_id = ss.id.unwrap_or(max_id);
+            max_id = max_id.max(scope_id + 1);
+            let mut panel = ScopePanel::new(scope_id);
+            ss.apply_to(panel.get_data_mut());
+            let tid = self.tree.tiles.insert_pane(panel);
+            tile_ids.push(tid);
+        }
+
+        let root = self.tree.tiles.insert_tab_tile(tile_ids);
+        self.tree.root = Some(root);
+
+        self.next_scope_idx = next_idx.unwrap_or(max_id);
     }
 }
 

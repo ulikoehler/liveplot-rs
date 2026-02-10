@@ -105,8 +105,11 @@ impl Panel for MeasurementPanel {
                 }
                 self.last_clicked_point = Some(point);
 
+                // Only set measurement points when at least one measurement
+                // exists. If none exist, the click just toggles pause (handled
+                // by scope_ui) and we skip measurement processing.
                 if self.measurements.is_empty() {
-                    self.measurements.push(Measurement::default());
+                    continue;
                 }
 
                 // Choose target measurement index safely to avoid borrow conflicts
@@ -414,7 +417,7 @@ impl Panel for MeasurementPanel {
                 self.selected_measurement = Some(self.measurements.len() - 1);
                 self.selected_point_index = None;
             }
-            if ui.button("X Clear All").clicked() {
+            if ui.button("{BROOM} Clear All").clicked() {
                 for m in &mut self.measurements {
                     m.clear();
                 }

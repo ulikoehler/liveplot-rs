@@ -275,15 +275,16 @@ impl ScopeData {
     fn live_update(&mut self, traces: &TracesCollection) {
         if self.scope_type == ScopeType::TimeScope {
             if !self.paused {
-                let now = if let Some((_name, trace)) = traces.traces_iter().next() {
-                    if let Some(last) = trace.live.back() {
-                        last[0]
-                    } else {
-                        self.time_window
-                    }
-                } else {
-                    self.time_window
-                };
+                // Use only traces assigned to this scope to determine the current time
+                let now = self
+                    .trace_order
+                    .iter()
+                    .filter_map(|name| traces.get_trace(name))
+                    .filter_map(|trace| trace.live.back().map(|last| last[0]))
+                    .fold(None, |acc: Option<f64>, val| {
+                        Some(acc.map_or(val, |a: f64| a.max(val)))
+                    })
+                    .unwrap_or(self.time_window);
                 let time_lower = now - self.time_window;
                 self.x_axis.bounds = (time_lower, now);
             } else {
@@ -351,7 +352,10 @@ impl ScopeData {
 
         let mut min_x = f64::MAX;
         let mut max_x = f64::MIN;
-        for (_name, trace) in traces.traces_iter() {
+        for name in self.trace_order.iter() {
+            let Some(trace) = traces.get_trace(name) else {
+                continue;
+            };
             if !trace.look.visible {
                 continue;
             }
@@ -449,7 +453,10 @@ impl ScopeData {
         let mut min_y = f64::MAX;
         let mut max_y = f64::MIN;
         let x_bounds = self.x_axis.bounds;
-        for (_name, trace) in traces.traces_iter() {
+        for name in self.trace_order.iter() {
+            let Some(trace) = traces.get_trace(name) else {
+                continue;
+            };
             if !trace.look.visible {
                 continue;
             }

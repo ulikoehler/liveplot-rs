@@ -106,6 +106,18 @@ impl ScopeSettingsUiPanel {
         });
 
         ui.horizontal(|ui| {
+            ui.checkbox(&mut scope.show_legend, "Legend")
+                .on_hover_text("Show the plot legend");
+            if !scope.show_legend {
+                scope.show_info_in_legend = false;
+            }
+            ui.add_enabled_ui(scope.show_legend, |ui| {
+                ui.checkbox(&mut scope.show_info_in_legend, "Info")
+                    .on_hover_text("Append each trace's info text to its legend label");
+            });
+        });
+
+        ui.horizontal(|ui| {
             let time_sel = scope.scope_type == ScopeType::TimeScope;
             if ui
                 .selectable_label(time_sel, "Time-Scope")
@@ -485,15 +497,33 @@ impl ScopeSettingsUiPanel {
                 let mut tmp: Vec<Option<TraceRef>> =
                     scope.trace_order.iter().cloned().map(Some).collect();
 
+                // Build a trace→color map keyed by TraceRef so that removals
+                // and reorders inside render_trace_list don't misalign colors.
+                let color_map: HashMap<TraceRef, Color32> = tmp
+                    .iter()
+                    .filter_map(|t| t.as_ref())
+                    .filter_map(|t| {
+                        traces_collection
+                            .get_trace(t)
+                            .map(|tr| (t.clone(), tr.look.color))
+                    })
+                    .collect();
+
                 let mut colors: Vec<Color32> = tmp
                     .iter()
                     .map(|t| {
                         t.as_ref()
-                            .and_then(|t| traces_collection.get_trace(t))
-                            .map(|tr| tr.look.color)
+                            .and_then(|t| color_map.get(t).copied())
                             .unwrap_or(Color32::WHITE)
                     })
                     .collect();
+
+                // Snapshot the trace order before rendering so we can map
+                // color-chooser edits (indexed on the original order) back
+                // to traces by identity after render_trace_list may have
+                // removed or reordered entries.
+                let pre_render_order: Vec<Option<TraceRef>> = tmp.clone();
+
                 let color_refs: Vec<&mut Color32> = colors.iter_mut().collect();
 
                 let mut open_editor_idx = usize::MAX;
@@ -512,11 +542,20 @@ impl ScopeSettingsUiPanel {
                     Some(&mut open_editor_idx),
                 );
 
-                // Apply edited colors back.
-                for (idx, t) in tmp.iter().enumerate() {
-                    let Some(tr) = t.as_ref() else { continue };
-                    if let Some(tr_state) = traces_collection.get_trace_mut(tr) {
-                        tr_state.look.color = colors[idx];
+                // Apply edited colors back by TraceRef identity.
+                // The colors vec is indexed by the *pre-render* order
+                // (before any removals), so pair each color with the
+                // trace that was at that position before rendering.
+                let edited_colors: HashMap<TraceRef, Color32> = pre_render_order
+                    .iter()
+                    .zip(colors.iter())
+                    .filter_map(|(t, &c)| t.as_ref().map(|t| (t.clone(), c)))
+                    .collect();
+                for t in tmp.iter().flatten() {
+                    if let Some(&color) = edited_colors.get(t) {
+                        if let Some(tr_state) = traces_collection.get_trace_mut(t) {
+                            tr_state.look.color = color;
+                        }
                     }
                 }
 
@@ -571,7 +610,6 @@ impl ScopeSettingsUiPanel {
                                 look_vec.iter().map(|l| l.color).collect();
                             let color_refs: Vec<&mut Color32> = colors.iter_mut().collect();
 
-
                             let (changed, dropped) = Self::render_trace_list(
                                 ui,
                                 ("xy_scope_x", scope.id),
@@ -583,7 +621,7 @@ impl ScopeSettingsUiPanel {
                                 "Drop X trace here",
                                 true,
                                 Some(color_refs),
-                                None
+                                None,
                             );
                             scope_changed |= changed;
 
@@ -597,7 +635,6 @@ impl ScopeSettingsUiPanel {
                                 }
                             }
 
-                            
                             if let Some(dropped) = dropped {
                                 let (idx, payload) = dropped;
                                 let was_empty =
@@ -644,7 +681,6 @@ impl ScopeSettingsUiPanel {
                                 *look_editor_out = None;
                                 *xy_pair_look_editor_out = Some((scope.id, open_editor_idx));
                             }
-
 
                             if let Some(dropped) = dropped {
                                 let (idx, payload) = dropped;

@@ -67,6 +67,8 @@ pub enum PlotCommand {
         x_max: f64,
         f: YTransform,
     },
+    /// Update the info string for an existing trace (by ID).
+    SetTraceInfo { trace_id: TraceId, info: String },
     /// Remove all data points for the given trace (resulting trace is empty).
     ClearData { trace_id: TraceId },
     /// Replace the entire data vector for the given trace with the provided points.
@@ -108,6 +110,14 @@ impl PlotSink {
             name,
             info: info_str,
         }
+    }
+
+    /// Update the info string for an existing trace.
+    pub fn set_trace_info(&self, trace: &Trace, info: String) {
+        let _ = self.tx.send(PlotCommand::SetTraceInfo {
+            trace_id: trace.id,
+            info,
+        });
     }
 
     /// Send a single `PlotPoint` for a given `Trace`.

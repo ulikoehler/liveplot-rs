@@ -12,7 +12,6 @@ use crate::controllers::{
 use crate::data::export;
 use crate::data::hotkeys as hotkey_helpers;
 use crate::data::hotkeys::Hotkeys;
-use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceRef, TracesCollection};
 use egui_phosphor::regular::BROOM;
 
@@ -973,11 +972,13 @@ impl MainPanel {
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
                 };
-                let scope_state = if let Some(scope) = live_data.primary_scope() {
-                    crate::persistence::ScopeStateSerde::from(scope)
-                } else {
-                    crate::persistence::ScopeStateSerde::from(&ScopeData::default())
-                };
+
+                // Save all scopes
+                let scope_states: Vec<crate::persistence::ScopeStateSerde> = live_data
+                    .scope_data
+                    .iter()
+                    .map(|s| crate::persistence::ScopeStateSerde::from(&**s))
+                    .collect();
 
                 // Helper to convert Panel::state() to PanelVisSerde
                 let mut panels_state: Vec<crate::persistence::PanelVisSerde> = Vec::new();
@@ -1007,26 +1008,45 @@ impl MainPanel {
                     push_panel(p);
                 }
 
-                // Trace styles: snapshot & convert to serializable form to avoid long-lived borrows
-                let order = live_data
-                    .primary_scope()
-                    .map(|s| s.trace_order.clone())
-                    .unwrap_or_default();
+                // Trace styles from all scopes
                 let trace_styles: Vec<crate::persistence::TraceStyleSerde> = {
+                    let mut seen = std::collections::HashSet::new();
                     let mut snapshot: Vec<(String, crate::data::trace_look::TraceLook, f64)> =
                         Vec::new();
-                    for name in order.iter() {
-                        if let Some(tr) = live_data.traces.get_trace(name) {
-                            snapshot.push((name.0.clone(), tr.look.clone(), tr.offset));
+                    for scope in live_data.scope_data.iter() {
+                        for name in scope.trace_order.iter() {
+                            if seen.insert(name.0.clone()) {
+                                if let Some(tr) = live_data.traces.get_trace(name) {
+                                    snapshot.push((name.0.clone(), tr.look.clone(), tr.offset));
+                                }
+                            }
                         }
                     }
-                    let mut out: Vec<crate::persistence::TraceStyleSerde> = Vec::new();
-                    for (n, look, off) in snapshot.into_iter() {
-                        out.push(crate::persistence::TraceStyleSerde {
+                    snapshot
+                        .into_iter()
+                        .map(|(n, look, off)| crate::persistence::TraceStyleSerde {
                             name: n,
                             look: crate::persistence::TraceLookSerde::from(&look),
                             offset: off,
-                        });
+                        })
+                        .collect()
+                };
+
+                // Math traces: extract from MathPanel
+                let math_traces_ser: Vec<crate::data::math::MathTrace> = {
+                    let mut out = Vec::new();
+                    for p in self
+                        .left_side_panels
+                        .iter()
+                        .chain(self.right_side_panels.iter())
+                        .chain(self.bottom_panels.iter())
+                        .chain(self.detached_panels.iter())
+                        .chain(self.empty_panels.iter())
+                    {
+                        let any: &dyn Panel = &**p;
+                        if let Some(mp) = any.downcast_ref::<crate::panels::math_ui::MathPanel>() {
+                            out.extend(mp.get_math_traces().iter().cloned());
+                        }
                     }
                     out
                 };
@@ -1063,11 +1083,14 @@ impl MainPanel {
                 let state = crate::persistence::AppStateSerde {
                     window_size: win_size,
                     window_pos: win_pos,
-                    scope: scope_state,
+                    scope: None,
+                    scopes: scope_states,
                     panels: panels_state,
                     traces_style: trace_styles,
                     thresholds: thresholds_ser,
                     triggers: triggers_ser,
+                    math_traces: math_traces_ser,
+                    next_scope_idx: Some(self.liveplot_panel.next_scope_idx()),
                 };
 
                 let _ = crate::persistence::save_state_to_path(&state, &path);
@@ -1081,14 +1104,12 @@ impl MainPanel {
                             egui::Vec2::new(sz[0], sz[1]),
                         ));
                     }
-                    // Scope: apply to scope data
-                    let mut live_data = LivePlotData {
-                        scope_data: self.liveplot_panel.get_data_mut(),
-                        traces: &mut self.traces_data,
-                        pending_requests: &mut self.pending_requests,
-                    };
-                    if let Some(scope) = live_data.primary_scope_mut() {
-                        loaded.scope.clone().apply_to(scope);
+
+                    // Restore all scopes (or fall back to legacy single-scope)
+                    let scope_states = loaded.all_scopes();
+                    if !scope_states.is_empty() {
+                        self.liveplot_panel
+                            .restore_scopes(scope_states, loaded.next_scope_idx);
                     }
 
                     // Panels: match by title and set visible/detached/pos/size
@@ -1121,16 +1142,42 @@ impl MainPanel {
                     }
 
                     // Apply traces styles
-                    crate::persistence::apply_trace_styles(
-                        &loaded.traces_style,
-                        |name, look, off| {
-                            let tref = TraceRef(name.to_string());
-                            if let Some(tr) = live_data.traces.get_trace_mut(&tref) {
-                                tr.look = look;
-                                tr.offset = off;
+                    {
+                        let live_data = LivePlotData {
+                            scope_data: self.liveplot_panel.get_data_mut(),
+                            traces: &mut self.traces_data,
+                            pending_requests: &mut self.pending_requests,
+                        };
+                        crate::persistence::apply_trace_styles(
+                            &loaded.traces_style,
+                            |name, look, off| {
+                                let tref = TraceRef(name.to_string());
+                                if let Some(tr) = live_data.traces.get_trace_mut(&tref) {
+                                    tr.look = look;
+                                    tr.offset = off;
+                                }
+                            },
+                        );
+                    }
+
+                    // Apply math traces
+                    if !loaded.math_traces.is_empty() {
+                        for p in self
+                            .left_side_panels
+                            .iter_mut()
+                            .chain(self.right_side_panels.iter_mut())
+                            .chain(self.bottom_panels.iter_mut())
+                            .chain(self.detached_panels.iter_mut())
+                            .chain(self.empty_panels.iter_mut())
+                        {
+                            let any: &mut dyn Panel = &mut **p;
+                            if let Some(mp) =
+                                any.downcast_mut::<crate::panels::math_ui::MathPanel>()
+                            {
+                                mp.set_math_traces(loaded.math_traces.clone());
                             }
-                        },
-                    );
+                        }
+                    }
 
                     // Apply thresholds and triggers to specialized panels
                     for p in self

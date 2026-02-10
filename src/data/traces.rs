@@ -178,6 +178,14 @@ impl TracesCollection {
                             entry.info = inf;
                         }
                     }
+                    PlotCommand::SetTraceInfo { trace_id, info } => {
+                        if let Some(name) = self.id_to_name.get(&trace_id) {
+                            let tref = TraceRef(name.clone());
+                            if let Some(entry) = self.traces.get_mut(&tref) {
+                                entry.info = info;
+                            }
+                        }
+                    }
                     PlotCommand::Point { trace_id, point } => {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                             let tref = TraceRef(name);

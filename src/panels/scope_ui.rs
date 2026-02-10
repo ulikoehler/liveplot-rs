@@ -67,6 +67,10 @@ impl ScopePanel {
         &mut self.data
     }
 
+    pub fn get_data(&self) -> &ScopeData {
+        &self.data
+    }
+
     pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
         ui.checkbox(&mut self.controlls_in_toolbar, "Controls in Toolbar");
 
@@ -76,8 +80,15 @@ impl ScopePanel {
 
         ui.separator();
 
-        ui.checkbox(&mut self.data.show_info_in_legend, "Show info in Legend")
-            .on_hover_text("Append each trace's info text to its legend label");
+        ui.checkbox(&mut self.data.show_legend, "Show Legend")
+            .on_hover_text("Show or hide the plot legend");
+        if !self.data.show_legend {
+            self.data.show_info_in_legend = false;
+        }
+        ui.add_enabled_ui(self.data.show_legend, |ui| {
+            ui.checkbox(&mut self.data.show_info_in_legend, "Show Info")
+                .on_hover_text("Append each trace's info text to its legend label");
+        });
     }
 
     pub fn render_panel<F>(
@@ -332,11 +343,14 @@ impl ScopePanel {
 
         let y_log = self.data.y_axis.log_scale;
         let x_log = self.data.x_axis.log_scale;
-        let plot = Plot::new(format!("scope_plot_{}", self.data.name))
+        let mut plot = Plot::new(format!("scope_plot_{}", self.data.name))
             .allow_scroll(false)
             .allow_zoom(false)
-            .allow_boxed_zoom(true)
-            .legend(Legend::default())
+            .allow_boxed_zoom(true);
+        if self.data.show_legend {
+            plot = plot.legend(Legend::default());
+        }
+        let plot = plot
             .x_axis_formatter(|x, _range| {
                 let x_value = if x_log { 10f64.powf(x.value) } else { x.value };
                 self.data.x_axis.format_value(x_value, 4, x.step_size.abs())
@@ -620,6 +634,58 @@ impl ScopePanel {
         }
 
         self.handle_plot_click(&plot_resp, traces);
+
+        // Handle drag-drop of traces from the traces list onto the scope plot.
+        self.handle_trace_drop(ui, &plot_resp.response);
+    }
+
+    /// Accept trace drops from the main traces table drag.
+    fn handle_trace_drop(&mut self, ui: &mut Ui, plot_response: &egui::Response) {
+        use super::scope_settings_ui::DragPayload;
+
+        let drag_payload: Option<DragPayload> = ui
+            .ctx()
+            .data(|d| d.get_temp(egui::Id::new("liveplot_active_trace_drag")));
+
+        if let Some(payload) = drag_payload {
+            // Check if the pointer was released over this plot area
+            let released = ui.ctx().input(|i| i.pointer.any_released());
+            let hovered = plot_response.rect.contains(
+                ui.ctx()
+                    .pointer_latest_pos()
+                    .unwrap_or(egui::Pos2::new(-1.0, -1.0)),
+            );
+
+            if released && hovered {
+                let trace = payload.trace;
+                // Add the trace if not already in this scope
+                if !self.data.trace_order.iter().any(|t| t == &trace) {
+                    self.data.trace_order.push(trace.clone());
+                }
+                // If dragged from another scope, remove from origin
+                if let Some(origin_id) = payload.origin_scope_id {
+                    if origin_id != self.data.id {
+                        // We can't directly remove from the origin scope here since
+                        // we don't have mutable access to it. Instead mark this as
+                        // a move so the caller can handle the removal.
+                        // For now, just add to this scope; the origin removal is
+                        // handled by scope_settings_ui's existing drop logic.
+                    }
+                }
+                // Clear the drag payload so other scopes don't also consume it
+                ui.ctx().data_mut(|d| {
+                    d.remove::<DragPayload>(egui::Id::new("liveplot_active_trace_drag"));
+                });
+            } else if hovered && !released {
+                // Visual feedback: highlight the plot border while dragging over it
+                ui.painter().rect_stroke(
+                    plot_response.rect,
+                    4.0,
+                    egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 255)),
+                    egui::StrokeKind::Outside,
+                );
+            }
+        }
     }
 
     /// Handle click selection on the plot using nearest point logic.
@@ -632,34 +698,37 @@ impl ScopePanel {
         if plot_response.response.double_clicked() {
             self.data.fit_bounds(traces);
         } else if plot_response.response.clicked() {
-            if !self.data.paused {
+            if self.data.paused {
+                // Already paused – resume on click.
+                self.data.paused = false;
+            } else {
                 self.data.paused = true;
                 traces.take_snapshot();
-            }
 
-            if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
-                let transform = plot_response.transform;
-                let plot_pos = transform.value_from_position(screen_pos);
+                if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                    let transform = plot_response.transform;
+                    let plot_pos = transform.value_from_position(screen_pos);
 
-                let x_plot = if self.data.x_axis.log_scale {
-                    if plot_pos.x > 0.0 {
-                        plot_pos.x.log10()
+                    let x_plot = if self.data.x_axis.log_scale {
+                        if plot_pos.x > 0.0 {
+                            plot_pos.x.log10()
+                        } else {
+                            plot_pos.x
+                        }
                     } else {
                         plot_pos.x
-                    }
-                } else {
-                    plot_pos.x
-                };
-                let y_plot = if self.data.y_axis.log_scale {
-                    if plot_pos.y > 0.0 {
-                        plot_pos.y.log10()
+                    };
+                    let y_plot = if self.data.y_axis.log_scale {
+                        if plot_pos.y > 0.0 {
+                            plot_pos.y.log10()
+                        } else {
+                            plot_pos.y
+                        }
                     } else {
                         plot_pos.y
-                    }
-                } else {
-                    plot_pos.y
-                };
-                self.data.clicked_point = Some([x_plot, y_plot]);
+                    };
+                    self.data.clicked_point = Some([x_plot, y_plot]);
+                }
             }
         }
     }
