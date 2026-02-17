@@ -19,8 +19,8 @@ impl Default for MeasurementPanel {
     fn default() -> Self {
         Self {
             state: PanelState::new("Measurement", "📏"),
-            measurements: vec![Measurement::new("M1")],
-            selected_measurement: Some(0),
+            measurements: Vec::new(),
+            selected_measurement: None,
             selected_point_index: None,
             last_clicked_point: None,
             hovered_measurement: None,
