@@ -417,7 +417,7 @@ impl Panel for MeasurementPanel {
                 self.selected_measurement = Some(self.measurements.len() - 1);
                 self.selected_point_index = None;
             }
-            if ui.button("{BROOM} Clear All").clicked() {
+            if ui.button(format!("{} Clear All", BROOM)).clicked() {
                 for m in &mut self.measurements {
                     m.clear();
                 }
