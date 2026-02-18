@@ -1141,21 +1141,12 @@ impl MainPanel {
                         apply_panel_state(p);
                     }
 
-                    // Apply traces styles
+                    // Apply traces styles (uses pending_styles for traces not yet created)
                     {
-                        let live_data = LivePlotData {
-                            scope_data: self.liveplot_panel.get_data_mut(),
-                            traces: &mut self.traces_data,
-                            pending_requests: &mut self.pending_requests,
-                        };
                         crate::persistence::apply_trace_styles(
                             &loaded.traces_style,
                             |name, look, off| {
-                                let tref = TraceRef(name.to_string());
-                                if let Some(tr) = live_data.traces.get_trace_mut(&tref) {
-                                    tr.look = look;
-                                    tr.offset = off;
-                                }
+                                self.traces_data.set_pending_style(name, look, off);
                             },
                         );
                     }

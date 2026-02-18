@@ -123,6 +123,10 @@ pub struct TracesCollection {
     rx: Option<std::sync::mpsc::Receiver<PlotCommand>>,
     /// Mapping from numeric trace ID to trace name (for PlotCommand API)
     id_to_name: HashMap<u32, String>,
+    /// Pending styles for traces that haven't been created yet.
+    /// When a trace is loaded from a saved state, the style is stored here
+    /// until the trace is created from incoming data.
+    pending_styles: HashMap<String, (TraceLook, f64)>,
 }
 
 impl Default for TracesCollection {
@@ -134,6 +138,7 @@ impl Default for TracesCollection {
             hover_trace: None,
             rx: None,
             id_to_name: HashMap::new(),
+            pending_styles: HashMap::new(),
         }
     }
 }
@@ -149,6 +154,20 @@ impl TracesCollection {
         self.rx = Some(rx);
     }
 
+    /// Store a pending style for a trace that may not exist yet.
+    /// When the trace is created from incoming data, this style will be applied
+    /// instead of the default palette color.
+    pub fn set_pending_style(&mut self, name: &str, look: TraceLook, offset: f64) {
+        // If the trace already exists, apply immediately
+        let tref = TraceRef(name.to_string());
+        if let Some(tr) = self.traces.get_mut(&tref) {
+            tr.look = look;
+            tr.offset = offset;
+        } else {
+            self.pending_styles.insert(name.to_string(), (look, offset));
+        }
+    }
+
     fn update_rx(&mut self) -> Vec<TraceRef> {
         let mut new_traces: Vec<TraceRef> = Vec::new();
         if let Some(rx) = &self.rx {
@@ -158,13 +177,16 @@ impl TracesCollection {
                         self.id_to_name.insert(id, name.clone());
                         let tref = TraceRef(name.clone());
                         let new_index = self.traces.len();
+                        let pending = self.pending_styles.remove(name.as_str());
                         let entry = match self.traces.entry(tref.clone()) {
                             Entry::Occupied(entry) => entry.into_mut(),
                             Entry::Vacant(entry) => {
                                 new_traces.push(tref.clone());
+                                let (look, offset) =
+                                    pending.unwrap_or((TraceLook::new(new_index), 0.0));
                                 entry.insert(TraceData {
-                                    look: TraceLook::new(new_index),
-                                    offset: 0.0,
+                                    look,
+                                    offset,
                                     live: VecDeque::new(),
                                     snap: None,
                                     info: String::new(),
@@ -188,15 +210,18 @@ impl TracesCollection {
                     }
                     PlotCommand::Point { trace_id, point } => {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
-                            let tref = TraceRef(name);
+                            let tref = TraceRef(name.clone());
                             let new_index = self.traces.len();
+                            let pending = self.pending_styles.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
                                 Entry::Vacant(entry) => {
                                     new_traces.push(tref.clone());
+                                    let (look, offset) =
+                                        pending.unwrap_or((TraceLook::new(new_index), 0.0));
                                     entry.insert(TraceData {
-                                        look: TraceLook::new(new_index),
-                                        offset: 0.0,
+                                        look,
+                                        offset,
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
@@ -214,13 +239,16 @@ impl TracesCollection {
                             // Auto-register trace
                             let name = format!("trace-{}", trace_id);
                             self.id_to_name.insert(trace_id, name.clone());
-                            let tref = TraceRef(name);
+                            let tref = TraceRef(name.clone());
                             let new_index = self.traces.len();
+                            let pending = self.pending_styles.remove(name.as_str());
                             let entry = self.traces.entry(tref.clone()).or_insert_with(|| {
                                 new_traces.push(tref.clone());
+                                let (look, offset) =
+                                    pending.unwrap_or((TraceLook::new(new_index), 0.0));
                                 TraceData {
-                                    look: TraceLook::new(new_index),
-                                    offset: 0.0,
+                                    look,
+                                    offset,
                                     live: VecDeque::new(),
                                     snap: None,
                                     info: String::new(),
@@ -234,15 +262,18 @@ impl TracesCollection {
                     }
                     PlotCommand::Points { trace_id, points } => {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
-                            let tref = TraceRef(name);
+                            let tref = TraceRef(name.clone());
                             let new_index = self.traces.len();
+                            let pending = self.pending_styles.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
                                 Entry::Vacant(entry) => {
                                     new_traces.push(tref.clone());
+                                    let (look, offset) =
+                                        pending.unwrap_or((TraceLook::new(new_index), 0.0));
                                     entry.insert(TraceData {
-                                        look: TraceLook::new(new_index),
-                                        offset: 0.0,
+                                        look,
+                                        offset,
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
@@ -262,15 +293,18 @@ impl TracesCollection {
                     }
                     PlotCommand::SetData { trace_id, points } => {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
-                            let tref = TraceRef(name);
+                            let tref = TraceRef(name.clone());
                             let new_index = self.traces.len();
+                            let pending = self.pending_styles.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
                                 Entry::Vacant(entry) => {
                                     new_traces.push(tref.clone());
+                                    let (look, offset) =
+                                        pending.unwrap_or((TraceLook::new(new_index), 0.0));
                                     entry.insert(TraceData {
-                                        look: TraceLook::new(new_index),
-                                        offset: 0.0,
+                                        look,
+                                        offset,
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
@@ -408,11 +442,14 @@ impl TracesCollection {
 
     pub fn get_trace_or_new(&mut self, name: &TraceRef) -> &mut TraceData {
         if !self.traces.contains_key(name) {
+            let new_index = self.traces.len();
+            let pending = self.pending_styles.remove(name.as_ref());
+            let (look, offset) = pending.unwrap_or((TraceLook::new(new_index), 0.0));
             self.traces.insert(
                 name.clone(),
                 TraceData {
-                    look: TraceLook::new(self.traces.len()),
-                    offset: 0.0,
+                    look,
+                    offset,
                     live: VecDeque::new(),
                     snap: None,
                     info: String::new(),

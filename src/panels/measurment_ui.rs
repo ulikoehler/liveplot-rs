@@ -709,3 +709,26 @@ impl MeasurementPanel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_measurement_panel_has_no_measurements() {
+        let panel = MeasurementPanel::default();
+        assert!(
+            panel.measurements.is_empty(),
+            "Default panel should have no measurements"
+        );
+    }
+
+    #[test]
+    fn default_measurement_panel_has_no_selection() {
+        let panel = MeasurementPanel::default();
+        assert_eq!(
+            panel.selected_measurement, None,
+            "Default panel should have no selected measurement"
+        );
+    }
+}
