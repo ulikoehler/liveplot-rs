@@ -214,6 +214,9 @@ pub struct ScopeData {
 
     pub trace_order: Vec<TraceRef>,
     pub clicked_point: Option<[f64; 2]>,
+    /// When `true`, clicking while paused sets `clicked_point` without resuming.
+    /// Set by the measurement panel when measurements exist.
+    pub measurement_active: bool,
 }
 
 impl Default for ScopeData {
@@ -231,6 +234,7 @@ impl Default for ScopeData {
             show_info_in_legend: false,
             trace_order: Vec::new(),
             clicked_point: None,
+            measurement_active: false,
         }
     }
 }

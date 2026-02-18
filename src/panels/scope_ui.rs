@@ -699,8 +699,37 @@ impl ScopePanel {
             self.data.fit_bounds(traces);
         } else if plot_response.response.clicked() {
             if self.data.paused {
-                // Already paused – resume on click.
-                self.data.paused = false;
+                if self.data.measurement_active {
+                    // Measurement is active – set clicked point without resuming
+                    // so the measurement panel can pick up the new point.
+                    if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                        let transform = plot_response.transform;
+                        let plot_pos = transform.value_from_position(screen_pos);
+
+                        let x_plot = if self.data.x_axis.log_scale {
+                            if plot_pos.x > 0.0 {
+                                plot_pos.x.log10()
+                            } else {
+                                plot_pos.x
+                            }
+                        } else {
+                            plot_pos.x
+                        };
+                        let y_plot = if self.data.y_axis.log_scale {
+                            if plot_pos.y > 0.0 {
+                                plot_pos.y.log10()
+                            } else {
+                                plot_pos.y
+                            }
+                        } else {
+                            plot_pos.y
+                        };
+                        self.data.clicked_point = Some([x_plot, y_plot]);
+                    }
+                } else {
+                    // No measurement active – resume on click.
+                    self.data.paused = false;
+                }
             } else {
                 self.data.paused = true;
                 traces.take_snapshot();

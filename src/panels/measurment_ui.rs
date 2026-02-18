@@ -97,6 +97,13 @@ impl Panel for MeasurementPanel {
             data.pending_requests.clear_measurements = false;
         }
 
+        // Tell each scope whether a measurement is active so clicking while
+        // paused sets a clicked_point instead of resuming.
+        let has_measurements = !self.measurements.is_empty();
+        for scope in data.scope_data.iter_mut() {
+            scope.measurement_active = has_measurements;
+        }
+
         for scope in data.scope_data.iter_mut() {
             let scope = &mut **scope;
             if let Some(point) = scope.clicked_point {
