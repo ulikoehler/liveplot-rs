@@ -78,6 +78,16 @@ impl ScopePanel {
         self.data.name = n;
     }
 
+    /// Return whether the controls toolbar is currently visible for this scope.
+    pub fn controls_in_toolbar(&self) -> bool {
+        self.controlls_in_toolbar
+    }
+
+    /// Set whether the controls toolbar is visible for this scope.
+    pub fn set_controls_in_toolbar(&mut self, visible: bool) {
+        self.controlls_in_toolbar = visible;
+    }
+
     pub fn update_data(&mut self, traces: &TracesCollection) {
         self.data.update(traces);
     }

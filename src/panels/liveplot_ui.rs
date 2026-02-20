@@ -1,9 +1,9 @@
 use super::scope_ui::ScopePanel;
 use crate::data::scope::ScopeData;
 use crate::data::traces::TracesCollection;
-use egui::{Ui, WidgetText};
-use egui_phosphor::regular::{BROOM, PLUS};
-use egui_tiles::{Behavior, Container, Tabs, Tile, TileId, Tiles, Tree, UiResponse};
+use egui::{Stroke, Ui, Visuals, WidgetText};
+use egui_phosphor::regular::{BROOM, MINUS, PLUS, SIDEBAR};
+use egui_tiles::{Behavior, Container, TabState, Tabs, Tile, TileId, Tiles, Tree, UiResponse};
 
 pub struct LiveplotPanel {
     tree: Tree<ScopePanel>,
@@ -12,17 +12,34 @@ pub struct LiveplotPanel {
 
 impl Default for LiveplotPanel {
     fn default() -> Self {
-        let mut tiles = Tiles::default();
-        let root_pane = tiles.insert_pane(ScopePanel::new(0));
-        let root = tiles.insert_tab_tile(vec![root_pane]);
-        Self {
-            tree: Tree::new("liveplot_scopes", root, tiles),
-            next_scope_idx: 1,
-        }
+        Self::new_with_id("liveplot_scopes", 0)
     }
 }
 
 impl LiveplotPanel {
+    /// Create a new `LiveplotPanel` with a unique tree ID and scope name suffix.
+    ///
+    /// Use `new_with_id` when embedding multiple `LiveplotPanel` instances in the
+    /// same egui context to avoid widget ID collisions.
+    ///
+    /// - `tree_key`: used as a prefix in the egui tree ID so each instance gets
+    ///   its own pan/zoom state.
+    /// - `scope_id_offset`: added to the default scope index so the scope's plot
+    ///   ID (`scope_plot_<name>`) is unique across instances.
+    pub fn new_with_id(tree_key: impl std::hash::Hash, scope_id_offset: usize) -> Self {
+        let mut tiles = Tiles::default();
+        let mut scope = ScopePanel::new(0);
+        // Give the scope a name that includes the offset so the egui Plot ID is unique.
+        if scope_id_offset != 0 {
+            scope.set_name(format!("Scope 1 ({})", scope_id_offset));
+        }
+        let root_pane = tiles.insert_pane(scope);
+        let root = tiles.insert_tab_tile(vec![root_pane]);
+        Self {
+            tree: Tree::new(egui::Id::new(("liveplot_scopes", tree_key)), root, tiles),
+            next_scope_idx: 1,
+        }
+    }
     /// Get immutable references to all scope data, sorted by id.
     pub fn get_data(&self) -> Vec<&ScopeData> {
         let mut scopes_data: Vec<&ScopeData> = self
@@ -155,11 +172,30 @@ impl LiveplotPanel {
             return;
         }
 
+        // Check if any scope currently has controls visible (for the shared toggle button).
+        let any_controls_on = self
+            .tree
+            .tiles
+            .tiles()
+            .any(|t| matches!(t, Tile::Pane(p) if p.controls_in_toolbar()));
+
         let mut behavior = ScopeBehavior {
             draw_overlays,
             traces,
+            controls_currently_on: any_controls_on,
+            controls_toggle_pressed: false,
         };
         self.tree.ui(&mut behavior, ui);
+
+        // Apply the shared controls toggle if the button was pressed.
+        if behavior.controls_toggle_pressed {
+            let new_state = !behavior.controls_currently_on;
+            for tile in self.tree.tiles.tiles_mut() {
+                if let Tile::Pane(pane) = tile {
+                    pane.set_controls_in_toolbar(new_state);
+                }
+            }
+        }
     }
 
     pub fn add_scope(&mut self) -> usize {
@@ -319,7 +355,7 @@ impl LiveplotPanel {
 
         // Clear tree
         self.tree = Tree::new(
-            "liveplot_scopes",
+            egui::Id::new("liveplot_scopes_restore"),
             TileId::from_u64(0), // dummy, replaced below
             Tiles::default(),
         );
@@ -346,6 +382,10 @@ impl LiveplotPanel {
 struct ScopeBehavior<'a, F> {
     draw_overlays: F,
     traces: &'a mut TracesCollection,
+    /// Whether any scope currently has controls visible (used for the shared toggle button label).
+    controls_currently_on: bool,
+    /// Set to `true` when the shared controls toggle button is clicked.
+    controls_toggle_pressed: bool,
 }
 
 impl<'a, F> Behavior<ScopePanel> for ScopeBehavior<'a, F>
@@ -359,6 +399,51 @@ where
 
     fn tab_title_for_pane(&mut self, pane: &ScopePanel) -> WidgetText {
         pane.name().to_string().into()
+    }
+
+    /// Slightly taller tab bar for better readability.
+    fn tab_bar_height(&self, _style: &egui::Style) -> f32 {
+        28.0
+    }
+
+    /// Make active tab outline more prominent; show a subtle outline for inactive tabs too.
+    fn tab_outline_stroke(
+        &self,
+        visuals: &Visuals,
+        _tiles: &Tiles<ScopePanel>,
+        _tile_id: TileId,
+        state: &TabState,
+    ) -> Stroke {
+        if state.active {
+            Stroke::new(2.0, visuals.widgets.active.bg_fill)
+        } else {
+            Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color)
+        }
+    }
+
+    /// Thicker separator line between tab bar and content.
+    fn tab_bar_hline_stroke(&self, visuals: &Visuals) -> Stroke {
+        Stroke::new(2.0, visuals.widgets.noninteractive.bg_stroke.color)
+    }
+
+    /// Add a shared "Controls" toggle button on the right side of the tab bar.
+    fn top_bar_right_ui(
+        &mut self,
+        _tiles: &Tiles<ScopePanel>,
+        ui: &mut Ui,
+        _tile_id: TileId,
+        _tabs: &Tabs,
+        _scroll_offset: &mut f32,
+    ) {
+        let icon = if self.controls_currently_on { MINUS } else { SIDEBAR };
+        let label = format!("{icon} Controls");
+        if ui
+            .small_button(label)
+            .on_hover_text("Toggle plot controls for all scopes")
+            .clicked()
+        {
+            self.controls_toggle_pressed = true;
+        }
     }
 }
 

@@ -95,11 +95,17 @@ pub struct MainPanel {
 
 impl MainPanel {
     pub fn new(rx: std::sync::mpsc::Receiver<PlotCommand>) -> Self {
+        Self::new_with_id(rx, 0u64)
+    }
+
+    /// Create a `MainPanel` with a unique ID to avoid egui widget ID collisions
+    /// when multiple instances coexist in the same egui context.
+    pub fn new_with_id(rx: std::sync::mpsc::Receiver<PlotCommand>, id: impl std::hash::Hash + Copy) -> Self {
         let hotkeys = Rc::new(RefCell::new(Hotkeys::default()));
         Self {
             traces_data: TracesCollection::new(rx),
             hotkeys: hotkeys.clone(),
-            liveplot_panel: LiveplotPanel::default(),
+            liveplot_panel: LiveplotPanel::new_with_id(id, 0),
             right_side_panels: vec![
                 Box::new(TracesPanel::default()),
                 Box::new(MathPanel::default()),
