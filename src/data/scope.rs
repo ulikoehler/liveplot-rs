@@ -247,6 +247,9 @@ pub struct ScopeData {
     pub xy_pairs: Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)>,
     pub paused: bool,
     pub show_legend: bool,
+    /// When `true`, the legend is unconditionally hidden regardless of `show_legend`.
+    /// Useful for compact/embedded layouts where an overlay legend wastes space.
+    pub force_hide_legend: bool,
     pub show_info_in_legend: bool,
 
     pub trace_order: Vec<TraceRef>,
@@ -268,6 +271,7 @@ impl Default for ScopeData {
             xy_pairs: Vec::new(),
             paused: false,
             show_legend: true,
+            force_hide_legend: false,
             show_info_in_legend: false,
             trace_order: Vec::new(),
             clicked_point: None,

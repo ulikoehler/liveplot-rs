@@ -230,6 +230,15 @@ impl MainPanel {
         self.apply_controllers_embedded(ui.ctx());
     }
 
+    /// Programmatically trigger "Fit to View" (both X and Y axes) on every scope.
+    ///
+    /// Call this e.g. after a window resize to ensure all plots fill their bounds.
+    pub fn fit_all_bounds(&mut self) {
+        for scope in self.liveplot_panel.get_data_mut() {
+            scope.fit_bounds(&self.traces_data);
+        }
+    }
+
     fn update_data(&mut self) {
         // Process incoming plot commands; collect any newly created traces.
         let new_traces = self.traces_data.update();

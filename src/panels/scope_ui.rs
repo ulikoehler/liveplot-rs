@@ -365,8 +365,9 @@ impl ScopePanel {
         // stable and doesn't jump as sub-panels are toggled.
         let hide_y_labels = self.total_widget_size.x < self.min_width_for_y_ticklabels;
         let hide_x_labels = self.total_widget_size.y < self.min_height_for_x_ticklabels;
-        let hide_legend = (self.min_width_for_legend > 0.0
-            && self.total_widget_size.x < self.min_width_for_legend)
+        let hide_legend = self.data.force_hide_legend
+            || (self.min_width_for_legend > 0.0
+                && self.total_widget_size.x < self.min_width_for_legend)
             || (self.min_height_for_legend > 0.0
                 && self.total_widget_size.y < self.min_height_for_legend);
 

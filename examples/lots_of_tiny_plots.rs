@@ -66,6 +66,8 @@ impl TinyPlot {
         panel.min_height_for_sidebar = 0.0;
         for s in panel.liveplot_panel.get_data_mut() {
             s.time_window = 4.0;
+            // Force-hide the legend overlay to avoid wasting space in tiny cells
+            s.force_hide_legend = true;
         }
 
         // Attach a traces controller so we can request a color for this trace
@@ -92,6 +94,8 @@ impl TinyPlot {
 
 struct LotsOfTinyPlotsApp {
     plots: Vec<(TinyPlot, MainPanel)>,
+    /// Last known window size; used to detect resizes and trigger auto-fit.
+    last_window_size: egui::Vec2,
 }
 
 impl LotsOfTinyPlotsApp {
@@ -105,29 +109,33 @@ impl LotsOfTinyPlotsApp {
             let (p, mp) = TinyPlot::new(&label, phase, col);
             plots.push((p, mp));
         }
-        Self { plots }
+        Self {
+            plots,
+            last_window_size: egui::Vec2::ZERO,
+        }
     }
 
     fn render_grid(&mut self, ui: &mut egui::Ui) {
-        let spacing = ui.spacing().item_spacing;
-        let avail_w = ui.available_width();
-        let avail_h = ui.available_height();
-        // Divide available space evenly, accounting for inter-cell gaps.
-        let cell_w = ((avail_w - spacing.x * (COLS as f32 - 1.0)) / COLS as f32).max(1.0);
-        let cell_h = ((avail_h - spacing.y * (ROWS as f32 - 1.0)) / ROWS as f32).max(1.0);
+        // Claim the entire remaining area so the grid fills and resizes with the window.
+        let avail = ui.available_size();
+        let (grid_rect, _) = ui.allocate_exact_size(avail, egui::Sense::hover());
+
+        // Floor to whole pixels; use the grid_rect origin for pixel-aligned placement.
+        let cell_w = (grid_rect.width() / COLS as f32).floor().max(1.0);
+        let cell_h = (grid_rect.height() / ROWS as f32).floor().max(1.0);
 
         for row in 0..ROWS {
-            ui.horizontal(|ui| {
-                for col in 0..COLS {
-                    let idx = row * COLS + col;
-                    let (_p, panel) = &mut self.plots[idx];
-                    ui.push_id(idx, |ui| {
-                        ui.allocate_ui(egui::vec2(cell_w, cell_h), |ui| {
-                            panel.update_embedded(ui);
-                        });
-                    });
-                }
-            });
+            for col in 0..COLS {
+                let idx = row * COLS + col;
+                let x = (grid_rect.left() + col as f32 * cell_w).round();
+                let y = (grid_rect.top() + row as f32 * cell_h).round();
+                let cell_rect =
+                    egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(cell_w, cell_h));
+                let (_p, panel) = &mut self.plots[idx];
+                let mut child_ui =
+                    ui.new_child(egui::UiBuilder::new().id_salt(idx).max_rect(cell_rect));
+                panel.update_embedded(&mut child_ui);
+            }
         }
     }
 }
@@ -142,6 +150,15 @@ impl eframe::App for LotsOfTinyPlotsApp {
         for (p, _) in &self.plots {
             p.feed(t, freq);
         }
+
+        // Detect window resizes and auto-fit all plots when the size changes.
+        let current_size = ctx.input(|i| i.viewport_rect().size());
+        if self.last_window_size != egui::Vec2::ZERO && self.last_window_size != current_size {
+            for (_p, panel) in &mut self.plots {
+                panel.fit_all_bounds();
+            }
+        }
+        self.last_window_size = current_size;
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Lots of tiny sine plots — 20 × 15");
