@@ -82,7 +82,7 @@ impl LiveplotPanel {
         }
     }
 
-    pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
+    pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection, collapsed: bool) {
         let mut remove_target: Option<TileId> = None;
         let can_remove = self
             .tree
@@ -114,8 +114,9 @@ impl LiveplotPanel {
                 .unwrap_or(0usize)
         });
 
-        // Add an icon to the Scopes menu for easier recognition
-        ui.menu_button("🔭 Scopes", |ui| {
+        // Add an icon to the Scopes menu for easier recognition; collapse to icon when narrow
+        let scopes_label = if collapsed { "🔭" } else { "🔭 Scopes" };
+        ui.menu_button(scopes_label, |ui| {
             if ui.button(format!("{PLUS} Add scope")).clicked() {
                 self.add_scope();
             }
@@ -292,6 +293,39 @@ impl LiveplotPanel {
     /// Return the current next_scope_idx counter.
     pub fn next_scope_idx(&self) -> usize {
         self.next_scope_idx
+    }
+
+    /// Propagate the total widget size to every scope panel.
+    pub fn set_total_widget_size(&mut self, size: egui::Vec2) {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                pane.total_widget_size = size;
+            }
+        }
+    }
+
+    /// Set the tick-label-hiding thresholds on every scope panel.
+    pub fn set_tick_label_thresholds(
+        &mut self,
+        min_width_for_y_ticklabels: f32,
+        min_height_for_x_ticklabels: f32,
+    ) {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                pane.min_width_for_y_ticklabels = min_width_for_y_ticklabels;
+                pane.min_height_for_x_ticklabels = min_height_for_x_ticklabels;
+            }
+        }
+    }
+
+    /// Set the legend-hiding thresholds on every scope panel.
+    pub fn set_legend_thresholds(&mut self, min_width_for_legend: f32, min_height_for_legend: f32) {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                pane.min_width_for_legend = min_width_for_legend;
+                pane.min_height_for_legend = min_height_for_legend;
+            }
+        }
     }
 
     /// Replace all scope panels with the given scope data states.

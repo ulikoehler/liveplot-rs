@@ -35,3 +35,4 @@ pub use data::triggers::{Trigger, TriggerSlope};
 
 // Convenience re-export for examples & embedded use
 pub use config::LivePlotConfig;
+pub use config::ScopeButton;

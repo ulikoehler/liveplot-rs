@@ -51,8 +51,25 @@ impl Panel for ThresholdsPanel {
         &mut self.state
     }
 
-    fn render_menu(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
-        ui.menu_button(self.title_and_icon(), |ui| {
+    fn hotkey_name(&self) -> Option<crate::data::hotkeys::HotkeyName> {
+        Some(crate::data::hotkeys::HotkeyName::Thresholds)
+    }
+
+    fn render_menu(
+        &mut self,
+        ui: &mut Ui,
+        _data: &mut LivePlotData<'_>,
+        collapsed: bool,
+        tooltip: &str,
+    ) {
+        let label = if collapsed {
+            self.icon_only()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| self.title().to_string())
+        } else {
+            self.title_and_icon()
+        };
+        let mr = ui.menu_button(label, |ui| {
             if ui.button("Show Thresholds").clicked() {
                 let st = self.state_mut();
                 st.visible = true;
@@ -78,6 +95,9 @@ impl Panel for ThresholdsPanel {
                 ui.close();
             }
         });
+        if !tooltip.is_empty() {
+            mr.response.on_hover_text(tooltip);
+        }
     }
 
     fn clear_all(&mut self) {
@@ -854,6 +874,9 @@ impl Panel for ThresholdsPanel {
 }
 
 impl ThresholdsPanel {
+    pub const SHOW_THRESHOLDS_LABEL: &'static str = "👁 Show Thresholds";
+    pub const NEW_LABEL: &'static str = "⊞ New";
+
     pub fn save_threshold_events_csv(
         &self,
         path: &std::path::Path,
@@ -894,3 +917,5 @@ impl ThresholdsPanel {
     }
 }
 // Removed unused show_thresholds_dialog helper; dialogs are shown via DockPanel::show_detached_dialog
+
+// tests moved to `tests/thresholds_ui.rs`
