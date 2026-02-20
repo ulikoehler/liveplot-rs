@@ -307,6 +307,27 @@ Run it with:
 cargo run --example custom_colors
 ```
 
+## Built-in example: `lots_of_tiny_plots`
+
+Shows a 20×15 grid of tiny embedded plots. Each cell renders the same sine waveform
+with a different phase offset and unique color; this example exercises embedding
+many `MainPanel` instances in a compact layout.
+
+Run it with:
+
+```bash
+cargo run --example lots_of_tiny_plots
+```
+
+You can adjust samples-per-second and sine frequency:
+
+```bash
+cargo run --example lots_of_tiny_plots -- -s 10 -h 2.5
+cargo run --example lots_of_tiny_plots -- --samples-per-second 10.0 --hz 2.5
+```
+
+![Lots of tiny plots screenshot](docs/liveplot%20lots%20of%20tiny%20plots.png)
+
 ## Built-in example: `thresholds_sine`
 
 Demonstrates adding a simple threshold (e.g., greater than 0.8 for at least 2 ms) and printing events in the console using `ThresholdController`.
