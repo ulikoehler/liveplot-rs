@@ -9,9 +9,9 @@ use crate::panels::panel_trait::Panel;
 use crate::panels::thresholds_ui::ThresholdsPanel;
 use crate::panels::traces_ui::TracesPanel;
 
-use super::MainPanel;
+use super::LivePlotPanel;
 
-impl MainPanel {
+impl LivePlotPanel {
     /// Return a mutable reference to the [`ThresholdsPanel`], if one exists in any panel list.
     ///
     /// Searches left → right → bottom → detached → empty panels in order.

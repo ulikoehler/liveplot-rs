@@ -1,7 +1,7 @@
 //! Example: Embedding multiple LivePlot instances in a single egui window
 //!
 //! What it demonstrates
-//! - Arranging four independent embedded `MainPanel` instances in a 2 x 2 layout inside one `eframe` window.
+//! - Arranging four independent embedded `LivePlotPanel` instances in a 2 x 2 layout inside one `eframe` window.
 //! - Feeding each plot with its own waveform from the surrounding application via `PlotSink`/`Trace` handles.
 //! - Starting the host `eframe` window maximized to showcase a dashboard-like layout.
 //!
@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use eframe::{egui, NativeOptions};
-use liveplot::{channel_plot, MainPanel, PlotPoint, PlotSink, Trace, TracesController};
+use liveplot::{channel_plot, LivePlotPanel, PlotPoint, PlotSink, Trace, TracesController};
 
 #[derive(Clone, Copy)]
 enum PanelWave {
@@ -38,10 +38,10 @@ impl PlotPanel {
         freq_hz: f64,
         phase_cycles: f64,
         color_rgb: Option<[u8; 3]>,
-    ) -> (Self, MainPanel) {
+    ) -> (Self, LivePlotPanel) {
         let (sink, rx) = channel_plot();
         let trace = sink.create_trace(label, None);
-        let mut plot = MainPanel::new(rx);
+        let mut plot = LivePlotPanel::new(rx);
         for scope in plot.liveplot_panel.get_data_mut() {
             scope.time_window = 8.0;
         }
@@ -87,7 +87,7 @@ impl PlotPanel {
 }
 
 struct DashboardApp {
-    panels: Vec<(PlotPanel, MainPanel)>,
+    panels: Vec<(PlotPanel, LivePlotPanel)>,
 }
 
 impl DashboardApp {

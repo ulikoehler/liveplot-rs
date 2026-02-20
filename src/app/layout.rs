@@ -1,15 +1,15 @@
-//! Responsive layout computation and UI rendering for [`MainPanel`].
+//! Responsive layout computation and UI rendering for [`LivePlotPanel`].
 //!
 //! This module implements the visual layout of the LivePlot widget:
 //!
-//! * **[`compute_effective_layout`](MainPanel::compute_effective_layout)** –
+//! * **[`compute_effective_layout`](LivePlotPanel::compute_effective_layout)** –
 //!   decides which buttons appear in the top menu bar vs. the sidebar icon strip,
 //!   depending on the available viewport size and user configuration.
-//! * **[`render_menu`](MainPanel::render_menu)** – draws the top menu bar with
+//! * **[`render_menu`](LivePlotPanel::render_menu)** – draws the top menu bar with
 //!   panel toggle buttons, pause/resume, clear-all, and state save/load.
-//! * **[`render_panels`](MainPanel::render_panels)** – draws the sidebar icon
+//! * **[`render_panels`](LivePlotPanel::render_panels)** – draws the sidebar icon
 //!   strip, left/right/bottom sidebars, and detached panel windows.
-//! * **[`render_tabs`](MainPanel::render_tabs)** – shared tab-strip + panel-body
+//! * **[`render_tabs`](LivePlotPanel::render_tabs)** – shared tab-strip + panel-body
 //!   renderer used by the left, right, and bottom sidebars.
 
 use eframe::egui;
@@ -21,13 +21,13 @@ use crate::data::data::LivePlotData;
 use crate::data::hotkeys::{format_button_tooltip, get_hotkey_for_name, should_collapse_topbar};
 use crate::panels::panel_trait::Panel;
 
-use super::{EffectiveLayout, MainPanel};
+use super::{EffectiveLayout, LivePlotPanel};
 
-impl MainPanel {
+impl LivePlotPanel {
     /// Compute which buttons appear in the top bar vs. the sidebar for the current frame.
     ///
     /// The decision is based on the viewport dimensions captured in the previous
-    /// frame ([`last_plot_size`](MainPanel::last_plot_size)) and the minimum-size
+    /// frame ([`last_plot_size`](LivePlotPanel::last_plot_size)) and the minimum-size
     /// thresholds configured on the panel.  When the plot area is too small for
     /// the top bar, its buttons migrate to the sidebar (and vice versa).
     pub(crate) fn compute_effective_layout(&self) -> EffectiveLayout {
@@ -170,6 +170,7 @@ impl MainPanel {
                     scope_data,
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
+                    event_ctrl: self.event_ctrl.clone(),
                 };
 
                 {
@@ -325,6 +326,7 @@ impl MainPanel {
             scope_data: self.liveplot_panel.get_data_mut(),
             traces: &mut self.traces_data,
             pending_requests: &mut self.pending_requests,
+            event_ctrl: self.event_ctrl.clone(),
         };
 
         // Save all scopes.
@@ -891,6 +893,7 @@ impl MainPanel {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
                         pending_requests: &mut self.pending_requests,
+                        event_ctrl: self.event_ctrl.clone(),
                     },
                 );
             }
@@ -904,6 +907,7 @@ impl MainPanel {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
                         pending_requests: &mut self.pending_requests,
+                        event_ctrl: self.event_ctrl.clone(),
                     },
                 );
             }
@@ -917,6 +921,7 @@ impl MainPanel {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
                         pending_requests: &mut self.pending_requests,
+                        event_ctrl: self.event_ctrl.clone(),
                     },
                 );
             }
@@ -930,6 +935,7 @@ impl MainPanel {
                         scope_data: self.liveplot_panel.get_data_mut(),
                         traces: &mut self.traces_data,
                         pending_requests: &mut self.pending_requests,
+                        event_ctrl: self.event_ctrl.clone(),
                     },
                 );
             }
@@ -958,6 +964,7 @@ impl MainPanel {
                 scope_data,
                 traces: &mut self.traces_data,
                 pending_requests: &mut self.pending_requests,
+                event_ctrl: self.event_ctrl.clone(),
             };
 
             if count > 0 {

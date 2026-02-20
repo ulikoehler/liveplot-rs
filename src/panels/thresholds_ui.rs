@@ -377,6 +377,20 @@ impl Panel for ThresholdsPanel {
             });
             if action_remove {
                 let removing = name.clone();
+                // Emit THRESHOLD_REMOVED event
+                if let Some(ctrl) = &data.event_ctrl {
+                    let mut evt =
+                        crate::events::PlotEvent::new(crate::events::EventKind::THRESHOLD_REMOVED);
+                    evt.threshold = Some(crate::events::ThresholdMeta {
+                        threshold_name: removing.clone(),
+                        trace: self.thresholds.get(&removing).map(|d| d.target.clone()),
+                        start_t: None,
+                        end_t: None,
+                        duration: None,
+                        area: None,
+                    });
+                    ctrl.emit_filtered(evt);
+                }
                 self.thresholds.remove(&removing);
                 if self.editing.as_deref() == Some(&removing) {
                     self.editing = None;

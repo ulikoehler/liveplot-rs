@@ -8,13 +8,13 @@ use eframe::egui;
 
 use crate::PlotCommand;
 
-use super::main_app::MainApp;
+use super::liveplot_app::LivePlotApp;
 
 /// Launch the LivePlot application in a native window.
 ///
 /// This is the main entry point for standalone use.  It:
 ///
-/// 1. Constructs a [`MainApp`] with the given command channel and any
+/// 1. Constructs a [`LivePlotApp`] with the given command channel and any
 ///    controllers extracted from `cfg`.
 /// 2. Applies the configuration (axis units, hotkeys, responsive thresholds, …).
 /// 3. Opens a native window and enters the eframe event loop.
@@ -31,7 +31,8 @@ pub fn run_liveplot(
     let liveplot_ctrl = None;
     let fft_ctrl = cfg.fft_controller.take();
     let threshold_ctrl = cfg.threshold_controller.take();
-    let mut app = MainApp::with_controllers(
+    let event_ctrl = cfg.event_controller.take();
+    let mut app = LivePlotApp::with_controllers(
         rx,
         window_ctrl,
         ui_ctrl,
@@ -41,6 +42,7 @@ pub fn run_liveplot(
         fft_ctrl,
         threshold_ctrl,
     );
+    app.main_panel.set_event_controller(event_ctrl);
     app.apply_config(&cfg);
 
     let title = cfg.title.clone();

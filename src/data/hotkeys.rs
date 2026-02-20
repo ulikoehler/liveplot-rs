@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 use eframe::egui;
 
-use crate::app::MainPanel;
+use crate::app::LivePlotPanel;
 use crate::data::data::LivePlotData;
 #[cfg(feature = "fft")]
 use crate::panels::fft_ui::FftPanel;
@@ -498,7 +498,7 @@ pub fn detect_hotkey_actions(cfg: &Hotkeys, ctx: &egui::Context) -> Vec<HotkeyNa
     actions
 }
 
-pub fn handle_hotkeys(main_panel: &mut MainPanel, ctx: &egui::Context) {
+pub fn handle_hotkeys(main_panel: &mut LivePlotPanel, ctx: &egui::Context) {
     let hk = main_panel.hotkeys.borrow().clone();
     let actions = detect_hotkey_actions(&hk, ctx);
     for act in actions {
@@ -506,6 +506,7 @@ pub fn handle_hotkeys(main_panel: &mut MainPanel, ctx: &egui::Context) {
             scope_data: main_panel.liveplot_panel.get_data_mut(),
             traces: &mut main_panel.traces_data,
             pending_requests: &mut main_panel.pending_requests,
+            event_ctrl: main_panel.event_ctrl.clone(),
         };
         match act {
             HotkeyName::Pause => {

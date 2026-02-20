@@ -18,6 +18,7 @@ fn default_measurement_panel_has_no_measurements() {
         scope_data: scope_refs,
         traces: &mut traces,
         pending_requests: &mut requests,
+        event_ctrl: None,
     };
 
     // precondition: no measurements -> measurement_active should be false

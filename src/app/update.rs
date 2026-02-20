@@ -1,29 +1,29 @@
-//! Per-frame update logic for [`MainPanel`].
+//! Per-frame update logic for [`LivePlotPanel`].
 //!
 //! This module contains the methods that drive each frame of the LivePlot UI:
 //!
-//! * **[`update`](MainPanel::update)** – the top-level entry point called every
+//! * **[`update`](LivePlotPanel::update)** – the top-level entry point called every
 //!   frame.  It ingests new data, renders the menu bar and side panels, and
 //!   finally draws the central plot area with panel overlays.
-//! * **[`update_embedded`](MainPanel::update_embedded)** – convenience wrapper
+//! * **[`update_embedded`](LivePlotPanel::update_embedded)** – convenience wrapper
 //!   that additionally applies embedded controllers after the normal update.
-//! * **[`update_data`](MainPanel::update_data)** – the data-only pass that
+//! * **[`update_data`](LivePlotPanel::update_data)** – the data-only pass that
 //!   processes incoming [`PlotCommand`](crate::PlotCommand)s, refreshes every
 //!   sub-panel, and evaluates threshold/trigger logic.
-//! * **[`fit_all_bounds`](MainPanel::fit_all_bounds)** – utility to reset all
+//! * **[`fit_all_bounds`](LivePlotPanel::fit_all_bounds)** – utility to reset all
 //!   scope axes to fit the current data.
 
 use eframe::egui;
 
 use crate::data::data::LivePlotData;
 
-use super::MainPanel;
+use super::LivePlotPanel;
 
-impl MainPanel {
+impl LivePlotPanel {
     /// Main per-frame update: ingest data, render menu / side panels, then draw the plot.
     ///
     /// Call this from an egui `Ui` context each frame.  In standalone mode it is
-    /// called by [`MainApp::update`](super::MainApp); in embedded mode the host
+    /// called by [`LivePlotApp::update`](super::LivePlotApp); in embedded mode the host
     /// application calls it directly (or via [`update_embedded`](Self::update_embedded)).
     pub fn update(&mut self, ui: &mut egui::Ui) {
         // Capture the full widget size BEFORE any layout (top bar, sidebars, etc.)
@@ -33,10 +33,71 @@ impl MainPanel {
 
         self.update_data();
 
+        // Propagate the event controller to scope panels (handles new scopes too).
+        self.liveplot_panel
+            .set_event_controller(self.event_ctrl.clone());
+
         // Propagate the total widget size to every scope panel so their tick-label
         // hide decisions also use the complete widget dimensions.
         self.liveplot_panel
             .set_total_widget_size(self.last_plot_size);
+
+        // ── Emit resize event if size changed ─────────────────────────────
+        if let Some(ctrl) = &self.event_ctrl {
+            let cur_size = [self.last_plot_size.x, self.last_plot_size.y];
+            let size_changed = {
+                let inner = ctrl.inner.lock().unwrap();
+                inner.last_size.map_or(true, |prev| {
+                    (prev[0] - cur_size[0]).abs() > 0.5 || (prev[1] - cur_size[1]).abs() > 0.5
+                })
+            };
+            if size_changed {
+                {
+                    let mut inner = ctrl.inner.lock().unwrap();
+                    inner.last_size = Some(cur_size);
+                }
+                let mut evt = crate::events::PlotEvent::new(crate::events::EventKind::RESIZE);
+                evt.resize = Some(crate::events::ResizeMeta {
+                    width: cur_size[0],
+                    height: cur_size[1],
+                });
+                ctrl.emit_filtered(evt);
+            }
+        }
+
+        // ── Emit key-press events ─────────────────────────────────────────
+        if let Some(ctrl) = &self.event_ctrl {
+            let keys: Vec<(String, crate::events::KeyModifiers)> = ui.ctx().input(|i| {
+                i.events
+                    .iter()
+                    .filter_map(|e| match e {
+                        egui::Event::Key {
+                            key,
+                            pressed: true,
+                            modifiers,
+                            ..
+                        } => Some((
+                            format!("{:?}", key),
+                            crate::events::KeyModifiers {
+                                ctrl: modifiers.ctrl,
+                                alt: modifiers.alt,
+                                shift: modifiers.shift,
+                                command: modifiers.command,
+                            },
+                        )),
+                        _ => None,
+                    })
+                    .collect()
+            });
+            for (key, mods) in keys {
+                let mut evt = crate::events::PlotEvent::new(crate::events::EventKind::KEY_PRESSED);
+                evt.key_press = Some(crate::events::KeyPressMeta {
+                    key,
+                    modifiers: mods,
+                });
+                ctrl.emit_filtered(evt);
+            }
+        }
 
         // In compact mode, skip all chrome (menu bar, sidebars, bottom panels)
         // so the plot fills the entire allocated area.  This avoids collapsed
@@ -122,6 +183,18 @@ impl MainPanel {
         // Process incoming plot commands; collect any newly created traces.
         let new_traces = self.traces_data.update();
 
+        // ── Emit data-update event when new traces arrive ─────────────────
+        if !new_traces.is_empty() {
+            if let Some(ctrl) = &self.event_ctrl {
+                let mut evt = crate::events::PlotEvent::new(crate::events::EventKind::DATA_UPDATED);
+                evt.data_update = Some(crate::events::DataUpdateMeta {
+                    traces: new_traces.clone(),
+                    new_point_count: 0,
+                });
+                ctrl.emit_filtered(evt);
+            }
+        }
+
         // Apply any queued threshold add/remove requests before processing data so new defs
         // participate in this frame's evaluation.
         self.apply_threshold_controller_requests();
@@ -131,6 +204,7 @@ impl MainPanel {
             scope_data: self.liveplot_panel.get_data_mut(),
             traces: &mut self.traces_data,
             pending_requests: &mut self.pending_requests,
+            event_ctrl: self.event_ctrl.clone(),
         };
 
         // Attach newly created traces to the primary (first) scope only.

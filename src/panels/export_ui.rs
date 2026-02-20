@@ -64,6 +64,16 @@ impl Panel for ExportPanel {
                         "LIVEPLOT_SAVE_SCREENSHOT_TO",
                         path.to_string_lossy().to_string(),
                     );
+                    // Emit SCREENSHOT event
+                    if let Some(ctrl) = &data.event_ctrl {
+                        let mut evt =
+                            crate::events::PlotEvent::new(crate::events::EventKind::SCREENSHOT);
+                        evt.export = Some(crate::events::ExportMeta {
+                            format: "png".to_string(),
+                            path: Some(path.to_string_lossy().to_string()),
+                        });
+                        ctrl.emit_filtered(evt);
+                    }
                 }
                 ui.ctx()
                     .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
@@ -98,6 +108,17 @@ impl Panel for ExportPanel {
                         1e-9,
                     ) {
                         eprintln!("Failed to export snapshot CSV: {e}");
+                    } else {
+                        // Emit EXPORT event
+                        if let Some(ctrl) = &data.event_ctrl {
+                            let mut evt =
+                                crate::events::PlotEvent::new(crate::events::EventKind::EXPORT);
+                            evt.export = Some(crate::events::ExportMeta {
+                                format: "csv".to_string(),
+                                path: Some(path.to_string_lossy().to_string()),
+                            });
+                            ctrl.emit_filtered(evt);
+                        }
                     }
                 }
                 ui.close();

@@ -1,17 +1,17 @@
-//! Embedded controller request handling for [`MainPanel`].
+//! Embedded controller request handling for [`LivePlotPanel`].
 //!
-//! When `MainPanel` is embedded inside a parent application (rather than
-//! running standalone via [`MainApp`](super::MainApp)), the host code
+//! When `LivePlotPanel` is embedded inside a parent application (rather than
+//! running standalone via [`LivePlotApp`](super::LivePlotApp)), the host code
 //! communicates with the panel through *controllers* – thread-safe handles
 //! that queue requests and receive state snapshots.
 //!
 //! This module implements:
 //!
-//! * [`apply_controllers_embedded`](MainPanel::apply_controllers_embedded) –
+//! * [`apply_controllers_embedded`](LivePlotPanel::apply_controllers_embedded) –
 //!   processes all queued controller requests and publishes state snapshots.
-//! * [`apply_threshold_controller_requests`](MainPanel::apply_threshold_controller_requests) –
+//! * [`apply_threshold_controller_requests`](LivePlotPanel::apply_threshold_controller_requests) –
 //!   adds/removes threshold definitions from the thresholds panel.
-//! * [`publish_threshold_events`](MainPanel::publish_threshold_events) –
+//! * [`publish_threshold_events`](LivePlotPanel::publish_threshold_events) –
 //!   forwards newly generated threshold crossing events to listeners.
 
 use std::collections::HashMap;
@@ -22,9 +22,9 @@ use crate::data::data::LivePlotData;
 use crate::data::export;
 use crate::data::traces::TraceRef;
 
-use super::MainPanel;
+use super::LivePlotPanel;
 
-impl MainPanel {
+impl LivePlotPanel {
     /// Apply controller requests and publish state, for embedded usage (no stand-alone window frame).
     ///
     /// This method handles all optional controllers:
@@ -89,6 +89,7 @@ impl MainPanel {
                 scope_data: self.liveplot_panel.get_data_mut(),
                 traces: &mut self.traces_data,
                 pending_requests: &mut self.pending_requests,
+                event_ctrl: self.event_ctrl.clone(),
             };
             let primary_scope_id = data.primary_scope().map(|s| s.id);
 
@@ -144,6 +145,7 @@ impl MainPanel {
                     scope_data: self.liveplot_panel.get_data_mut(),
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
+                    event_ctrl: self.event_ctrl.clone(),
                 };
 
                 // Apply trace property mutations.
@@ -151,18 +153,60 @@ impl MainPanel {
                     let tref = TraceRef(name.clone());
                     if let Some(tr) = data.traces.get_trace_mut(&tref) {
                         tr.look.color = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+                        // Emit COLOR_CHANGED event
+                        if let Some(evt_ctrl) = &data.event_ctrl {
+                            let mut evt = crate::events::PlotEvent::new(
+                                crate::events::EventKind::TRACE_COLOR_CHANGED,
+                            );
+                            evt.trace = Some(crate::events::TraceMeta {
+                                trace: TraceRef(name),
+                                visible: None,
+                                color_rgb: Some([rgb[0], rgb[1], rgb[2]]),
+                                offset: None,
+                            });
+                            evt_ctrl.emit_filtered(evt);
+                        }
                     }
                 }
                 for (name, vis) in inner.visible_requests.drain(..) {
                     let tref = TraceRef(name.clone());
                     if let Some(tr) = data.traces.get_trace_mut(&tref) {
                         tr.look.visible = vis;
+                        // Emit TRACE_SHOWN or TRACE_HIDDEN event
+                        if let Some(evt_ctrl) = &data.event_ctrl {
+                            let kind = if vis {
+                                crate::events::EventKind::TRACE_SHOWN
+                            } else {
+                                crate::events::EventKind::TRACE_HIDDEN
+                            };
+                            let mut evt = crate::events::PlotEvent::new(kind);
+                            evt.trace = Some(crate::events::TraceMeta {
+                                trace: TraceRef(name),
+                                visible: Some(vis),
+                                color_rgb: None,
+                                offset: None,
+                            });
+                            evt_ctrl.emit_filtered(evt);
+                        }
                     }
                 }
                 for (name, off) in inner.offset_requests.drain(..) {
                     let tref = TraceRef(name.clone());
                     if let Some(tr) = data.traces.get_trace_mut(&tref) {
                         tr.offset = off;
+                        // Emit TRACE_OFFSET_CHANGED event
+                        if let Some(evt_ctrl) = &data.event_ctrl {
+                            let mut evt = crate::events::PlotEvent::new(
+                                crate::events::EventKind::TRACE_OFFSET_CHANGED,
+                            );
+                            evt.trace = Some(crate::events::TraceMeta {
+                                trace: TraceRef(name),
+                                visible: None,
+                                color_rgb: None,
+                                offset: Some(off),
+                            });
+                            evt_ctrl.emit_filtered(evt);
+                        }
                     }
                 }
                 if let Some(unit) = inner.y_unit_request.take() {
@@ -361,6 +405,7 @@ impl MainPanel {
                     scope_data: self.liveplot_panel.get_data_mut(),
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
+                    event_ctrl: self.event_ctrl.clone(),
                 };
                 if let Some(pause) = requests.pause_all {
                     if pause {
@@ -408,6 +453,7 @@ impl MainPanel {
                     scope_data: self.liveplot_panel.get_data_mut(),
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
+                    event_ctrl: self.event_ctrl.clone(),
                 };
                 data.are_all_paused()
             };
@@ -514,6 +560,7 @@ impl MainPanel {
                     scope_data: self.liveplot_panel.get_data_mut(),
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
+                    event_ctrl: self.event_ctrl.clone(),
                 };
                 if let Some(pause) = requests.pause_all {
                     if pause {
@@ -560,6 +607,7 @@ impl MainPanel {
                     scope_data: self.liveplot_panel.get_data_mut(),
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
+                    event_ctrl: self.event_ctrl.clone(),
                 };
                 data.are_all_paused()
             };
@@ -666,6 +714,23 @@ impl MainPanel {
 
         if pending.is_empty() {
             return;
+        }
+
+        // ── Also emit THRESHOLD_EXCEEDED events via the event system ──────
+        if let Some(evt_ctrl) = &self.event_ctrl {
+            for ev in &pending {
+                let mut plot_evt =
+                    crate::events::PlotEvent::new(crate::events::EventKind::THRESHOLD_EXCEEDED);
+                plot_evt.threshold = Some(crate::events::ThresholdMeta {
+                    threshold_name: ev.threshold.clone(),
+                    trace: Some(ev.trace.clone()),
+                    start_t: Some(ev.start_t),
+                    end_t: Some(ev.end_t),
+                    duration: Some(ev.duration),
+                    area: Some(ev.area),
+                });
+                evt_ctrl.emit_filtered(plot_evt);
+            }
         }
 
         let mut inner = ctrl.inner.lock().unwrap();

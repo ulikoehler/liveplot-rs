@@ -311,7 +311,7 @@ cargo run --example custom_colors
 
 Shows a 20×15 grid of tiny embedded plots. Each cell renders the same sine waveform
 with a different phase offset and unique color; this example exercises embedding
-many `MainPanel` instances in a compact layout.
+many `LivePlotPanel` instances in a compact layout.
 
 Run it with:
 

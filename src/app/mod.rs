@@ -10,7 +10,7 @@
 //! | [`panel_helpers`]          | Utilities for locating and toggling specific panel types |
 //! | [`controllers_embedded`]   | Processing controller requests when embedded in a parent app |
 //! | [`layout`]                 | Responsive layout decisions, menu bar, sidebars, and tab rendering |
-//! | [`main_app`]               | Standalone [`MainApp`] (eframe) wrapper and its controller wiring |
+//! | [`liveplot_app`]         | Standalone [`LivePlotApp`] (eframe) wrapper and its controller wiring |
 //! | [`run`]                    | Top-level [`run_liveplot()`] entry point and icon loading |
 
 // Historically the implementation lived in a single `app.rs`; it was split
@@ -18,15 +18,15 @@
 // relevant types and functions, so we must declare them here.
 mod controllers_embedded;
 mod layout;
-mod main_app;
+mod liveplot_app;
 mod panel_helpers;
 mod run;
 mod update;
 
 // ── Public re-exports consumed by lib.rs ─────────────────────────────────────
-// `MainApp` and `run_liveplot` are defined in sub-modules but are part of the
+// `LivePlotApp` and `run_liveplot` are defined in sub-modules but are part of the
 // public API of `app`, so re-export them at the top level.
-pub use main_app::MainApp;
+pub use liveplot_app::LivePlotApp;
 pub use run::run_liveplot;
 
 // ── Crate-internal shared imports ────────────────────────────────────────────
@@ -46,6 +46,7 @@ use crate::controllers::{
 use crate::data::data::LivePlotRequests;
 use crate::data::hotkeys::Hotkeys;
 use crate::data::traces::TracesCollection;
+use crate::events::EventController;
 use crate::panels::liveplot_ui::LiveplotPanel;
 use crate::panels::panel_trait::Panel;
 use crate::PlotCommand;
@@ -58,15 +59,15 @@ use crate::panels::{
     triggers_ui::TriggersPanel,
 };
 
-/// Global monotonic counter that assigns unique IDs to [`MainPanel`] instances.
+/// Global monotonic counter that assigns unique IDs to [`LivePlotPanel`] instances.
 ///
-/// Each `MainPanel` gets a unique `panel_id` to namespace its egui widget IDs,
+/// Each `LivePlotPanel` gets a unique `panel_id` to namespace its egui widget IDs,
 /// which prevents collisions when multiple panels coexist (e.g. in a tiled layout).
 static PANEL_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Computed layout describing which buttons appear where for a single frame.
 ///
-/// [`MainPanel::compute_effective_layout`] recalculates this every frame based
+/// [`LivePlotPanel::compute_effective_layout`] recalculates this every frame based
 /// on the available viewport dimensions and the user's button configuration.
 /// It drives responsive behaviour: buttons migrate between the top menu-bar
 /// and the sidebar icon-strip depending on the plot-area size.
@@ -82,16 +83,16 @@ pub(crate) struct EffectiveLayout {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MainPanel – the central widget type
+// LivePlotPanel – the central widget type
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The central widget that owns trace data, panels, and the live-plot scope(s).
 ///
-/// `MainPanel` is the building block of the LivePlot UI.  It can be used:
+/// `LivePlotPanel` is the building block of the LivePlot UI.  It can be used:
 ///
-/// * **Standalone** – wrapped inside [`MainApp`] and driven by the eframe event loop.
-/// * **Embedded** – placed inside a parent egui application via [`MainPanel::update`] or
-///   [`MainPanel::update_embedded`].
+/// * **Standalone** – wrapped inside [`LivePlotApp`] and driven by the eframe event loop.
+/// * **Embedded** – placed inside a parent egui application via [`LivePlotPanel::update`] or
+///   [`LivePlotPanel::update_embedded`].
 ///
 /// # Fields
 ///
@@ -103,7 +104,7 @@ pub(crate) struct EffectiveLayout {
 /// * Optional *controllers* that allow programmatic interaction from external code
 ///   (e.g. pause, export, change colours).
 /// * Responsive-layout parameters that control when the top-bar or sidebar collapse.
-pub struct MainPanel {
+pub struct LivePlotPanel {
     // ── Data ─────────────────────────────────────────────────────────────────
     /// Collection of all traces (time-series data) received through the command channel.
     pub traces_data: TracesCollection,
@@ -152,6 +153,9 @@ pub struct MainPanel {
     /// Threshold management (add/remove thresholds, listen for threshold events).
     pub(crate) threshold_ctrl: Option<ThresholdController>,
 
+    /// Event controller for dispatching UI/data events to subscribers.
+    pub(crate) event_ctrl: Option<EventController>,
+
     /// Per-threshold event cursor: tracks how many events we have already forwarded
     /// to controller listeners so that only *new* events are published.
     pub(crate) threshold_event_cursors: HashMap<String, usize>,
@@ -186,8 +190,8 @@ pub struct MainPanel {
     pub compact: bool,
 }
 
-impl MainPanel {
-    /// Create a new `MainPanel` that will receive [`PlotCommand`]s from the given channel.
+impl LivePlotPanel {
+    /// Create a new `LivePlotPanel` that will receive [`PlotCommand`]s from the given channel.
     ///
     /// The panel is pre-populated with the default set of sub-panels:
     ///
@@ -222,6 +226,7 @@ impl MainPanel {
             liveplot_ctrl: None,
             fft_ctrl: None,
             threshold_ctrl: None,
+            event_ctrl: None,
             threshold_event_cursors: HashMap::new(),
             pending_requests: LivePlotRequests::default(),
             top_bar_buttons: None,
@@ -238,7 +243,7 @@ impl MainPanel {
 
     /// Attach controllers for embedded usage.
     ///
-    /// These mirror the controllers used by [`MainApp`]; call this once after
+    /// These mirror the controllers used by [`LivePlotApp`]; call this once after
     /// construction to enable programmatic interaction from external code.
     pub fn set_controllers(
         &mut self,
@@ -257,5 +262,10 @@ impl MainPanel {
         self.liveplot_ctrl = liveplot_ctrl;
         self.fft_ctrl = fft_ctrl;
         self.threshold_ctrl = threshold_ctrl;
+    }
+
+    /// Attach an event controller for event dispatch.
+    pub fn set_event_controller(&mut self, event_ctrl: Option<EventController>) {
+        self.event_ctrl = event_ctrl;
     }
 }

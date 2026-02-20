@@ -8,6 +8,8 @@ use egui_tiles::{Behavior, Container, TabState, Tabs, Tile, TileId, Tiles, Tree,
 pub struct LiveplotPanel {
     tree: Tree<ScopePanel>,
     next_scope_idx: usize,
+    /// Cached event controller to propagate to newly added scopes.
+    event_ctrl_cache: Option<crate::events::EventController>,
 }
 
 impl Default for LiveplotPanel {
@@ -38,6 +40,7 @@ impl LiveplotPanel {
         Self {
             tree: Tree::new(egui::Id::new(("liveplot_scopes", tree_key)), root, tiles),
             next_scope_idx: 1,
+            event_ctrl_cache: None,
         }
     }
     /// Get immutable references to all scope data, sorted by id.
@@ -200,10 +203,9 @@ impl LiveplotPanel {
 
     pub fn add_scope(&mut self) -> usize {
         let new_scope_id = self.next_scope_idx;
-        let id = self
-            .tree
-            .tiles
-            .insert_pane(ScopePanel::new(self.next_scope_idx));
+        let mut scope = ScopePanel::new(self.next_scope_idx);
+        scope.event_ctrl = self.event_ctrl_cache.clone();
+        let id = self.tree.tiles.insert_pane(scope);
         self.next_scope_idx += 1;
 
         if let Some(root_id) = self.tree.root {
@@ -226,6 +228,16 @@ impl LiveplotPanel {
         } else {
             let root = self.tree.tiles.insert_tab_tile(vec![id]);
             self.tree.root = Some(root);
+        }
+
+        // Emit SCOPE_ADDED event
+        if let Some(ctrl) = &self.event_ctrl_cache {
+            let mut evt = crate::events::PlotEvent::new(crate::events::EventKind::SCOPE_ADDED);
+            evt.scope_manage = Some(crate::events::ScopeManageMeta {
+                scope_id: new_scope_id,
+                scope_name: None,
+            });
+            ctrl.emit_filtered(evt);
         }
 
         new_scope_id
@@ -264,7 +276,15 @@ impl LiveplotPanel {
         let mut noop = NoopBehavior;
         self.tree.gc(&mut noop);
 
-        let _ = removed_id;
+        // Emit SCOPE_REMOVED event
+        if let (Some(ctrl), Some(sid)) = (&self.event_ctrl_cache, removed_id) {
+            let mut evt = crate::events::PlotEvent::new(crate::events::EventKind::SCOPE_REMOVED);
+            evt.scope_manage = Some(crate::events::ScopeManageMeta {
+                scope_id: sid,
+                scope_name: None,
+            });
+            ctrl.emit_filtered(evt);
+        }
     }
 
     pub fn remove_scope_by_id(&mut self, scope_id: usize) -> bool {
@@ -328,6 +348,16 @@ impl LiveplotPanel {
         }
     }
 
+    /// Propagate the event controller to every scope panel.
+    pub fn set_event_controller(&mut self, ctrl: Option<crate::events::EventController>) {
+        self.event_ctrl_cache = ctrl.clone();
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                pane.event_ctrl = ctrl.clone();
+            }
+        }
+    }
+
     /// Replace all scope panels with the given scope data states.
     ///
     /// Existing scopes are cleared and new ScopePanels are created with the
@@ -367,6 +397,7 @@ impl LiveplotPanel {
             let scope_id = ss.id.unwrap_or(max_id);
             max_id = max_id.max(scope_id + 1);
             let mut panel = ScopePanel::new(scope_id);
+            panel.event_ctrl = self.event_ctrl_cache.clone();
             ss.apply_to(panel.get_data_mut());
             let tid = self.tree.tiles.insert_pane(panel);
             tile_ids.push(tid);
@@ -435,7 +466,11 @@ where
         _tabs: &Tabs,
         _scroll_offset: &mut f32,
     ) {
-        let icon = if self.controls_currently_on { MINUS } else { SIDEBAR };
+        let icon = if self.controls_currently_on {
+            MINUS
+        } else {
+            SIDEBAR
+        };
         let label = format!("{icon} Controls");
         if ui
             .small_button(label)

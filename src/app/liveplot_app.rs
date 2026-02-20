@@ -1,6 +1,6 @@
 //! Standalone application wrapper for LivePlot.
 //!
-//! [`MainApp`] wraps a [`MainPanel`](super::MainPanel) and implements
+//! [`LivePlotApp`] wraps a [`LivePlotPanel`](super::LivePlotPanel) and implements
 //! [`eframe::App`] so that LivePlot can run as a native window.  It also
 //! holds the controller handles for the standalone case and owns the
 //! logic that applies controller requests against the main panel each frame.
@@ -17,24 +17,24 @@ use crate::data::hotkeys as hotkey_helpers;
 use crate::data::traces::TraceRef;
 use crate::PlotCommand;
 
-use super::MainPanel;
+use super::LivePlotPanel;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MainApp
+// LivePlotApp
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Standalone LivePlot application that implements [`eframe::App`].
 ///
-/// `MainApp` is the top-level container used when LivePlot runs in its own
+/// `LivePlotApp` is the top-level container used when LivePlot runs in its own
 /// native window (via [`run_liveplot`](super::run_liveplot)).  It:
 ///
-/// 1. Owns a [`MainPanel`] that does the actual rendering.
+/// 1. Owns a [`LivePlotPanel`] that does the actual rendering.
 /// 2. Holds optional controller handles for programmatic interaction.
 /// 3. Processes controller requests each frame in [`apply_controllers`](Self::apply_controllers).
 /// 4. Applies initial configuration from [`LivePlotConfig`](crate::config::LivePlotConfig).
-pub struct MainApp {
+pub struct LivePlotApp {
     /// The inner panel widget that owns all data and UI state.
-    pub main_panel: MainPanel,
+    pub main_panel: LivePlotPanel,
 
     // ── Optional external controllers ────────────────────────────────────────
     /// Controls the host window (size, position).
@@ -58,11 +58,11 @@ pub struct MainApp {
     pub subheadline: Option<String>,
 }
 
-impl MainApp {
-    /// Create a new `MainApp` without any controllers.
+impl LivePlotApp {
+    /// Create a new `LivePlotApp` without any controllers.
     pub fn new(rx: std::sync::mpsc::Receiver<PlotCommand>) -> Self {
         Self {
-            main_panel: MainPanel::new(rx),
+            main_panel: LivePlotPanel::new(rx),
             window_ctrl: None,
             ui_ctrl: None,
             traces_ctrl: None,
@@ -75,7 +75,7 @@ impl MainApp {
         }
     }
 
-    /// Create a new `MainApp` with the given controller handles already wired.
+    /// Create a new `LivePlotApp` with the given controller handles already wired.
     pub fn with_controllers(
         rx: std::sync::mpsc::Receiver<PlotCommand>,
         window_ctrl: Option<WindowController>,
@@ -86,7 +86,7 @@ impl MainApp {
         fft_ctrl: Option<FFTController>,
         threshold_ctrl: Option<ThresholdController>,
     ) -> Self {
-        let mut main_panel = MainPanel::new(rx);
+        let mut main_panel = LivePlotPanel::new(rx);
         main_panel.set_controllers(
             window_ctrl.clone(),
             ui_ctrl.clone(),
@@ -174,8 +174,8 @@ impl MainApp {
     /// Process controller requests and publish state snapshots (standalone mode).
     ///
     /// This is called once per frame *after* the main panel has rendered.
-    /// It mirrors [`MainPanel::apply_controllers_embedded`](MainPanel::apply_controllers_embedded)
-    /// but operates on a [`MainApp`] that holds controller clones separately
+    /// It mirrors [`LivePlotPanel::apply_controllers_embedded`](LivePlotPanel::apply_controllers_embedded)
+    /// but operates on a [`LivePlotApp`] that holds controller clones separately
     /// and has access to the full eframe context.
     fn apply_controllers(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // ── WindowController ─────────────────────────────────────────────────
@@ -272,6 +272,7 @@ impl MainApp {
                     scope_data: self.main_panel.liveplot_panel.get_data_mut(),
                     traces: &mut self.main_panel.traces_data,
                     pending_requests: &mut self.main_panel.pending_requests,
+                    event_ctrl: self.main_panel.event_ctrl.clone(),
                 };
 
                 // Apply trace property mutations.
@@ -488,6 +489,7 @@ impl MainApp {
                     scope_data: self.main_panel.liveplot_panel.get_data_mut(),
                     traces: &mut self.main_panel.traces_data,
                     pending_requests: &mut self.main_panel.pending_requests,
+                    event_ctrl: self.main_panel.event_ctrl.clone(),
                 };
                 if let Some(pause) = requests.pause_all {
                     if pause {
@@ -535,6 +537,7 @@ impl MainApp {
                     scope_data: self.main_panel.liveplot_panel.get_data_mut(),
                     traces: &mut self.main_panel.traces_data,
                     pending_requests: &mut self.main_panel.pending_requests,
+                    event_ctrl: self.main_panel.event_ctrl.clone(),
                 };
                 data.are_all_paused()
             };
@@ -571,7 +574,7 @@ impl MainApp {
 // eframe integration
 // ─────────────────────────────────────────────────────────────────────────────
 
-impl eframe::App for MainApp {
+impl eframe::App for LivePlotApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // Process global hotkey bindings (panel toggles, pause/resume, etc.).
         hotkey_helpers::handle_hotkeys(&mut self.main_panel, ctx);

@@ -1,7 +1,7 @@
 //! Example: Lots of tiny plots (20×15 grid)
 //!
 //! What it demonstrates
-//! - Embedding many `MainPanel` instances in a grid
+//! - Embedding many `LivePlotPanel` instances in a grid
 //! - Each plot shows the same sine waveform but shifted in phase
 //! - Each trace receives a unique color (HSV wheel)
 //!
@@ -15,7 +15,7 @@
 //! ```
 
 use eframe::{egui, NativeOptions};
-use liveplot::{channel_plot, MainPanel, PlotPoint, PlotSink, Trace, TracesController};
+use liveplot::{channel_plot, LivePlotPanel, PlotPoint, PlotSink, Trace, TracesController};
 use std::time::Duration;
 
 const COLS: usize = 20;
@@ -61,11 +61,11 @@ struct TinyPlot {
 }
 
 impl TinyPlot {
-    fn new(label: &str, phase_cycles: f64, color_hint: [u8; 3]) -> (Self, MainPanel) {
+    fn new(label: &str, phase_cycles: f64, color_hint: [u8; 3]) -> (Self, LivePlotPanel) {
         let (sink, rx) = channel_plot();
         let trace = sink.create_trace(label, None);
 
-        let mut panel = MainPanel::new(rx);
+        let mut panel = LivePlotPanel::new(rx);
         // keep buffers small for many plots
         panel.traces_data.max_points = 2_000;
         // strip all borders/margins so each cell is pure plot
@@ -105,7 +105,7 @@ impl TinyPlot {
 }
 
 struct LotsOfTinyPlotsApp {
-    plots: Vec<(TinyPlot, MainPanel)>,
+    plots: Vec<(TinyPlot, LivePlotPanel)>,
     /// Last known window size; used to detect resizes and trigger auto-fit.
     last_window_size: egui::Vec2,
     /// Sample rate in Hz (samples per second) for the sine waveform fed to every plot.

@@ -5,6 +5,7 @@ use crate::controllers::TracesController;
 use crate::controllers::{FFTController, UiActionController, WindowController};
 use crate::data::hotkeys::Hotkeys;
 use crate::data::x_formatter::XFormatter;
+use crate::events::EventController;
 
 /// Identifies a specific UI button that can be placed in the top bar or the right sidebar.
 ///
@@ -107,6 +108,8 @@ pub struct LivePlotConfig {
     pub ui_action_controller: Option<UiActionController>,
     pub threshold_controller: Option<ThresholdController>,
     pub traces_controller: Option<TracesController>,
+    /// Optional event controller for subscribing to UI/data events.
+    pub event_controller: Option<EventController>,
     /// Optional hotkeys configuration (if present overrides defaults)
     pub hotkeys: Option<Hotkeys>,
     /// Formatter used for the X axis. Defaults to [`XFormatter::Auto`], which
@@ -174,6 +177,7 @@ impl Default for LivePlotConfig {
             ui_action_controller: None,
             threshold_controller: None,
             traces_controller: None,
+            event_controller: None,
             hotkeys: None,
             x_formatter: XFormatter::Auto,
 

@@ -122,6 +122,13 @@ impl Panel for MeasurementPanel {
         if data.pending_requests.clear_measurements {
             self.clear_all();
             data.pending_requests.clear_measurements = false;
+
+            // ── Emit MEASUREMENT_CLEARED event ──────────────────────────
+            if let Some(ctrl) = &data.event_ctrl {
+                let evt =
+                    crate::events::PlotEvent::new(crate::events::EventKind::MEASUREMENT_CLEARED);
+                ctrl.emit_filtered(evt);
+            }
         }
 
         // Tell each scope whether a measurement is active so clicking while
@@ -205,6 +212,47 @@ impl Panel for MeasurementPanel {
                 }
 
                 measurement.scope_id = Some(scope.id);
+
+                // ── Emit MEASUREMENT_POINT event ──────────────────────────
+                if let Some(ctrl) = &data.event_ctrl {
+                    let (p1, p2) = measurement.get_points();
+                    let (slope, distance, delta_x, delta_y) = if let (Some(a), Some(b)) = (p1, p2) {
+                        let dx = b[0] - a[0];
+                        let dy = b[1] - a[1];
+                        let slope = if dx.abs() > 1e-12 {
+                            Some(dy / dx)
+                        } else {
+                            None
+                        };
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        (slope, Some(dist), Some(dx), Some(dy))
+                    } else {
+                        (None, None, None, None)
+                    };
+                    let kind = if p1.is_some() && p2.is_some() {
+                        crate::events::EventKind::MEASUREMENT_POINT
+                            | crate::events::EventKind::MEASUREMENT_COMPLETE
+                    } else {
+                        crate::events::EventKind::MEASUREMENT_POINT
+                    };
+                    let point_index =
+                        self.selected_point_index
+                            .unwrap_or(if p2.is_some() { 1 } else { 0 });
+                    let mut evt = crate::events::PlotEvent::new(kind);
+                    evt.measurement = Some(crate::events::MeasurementMeta {
+                        point_index,
+                        point,
+                        measurement_name: Some(measurement.name.clone()),
+                        p1,
+                        p2,
+                        delta_x,
+                        delta_y,
+                        slope,
+                        distance,
+                        trace: measurement.catch_trace.clone(),
+                    });
+                    ctrl.emit_filtered(evt);
+                }
             }
         }
     }
