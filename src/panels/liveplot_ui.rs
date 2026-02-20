@@ -259,6 +259,39 @@ impl LiveplotPanel {
         self.next_scope_idx
     }
 
+    /// Propagate the total widget size to every scope panel.
+    pub fn set_total_widget_size(&mut self, size: egui::Vec2) {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                pane.total_widget_size = size;
+            }
+        }
+    }
+
+    /// Set the tick-label-hiding thresholds on every scope panel.
+    pub fn set_tick_label_thresholds(
+        &mut self,
+        min_width_for_y_ticklabels: f32,
+        min_height_for_x_ticklabels: f32,
+    ) {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                pane.min_width_for_y_ticklabels = min_width_for_y_ticklabels;
+                pane.min_height_for_x_ticklabels = min_height_for_x_ticklabels;
+            }
+        }
+    }
+
+    /// Set the legend-hiding thresholds on every scope panel.
+    pub fn set_legend_thresholds(&mut self, min_width_for_legend: f32, min_height_for_legend: f32) {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                pane.min_width_for_legend = min_width_for_legend;
+                pane.min_height_for_legend = min_height_for_legend;
+            }
+        }
+    }
+
     /// Replace all scope panels with the given scope data states.
     ///
     /// Existing scopes are cleared and new ScopePanels are created with the

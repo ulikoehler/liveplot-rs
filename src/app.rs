@@ -1,10 +1,14 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static PANEL_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 use eframe::egui;
 use eframe::egui::scroll_area::{ScrollBarVisibility, ScrollSource};
 
+use crate::config::ScopeButton;
 use crate::controllers::{
     FFTController, LiveplotController, ScopesController, ThresholdController, TracesController,
     UiActionController, WindowController,
@@ -21,6 +25,18 @@ use crate::data::data::{LivePlotData, LivePlotRequests};
 use crate::panels::liveplot_ui::LiveplotPanel;
 use crate::panels::panel_trait::Panel;
 use crate::PlotCommand;
+
+/// Computed layout describing which buttons appear where for a single frame.
+struct EffectiveLayout {
+    /// Buttons to render in the top menu bar (empty ⟹ top bar is not shown).
+    top_bar_buttons: Vec<ScopeButton>,
+    /// Buttons to render in the sidebar icon strip (empty ⟹ no icon strip).
+    sidebar_buttons: Vec<ScopeButton>,
+    /// Whether the top menu bar is visible.
+    show_top_bar: bool,
+    /// Whether sidebar panel content (attached panel widgets) is visible.
+    show_sidebar_panels: bool,
+}
 
 // use crate::panels::{
 //     export_ui::ExportPanel, fft_ui::FftPanel, math_ui::MathPanel, scope_ui::ScopePanel,
@@ -56,6 +72,25 @@ pub struct MainPanel {
     pub(crate) threshold_event_cursors: HashMap<String, usize>,
 
     pub pending_requests: LivePlotRequests,
+
+    // ── Responsive button-layout configuration ───────────────────────────────
+    /// Buttons placed in the top menu bar.  `None` = the full default set.
+    pub top_bar_buttons: Option<Vec<ScopeButton>>,
+    /// Buttons placed in the right sidebar icon strip.  `None` = empty (standard behaviour).
+    pub sidebar_buttons: Option<Vec<ScopeButton>>,
+    /// Minimum plot-area height (px) before the top bar is hidden and its buttons move to sidebar.
+    pub min_height_for_top_bar: f32,
+    /// Minimum plot-area width (px) before the sidebar is hidden and its buttons move to top bar.
+    pub min_width_for_sidebar: f32,
+    /// Minimum plot-area height (px) before the sidebar is hidden and its buttons move to top bar.
+    pub min_height_for_sidebar: f32,
+    /// Central-panel size captured at the end of the previous frame (for responsive decisions).
+    last_plot_size: egui::Vec2,
+    /// Unique ID for this panel instance, used to namespace egui panel IDs.
+    panel_id: u64,
+    /// When `true`, the inner CentralPanel is rendered with no frame/margin so the plot
+    /// fills every pixel of the allocated space.  Useful for dense embedded grid layouts.
+    pub compact: bool,
 }
 
 impl MainPanel {
@@ -89,6 +124,15 @@ impl MainPanel {
             threshold_ctrl: None,
             threshold_event_cursors: HashMap::new(),
             pending_requests: LivePlotRequests::default(),
+            top_bar_buttons: None,
+            sidebar_buttons: None,
+            min_height_for_top_bar: 200.0,
+            min_width_for_sidebar: 150.0,
+            min_height_for_sidebar: 200.0,
+            // Initialise to a large number so that no suppression happens on the first frame.
+            last_plot_size: egui::Vec2::new(10_000.0, 10_000.0),
+            panel_id: PANEL_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
+            compact: false,
         }
     }
 
@@ -113,14 +157,34 @@ impl MainPanel {
     }
 
     pub fn update(&mut self, ui: &mut egui::Ui) {
+        // Capture the full widget size BEFORE any layout (top bar, sidebars, etc.)
+        // is applied.  This is the total area available to the entire plot widget
+        // and is used for responsive min-width / min-height decisions.
+        self.last_plot_size = ui.max_rect().size();
+
         self.update_data();
 
-        // Render UI
-        self.render_menu(ui);
-        self.render_panels(ui);
+        // Propagate the total widget size to every scope panel so their tick-label
+        // hide decisions also use the complete widget dimensions.
+        self.liveplot_panel
+            .set_total_widget_size(self.last_plot_size);
+
+        // In compact mode, skip all chrome (menu bar, sidebars, bottom panels)
+        // so the plot fills the entire allocated area.  This avoids collapsed
+        // panel stubs stealing space from very small embedded cells.
+        if !self.compact {
+            self.render_menu(ui);
+            self.render_panels(ui);
+        }
 
         // Draw additional overlay objects from other panels (e.g., thresholds)
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        let central_panel = egui::CentralPanel::default();
+        let central_panel = if self.compact {
+            central_panel.frame(egui::Frame::NONE)
+        } else {
+            central_panel
+        };
+        central_panel.show_inside(ui, |ui| {
             use std::cell::RefCell;
             // Temporarily take panel lists to build a local overlay drawer without borrowing self
             let left = RefCell::new(std::mem::take(&mut self.left_side_panels));
@@ -904,7 +968,66 @@ impl MainPanel {
         }
     }
 
+    /// Describes which buttons appear in the top bar and sidebar for this frame.
+    fn compute_effective_layout(&self) -> EffectiveLayout {
+        let plot_h = self.last_plot_size.y;
+        let plot_w = self.last_plot_size.x;
+        let suppress_top = plot_h < self.min_height_for_top_bar;
+        let suppress_sidebar =
+            plot_w < self.min_width_for_sidebar || plot_h < self.min_height_for_sidebar;
+
+        let user_top: Vec<ScopeButton> = self
+            .top_bar_buttons
+            .clone()
+            .unwrap_or_else(ScopeButton::all_defaults);
+        let user_sidebar: Vec<ScopeButton> = self.sidebar_buttons.clone().unwrap_or_default();
+
+        if suppress_top && suppress_sidebar {
+            EffectiveLayout {
+                top_bar_buttons: vec![],
+                sidebar_buttons: vec![],
+                show_top_bar: false,
+                show_sidebar_panels: false,
+            }
+        } else if suppress_top {
+            // Top bar is hidden → move its buttons into the sidebar (after sidebar buttons).
+            let mut sidebar = user_sidebar;
+            sidebar.extend(user_top);
+            EffectiveLayout {
+                top_bar_buttons: vec![],
+                sidebar_buttons: sidebar,
+                show_top_bar: false,
+                show_sidebar_panels: true,
+            }
+        } else if suppress_sidebar {
+            // Sidebar is hidden → move its icon-strip buttons into the top bar (after top buttons).
+            let mut top = user_top;
+            top.extend(user_sidebar);
+            EffectiveLayout {
+                top_bar_buttons: top,
+                sidebar_buttons: vec![],
+                show_top_bar: true,
+                show_sidebar_panels: false,
+            }
+        } else {
+            EffectiveLayout {
+                top_bar_buttons: user_top,
+                sidebar_buttons: user_sidebar,
+                show_top_bar: true,
+                show_sidebar_panels: true,
+            }
+        }
+    }
+
     fn render_menu(&mut self, ui: &mut egui::Ui) {
+        // ── Responsive layout: should we show the top bar at all? ───────────
+        let layout = self.compute_effective_layout();
+        if !layout.show_top_bar {
+            return; // top bar suppressed – its buttons have been moved to the sidebar
+        }
+        let top_bar_btns = layout.top_bar_buttons;
+
+        // ── When to collapse text labels to icon-only ────────────────────────
         // Compute whether top-bar buttons should collapse to icon-only.
         // We calculate the full width required to display all buttons with text labels.
         // If the available width is less than this, we switch to icon-only mode.
@@ -922,10 +1045,12 @@ impl MainPanel {
             w + button_padding + item_spacing
         };
 
-        // 1. Scopes button
-        required_width += calc_width("🔭 Scopes");
+        // 1. Scopes button (only if in top_bar_btns)
+        if top_bar_btns.contains(&ScopeButton::Scopes) {
+            required_width += calc_width("🔭 Scopes");
+        }
 
-        // 2. All other panels
+        // 2. All other panels (only those in top_bar_btns)
         let all_panels = self
             .left_side_panels
             .iter()
@@ -935,17 +1060,26 @@ impl MainPanel {
             .chain(self.empty_panels.iter());
 
         for p in all_panels {
-            required_width += calc_width(&p.title_and_icon());
+            if top_bar_btns
+                .iter()
+                .any(|b| b.matches_panel_title(p.title()))
+            {
+                required_width += calc_width(&p.title_and_icon());
+            }
         }
 
         // 3. Separator (approximate width)
         required_width += item_spacing * 2.0; // visuals usually take some space
 
-        // 4. Pause / Resume (take the wider one)
-        required_width += calc_width("⏸ Pause");
+        // 4. Pause / Resume (take the wider one, only if in top_bar_btns)
+        if top_bar_btns.contains(&ScopeButton::PauseResume) {
+            required_width += calc_width("⏸ Pause");
+        }
 
-        // 5. Clear All
-        required_width += calc_width(&format!("{BROOM} Clear All"));
+        // 5. Clear All (only if in top_bar_btns)
+        if top_bar_btns.contains(&ScopeButton::ClearAll) {
+            required_width += calc_width(&format!("{BROOM} Clear All"));
+        }
 
         // Remove trailing spacing
         required_width -= item_spacing;
@@ -956,8 +1090,11 @@ impl MainPanel {
         let hk_rc = self.hotkeys.clone();
 
         egui::MenuBar::new().ui(ui, |ui| {
-            self.liveplot_panel
-                .render_menu(ui, &mut self.traces_data, topbar_collapsed);
+            // Render the Scopes button only if configured
+            if top_bar_btns.contains(&ScopeButton::Scopes) {
+                self.liveplot_panel
+                    .render_menu(ui, &mut self.traces_data, topbar_collapsed);
+            }
 
             let (save_req, load_req, add_scope_req, remove_scope_req) = {
                 let scope_data = self.liveplot_panel.get_data_mut();
@@ -970,6 +1107,12 @@ impl MainPanel {
                 {
                     let hk = hk_rc.borrow();
                     for p in &mut self.left_side_panels {
+                        if !top_bar_btns
+                            .iter()
+                            .any(|b| b.matches_panel_title(p.title()))
+                        {
+                            continue;
+                        }
                         let tt = p
                             .hotkey_name()
                             .and_then(|name| get_hotkey_for_name(&hk, name))
@@ -978,6 +1121,12 @@ impl MainPanel {
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
                     }
                     for p in &mut self.right_side_panels {
+                        if !top_bar_btns
+                            .iter()
+                            .any(|b| b.matches_panel_title(p.title()))
+                        {
+                            continue;
+                        }
                         let tt = p
                             .hotkey_name()
                             .and_then(|name| get_hotkey_for_name(&hk, name))
@@ -986,6 +1135,12 @@ impl MainPanel {
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
                     }
                     for p in &mut self.bottom_panels {
+                        if !top_bar_btns
+                            .iter()
+                            .any(|b| b.matches_panel_title(p.title()))
+                        {
+                            continue;
+                        }
                         let tt = p
                             .hotkey_name()
                             .and_then(|name| get_hotkey_for_name(&hk, name))
@@ -994,6 +1149,12 @@ impl MainPanel {
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
                     }
                     for p in &mut self.detached_panels {
+                        if !top_bar_btns
+                            .iter()
+                            .any(|b| b.matches_panel_title(p.title()))
+                        {
+                            continue;
+                        }
                         let tt = p
                             .hotkey_name()
                             .and_then(|name| get_hotkey_for_name(&hk, name))
@@ -1002,6 +1163,12 @@ impl MainPanel {
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
                     }
                     for p in &mut self.empty_panels {
+                        if !top_bar_btns
+                            .iter()
+                            .any(|b| b.matches_panel_title(p.title()))
+                        {
+                            continue;
+                        }
                         let tt = p
                             .hotkey_name()
                             .and_then(|name| get_hotkey_for_name(&hk, name))
@@ -1010,33 +1177,41 @@ impl MainPanel {
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
                     }
 
-                    // Pause / Resume button
-                    ui.separator();
-                    let pause_tt = format_button_tooltip("Pause / Resume", hk.pause.as_ref());
-                    if !data.are_all_paused() {
-                        let pause_label = if topbar_collapsed { "⏸" } else { "⏸ Pause" };
-                        if ui.button(pause_label).on_hover_text(&pause_tt).clicked() {
-                            data.pause_all();
-                        }
-                    } else {
-                        let resume_label = if topbar_collapsed {
-                            "▶"
+                    // Pause / Resume button (only if configured)
+                    if top_bar_btns.contains(&ScopeButton::PauseResume)
+                        || top_bar_btns.contains(&ScopeButton::ClearAll)
+                    {
+                        ui.separator();
+                    }
+                    if top_bar_btns.contains(&ScopeButton::PauseResume) {
+                        let pause_tt = format_button_tooltip("Pause / Resume", hk.pause.as_ref());
+                        if !data.are_all_paused() {
+                            let pause_label = if topbar_collapsed { "⏸" } else { "⏸ Pause" };
+                            if ui.button(pause_label).on_hover_text(&pause_tt).clicked() {
+                                data.pause_all();
+                            }
                         } else {
-                            "▶ Resume"
-                        };
-                        if ui.button(resume_label).on_hover_text(&pause_tt).clicked() {
-                            data.resume_all();
+                            let resume_label = if topbar_collapsed {
+                                "▶"
+                            } else {
+                                "▶ Resume"
+                            };
+                            if ui.button(resume_label).on_hover_text(&pause_tt).clicked() {
+                                data.resume_all();
+                            }
                         }
                     }
 
-                    let clear_all_label = if topbar_collapsed {
-                        BROOM.to_string()
-                    } else {
-                        format!("{BROOM} Clear All")
-                    };
-                    let clear_tt = format_button_tooltip("Clear All", hk.clear_all.as_ref());
-                    if ui.button(clear_all_label).on_hover_text(clear_tt).clicked() {
-                        data.request_clear_all();
+                    if top_bar_btns.contains(&ScopeButton::ClearAll) {
+                        let clear_all_label = if topbar_collapsed {
+                            BROOM.to_string()
+                        } else {
+                            format!("{BROOM} Clear All")
+                        };
+                        let clear_tt = format_button_tooltip("Clear All", hk.clear_all.as_ref());
+                        if ui.button(clear_all_label).on_hover_text(clear_tt).clicked() {
+                            data.request_clear_all();
+                        }
                     }
                 }
 
@@ -1299,225 +1474,320 @@ impl MainPanel {
     }
 
     fn render_panels(&mut self, ui: &mut egui::Ui) {
-        // Layout: left, right side optional; bottom optional; main center
-        let show_left = !self.left_side_panels.is_empty()
-            && self
-                .left_side_panels
-                .iter()
-                .any(|p| p.state().visible && !p.state().detached);
-        let show_right = !self.right_side_panels.is_empty()
-            && self
-                .right_side_panels
-                .iter()
-                .any(|p| p.state().visible && !p.state().detached);
-        let show_bottom = !self.bottom_panels.is_empty()
-            && self
-                .bottom_panels
-                .iter()
-                .any(|p| p.state().visible && !p.state().detached);
+        let layout = self.compute_effective_layout();
+        let has_icon_strip = !layout.sidebar_buttons.is_empty();
 
-        if show_left {
-            let mut list = std::mem::take(&mut self.left_side_panels);
-            egui::SidePanel::left("left_sidebar")
-                .resizable(true)
-                .default_width(280.0)
-                .min_width(160.0)
+        // ── Persistent sidebar icon strip (rightmost panel) ──────────────────
+        // Rendered first so it occupies the far-right slot; the panel-content
+        // sidebar renders to its left.
+        if has_icon_strip {
+            let sidebar_btns = layout.sidebar_buttons.clone();
+            let hk_rc = self.hotkeys.clone();
+            // Snapshot pause state before the closure so the closure only needs a copy.
+            let all_paused = self.liveplot_panel.get_data().iter().all(|s| s.paused);
+            let mut clicked_btns: Vec<ScopeButton> = Vec::new();
+
+            egui::SidePanel::right(format!("right_icon_strip_{}", self.panel_id))
+                .resizable(false)
+                .exact_width(36.0)
                 .show_inside(ui, |ui| {
-                    egui::ScrollArea::vertical()
-                        .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
-                        .scroll_source(ScrollSource::NONE)
-                        .show(ui, |ui| {
-                            self.render_tabs(ui, &mut list);
-                        });
+                    let hk = hk_rc.borrow();
+                    ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                        for btn in &sidebar_btns {
+                            match btn {
+                                ScopeButton::PauseResume => {
+                                    let (icon, tooltip) = if all_paused {
+                                        ("▶", "Resume")
+                                    } else {
+                                        ("⏸", "Pause")
+                                    };
+                                    if ui.button(icon).on_hover_text(tooltip).clicked() {
+                                        clicked_btns.push(ScopeButton::PauseResume);
+                                    }
+                                }
+                                ScopeButton::ClearAll => {
+                                    let tt =
+                                        format_button_tooltip("Clear All", hk.clear_all.as_ref());
+                                    if ui.button(BROOM.to_string()).on_hover_text(tt).clicked() {
+                                        clicked_btns.push(ScopeButton::ClearAll);
+                                    }
+                                }
+                                ScopeButton::Scopes => {
+                                    ui.button("🔭").on_hover_text("Scopes (use the top bar)");
+                                }
+                                other => {
+                                    // Find panel info across all lists (immutable borrows only).
+                                    let panel_info: Option<(bool, String, String)> = {
+                                        let all = self
+                                            .left_side_panels
+                                            .iter()
+                                            .chain(self.right_side_panels.iter())
+                                            .chain(self.bottom_panels.iter())
+                                            .chain(self.detached_panels.iter())
+                                            .chain(self.empty_panels.iter());
+                                        let mut found = None;
+                                        for p in all {
+                                            if other.matches_panel_title(p.title()) {
+                                                let active =
+                                                    p.state().visible && !p.state().detached;
+                                                let icon =
+                                                    p.icon_only().unwrap_or(p.title()).to_string();
+                                                let hk_str = p
+                                                    .hotkey_name()
+                                                    .and_then(|n| get_hotkey_for_name(&hk, n));
+                                                let tt = format_button_tooltip(p.title(), hk_str);
+                                                found = Some((active, icon, tt));
+                                                break;
+                                            }
+                                        }
+                                        found
+                                    };
+                                    if let Some((active, icon, tt)) = panel_info {
+                                        if ui
+                                            .selectable_label(active, icon)
+                                            .on_hover_text(tt)
+                                            .clicked()
+                                        {
+                                            clicked_btns.push(other.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
                 });
-            self.left_side_panels = list;
-        } else if !self.left_side_panels.is_empty() {
-            let mut list = std::mem::take(&mut self.left_side_panels);
-            let hk_rc_left = self.hotkeys.clone();
-            egui::SidePanel::left("left_sidebar")
-                .resizable(true)
-                .default_width(30.0)
-                .min_width(30.0)
-                .show_inside(ui, |ui| {
-                    let hk = hk_rc_left.borrow();
-                    egui::ScrollArea::vertical()
-                        .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
-                        .scroll_source(ScrollSource::NONE)
-                        .show(ui, |ui| {
-                            let mut clicked: Option<usize> = None;
-                            ui.vertical(|ui| {
-                                // Compute max width for compact icons so buttons have consistent size
-                                let button_font = egui::TextStyle::Button.resolve(ui.style());
-                                let mut max_w = 0.0_f32;
 
-                                ui.fonts_mut(|f| {
-                                    for p in list.iter() {
+            // Apply icon-strip actions now that the closure (and its borrows) is done.
+            for btn in clicked_btns {
+                match btn {
+                    ScopeButton::PauseResume => {
+                        if all_paused {
+                            for s in self.liveplot_panel.get_data_mut() {
+                                s.paused = false;
+                            }
+                        } else {
+                            for s in self.liveplot_panel.get_data_mut() {
+                                s.paused = true;
+                            }
+                            self.traces_data.take_snapshot();
+                        }
+                    }
+                    ScopeButton::ClearAll => {
+                        self.traces_data.clear_all();
+                        for s in self.liveplot_panel.get_data_mut() {
+                            s.clicked_point = None;
+                        }
+                    }
+                    other => {
+                        // Toggle the matching panel.
+                        for p in self
+                            .left_side_panels
+                            .iter_mut()
+                            .chain(self.right_side_panels.iter_mut())
+                            .chain(self.bottom_panels.iter_mut())
+                            .chain(self.detached_panels.iter_mut())
+                            .chain(self.empty_panels.iter_mut())
+                        {
+                            if other.matches_panel_title(p.title()) {
+                                let st = p.state_mut();
+                                let is_shown = st.visible && !st.detached;
+                                st.visible = !is_shown;
+                                st.detached = false;
+                                if !is_shown {
+                                    st.request_focus = true;
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Sidebar panel content (left / right / bottom) ─────────────────────
+        // When show_sidebar_panels is false (responsive suppression), we skip rendering
+        // attached panel content but detached windows are still shown below.
+        if layout.show_sidebar_panels {
+            // Layout: left, right side optional; bottom optional; main center
+            let show_left = !self.left_side_panels.is_empty()
+                && self
+                    .left_side_panels
+                    .iter()
+                    .any(|p| p.state().visible && !p.state().detached);
+            let show_right = !self.right_side_panels.is_empty()
+                && self
+                    .right_side_panels
+                    .iter()
+                    .any(|p| p.state().visible && !p.state().detached);
+            let show_bottom = !self.bottom_panels.is_empty()
+                && self
+                    .bottom_panels
+                    .iter()
+                    .any(|p| p.state().visible && !p.state().detached);
+
+            if show_left {
+                let mut list = std::mem::take(&mut self.left_side_panels);
+                egui::SidePanel::left(format!("left_sidebar_{}", self.panel_id))
+                    .resizable(true)
+                    .default_width(280.0)
+                    .min_width(160.0)
+                    .show_inside(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
+                            .scroll_source(ScrollSource::NONE)
+                            .show(ui, |ui| {
+                                self.render_tabs(ui, &mut list);
+                            });
+                    });
+                self.left_side_panels = list;
+            } else if !self.left_side_panels.is_empty() {
+                let mut list = std::mem::take(&mut self.left_side_panels);
+                let hk_rc_left = self.hotkeys.clone();
+                egui::SidePanel::left(format!("left_sidebar_{}", self.panel_id))
+                    .resizable(true)
+                    .default_width(30.0)
+                    .min_width(30.0)
+                    .show_inside(ui, |ui| {
+                        let hk = hk_rc_left.borrow();
+                        egui::ScrollArea::vertical()
+                            .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
+                            .scroll_source(ScrollSource::NONE)
+                            .show(ui, |ui| {
+                                let mut clicked: Option<usize> = None;
+                                ui.vertical(|ui| {
+                                    for (i, p) in list.iter_mut().enumerate() {
+                                        let active = p.state().visible && !p.state().detached;
                                         let label = p.icon_only().unwrap_or(p.title()).to_string();
-                                        let w = f
-                                            .layout_no_wrap(
-                                                label,
-                                                button_font.clone(),
-                                                egui::Color32::WHITE,
-                                            )
-                                            .rect
-                                            .width();
-                                        if w > max_w {
-                                            max_w = w;
+                                        let hotkey = p
+                                            .hotkey_name()
+                                            .and_then(|name| get_hotkey_for_name(&hk, name));
+                                        let tooltip = format_button_tooltip(p.title(), hotkey);
+                                        if ui
+                                            .selectable_label(active, label)
+                                            .on_hover_text(tooltip)
+                                            .clicked()
+                                        {
+                                            clicked = Some(i);
                                         }
                                     }
                                 });
-
-                                for (i, p) in list.iter_mut().enumerate() {
-                                    let active = p.state().visible && !p.state().detached;
-                                    let label = p.icon_only().unwrap_or(p.title()).to_string();
-                                    let hotkey = p
-                                        .hotkey_name()
-                                        .and_then(|name| get_hotkey_for_name(&hk, name));
-                                    let tooltip = format_button_tooltip(p.title(), hotkey);
-                                    if ui
-                                        .selectable_label(active, label)
-                                        .on_hover_text(tooltip)
-                                        .clicked()
-                                    {
-                                        clicked = Some(i);
+                                if let Some(ci) = clicked {
+                                    for (i, p) in list.iter_mut().enumerate() {
+                                        if i == ci {
+                                            p.state_mut().visible = true;
+                                            p.state_mut().request_focus = true;
+                                        } else if !p.state().detached {
+                                            p.state_mut().visible = false;
+                                        }
                                     }
                                 }
                             });
-                            if let Some(ci) = clicked {
-                                for (i, p) in list.iter_mut().enumerate() {
-                                    if i == ci {
-                                        p.state_mut().visible = true;
-                                        p.state_mut().request_focus = true;
-                                    } else if !p.state().detached {
-                                        p.state_mut().visible = false;
-                                    }
-                                }
-                            }
-                        });
-                });
-            self.left_side_panels = list;
-        }
-        if show_right {
-            let mut list = std::mem::take(&mut self.right_side_panels);
-            egui::SidePanel::right("right_sidebar")
-                .resizable(true)
-                .default_width(320.0)
-                .min_width(200.0)
-                .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list);
-                });
-            self.right_side_panels = list;
-        } else if !self.right_side_panels.is_empty() {
-            let mut list = std::mem::take(&mut self.right_side_panels);
-            let hk_rc_right = self.hotkeys.clone();
-            egui::SidePanel::right("right_sidebar")
-                .resizable(true)
-                .default_width(30.0)
-                .min_width(30.0)
-                .show_inside(ui, |ui| {
-                    let hk = hk_rc_right.borrow();
-                    let mut clicked: Option<usize> = None;
-                    ui.vertical(|ui| {
-                        // Compute max width for compact icons so buttons have consistent size
-                        let button_font = egui::TextStyle::Button.resolve(ui.style());
-                        let mut max_w = 0.0_f32;
+                    });
+                self.left_side_panels = list;
+            }
 
-                        ui.fonts_mut(|f| {
-                            for p in list.iter() {
+            if show_right {
+                let mut list = std::mem::take(&mut self.right_side_panels);
+                egui::SidePanel::right(format!("right_sidebar_{}", self.panel_id))
+                    .resizable(true)
+                    .default_width(320.0)
+                    .min_width(200.0)
+                    .show_inside(ui, |ui| {
+                        self.render_tabs(ui, &mut list);
+                    });
+                self.right_side_panels = list;
+            } else if !self.right_side_panels.is_empty() && !has_icon_strip {
+                // Only show the collapsed icon strip when there is no persistent
+                // icon strip (which already provides this navigation).
+                let mut list = std::mem::take(&mut self.right_side_panels);
+                let hk_rc_right = self.hotkeys.clone();
+                egui::SidePanel::right(format!("right_sidebar_{}", self.panel_id))
+                    .resizable(true)
+                    .default_width(30.0)
+                    .min_width(30.0)
+                    .show_inside(ui, |ui| {
+                        let hk = hk_rc_right.borrow();
+                        let mut clicked: Option<usize> = None;
+                        ui.vertical(|ui| {
+                            for (i, p) in list.iter_mut().enumerate() {
+                                let active = p.state().visible && !p.state().detached;
                                 let label = p.icon_only().unwrap_or(p.title()).to_string();
-                                let w = f
-                                    .layout_no_wrap(
-                                        label,
-                                        button_font.clone(),
-                                        egui::Color32::WHITE,
-                                    )
-                                    .rect
-                                    .width();
-                                if w > max_w {
-                                    max_w = w;
+                                let hotkey = p
+                                    .hotkey_name()
+                                    .and_then(|name| get_hotkey_for_name(&hk, name));
+                                let tooltip = format_button_tooltip(p.title(), hotkey);
+                                if ui
+                                    .selectable_label(active, label)
+                                    .on_hover_text(tooltip)
+                                    .clicked()
+                                {
+                                    clicked = Some(i);
                                 }
                             }
                         });
-
-                        for (i, p) in list.iter_mut().enumerate() {
-                            let active = p.state().visible && !p.state().detached;
-                            let label = p.icon_only().unwrap_or(p.title()).to_string();
-                            let hotkey = p
-                                .hotkey_name()
-                                .and_then(|name| get_hotkey_for_name(&hk, name));
-                            let tooltip = format_button_tooltip(p.title(), hotkey);
-                            if ui
-                                .selectable_label(active, label)
-                                .on_hover_text(tooltip)
-                                .clicked()
-                            {
-                                clicked = Some(i);
+                        if let Some(ci) = clicked {
+                            for (i, p) in list.iter_mut().enumerate() {
+                                if i == ci {
+                                    p.state_mut().visible = true;
+                                    p.state_mut().request_focus = true;
+                                } else if !p.state().detached {
+                                    p.state_mut().visible = false;
+                                }
                             }
                         }
                     });
-                    if let Some(ci) = clicked {
-                        for (i, p) in list.iter_mut().enumerate() {
-                            if i == ci {
-                                p.state_mut().visible = true;
-                                p.state_mut().request_focus = true;
-                            } else if !p.state().detached {
-                                p.state_mut().visible = false;
-                            }
-                        }
-                    }
-                });
-            self.right_side_panels = list;
-        }
+                self.right_side_panels = list;
+            }
 
-        if show_bottom {
-            let mut list = std::mem::take(&mut self.bottom_panels);
-            egui::TopBottomPanel::bottom("bottom_bar")
-                .resizable(true)
-                .default_height(220.0)
-                .min_height(120.0)
-                .show_inside(ui, |ui| {
-                    self.render_tabs(ui, &mut list);
-                });
-            self.bottom_panels = list;
-        } else if !self.bottom_panels.is_empty() {
-            let mut list = std::mem::take(&mut self.bottom_panels);
-            let hk_rc_bottom = self.hotkeys.clone();
-            egui::TopBottomPanel::bottom("bottom_bar")
-                .resizable(false)
-                .default_height(24.0)
-                .min_height(24.0)
-                .show_inside(ui, |ui| {
-                    let hk = hk_rc_bottom.borrow();
-                    let mut clicked: Option<usize> = None;
-                    ui.add_space(2.0);
-                    ui.horizontal(|ui| {
-                        for (i, p) in list.iter_mut().enumerate() {
-                            let label = p.title_and_icon();
-                            let hotkey = p
-                                .hotkey_name()
-                                .and_then(|name| get_hotkey_for_name(&hk, name));
-                            let tooltip = format_button_tooltip(p.title(), hotkey);
-                            if ui.button(label).on_hover_text(tooltip).clicked() {
-                                clicked = Some(i);
+            if show_bottom {
+                let mut list = std::mem::take(&mut self.bottom_panels);
+                egui::TopBottomPanel::bottom(format!("bottom_bar_{}", self.panel_id))
+                    .resizable(true)
+                    .default_height(220.0)
+                    .min_height(120.0)
+                    .show_inside(ui, |ui| {
+                        self.render_tabs(ui, &mut list);
+                    });
+                self.bottom_panels = list;
+            } else if !self.bottom_panels.is_empty() {
+                let mut list = std::mem::take(&mut self.bottom_panels);
+                let hk_rc_bottom = self.hotkeys.clone();
+                egui::TopBottomPanel::bottom(format!("bottom_bar_{}", self.panel_id))
+                    .resizable(false)
+                    .default_height(24.0)
+                    .min_height(24.0)
+                    .show_inside(ui, |ui| {
+                        let hk = hk_rc_bottom.borrow();
+                        let mut clicked: Option<usize> = None;
+                        ui.add_space(2.0);
+                        ui.horizontal(|ui| {
+                            for (i, p) in list.iter_mut().enumerate() {
+                                let label = p.title_and_icon();
+                                let hotkey = p
+                                    .hotkey_name()
+                                    .and_then(|name| get_hotkey_for_name(&hk, name));
+                                let tooltip = format_button_tooltip(p.title(), hotkey);
+                                if ui.button(label).on_hover_text(tooltip).clicked() {
+                                    clicked = Some(i);
+                                }
+                            }
+                        });
+                        if let Some(ci) = clicked {
+                            for (i, p) in list.iter_mut().enumerate() {
+                                if i == ci {
+                                    p.state_mut().visible = true;
+                                    p.state_mut().request_focus = true;
+                                } else if !p.state().detached {
+                                    p.state_mut().visible = false;
+                                }
                             }
                         }
                     });
-                    if let Some(ci) = clicked {
-                        for (i, p) in list.iter_mut().enumerate() {
-                            if i == ci {
-                                p.state_mut().visible = true;
-                                p.state_mut().request_focus = true;
-                            } else if !p.state().detached {
-                                p.state_mut().visible = false;
-                            }
-                        }
-                    }
-                });
-            self.bottom_panels = list;
-        }
+                self.bottom_panels = list;
+            }
+        } // end show_sidebar_panels
 
-        // Detached windows
-        // Detached left windows via panel trait helper
+        // ── Detached windows (always shown regardless of responsive state) ────
         for p in &mut self.left_side_panels {
             if p.state().visible && p.state().detached {
                 p.show_detached_dialog(
@@ -1531,7 +1801,6 @@ impl MainPanel {
             }
         }
 
-        // Detached right windows via panel trait helper
         for p in &mut self.right_side_panels {
             if p.state().visible && p.state().detached {
                 p.show_detached_dialog(
@@ -1545,7 +1814,6 @@ impl MainPanel {
             }
         }
 
-        // Detached bottom windows via panel trait helper
         for p in &mut self.bottom_panels {
             if p.state().visible && p.state().detached {
                 p.show_detached_dialog(
@@ -1911,6 +2179,22 @@ impl MainApp {
         // Headline/subheadline for optional top banner
         self.headline = cfg.headline.clone();
         self.subheadline = cfg.subheadline.clone();
+
+        // ── Responsive layout configuration ──────────────────────────────────
+        self.main_panel.top_bar_buttons = cfg.top_bar_buttons.clone();
+        self.main_panel.sidebar_buttons = cfg.sidebar_buttons.clone();
+        self.main_panel.min_height_for_top_bar = cfg.min_height_for_top_bar;
+        self.main_panel.min_width_for_sidebar = cfg.min_width_for_sidebar;
+        self.main_panel.min_height_for_sidebar = cfg.min_height_for_sidebar;
+
+        // ── Tick-label visibility thresholds (applied to every scope panel) ──
+        self.main_panel.liveplot_panel.set_tick_label_thresholds(
+            cfg.min_width_for_y_ticklabels,
+            cfg.min_height_for_x_ticklabels,
+        );
+        self.main_panel
+            .liveplot_panel
+            .set_legend_thresholds(cfg.min_width_for_legend, cfg.min_height_for_legend);
     }
 
     fn apply_controllers(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
