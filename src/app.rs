@@ -11,7 +11,9 @@ use crate::controllers::{
 };
 use crate::data::export;
 use crate::data::hotkeys as hotkey_helpers;
-use crate::data::hotkeys::Hotkeys;
+use crate::data::hotkeys::{
+    format_button_tooltip, get_hotkey_for_name, should_collapse_topbar, Hotkeys,
+};
 use crate::data::traces::{TraceRef, TracesCollection};
 use egui_phosphor::regular::BROOM;
 
@@ -903,10 +905,59 @@ impl MainPanel {
     }
 
     fn render_menu(&mut self, ui: &mut egui::Ui) {
-        // Render Menu
+        // Compute whether top-bar buttons should collapse to icon-only.
+        // We calculate the full width required to display all buttons with text labels.
+        // If the available width is less than this, we switch to icon-only mode.
+        let button_font = egui::TextStyle::Button.resolve(ui.style());
+        let button_padding = ui.spacing().button_padding.x * 2.0;
+        let item_spacing = ui.spacing().item_spacing.x;
+        let mut required_width = 0.0;
+
+        let calc_width = |text: &str| -> f32 {
+            let w = ui.fonts_mut(|f| {
+                f.layout_no_wrap(text.to_string(), button_font.clone(), egui::Color32::WHITE)
+                    .rect
+                    .width()
+            });
+            w + button_padding + item_spacing
+        };
+
+        // 1. Scopes button
+        required_width += calc_width("🔭 Scopes");
+
+        // 2. All other panels
+        let all_panels = self
+            .left_side_panels
+            .iter()
+            .chain(self.right_side_panels.iter())
+            .chain(self.bottom_panels.iter())
+            .chain(self.detached_panels.iter())
+            .chain(self.empty_panels.iter());
+
+        for p in all_panels {
+            required_width += calc_width(&p.title_and_icon());
+        }
+
+        // 3. Separator (approximate width)
+        required_width += item_spacing * 2.0; // visuals usually take some space
+
+        // 4. Pause / Resume (take the wider one)
+        required_width += calc_width("⏸ Pause");
+
+        // 5. Clear All
+        required_width += calc_width(&format!("{BROOM} Clear All"));
+
+        // Remove trailing spacing
+        required_width -= item_spacing;
+
+        let topbar_collapsed = should_collapse_topbar(ui.available_width(), required_width);
+
+        // Clone Rc so it can be borrowed independently inside the closure.
+        let hk_rc = self.hotkeys.clone();
 
         egui::MenuBar::new().ui(ui, |ui| {
-            self.liveplot_panel.render_menu(ui, &mut self.traces_data);
+            self.liveplot_panel
+                .render_menu(ui, &mut self.traces_data, topbar_collapsed);
 
             let (save_req, load_req, add_scope_req, remove_scope_req) = {
                 let scope_data = self.liveplot_panel.get_data_mut();
@@ -916,34 +967,77 @@ impl MainPanel {
                     pending_requests: &mut self.pending_requests,
                 };
 
-                for p in &mut self.left_side_panels {
-                    p.render_menu(ui, &mut data);
-                }
-                for p in &mut self.right_side_panels {
-                    p.render_menu(ui, &mut data);
-                }
-                for p in &mut self.bottom_panels {
-                    p.render_menu(ui, &mut data);
-                }
-                for p in &mut self.detached_panels {
-                    p.render_menu(ui, &mut data);
-                }
-                for p in &mut self.empty_panels {
-                    p.render_menu(ui, &mut data);
-                }
-
-                // Add Pasue Button to Menu Bar
-                ui.separator();
-                if !data.are_all_paused() {
-                    if ui.button("⏸ Pause").clicked() {
-                        data.pause_all();
+                {
+                    let hk = hk_rc.borrow();
+                    for p in &mut self.left_side_panels {
+                        let tt = p
+                            .hotkey_name()
+                            .and_then(|name| get_hotkey_for_name(&hk, name))
+                            .map(|k| format_button_tooltip(p.title(), Some(k)))
+                            .unwrap_or_else(|| p.title().to_string());
+                        p.render_menu(ui, &mut data, topbar_collapsed, &tt);
                     }
-                } else if ui.button("▶ Resume").clicked() {
-                    data.resume_all();
-                }
+                    for p in &mut self.right_side_panels {
+                        let tt = p
+                            .hotkey_name()
+                            .and_then(|name| get_hotkey_for_name(&hk, name))
+                            .map(|k| format_button_tooltip(p.title(), Some(k)))
+                            .unwrap_or_else(|| p.title().to_string());
+                        p.render_menu(ui, &mut data, topbar_collapsed, &tt);
+                    }
+                    for p in &mut self.bottom_panels {
+                        let tt = p
+                            .hotkey_name()
+                            .and_then(|name| get_hotkey_for_name(&hk, name))
+                            .map(|k| format_button_tooltip(p.title(), Some(k)))
+                            .unwrap_or_else(|| p.title().to_string());
+                        p.render_menu(ui, &mut data, topbar_collapsed, &tt);
+                    }
+                    for p in &mut self.detached_panels {
+                        let tt = p
+                            .hotkey_name()
+                            .and_then(|name| get_hotkey_for_name(&hk, name))
+                            .map(|k| format_button_tooltip(p.title(), Some(k)))
+                            .unwrap_or_else(|| p.title().to_string());
+                        p.render_menu(ui, &mut data, topbar_collapsed, &tt);
+                    }
+                    for p in &mut self.empty_panels {
+                        let tt = p
+                            .hotkey_name()
+                            .and_then(|name| get_hotkey_for_name(&hk, name))
+                            .map(|k| format_button_tooltip(p.title(), Some(k)))
+                            .unwrap_or_else(|| p.title().to_string());
+                        p.render_menu(ui, &mut data, topbar_collapsed, &tt);
+                    }
 
-                if ui.button(format!("{BROOM} Clear All")).clicked() {
-                    data.request_clear_all();
+                    // Pause / Resume button
+                    ui.separator();
+                    let pause_tt = format_button_tooltip("Pause / Resume", hk.pause.as_ref());
+                    if !data.are_all_paused() {
+                        let pause_label = if topbar_collapsed { "⏸" } else { "⏸ Pause" };
+                        if ui.button(pause_label).on_hover_text(&pause_tt).clicked() {
+                            data.pause_all();
+                        }
+                    } else {
+                        let resume_label = if topbar_collapsed {
+                            "▶"
+                        } else {
+                            "▶ Resume"
+                        };
+                        if ui.button(resume_label).on_hover_text(&pause_tt).clicked() {
+                            data.resume_all();
+                        }
+                    }
+
+                    let clear_all_label = if topbar_collapsed {
+                        BROOM.to_string()
+                    } else {
+                        format!("{BROOM} Clear All")
+                    };
+                    let clear_tt = format_button_tooltip("Clear All", hk.clear_all.as_ref());
+                    if ui.button(clear_all_label).on_hover_text(clear_tt).clicked() {
+                        data.request_clear_all();
+                    }
                 }
 
                 (
@@ -1239,11 +1333,13 @@ impl MainPanel {
             self.left_side_panels = list;
         } else if !self.left_side_panels.is_empty() {
             let mut list = std::mem::take(&mut self.left_side_panels);
+            let hk_rc_left = self.hotkeys.clone();
             egui::SidePanel::left("left_sidebar")
                 .resizable(true)
                 .default_width(30.0)
                 .min_width(30.0)
                 .show_inside(ui, |ui| {
+                    let hk = hk_rc_left.borrow();
                     egui::ScrollArea::vertical()
                         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                         .scroll_source(ScrollSource::NONE)
@@ -1274,7 +1370,15 @@ impl MainPanel {
                                 for (i, p) in list.iter_mut().enumerate() {
                                     let active = p.state().visible && !p.state().detached;
                                     let label = p.icon_only().unwrap_or(p.title()).to_string();
-                                    if ui.selectable_label(active, label).clicked() {
+                                    let hotkey = p
+                                        .hotkey_name()
+                                        .and_then(|name| get_hotkey_for_name(&hk, name));
+                                    let tooltip = format_button_tooltip(p.title(), hotkey);
+                                    if ui
+                                        .selectable_label(active, label)
+                                        .on_hover_text(tooltip)
+                                        .clicked()
+                                    {
                                         clicked = Some(i);
                                     }
                                 }
@@ -1305,11 +1409,13 @@ impl MainPanel {
             self.right_side_panels = list;
         } else if !self.right_side_panels.is_empty() {
             let mut list = std::mem::take(&mut self.right_side_panels);
+            let hk_rc_right = self.hotkeys.clone();
             egui::SidePanel::right("right_sidebar")
                 .resizable(true)
                 .default_width(30.0)
                 .min_width(30.0)
                 .show_inside(ui, |ui| {
+                    let hk = hk_rc_right.borrow();
                     let mut clicked: Option<usize> = None;
                     ui.vertical(|ui| {
                         // Compute max width for compact icons so buttons have consistent size
@@ -1336,7 +1442,15 @@ impl MainPanel {
                         for (i, p) in list.iter_mut().enumerate() {
                             let active = p.state().visible && !p.state().detached;
                             let label = p.icon_only().unwrap_or(p.title()).to_string();
-                            if ui.selectable_label(active, label).clicked() {
+                            let hotkey = p
+                                .hotkey_name()
+                                .and_then(|name| get_hotkey_for_name(&hk, name));
+                            let tooltip = format_button_tooltip(p.title(), hotkey);
+                            if ui
+                                .selectable_label(active, label)
+                                .on_hover_text(tooltip)
+                                .clicked()
+                            {
                                 clicked = Some(i);
                             }
                         }
@@ -1367,17 +1481,23 @@ impl MainPanel {
             self.bottom_panels = list;
         } else if !self.bottom_panels.is_empty() {
             let mut list = std::mem::take(&mut self.bottom_panels);
+            let hk_rc_bottom = self.hotkeys.clone();
             egui::TopBottomPanel::bottom("bottom_bar")
                 .resizable(false)
                 .default_height(24.0)
                 .min_height(24.0)
                 .show_inside(ui, |ui| {
+                    let hk = hk_rc_bottom.borrow();
                     let mut clicked: Option<usize> = None;
                     ui.add_space(2.0);
                     ui.horizontal(|ui| {
                         for (i, p) in list.iter_mut().enumerate() {
                             let label = p.title_and_icon();
-                            if ui.button(label).clicked() {
+                            let hotkey = p
+                                .hotkey_name()
+                                .and_then(|name| get_hotkey_for_name(&hk, name));
+                            let tooltip = format_button_tooltip(p.title(), hotkey);
+                            if ui.button(label).on_hover_text(tooltip).clicked() {
                                 clicked = Some(i);
                             }
                         }
@@ -1458,6 +1578,9 @@ impl MainPanel {
 
         let mut clicked: Option<usize> = None;
 
+        // Clone the Rc so it can be borrowed inside the borrow block below.
+        let hk_rc_tabs = self.hotkeys.clone();
+
         let (add_scope_req, remove_scope_req) = {
             let scope_data = self.liveplot_panel.get_data_mut();
             let data = &mut LivePlotData {
@@ -1535,6 +1658,19 @@ impl MainPanel {
                 let use_icon_only = full_tabs_w + actions_w > available;
                 let wrap_tabs = use_icon_only && (icon_tabs_w + actions_w > available);
 
+                // Pre-compute per-panel tooltips (title + hotkey hint) once.
+                let hk = hk_rc_tabs.borrow();
+                let tooltips: Vec<String> = list
+                    .iter()
+                    .map(|p| {
+                        let hotkey = p
+                            .hotkey_name()
+                            .and_then(|name| get_hotkey_for_name(&hk, name));
+                        format_button_tooltip(p.title(), hotkey)
+                    })
+                    .collect();
+                drop(hk);
+
                 // Single header area:
                 // - actions are always pinned top-right
                 // - tabs take remaining space to the left, and can wrap beneath if needed
@@ -1560,55 +1696,76 @@ impl MainPanel {
 
                     // Left: tabs in remaining width
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
-                        let render_tabs = |ui: &mut egui::Ui,
-                                           list: &mut Vec<Box<dyn Panel>>,
-                                           clicked: &mut Option<usize>,
-                                           use_icon_only: bool,
-                                           count: usize| {
-                            if count > 1 {
-                                for (i, p) in list.iter_mut().enumerate() {
-                                    let active = p.state().visible && !p.state().detached;
+                        let render_tabs =
+                            |ui: &mut egui::Ui,
+                             list: &mut Vec<Box<dyn Panel>>,
+                             clicked: &mut Option<usize>,
+                             use_icon_only: bool,
+                             count: usize,
+                             tooltips: &[String]| {
+                                if count > 1 {
+                                    for (i, p) in list.iter_mut().enumerate() {
+                                        let active = p.state().visible && !p.state().detached;
+                                        let tooltip =
+                                            tooltips.get(i).map(|s| s.as_str()).unwrap_or("");
 
-                                    let (label, tooltip) = if use_icon_only {
-                                        if let Some(icon) = p.icon_only() {
-                                            (icon.to_string(), Some(p.title().to_string()))
+                                        let label = if use_icon_only {
+                                            p.icon_only()
+                                                .map(|s| s.to_string())
+                                                .unwrap_or_else(|| p.title_and_icon())
                                         } else {
-                                            (p.title_and_icon(), None)
-                                        }
-                                    } else {
-                                        (p.title_and_icon(), None)
-                                    };
+                                            p.title_and_icon()
+                                        };
 
-                                    let mut resp = ui.selectable_label(active, label);
-                                    if let Some(tt) = tooltip {
-                                        resp = resp.on_hover_text(tt);
-                                    }
-                                    if resp.clicked() {
-                                        *clicked = Some(i);
-                                    }
-                                }
-                            } else {
-                                let p = &mut list[0];
-                                if use_icon_only {
-                                    if let Some(icon) = p.icon_only() {
-                                        ui.label(icon).on_hover_text(p.title());
-                                    } else {
-                                        ui.label(p.title_and_icon());
+                                        let mut resp = ui.selectable_label(active, label);
+                                        if !tooltip.is_empty() {
+                                            resp = resp.on_hover_text(tooltip);
+                                        }
+                                        if resp.clicked() {
+                                            *clicked = Some(i);
+                                        }
                                     }
                                 } else {
-                                    ui.label(p.title_and_icon());
+                                    let p = &mut list[0];
+                                    let tooltip =
+                                        tooltips.first().map(|s| s.as_str()).unwrap_or("");
+                                    let label = if use_icon_only {
+                                        p.icon_only()
+                                            .map(|s| s.to_string())
+                                            .unwrap_or_else(|| p.title_and_icon())
+                                    } else {
+                                        p.title_and_icon()
+                                    };
+                                    if !tooltip.is_empty() {
+                                        ui.label(label).on_hover_text(tooltip);
+                                    } else {
+                                        ui.label(label);
+                                    }
+                                    *clicked = Some(0);
                                 }
-                                *clicked = Some(0);
-                            }
-                        };
+                            };
 
                         if wrap_tabs {
                             ui.horizontal_wrapped(|ui| {
-                                render_tabs(ui, list, &mut clicked, use_icon_only, count);
+                                render_tabs(
+                                    ui,
+                                    list,
+                                    &mut clicked,
+                                    use_icon_only,
+                                    count,
+                                    &tooltips,
+                                );
                             });
                         } else {
                             ui.horizontal(|ui| {
-                                render_tabs(ui, list, &mut clicked, use_icon_only, count);
+                                render_tabs(
+                                    ui,
+                                    list,
+                                    &mut clicked,
+                                    use_icon_only,
+                                    count,
+                                    &tooltips,
+                                );
                             });
                         }
                     });
@@ -1732,6 +1889,8 @@ impl MainApp {
                 // Set X axis to a time axis using default time format (per-scope formatting chooses date/time based on bounds)
                 s.x_axis.axis_type =
                     crate::data::scope::AxisType::Time(crate::data::scope::XDateFormat::default());
+                // Apply the configured X formatter (Auto selects TimeFormatter for time axes)
+                s.x_axis.x_formatter = cfg.x_formatter.clone();
                 s.show_legend = cfg.show_legend;
             }
         }

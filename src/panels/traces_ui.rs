@@ -41,8 +41,25 @@ impl Panel for TracesPanel {
         &mut self.state
     }
 
-    fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
-        ui.menu_button(self.title_and_icon(), |ui| {
+    fn hotkey_name(&self) -> Option<crate::data::hotkeys::HotkeyName> {
+        Some(crate::data::hotkeys::HotkeyName::Traces)
+    }
+
+    fn render_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        data: &mut LivePlotData<'_>,
+        collapsed: bool,
+        tooltip: &str,
+    ) {
+        let label = if collapsed {
+            self.icon_only()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| self.title().to_string())
+        } else {
+            self.title_and_icon()
+        };
+        let mr = ui.menu_button(label, |ui| {
             // Show Traces: open the Traces panel and focus dock
             if ui.button("Show Traces").clicked() {
                 let st = self.state_mut();
@@ -85,6 +102,9 @@ impl Panel for TracesPanel {
                 ui.close();
             }
         });
+        if !tooltip.is_empty() {
+            mr.response.on_hover_text(tooltip);
+        }
     }
 
     fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {

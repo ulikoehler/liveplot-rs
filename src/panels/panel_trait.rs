@@ -4,6 +4,7 @@ use egui::{Context, Ui};
 use egui_plot::PlotUi;
 
 use crate::data::data::LivePlotData;
+use crate::data::hotkeys::HotkeyName;
 use crate::data::scope::ScopeData;
 use crate::data::traces::TracesCollection;
 use downcast_rs::{impl_downcast, Downcast};
@@ -65,8 +66,27 @@ pub trait Panel: Downcast {
     fn state(&self) -> &PanelState;
     fn state_mut(&mut self) -> &mut PanelState;
 
+    /// Return the `HotkeyName` associated with this panel, if any.
+    ///
+    /// Override in panels that have a dedicated keyboard shortcut so that the
+    /// UI can include the hotkey in button tooltips.
+    fn hotkey_name(&self) -> Option<HotkeyName> {
+        None
+    }
+
     // Optional hooks with default empty impls
-    fn render_menu(&mut self, _ui: &mut Ui, _data: &mut LivePlotData<'_>) {}
+    /// Render the panel's top-bar menu button.
+    ///
+    /// `collapsed` – when `true` the button label should show only the panel icon.
+    /// `tooltip` – hover-text for the menu button (title + hotkey).
+    fn render_menu(
+        &mut self,
+        _ui: &mut Ui,
+        _data: &mut LivePlotData<'_>,
+        _collapsed: bool,
+        _tooltip: &str,
+    ) {
+    }
     fn render_panel(&mut self, _ui: &mut Ui, _data: &mut LivePlotData<'_>) {}
     fn draw(&mut self, _plot_ui: &mut PlotUi, _scope: &ScopeData, _traces: &TracesCollection) {}
 
@@ -198,3 +218,5 @@ pub trait Panel: Downcast {
 }
 
 impl_downcast!(Panel);
+
+// tests moved to `tests/panel_trait.rs`

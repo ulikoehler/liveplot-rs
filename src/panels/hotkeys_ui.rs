@@ -142,9 +142,26 @@ impl Panel for HotkeysPanel {
         &mut self.state
     }
 
-    fn render_menu(&mut self, ui: &mut egui::Ui, _data: &mut LivePlotData<'_>) {
+    fn hotkey_name(&self) -> Option<crate::data::hotkeys::HotkeyName> {
+        Some(crate::data::hotkeys::HotkeyName::HotkeysPanel)
+    }
+
+    fn render_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        _data: &mut LivePlotData<'_>,
+        collapsed: bool,
+        tooltip: &str,
+    ) {
+        let label = if collapsed {
+            self.icon_only()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| self.title().to_string())
+        } else {
+            self.title_and_icon()
+        };
         // Panel menu item: show panel, reset defaults, save config
-        ui.menu_button(self.title_and_icon(), |ui| {
+        let mr = ui.menu_button(label, |ui| {
             if ui.button("Show Hotkeys").clicked() {
                 let st = self.state_mut();
                 st.visible = true;
@@ -160,6 +177,9 @@ impl Panel for HotkeysPanel {
                 ui.close();
             }
         });
+        if !tooltip.is_empty() {
+            mr.response.on_hover_text(tooltip);
+        }
     }
 
     fn render_panel(&mut self, ui: &mut egui::Ui, _data: &mut LivePlotData<'_>) {

@@ -65,7 +65,7 @@ impl LiveplotPanel {
         }
     }
 
-    pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
+    pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection, collapsed: bool) {
         let mut remove_target: Option<TileId> = None;
         let can_remove = self
             .tree
@@ -97,8 +97,9 @@ impl LiveplotPanel {
                 .unwrap_or(0usize)
         });
 
-        // Add an icon to the Scopes menu for easier recognition
-        ui.menu_button("🔭 Scopes", |ui| {
+        // Add an icon to the Scopes menu for easier recognition; collapse to icon when narrow
+        let scopes_label = if collapsed { "🔭" } else { "🔭 Scopes" };
+        ui.menu_button(scopes_label, |ui| {
             if ui.button(format!("{PLUS} Add scope")).clicked() {
                 self.add_scope();
             }

@@ -2,6 +2,7 @@
 
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
+use crate::data::x_formatter::{TimeFormatter, XFormatter};
 use std::collections::{HashMap, VecDeque};
 
 /// Formatting options for the x-value (time) shown in point labels.
@@ -54,6 +55,10 @@ pub struct AxisSettings {
     pub bounds: (f64, f64),
     pub auto_fit: bool,
     pub axis_type: AxisType,
+    /// Controls how X (and incidentally Y) values are formatted for tick labels
+    /// and cursor readouts. Defaults to [`XFormatter::Auto`] which picks the
+    /// appropriate formatter based on [`axis_type`](Self::axis_type).
+    pub x_formatter: XFormatter,
 }
 
 impl Default for AxisSettings {
@@ -64,6 +69,7 @@ impl Default for AxisSettings {
             bounds: (0.0, 1.0),
             auto_fit: false,
             axis_type: AxisType::Value(None),
+            x_formatter: XFormatter::Auto,
         }
     }
 }
@@ -133,6 +139,7 @@ impl AxisSettings {
         }
     }
 
+    #[allow(dead_code)]
     fn format_time_with_precision(fmt: XDateFormat, v: f64, step: f64) -> String {
         // Choose base format (date vs time-of-day) using the same threshold as before
         let use_date = step.is_finite() && step >= 86400.0;
@@ -184,10 +191,40 @@ impl AxisSettings {
     }
 
     /// Format a value, with special handling for time axes.
+    ///
+    /// The `x_formatter` field controls the exact rendering mode. When set to
+    /// `XFormatter::Auto` the behaviour matches the legacy logic:
+    /// * time axes → [`TimeFormatter`] driven by [`bounds`](Self::bounds) (the visible X range).
+    /// * value axes → adaptive decimal / scientific notation.
     pub fn format_value(&self, v: f64, dec_pl: usize, step: f64) -> String {
-        match self.axis_type {
-            AxisType::Time(fmt) => Self::format_time_with_precision(fmt, v, step),
-            AxisType::Value(_) => self.format_value_numeric(v, dec_pl, step),
+        match &self.x_formatter {
+            XFormatter::Auto => match self.axis_type {
+                AxisType::Time(_fmt) => {
+                    // Use the stored visible bounds for date-change detection;
+                    // fall back to step-based precision for tick granularity.
+                    let tf = TimeFormatter::default();
+                    // Prefer self.bounds for the visible range, but if bounds
+                    // are degenerate (zero-width), fall back to step.
+                    let range = if (self.bounds.1 - self.bounds.0).abs() > 1e-15 {
+                        self.bounds
+                    } else {
+                        // Construct a symmetric window around v using step
+                        (v - step * 0.5, v + step * 0.5)
+                    };
+                    tf.format(v, range)
+                }
+                AxisType::Value(_) => self.format_value_numeric(v, dec_pl, step),
+            },
+            XFormatter::Decimal(df) => df.format(v, dec_pl),
+            XFormatter::Scientific(sf) => sf.format(v, dec_pl),
+            XFormatter::Time(tf) => {
+                let range = if (self.bounds.1 - self.bounds.0).abs() > 1e-15 {
+                    self.bounds
+                } else {
+                    (v - step * 0.5, v + step * 0.5)
+                };
+                tf.format(v, range)
+            }
         }
     }
 }

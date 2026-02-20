@@ -4,6 +4,7 @@ use crate::controllers::ThresholdController;
 use crate::controllers::TracesController;
 use crate::controllers::{FFTController, UiActionController, WindowController};
 use crate::data::hotkeys::Hotkeys;
+use crate::data::x_formatter::XFormatter;
 
 /// Configuration options for the live plot runtime (single- and multi-trace).
 #[derive(Clone)]
@@ -40,6 +41,10 @@ pub struct LivePlotConfig {
     pub traces_controller: Option<TracesController>,
     /// Optional hotkeys configuration (if present overrides defaults)
     pub hotkeys: Option<Hotkeys>,
+    /// Formatter used for the X axis. Defaults to [`XFormatter::Auto`], which
+    /// automatically selects a decimal formatter for X/Y mode and the smart
+    /// [`TimeFormatter`](crate::data::x_formatter::TimeFormatter) for time axes.
+    pub x_formatter: XFormatter,
 }
 
 impl Default for LivePlotConfig {
@@ -61,6 +66,7 @@ impl Default for LivePlotConfig {
             threshold_controller: None,
             traces_controller: None,
             hotkeys: None,
+            x_formatter: XFormatter::Auto,
         }
     }
 }

@@ -28,6 +28,13 @@ impl Default for MeasurementPanel {
     }
 }
 
+impl MeasurementPanel {
+    /// Menu/button labels (exported for unit tests).
+    pub const SHOW_MEASUREMENTS_LABEL: &'static str = "👁 Show Measurements";
+    pub const TAKE_P1_LABEL: &'static str = "⌖ Take P1 at click";
+    pub const TAKE_P2_LABEL: &'static str = "⌖ Take P2 at click";
+}
+
 impl Panel for MeasurementPanel {
     fn state(&self) -> &PanelState {
         &self.state
@@ -47,9 +54,26 @@ impl Panel for MeasurementPanel {
         self.hovered_measurement = None;
     }
 
-    fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
-        ui.menu_button(self.title_and_icon(), |ui| {
-            if ui.button("Show Measurements").clicked() {
+    fn hotkey_name(&self) -> Option<crate::data::hotkeys::HotkeyName> {
+        Some(crate::data::hotkeys::HotkeyName::Measurements)
+    }
+
+    fn render_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        data: &mut LivePlotData<'_>,
+        collapsed: bool,
+        tooltip: &str,
+    ) {
+        let label = if collapsed {
+            self.icon_only()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| self.title().to_string())
+        } else {
+            self.title_and_icon()
+        };
+        let mr = ui.menu_button(label, |ui| {
+            if ui.button(Self::SHOW_MEASUREMENTS_LABEL).clicked() {
                 let st = self.state_mut();
                 st.visible = true;
                 st.request_focus = true;
@@ -80,15 +104,18 @@ impl Panel for MeasurementPanel {
                 }
                 ui.close();
             }
-            if ui.button("Take P1 at click").clicked() {
+            if ui.button(Self::TAKE_P1_LABEL).clicked() {
                 self.selected_point_index = Some(0);
                 ui.close();
             }
-            if ui.button("Take P2 at click").clicked() {
+            if ui.button(Self::TAKE_P2_LABEL).clicked() {
                 self.selected_point_index = Some(1);
                 ui.close();
             }
         });
+        if !tooltip.is_empty() {
+            mr.response.on_hover_text(tooltip);
+        }
     }
 
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
@@ -737,5 +764,15 @@ mod tests {
             panel.selected_measurement, None,
             "Default panel should have no selected measurement"
         );
+    }
+
+    #[test]
+    fn measurement_menu_labels_include_icons() {
+        assert_eq!(
+            MeasurementPanel::SHOW_MEASUREMENTS_LABEL,
+            "👁 Show Measurements"
+        );
+        assert_eq!(MeasurementPanel::TAKE_P1_LABEL, "⌖ Take P1 at click");
+        assert_eq!(MeasurementPanel::TAKE_P2_LABEL, "⌖ Take P2 at click");
     }
 }
