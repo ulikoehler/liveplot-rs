@@ -7,7 +7,11 @@
 //!
 //! How to run
 //! ```bash
-//! cargo run --example lots_of_tiny_plots
+//! # default
+//! cargo run --example lots_of_tiny_plots --
+//! # set samples-per-second (Hz) and sine frequency (Hz)
+//! cargo run --example lots_of_tiny_plots -- -s 10 -h 2.5
+//! cargo run --example lots_of_tiny_plots -- --samples-per-second 10.0 --hz 2.5
 //! ```
 
 use eframe::{egui, NativeOptions};
@@ -17,6 +21,14 @@ use std::time::Duration;
 const COLS: usize = 20;
 const ROWS: usize = 15;
 const TOTAL: usize = COLS * ROWS;
+
+/// Repaint interval in milliseconds (controls UI repaint frequency; independent of sampling)
+const UPDATE_MS: u64 = 16;
+/// Default samples-per-second (Hz) used when feeding points into the plots.
+/// A value near the UI refresh rate keeps things smooth.
+const DEFAULT_SAMPLES_PER_SEC: f64 = 60.0;
+/// Default frequency of the sine wave itself (cycles per second).
+const DEFAULT_SINE_HZ: f64 = 1.5;
 
 fn hsv_to_rgb(h: f64, s: f64, v: f64) -> [u8; 3] {
     // h in [0,1), s,v in [0,1]
@@ -96,10 +108,20 @@ struct LotsOfTinyPlotsApp {
     plots: Vec<(TinyPlot, MainPanel)>,
     /// Last known window size; used to detect resizes and trigger auto-fit.
     last_window_size: egui::Vec2,
+    /// Sample rate in Hz (samples per second) for the sine waveform fed to every plot.
+    samples_per_second: f64,
+    /// Frequency of the sine wave itself (cycles per second).
+    sine_hz: f64,
+    /// Timestamp (seconds) of the last sample we generated; used to step the
+    /// sampler forward at `samples_per_second` even if frame rate varies.
+    last_sample_time: f64,
 }
 
 impl LotsOfTinyPlotsApp {
-    fn new() -> Self {
+    fn new(samples_per_second: f64, sine_hz: f64) -> Self {
+        let now_us = chrono::Utc::now().timestamp_micros();
+        let start_t = (now_us as f64) * 1e-6;
+
         let mut plots = Vec::with_capacity(TOTAL);
         for i in 0..TOTAL {
             let phase = (i as f64) / (TOTAL as f64); // cycles [0..1)
@@ -112,6 +134,9 @@ impl LotsOfTinyPlotsApp {
         Self {
             plots,
             last_window_size: egui::Vec2::ZERO,
+            samples_per_second,
+            sine_hz,
+            last_sample_time: start_t,
         }
     }
 
@@ -145,10 +170,16 @@ impl eframe::App for LotsOfTinyPlotsApp {
         // use wall-clock time as sample x
         let now_us = chrono::Utc::now().timestamp_micros();
         let t = (now_us as f64) * 1e-6;
-        // feed all plots (same freq, different phase)
-        let freq = 1.5;
-        for (p, _) in &self.plots {
-            p.feed(t, freq);
+        // generate samples at configured rate; each sample uses the sine frequency
+        let sample_interval = 1.0 / self.samples_per_second;
+        let mut next_time = self.last_sample_time + sample_interval;
+        while next_time <= t {
+            for (p, _) in &self.plots {
+                p.feed(next_time, self.sine_hz);
+            }
+            // advance last_sample_time by one interval per sample generated
+            self.last_sample_time = next_time;
+            next_time += sample_interval;
         }
 
         // Detect window resizes and auto-fit all plots when the size changes.
@@ -162,17 +193,55 @@ impl eframe::App for LotsOfTinyPlotsApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Lots of tiny sine plots — 20 × 15");
-            ui.label("Each plot shows the same sine wave shifted by phase; every trace has its own color.");
+            ui.label(format!(
+                "Each plot shows the same sine wave shifted by phase; every trace has its own color. — samples: {:.1} Hz, sine: {:.3} Hz",
+                self.samples_per_second,
+                self.sine_hz
+            ));
             ui.add_space(6.0);
             self.render_grid(ui);
         });
 
-        ctx.request_repaint_after(Duration::from_millis(16));
+        ctx.request_repaint_after(Duration::from_millis(UPDATE_MS));
     }
 }
 
 fn main() -> eframe::Result<()> {
-    let app = LotsOfTinyPlotsApp::new();
+    // Parse simple CLI: -s / --samples-per-second <Hz> and -h / --hz <Hz>
+    let mut samples_per_second = DEFAULT_SAMPLES_PER_SEC;
+    let mut sine_hz = DEFAULT_SINE_HZ;
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "-s" || arg == "--samples-per-second" {
+            if let Some(val) = args.next() {
+                match val.parse::<f64>() {
+                    Ok(v) => samples_per_second = v,
+                    Err(_) => eprintln!("invalid value for {}: {}", arg, val),
+                }
+            }
+        } else if arg == "-h" || arg == "--hz" {
+            if let Some(val) = args.next() {
+                match val.parse::<f64>() {
+                    Ok(v) => sine_hz = v,
+                    Err(_) => eprintln!("invalid value for {}: {}", arg, val),
+                }
+            }
+        } else if let Some(rest) = arg.strip_prefix("--samples-per-second=") {
+            match rest.parse::<f64>() {
+                Ok(v) => samples_per_second = v,
+                Err(_) => eprintln!("invalid value for --samples-per-second: {}", rest),
+            }
+        } else if let Some(rest) = arg.strip_prefix("--hz=") {
+            match rest.parse::<f64>() {
+                Ok(v) => sine_hz = v,
+                Err(_) => eprintln!("invalid value for --hz: {}", rest),
+            }
+        } else {
+            // ignore unknown args
+        }
+    }
+
+    let app = LotsOfTinyPlotsApp::new(samples_per_second, sine_hz);
     eframe::run_native(
         "Lots of tiny plots",
         NativeOptions::default(),
