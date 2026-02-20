@@ -28,7 +28,7 @@ fn main() -> eframe::Result<()> {
     // Background thread: pretty-print every event.
     std::thread::spawn(move || {
         while let Ok(evt) = rx.recv() {
-            let k = evt.kind;
+            let k = evt.kinds;
 
             // ── Click / Double-click ──────────────────────────────────────
             if k.contains(EventKind::CLICK) || k.contains(EventKind::DOUBLE_CLICK) {
@@ -38,12 +38,15 @@ fn main() -> eframe::Result<()> {
                     "CLICK"
                 };
                 if let Some(c) = &evt.click {
+                    // coordinates are optional but should exist for click events
+                    let (px, py) = if let Some(p) = c.plot_pos { (p.x, p.y) } else { (f64::NAN, f64::NAN) };
+                    let (sx, sy) = if let Some(s) = c.screen_pos { (s.x, s.y) } else { (f32::NAN, f32::NAN) };
                     println!(
                         "[{label}] plot=({:.4},{:.4})  screen=({:.1},{:.1})  scope={}",
-                        c.plot_pos.x,
-                        c.plot_pos.y,
-                        c.screen_pos.x,
-                        c.screen_pos.y,
+                        px,
+                        py,
+                        sx,
+                        sy,
                         c.scope_id.map_or("?".into(), |id| id.to_string()),
                     );
                 } else {
