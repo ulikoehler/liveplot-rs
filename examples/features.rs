@@ -127,45 +127,134 @@ impl FeaturesApp {
             },
         );
 
-        // rebuild right-side panels list based on feature flags
-        let hk = panel.hotkeys.clone();
-        let mut right: Vec<Box<dyn liveplot::panels::panel_trait::Panel>> = Vec::new();
-        if f.sidebar {
-            // when sidebar feature is enabled we include the usual panels
-            right.push(Box::new(liveplot::panels::traces_ui::TracesPanel::default()));
-            if f.math {
-                right.push(Box::new(liveplot::panels::math_ui::MathPanel::default()));
+        // rebuild right-side panels list based on feature flags, but
+        // keep existing panels around so their internal state (visibility,
+        // detachment, etc.) isn't wiped each frame.  This mirrors the
+        // strategy we use for the FFT bottom panel above.
+        {
+            let hk = panel.hotkeys.clone();
+
+            // remove any panels whose feature has been disabled
+            panel.right_side_panels.retain(|p| {
+                if p.downcast_ref::<liveplot::panels::traces_ui::TracesPanel>().is_some() {
+                    f.sidebar
+                } else if p.downcast_ref::<liveplot::panels::math_ui::MathPanel>().is_some() {
+                    f.sidebar && f.math
+                } else if p.downcast_ref::<liveplot::panels::hotkeys_ui::HotkeysPanel>().is_some() {
+                    f.sidebar && f.hotkeys
+                } else if p
+                    .downcast_ref::<liveplot::panels::thresholds_ui::ThresholdsPanel>()
+                    .is_some()
+                {
+                    f.sidebar && f.thresholds
+                } else if p
+                    .downcast_ref::<liveplot::panels::triggers_ui::TriggersPanel>()
+                    .is_some()
+                {
+                    f.sidebar && f.triggers
+                } else if p
+                    .downcast_ref::<liveplot::panels::measurment_ui::MeasurementPanel>()
+                    .is_some()
+                {
+                    f.sidebar && f.measurement
+                } else {
+                    // unknown panel type, keep it
+                    true
+                }
+            });
+
+            // add missing panels for which the feature is enabled
+            if f.sidebar && !panel
+                .right_side_panels
+                .iter()
+                .any(|p| p.downcast_ref::<liveplot::panels::traces_ui::TracesPanel>().is_some())
+            {
+                panel
+                    .right_side_panels
+                    .push(Box::new(liveplot::panels::traces_ui::TracesPanel::default()));
             }
-            if f.hotkeys {
-                right.push(Box::new(liveplot::panels::hotkeys_ui::HotkeysPanel::new(
-                    hk.clone(),
-                )));
+            if f.sidebar && f.math && !panel
+                .right_side_panels
+                .iter()
+                .any(|p| p.downcast_ref::<liveplot::panels::math_ui::MathPanel>().is_some())
+            {
+                panel
+                    .right_side_panels
+                    .push(Box::new(liveplot::panels::math_ui::MathPanel::default()));
             }
-            if f.thresholds {
-                right.push(Box::new(
-                    liveplot::panels::thresholds_ui::ThresholdsPanel::default(),
-                ));
+            if f.sidebar && f.hotkeys && !panel
+                .right_side_panels
+                .iter()
+                .any(|p| p.downcast_ref::<liveplot::panels::hotkeys_ui::HotkeysPanel>().is_some())
+            {
+                panel
+                    .right_side_panels
+                    .push(Box::new(liveplot::panels::hotkeys_ui::HotkeysPanel::new(
+                        hk.clone(),
+                    )));
             }
-            if f.triggers {
-                right.push(Box::new(
-                    liveplot::panels::triggers_ui::TriggersPanel::default(),
-                ));
+            if f.sidebar && f.thresholds && !panel
+                .right_side_panels
+                .iter()
+                .any(|p| {
+                    p.downcast_ref::<liveplot::panels::thresholds_ui::ThresholdsPanel>()
+                        .is_some()
+                })
+            {
+                panel
+                    .right_side_panels
+                    .push(Box::new(
+                        liveplot::panels::thresholds_ui::ThresholdsPanel::default(),
+                    ));
             }
-            if f.measurement {
-                right.push(Box::new(
-                    liveplot::panels::measurment_ui::MeasurementPanel::default(),
-                ));
+            if f.sidebar && f.triggers && !panel
+                .right_side_panels
+                .iter()
+                .any(|p| p.downcast_ref::<liveplot::panels::triggers_ui::TriggersPanel>().is_some())
+            {
+                panel
+                    .right_side_panels
+                    .push(Box::new(liveplot::panels::triggers_ui::TriggersPanel::default()));
+            }
+            if f.sidebar && f.measurement && !panel
+                .right_side_panels
+                .iter()
+                .any(|p| {
+                    p.downcast_ref::<liveplot::panels::measurment_ui::MeasurementPanel>()
+                        .is_some()
+                })
+            {
+                panel
+                    .right_side_panels
+                    .push(Box::new(
+                        liveplot::panels::measurment_ui::MeasurementPanel::default(),
+                    ));
             }
         }
-        panel.right_side_panels = right;
 
         #[cfg(feature = "fft")]
         {
-            panel.bottom_panels = if f.fft {
-                vec![Box::new(liveplot::panels::fft_ui::FftPanel::default())]
+            // Rather than rebuild the bottom-panels list on every frame (which
+            // would reset each panel's `PanelState` and make it impossible to
+            // show the FFT panel after clicking the button), we only add or
+            // remove the FFT panel when the corresponding feature flag
+            // changes.  This keeps the panel object alive across frames so
+            // its `visible`/`detached` state is preserved.
+            if f.fft {
+                let has_fft = panel
+                    .bottom_panels
+                    .iter()
+                    .any(|p| p.downcast_ref::<liveplot::panels::fft_ui::FftPanel>().is_some());
+                if !has_fft {
+                    panel
+                        .bottom_panels
+                        .push(Box::new(liveplot::panels::fft_ui::FftPanel::default()));
+                }
             } else {
-                vec![]
-            };
+                panel
+                    .bottom_panels
+                    .retain(|p| p.downcast_ref::<liveplot::panels::fft_ui::FftPanel>().is_none());
+            }
         }
 
         // note: a handful of flags still don't modify the UI:
