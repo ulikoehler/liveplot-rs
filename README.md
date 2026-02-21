@@ -289,6 +289,8 @@ This will open the plotting UI and stream a synthetic sine signal into it.
 
 ## Built-in synthetic example: `sine_cosine`
 
+![LivePlot sine and cosine screenshot](docs/liveplot%20sine-cosine.png)
+
 An example that produces both sine and cosine traces and displays them together with a legend.
 
 Run it with:
