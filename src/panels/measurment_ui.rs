@@ -136,6 +136,29 @@ impl Panel for MeasurementPanel {
         let has_measurements = !self.measurements.is_empty();
         for scope in data.scope_data.iter_mut() {
             scope.measurement_active = has_measurements;
+
+            // Compute the X-coordinate range of all measurement points on this
+            // scope so that live_update can extend x_axis.bounds to keep the
+            // markers visible after the scope is resumed.
+            let scope_id = scope.id;
+            let mut x_min = f64::INFINITY;
+            let mut x_max = f64::NEG_INFINITY;
+            let mut found = false;
+            for m in &self.measurements {
+                if m.scope_id == Some(scope_id) {
+                    if let Some(p) = m.p1 {
+                        x_min = x_min.min(p[0]);
+                        x_max = x_max.max(p[0]);
+                        found = true;
+                    }
+                    if let Some(p) = m.p2 {
+                        x_min = x_min.min(p[0]);
+                        x_max = x_max.max(p[0]);
+                        found = true;
+                    }
+                }
+            }
+            scope.measurement_x_range = if found { Some((x_min, x_max)) } else { None };
         }
 
         for scope in data.scope_data.iter_mut() {
@@ -571,18 +594,18 @@ impl Panel for MeasurementPanel {
                     scope
                 } else {
                     self.measurements[i].clear();
-                    return;
+                    continue;
                 }
             } else if let Some(name) = &self.measurements[i].catch_trace {
                 if let Some(scope) = data.scope_containing_trace(name) {
                     scope
                 } else {
                     self.measurements[i].clear();
-                    return;
+                    continue;
                 }
             } else {
                 self.measurements[i].clear();
-                return;
+                continue;
             };
 
             // Show values for P1/P2 and delta if available

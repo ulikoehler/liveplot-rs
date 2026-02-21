@@ -157,13 +157,16 @@ impl Default for Hotkeys {
     fn default() -> Self {
         Self {
             fft: Some(Hotkey::new(Modifier::Ctrl, 'F')),
+            // revert math hotkey back to Ctrl+M and move measurements to 'P'.
+            // (Pause also uses 'P' by default; users can reconfigure if that
+            // conflict is undesirable.)
             math: Some(Hotkey::new(Modifier::Ctrl, 'M')),
             fit_view: Some(Hotkey::new(Modifier::None, 'F')),
             fit_view_cont: Some(Hotkey::new(Modifier::None, 'C')),
             fit_y: Some(Hotkey::new(Modifier::None, 'Y')),
             traces: Some(Hotkey::new(Modifier::None, 'T')),
             thresholds: Some(Hotkey::new(Modifier::Ctrl, 'T')),
-            measurements: Some(Hotkey::new(Modifier::None, 'M')),
+            measurements: Some(Hotkey::new(Modifier::None, 'P')),
             triggers: Some(Hotkey::new(Modifier::Alt, 'G')),
             hotkeys_panel: Some(Hotkey::new(Modifier::Ctrl, 'H')),
             pause: Some(Hotkey::new(Modifier::None, 'P')),
@@ -647,7 +650,7 @@ fn get_hotkey_measurements_default() {
     let result = get_hotkey_for_name(&hk, HotkeyName::Measurements);
     assert!(result.is_some());
     let result = result.unwrap();
-    assert_eq!(result.key, 'M');
+    assert_eq!(result.key, 'P');
     assert_eq!(result.modifier, Modifier::None);
 }
 

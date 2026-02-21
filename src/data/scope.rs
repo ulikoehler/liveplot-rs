@@ -271,6 +271,11 @@ pub struct ScopeData {
     /// completely disable this default interaction (useful for embedded or
     /// interactive applications that handle pausing externally).
     pub pause_on_click: bool,
+    /// X-coordinate range of active measurement points on this scope.
+    /// Set by the measurement panel each frame so that `live_update` can
+    /// extend `x_axis.bounds` to keep measurement markers in view after
+    /// the scope is resumed.
+    pub measurement_x_range: Option<(f64, f64)>,
 }
 
 impl Default for ScopeData {
@@ -294,6 +299,7 @@ impl Default for ScopeData {
             clicked_point: None,
             measurement_active: false,
             pause_on_click: false,
+            measurement_x_range: None,
         }
     }
 }
@@ -349,7 +355,15 @@ impl ScopeData {
                     })
                     .unwrap_or(self.time_window);
                 let time_lower = now - self.time_window;
-                self.x_axis.bounds = (time_lower, now);
+                // Extend the lower bound to keep any active measurement markers
+                // visible. Without this, markers scroll off-screen after resuming
+                // because set_plot_bounds_x forces the view to the current window.
+                let x_lower = if let Some((m_min, _)) = self.measurement_x_range {
+                    m_min.min(time_lower)
+                } else {
+                    time_lower
+                };
+                self.x_axis.bounds = (x_lower, now);
             } else {
                 let diff = ((self.x_axis.bounds.1 - self.x_axis.bounds.0) - self.time_window) / 2.0;
                 self.x_axis.bounds = (self.x_axis.bounds.0 + diff, self.x_axis.bounds.1 - diff);
