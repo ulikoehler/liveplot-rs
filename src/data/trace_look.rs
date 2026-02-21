@@ -42,18 +42,35 @@ impl TraceLook {
 
     /// Allocate a distinct color for the given trace index.
     pub fn alloc_color(index: usize) -> Color32 {
-        const PALETTE: [Color32; 10] = [
-            Color32::from_rgb(31, 119, 180),
-            Color32::from_rgb(255, 127, 14),
-            Color32::from_rgb(44, 160, 44),
-            Color32::from_rgb(214, 39, 40),
-            Color32::from_rgb(148, 103, 189),
-            Color32::from_rgb(140, 86, 75),
-            Color32::from_rgb(227, 119, 194),
-            Color32::from_rgb(127, 127, 127),
-            Color32::from_rgb(188, 189, 34),
-            Color32::from_rgb(23, 190, 207),
-        ];
-        PALETTE[index % PALETTE.len()]
+        // Consult the global colour palette, which is kept in sync with the
+        // currently-applied `ColorScheme`.  Fallback to gray if something went
+        // wrong (empty palette or poisoned lock).
+        let palette = crate::color_scheme::global_palette();
+        if palette.is_empty() {
+            Color32::GRAY
+        } else {
+            palette[index % palette.len()]
+        }
+    }
+}
+
+// --- tests -----------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::color_scheme;
+    use egui::Color32;
+
+    #[test]
+    fn alloc_color_uses_global_palette() {
+        // start with known palette
+        color_scheme::set_global_palette(vec![
+            Color32::from_rgb(1, 2, 3),
+            Color32::from_rgb(4, 5, 6),
+        ]);
+        assert_eq!(TraceLook::alloc_color(0), Color32::from_rgb(1, 2, 3));
+        assert_eq!(TraceLook::alloc_color(1), Color32::from_rgb(4, 5, 6));
+        assert_eq!(TraceLook::alloc_color(2), Color32::from_rgb(1, 2, 3));
     }
 }

@@ -238,7 +238,6 @@ pub struct Controllers {
 /// | `color_scheme`   | Predefined visual theme |
 /// | `auto_fit`       | Automatic axis fitting behaviour |
 /// | `controllers`    | Programmatic interaction handles |
-#[derive(Clone)]
 pub struct LivePlotConfig {
     // ── Scope / data ─────────────────────────────────────────────────────────
     /// Rolling time window in seconds.
@@ -271,6 +270,19 @@ pub struct LivePlotConfig {
     // ── Appearance ───────────────────────────────────────────────────────────
     /// Color scheme / visual theme.
     pub color_scheme: ColorScheme,
+    /// Optional per-plot overlay callback.  The closure is invoked inside the
+    /// plot rendering callback and can draw custom graphics using the
+    /// [`egui_plot::PlotUi`] API.  Useful for example code that wants to add
+    /// extra decorations (rainbow grid lines, annotations, etc.).
+    pub overlays: Option<
+        Box<
+            dyn for<'a> FnMut(
+                    &mut egui_plot::PlotUi,
+                    &crate::data::scope::ScopeData,
+                    &crate::data::traces::TracesCollection,
+                ) + 'static,
+        >,
+    >,
 
     // ── Auto-fit ─────────────────────────────────────────────────────────────
     /// Automatic axis fitting configuration.
@@ -289,6 +301,29 @@ pub struct LivePlotConfig {
     pub controllers: Controllers,
 }
 
+impl Clone for LivePlotConfig {
+    fn clone(&self) -> Self {
+        Self {
+            time_window_secs: self.time_window_secs,
+            max_points: self.max_points,
+            y_unit: self.y_unit.clone(),
+            y_log: self.y_log,
+            title: self.title.clone(),
+            headline: self.headline.clone(),
+            subheadline: self.subheadline.clone(),
+            native_options: self.native_options.clone(),
+            features: self.features.clone(),
+            layout: self.layout.clone(),
+            color_scheme: self.color_scheme.clone(),
+            overlays: None, // cannot clone closure
+            auto_fit: self.auto_fit.clone(),
+            x_formatter: self.x_formatter.clone(),
+            hotkeys: self.hotkeys.clone(),
+            controllers: self.controllers.clone(),
+        }
+    }
+}
+
 impl Default for LivePlotConfig {
     fn default() -> Self {
         Self {
@@ -305,6 +340,7 @@ impl Default for LivePlotConfig {
             features: FeatureFlags::default(),
             layout: ResponsiveLayout::default(),
             color_scheme: ColorScheme::default(),
+            overlays: None,
             auto_fit: AutoFitConfig::default(),
 
             x_formatter: XFormatter::Auto,

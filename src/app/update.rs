@@ -143,6 +143,10 @@ impl LivePlotPanel {
                         {
                             p.draw(plot_ui, scope, traces);
                         }
+                        // invoke optional user overlay callback after panel overlays
+                        if let Some(cb) = &mut self.overlays {
+                            cb(plot_ui, scope, traces);
+                        }
                     };
 
                 // Render the liveplot panel; `draw_overlays` supplies per-panel overlays.

@@ -43,7 +43,7 @@ pub fn run_liveplot(
         threshold_ctrl,
     );
     app.main_panel.set_event_controller(event_ctrl);
-    app.apply_config(&cfg);
+    app.apply_config(&mut cfg);
 
     let title = cfg.title.clone();
     let mut opts = cfg

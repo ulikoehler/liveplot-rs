@@ -257,7 +257,6 @@ impl LivePlotPanel {
                                     tr.look.color.b(),
                                 ],
                                 visible: tr.look.visible,
-                                is_math: false,
                                 offset: tr.offset,
                             });
                         }
@@ -301,7 +300,6 @@ impl LivePlotPanel {
                     style: tr.look.style,
                     visible: tr.look.visible,
                     offset: tr.offset,
-                    is_math: false,
                 });
             }
             let (panel_show, panel_detached) = {

@@ -9,28 +9,32 @@
 //! cargo run --example custom_color_scheme
 //! ```
 
-use eframe::egui::{Color32, Visuals};
+use eframe::egui::{Color32, Pos2, Visuals};
 use liveplot::config::CustomColorScheme;
 use liveplot::{channel_plot, run_liveplot, ColorScheme, LivePlotConfig, PlotPoint};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
-    // Define a custom palette (8 colors)
+    // Define a custom palette (8 rainbow colors)
     let palette = vec![
-        Color32::from_rgb(255, 66, 0),    // orange
-        Color32::from_rgb(0, 153, 255),   // blue
-        Color32::from_rgb(0, 200, 70),    // green
-        Color32::from_rgb(255, 200, 0),   // yellow
-        Color32::from_rgb(200, 0, 200),   // purple
-        Color32::from_rgb(255, 0, 120),   // pink
-        Color32::from_rgb(120, 120, 120), // gray
-        Color32::from_rgb(0, 0, 0),       // black
+        Color32::from_rgb(255, 0, 0),     // red
+        Color32::from_rgb(255, 127, 0),   // orange
+        Color32::from_rgb(255, 255, 0),   // yellow
+        Color32::from_rgb(0, 255, 0),     // green
+        Color32::from_rgb(0, 0, 255),     // blue
+        Color32::from_rgb(75, 0, 130),    // indigo
+        Color32::from_rgb(148, 0, 211),   // violet
+        Color32::from_rgb(255, 192, 203), // pink for extra flair
     ];
 
-    // Optionally customize visuals (here: dark background, white text)
+    // Optionally customize visuals (here: yellow background, black text)
     let mut visuals = Visuals::dark();
-    visuals.panel_fill = Color32::from_rgb(20, 20, 20);
-    visuals.override_text_color = Some(Color32::WHITE);
+    // start from dark to avoid bright widgets by default
+    visuals.panel_fill = Color32::YELLOW;
+    visuals.window_fill = Color32::YELLOW;
+    visuals.extreme_bg_color = Color32::YELLOW;
+    visuals.faint_bg_color = Color32::YELLOW;
+    visuals.override_text_color = Some(Color32::BLACK);
 
     let custom_scheme = CustomColorScheme {
         visuals: Some(visuals),
@@ -67,6 +71,36 @@ fn main() -> eframe::Result<()> {
 
     let mut cfg = LivePlotConfig::default();
     cfg.color_scheme = scheme;
+    // rainbow overlay for grid
+    let palette = vec![
+        Color32::from_rgb(255, 0, 0),
+        Color32::from_rgb(255, 127, 0),
+        Color32::from_rgb(255, 255, 0),
+        Color32::from_rgb(0, 255, 0),
+        Color32::from_rgb(0, 0, 255),
+        Color32::from_rgb(75, 0, 130),
+        Color32::from_rgb(148, 0, 211),
+    ];
+    cfg.overlays = Some(Box::new(move |plot_ui, _scope, _traces| {
+        let rect = plot_ui.response().rect;
+        let n = palette.len();
+        for i in 0..n {
+            let color = palette[i];
+            let x = rect.left() + rect.width() * (i as f32) / (n as f32);
+            plot_ui
+                .ctx()
+                .debug_painter()
+                .line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                    (1.0, color));
+            let y = rect.top() + rect.height() * (i as f32) / (n as f32);
+            plot_ui
+                .ctx()
+                .debug_painter()
+                .line_segment([Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+                    (1.0, color));
+        }
+    }));
+
     cfg.title = "Custom Color Scheme Demo".to_string();
     cfg.headline = Some("Custom Color Scheme Demo".to_string());
     cfg.subheadline = Some("This uses a user-defined palette and visuals".to_string());

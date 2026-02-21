@@ -135,7 +135,6 @@ impl Panel for MathPanel {
 
             let tr = data.get_trace_or_new(&def.name);
             tr.live = out.iter().copied().collect();
-            tr.is_math = true;
 
             sources.insert(def.name.clone(), out);
         }
@@ -152,7 +151,6 @@ impl Panel for MathPanel {
 
             let tr = data.get_trace_or_new(&def.name);
             tr.snap = Some(out.iter().copied().collect());
-            tr.is_math = true;
 
             sources.insert(def.name.clone(), out);
         }

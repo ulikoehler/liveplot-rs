@@ -5,11 +5,14 @@
 //!
 //! How to run
 //! ```bash
-//! cargo run --example custom_colors
+//! cargo run --example custom_trace_colors
 //! ```
 //! The example streams two signals and sets custom RGB colors for the `sine` and `cosine` traces.
 
-use liveplot::{channel_plot, run_liveplot, LivePlotConfig, PlotPoint, TracesController};
+use eframe::egui::{Color32, Pos2};
+use liveplot::{
+    channel_plot, run_liveplot, ColorScheme, LivePlotConfig, PlotPoint, TracesController,
+};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn main() -> eframe::Result<()> {
@@ -62,5 +65,43 @@ fn main() -> eframe::Result<()> {
     let mut cfg = LivePlotConfig::default();
     cfg.title = "LivePlot (custom colors)".into();
     cfg.controllers.traces = Some(traces_ctrl);
+
+    // make a yellow background and rainbow palette for traces
+    let rainbow = vec![
+        Color32::from_rgb(255, 0, 0),   // red
+        Color32::from_rgb(255, 127, 0), // orange
+        Color32::from_rgb(255, 255, 0), // yellow
+        Color32::from_rgb(0, 255, 0),   // green
+        Color32::from_rgb(0, 0, 255),   // blue
+        Color32::from_rgb(75, 0, 130),  // indigo
+        Color32::from_rgb(148, 0, 211), // violet
+    ];
+    let mut visuals = eframe::egui::Visuals::dark();
+    visuals.panel_fill = Color32::YELLOW; // bright yellow background
+    cfg.color_scheme = ColorScheme::Custom(liveplot::config::CustomColorScheme {
+        visuals: Some(visuals),
+        palette: rainbow.clone(),
+        label: Some("Rainbow Theme".to_string()),
+    });
+
+    // overlay closure draws rainbow grid lines over plots
+    cfg.overlays = Some(Box::new(move |plot_ui, _scope, _traces| {
+        let rect = plot_ui.response().rect;
+        let n = rainbow.len();
+        for i in 0..n {
+            let color = rainbow[i];
+            let x = rect.left() + rect.width() * (i as f32) / (n as f32);
+            plot_ui.ctx().debug_painter().line_segment(
+                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                (1.0, color),
+            );
+            let y = rect.top() + rect.height() * (i as f32) / (n as f32);
+            plot_ui.ctx().debug_painter().line_segment(
+                [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+                (1.0, color),
+            );
+        }
+    }));
+
     run_liveplot(rx, cfg)
 }

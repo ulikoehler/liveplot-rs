@@ -127,7 +127,7 @@ impl LivePlotApp {
     /// axes, trace limits, hotkeys, responsive thresholds, and more.
     ///
     /// Typically called once right after construction, before entering the event loop.
-    pub(crate) fn apply_config(&mut self, cfg: &crate::config::LivePlotConfig) {
+    pub(crate) fn apply_config(&mut self, cfg: &mut crate::config::LivePlotConfig) {
         // Axis / time window settings.
         {
             let scope = self.main_panel.liveplot_panel.get_data_mut();
@@ -180,6 +180,8 @@ impl LivePlotApp {
 
         // ── Color scheme ─────────────────────────────────────────────────────
         self.color_scheme = Some(cfg.color_scheme.clone());
+        // take overlay callback out of config so ownership moves into panel
+        self.main_panel.overlays = cfg.overlays.take();
         self.color_scheme_applied = false;
     }
 
@@ -358,7 +360,6 @@ impl LivePlotApp {
                                     tr.look.color.b(),
                                 ],
                                 visible: tr.look.visible,
-                                is_math: false,
                                 offset: tr.offset,
                             });
                         }
@@ -401,7 +402,6 @@ impl LivePlotApp {
                     style: tr.look.style,
                     visible: tr.look.visible,
                     offset: tr.offset,
-                    is_math: false,
                 });
             }
             let (panel_show, panel_detached) = {
@@ -596,6 +596,11 @@ impl eframe::App for LivePlotApp {
         if !self.color_scheme_applied {
             if let Some(scheme) = &self.color_scheme {
                 scheme.apply(ctx);
+                // existing traces may have been created before the scheme was
+                // applied, so ensure their colours are updated to match the
+                // new palette.  This is a no-op if the palette hasn't changed
+                // (or if there are no traces yet).
+                self.main_panel.traces_data.recolor_using_palette();
             }
             self.color_scheme_applied = true;
         }

@@ -299,15 +299,21 @@ Run it with:
 cargo run --example sine_cosine
 ```
 
-## Built-in example: `custom_colors`
+## Built-in example: `custom_trace_colors`
 
 Demonstrates setting per-trace colors via the API using `TracesController`.
 
 Run it with:
 
 ```bash
-cargo run --example custom_colors
+cargo run --example custom_trace_colors
 ```
+
+## Built-in example: `custom_color_scheme`
+
+Demonstrates defining a custom color scheme with a bright yellow background and rainbow grid lines
+
+![LivePlot custom color scheme screenshot](docs/liveplot%20custom%20color%20scheme.png)
 
 ## Built-in example: `lots_of_tiny_plots`
 

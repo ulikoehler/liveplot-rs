@@ -3,6 +3,31 @@
 //! This module contains the ColorScheme enum, CustomColorScheme struct, and related methods.
 
 use eframe::egui::{Color32, Context, Visuals};
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+// Global palette used for trace color allocation.  This is updated whenever a
+// color scheme is applied.  The value is cloned internally so callers can
+// freely mutate the returned vector.
+static GLOBAL_PALETTE: Lazy<Mutex<Vec<Color32>>> = Lazy::new(|| {
+    // initialize with default dark scheme palette
+    Mutex::new(ColorScheme::Dark.trace_colors())
+});
+
+/// Get a copy of the current global trace colour palette.
+///
+/// This is exposed primarily for unit tests; most production code should just
+/// rely on [`TraceLook::alloc_color`] which consults the same palette.
+pub fn global_palette() -> Vec<Color32> {
+    GLOBAL_PALETTE.lock().unwrap().clone()
+}
+
+/// Update the global colour palette.  Called automatically when a
+/// [`ColorScheme`] is applied, but user code (or tests) may call it directly.
+pub(crate) fn set_global_palette(new: Vec<Color32>) {
+    let mut guard = GLOBAL_PALETTE.lock().unwrap();
+    *guard = new;
+}
 
 /// Visual theme for the plot UI, including user-defined custom schemes.
 #[derive(Clone, Debug, PartialEq)]
@@ -218,6 +243,13 @@ impl ColorScheme {
                 }
             }
         }
+
+        // Always refresh the global palette so that any future calls to
+        // [`TraceLook::alloc_color`] (or manual look allocation) uses the
+        // colours appropriate for the newly-applied scheme.  This is also
+        // important for unit tests and for programmes that query the palette
+        // directly.
+        set_global_palette(self.trace_colors());
     }
 
     /// Default trace colour palette for this scheme (up to 8 colours).

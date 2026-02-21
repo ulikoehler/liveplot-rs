@@ -190,9 +190,9 @@ impl TracesCollection {
                                     live: VecDeque::new(),
                                     snap: None,
                                     info: String::new(),
+                                    creation_index: new_index,
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
-                                    is_math: false,
                                 })
                             }
                         };
@@ -225,9 +225,9 @@ impl TracesCollection {
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
+                                        creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
-                                        is_math: false,
                                     })
                                 }
                             };
@@ -252,9 +252,9 @@ impl TracesCollection {
                                     live: VecDeque::new(),
                                     snap: None,
                                     info: String::new(),
+                                    creation_index: new_index,
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
-                                    is_math: false,
                                 }
                             });
                             entry.live.push_back([point.x, point.y]);
@@ -277,9 +277,9 @@ impl TracesCollection {
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
+                                        creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
-                                        is_math: false,
                                     })
                                 }
                             };
@@ -308,9 +308,9 @@ impl TracesCollection {
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
+                                        creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
-                                        is_math: false,
                                     })
                                 }
                             };
@@ -445,6 +445,8 @@ impl TracesCollection {
             let new_index = self.traces.len();
             let pending = self.pending_styles.remove(name.as_ref());
             let (look, offset) = pending.unwrap_or((TraceLook::new(new_index), 0.0));
+            // note: later when the TraceData is created the `creation_index` is set
+            // appropriately (see above insertion sites)
             self.traces.insert(
                 name.clone(),
                 TraceData {
@@ -453,9 +455,9 @@ impl TracesCollection {
                     live: VecDeque::new(),
                     snap: None,
                     info: String::new(),
+                    creation_index: new_index,
                     #[cfg(feature = "fft")]
                     last_fft: None,
-                    is_math: false,
                 },
             );
         }
@@ -516,6 +518,21 @@ impl TracesCollection {
         self.traces.keys().cloned().collect()
     }
 
+    /// Update every trace's colour to match the current global palette.
+    ///
+    /// This is called when the colour scheme changes so that existing traces
+    /// (created before the scheme was applied) are recoloured appropriately.
+    pub fn recolor_using_palette(&mut self) {
+        let palette = crate::color_scheme::global_palette();
+        if palette.is_empty() {
+            return;
+        }
+        for (_name, tr) in self.traces.iter_mut() {
+            let idx = tr.creation_index;
+            tr.look.color = palette[idx % palette.len()];
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.traces.len()
     }
@@ -533,11 +550,10 @@ pub struct TraceData {
     pub live: VecDeque<[f64; 2]>,
     pub snap: Option<VecDeque<[f64; 2]>>,
     pub info: String,
-    /// Cached last computed FFT (frequency, magnitude)
-    #[cfg(feature = "fft")]
-    pub last_fft: Option<Vec<[f64; 2]>>,
-    /// Whether this trace is a derived math trace
-    pub is_math: bool,
+    /// Index assigned when the trace was created.  Used for deterministic
+    /// colour allocation so that recolouring after a scheme change keeps the
+    /// same order.
+    pub creation_index: usize,
 }
 
 impl TraceData {
@@ -573,5 +589,52 @@ impl TraceData {
             .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
             .cloned()
             .collect()
+    }
+}
+
+// --- tests -----------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::color_scheme;
+    use crate::sink::PlotCommand;
+    use egui::Color32;
+
+    #[test]
+    fn recolor_changes_existing_traces() {
+        // create collection with two traces
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut col = TracesCollection::new(rx);
+        // register two traces via commands
+        let _ = tx.send(PlotCommand::RegisterTrace {
+            id: 1,
+            name: "a".to_string(),
+            info: None,
+        });
+        let _ = tx.send(PlotCommand::RegisterTrace {
+            id: 2,
+            name: "b".to_string(),
+            info: None,
+        });
+        let new = col.update();
+        assert_eq!(new.len(), 2);
+        // initial palette must be default dark
+        let first_color = col.traces.get(&TraceRef("a".into())).unwrap().look.color;
+        assert_ne!(first_color, Color32::GRAY); // sanity
+                                                // set a simple custom palette
+        color_scheme::set_global_palette(vec![
+            Color32::from_rgb(9, 9, 9),
+            Color32::from_rgb(8, 8, 8),
+        ]);
+        col.recolor_using_palette();
+        assert_eq!(
+            col.traces.get(&TraceRef("a".into())).unwrap().look.color,
+            Color32::from_rgb(9, 9, 9)
+        );
+        assert_eq!(
+            col.traces.get(&TraceRef("b".into())).unwrap().look.color,
+            Color32::from_rgb(8, 8, 8)
+        );
     }
 }

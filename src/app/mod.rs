@@ -108,6 +108,16 @@ pub struct LivePlotPanel {
     // ── Data ─────────────────────────────────────────────────────────────────
     /// Collection of all traces (time-series data) received through the command channel.
     pub traces_data: TracesCollection,
+    /// Optional plot overlay callback, supplied via configuration.
+    pub overlays: Option<
+        Box<
+            dyn for<'a> FnMut(
+                    &mut egui_plot::PlotUi,
+                    &crate::data::scope::ScopeData,
+                    &crate::data::traces::TracesCollection,
+                ) + 'static,
+        >,
+    >,
 
     /// Shared hotkey bindings used by all panels and menu buttons.
     pub hotkeys: Rc<RefCell<Hotkeys>>,
@@ -202,6 +212,7 @@ impl LivePlotPanel {
         let hotkeys = Rc::new(RefCell::new(Hotkeys::default()));
         Self {
             traces_data: TracesCollection::new(rx),
+            overlays: None,
             hotkeys: hotkeys.clone(),
             liveplot_panel: LiveplotPanel::default(),
             right_side_panels: vec![
