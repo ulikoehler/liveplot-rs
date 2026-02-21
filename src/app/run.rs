@@ -24,14 +24,14 @@ pub fn run_liveplot(
     rx: std::sync::mpsc::Receiver<PlotCommand>,
     mut cfg: crate::config::LivePlotConfig,
 ) -> eframe::Result<()> {
-    let window_ctrl = cfg.window_controller.take();
-    let ui_ctrl = cfg.ui_action_controller.take();
-    let traces_ctrl = cfg.traces_controller.take();
+    let window_ctrl = cfg.controllers.window.take();
+    let ui_ctrl = cfg.controllers.ui_action.take();
+    let traces_ctrl = cfg.controllers.traces.take();
     let scopes_ctrl = None;
     let liveplot_ctrl = None;
-    let fft_ctrl = cfg.fft_controller.take();
-    let threshold_ctrl = cfg.threshold_controller.take();
-    let event_ctrl = cfg.event_controller.take();
+    let fft_ctrl = cfg.controllers.fft.take();
+    let threshold_ctrl = cfg.controllers.threshold.take();
+    let event_ctrl = cfg.controllers.event.take();
     let mut app = LivePlotApp::with_controllers(
         rx,
         window_ctrl,

@@ -14,6 +14,8 @@ pub struct TriggersPanel {
     pub triggers: HashMap<String, Trigger>,
     pub builder: Option<Trigger>,
     pub editing: Option<String>,
+    /// When `true`, the next click on the plot will set the builder's level to the Y coordinate.
+    pub pick_level_pending: bool,
 }
 
 impl Default for TriggersPanel {
@@ -23,6 +25,7 @@ impl Default for TriggersPanel {
             triggers: HashMap::new(),
             builder: None,
             editing: None,
+            pick_level_pending: false,
         };
         // Add one default trigger on startup (disabled)
         let mut t = Trigger::default();
@@ -208,15 +211,28 @@ impl Panel for TriggersPanel {
             data.pending_requests.clear_triggers = false;
         }
 
-        let is_single_shot_triggered = self
-            .triggers
-            .values()
-            .any(|tr| tr.single_shot && tr.is_triggered());
+        // Handle "Pick Y level" from plot click
+        if self.pick_level_pending {
+            for scope in data.scope_data.iter_mut() {
+                if let Some(point) = scope.clicked_point.take() {
+                    if let Some(builder) = &mut self.builder {
+                        builder.level = point[1];
+                    }
+                    self.pick_level_pending = false;
+                    scope.measurement_active = false;
+                    break;
+                }
+            }
+        }
 
-        if !is_single_shot_triggered {
+        {
             let scope_ids: Vec<usize> = data.scope_data.iter().map(|scope| (**scope).id).collect();
             for scope_id in scope_ids {
                 for (_name, tr) in self.triggers.iter_mut() {
+                    // Skip single-shot triggers that have already fired
+                    if tr.single_shot && tr.is_triggered() {
+                        continue;
+                    }
                     if tr.check_trigger(data) && tr.is_triggered() {
                         if let Some(scope) = data.scope_by_id_mut(scope_id) {
                             let tr_time = tr.last_trigger_time().unwrap();
@@ -305,6 +321,7 @@ impl Panel for TriggersPanel {
                     };
                     t.single_shot = tr.single_shot;
                     t.trigger_position = tr.trigger_position;
+                    t.holdoff_secs = tr.holdoff_secs;
                     t.look = tr.look.clone();
                     self.builder = Some(t);
                     self.editing = Some(name_str.clone());
@@ -477,6 +494,27 @@ impl Panel for TriggersPanel {
             ui.horizontal(|ui| {
                 ui.label("Level");
                 ui.add(egui::DragValue::new(&mut builder.level).speed(0.1));
+                if self.pick_level_pending {
+                    if ui
+                        .button("⌖ Picking…")
+                        .on_hover_text("Click on the plot to set the Y level")
+                        .clicked()
+                    {
+                        self.pick_level_pending = false;
+                    }
+                } else {
+                    if ui
+                        .button("⌖")
+                        .on_hover_text("Pick Y level from plot (click on plot)")
+                        .clicked()
+                    {
+                        self.pick_level_pending = true;
+                        // Enable measurement_active on scopes so click sets clicked_point
+                        for scope in data.scope_data.iter_mut() {
+                            scope.measurement_active = true;
+                        }
+                    }
+                }
                 egui::ComboBox::from_label("Slope")
                     .selected_text(match builder.slope {
                         TriggerSlope::Rising => "Rising",
@@ -523,6 +561,17 @@ impl Panel for TriggersPanel {
                     .on_hover_text("0 = pause now, 1 = pause after max_points");
             });
 
+            ui.horizontal(|ui| {
+                ui.label("Holdoff (s)")
+                    .on_hover_text("Minimum time between consecutive triggers. 0 = no holdoff.");
+                ui.add(
+                    egui::DragValue::new(&mut builder.holdoff_secs)
+                        .speed(0.001)
+                        .range(0.0..=f64::MAX)
+                        .suffix(" s"),
+                );
+            });
+
             // Style
             ui.add_space(5.0);
             egui::CollapsingHeader::new("Style")
@@ -560,6 +609,7 @@ impl Panel for TriggersPanel {
                     };
                     staged.single_shot = builder.single_shot;
                     staged.trigger_position = builder.trigger_position;
+                    staged.holdoff_secs = builder.holdoff_secs;
                     staged.look = builder.look.clone();
                     save_trigger = Some(staged);
                 }

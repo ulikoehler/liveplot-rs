@@ -61,6 +61,6 @@ fn main() -> eframe::Result<()> {
     // Run the UI with the controller attached via config
     let mut cfg = LivePlotConfig::default();
     cfg.title = "LivePlot (custom colors)".into();
-    cfg.traces_controller = Some(traces_ctrl);
+    cfg.controllers.traces = Some(traces_ctrl);
     run_liveplot(rx, cfg)
 }

@@ -39,8 +39,16 @@ fn main() -> eframe::Result<()> {
                 };
                 if let Some(c) = &evt.click {
                     // coordinates are optional but should exist for click events
-                    let (px, py) = if let Some(p) = c.plot_pos { (p.x, p.y) } else { (f64::NAN, f64::NAN) };
-                    let (sx, sy) = if let Some(s) = c.screen_pos { (s.x, s.y) } else { (f32::NAN, f32::NAN) };
+                    let (px, py) = if let Some(p) = c.plot_pos {
+                        (p.x, p.y)
+                    } else {
+                        (f64::NAN, f64::NAN)
+                    };
+                    let (sx, sy) = if let Some(s) = c.screen_pos {
+                        (s.x, s.y)
+                    } else {
+                        (f32::NAN, f32::NAN)
+                    };
                     println!(
                         "[{label}] plot=({:.4},{:.4})  screen=({:.1},{:.1})  scope={}",
                         px,
@@ -248,7 +256,7 @@ fn main() -> eframe::Result<()> {
     });
 
     let mut cfg = LivePlotConfig::default();
-    cfg.event_controller = Some(event_ctrl);
+    cfg.controllers.event = Some(event_ctrl);
 
     run_liveplot(data_rx, cfg)
 }

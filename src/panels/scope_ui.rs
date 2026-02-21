@@ -296,6 +296,7 @@ impl ScopePanel {
             .clicked()
         {
             self.data.fit_bounds(traces);
+            self.data.auto_fit_to_view = true;
             // Emit fit-to-view event
             if let Some(ctrl) = &self.event_ctrl {
                 let mut evt = crate::events::PlotEvent::new(
@@ -693,6 +694,9 @@ impl ScopePanel {
 
         // After plot: if bounds changed, sync time_window and Y limits from actual plot bounds
         if plot_resp.inner {
+            // Disable auto-fit-to-view on manual user interaction
+            self.data.auto_fit_to_view = false;
+
             let b = plot_resp.transform.bounds();
             let xr = b.range_x();
             let (x_min, x_max) = (xr.start(), xr.end());
@@ -786,6 +790,7 @@ impl ScopePanel {
         self.data.clicked_point = None;
         if plot_response.response.double_clicked() {
             self.data.fit_bounds(traces);
+            self.data.auto_fit_to_view = true;
             // Emit double-click + fit-to-view events
             if let Some(ctrl) = &self.event_ctrl {
                 let kinds =

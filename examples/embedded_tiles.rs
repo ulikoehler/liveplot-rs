@@ -137,13 +137,20 @@ impl DashboardApp {
 
     fn render_dashboard(&mut self, ui: &mut egui::Ui) {
         let cols = 2;
+        let rows = (self.panels.len() + cols - 1) / cols;
+        let avail = ui.available_size();
+        let cell_w = avail.x / cols as f32;
+        let cell_h = avail.y / rows as f32;
+
         egui::Grid::new("embedded_dashboard_grid")
             .num_columns(cols)
+            .spacing([0.0, 0.0])
             .show(ui, |ui| {
                 for (idx, (_panel, plot)) in self.panels.iter_mut().enumerate() {
-                    ui.vertical(|ui| {
-                        plot.update_embedded(ui);
-                    });
+                    let (_, rect) = ui.allocate_space(egui::vec2(cell_w, cell_h));
+                    let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                    plot.update_embedded(&mut child_ui);
+
                     if idx % cols == cols - 1 {
                         ui.end_row();
                     }

@@ -66,6 +66,6 @@ fn main() -> eframe::Result<()> {
     let mut cfg = LivePlotConfig::default();
     cfg.title = "LivePlot (delayed snapshot)".into();
     cfg.native_options = Some(eframe::NativeOptions::default());
-    cfg.ui_action_controller = Some(ui_ctrl);
+    cfg.controllers.ui_action = Some(ui_ctrl);
     run_liveplot(rx, cfg)
 }

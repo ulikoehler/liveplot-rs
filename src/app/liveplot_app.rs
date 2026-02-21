@@ -56,6 +56,11 @@ pub struct LivePlotApp {
     pub headline: Option<String>,
     /// Optional sub-heading text shown below the headline.
     pub subheadline: Option<String>,
+
+    /// Color scheme to apply to the egui context. Applied once on the first frame.
+    pub color_scheme: Option<crate::config::ColorScheme>,
+    /// Flag so we only apply the color scheme on the very first frame.
+    color_scheme_applied: bool,
 }
 
 impl LivePlotApp {
@@ -72,6 +77,8 @@ impl LivePlotApp {
             threshold_ctrl: None,
             headline: None,
             subheadline: None,
+            color_scheme: None,
+            color_scheme_applied: false,
         }
     }
 
@@ -107,6 +114,8 @@ impl LivePlotApp {
             threshold_ctrl,
             headline: None,
             subheadline: None,
+            color_scheme: None,
+            color_scheme_applied: false,
         }
     }
 
@@ -129,7 +138,9 @@ impl LivePlotApp {
                 s.x_axis.axis_type =
                     crate::data::scope::AxisType::Time(crate::data::scope::XDateFormat::default());
                 s.x_axis.x_formatter = cfg.x_formatter.clone();
-                s.show_legend = cfg.show_legend;
+                s.show_legend = cfg.features.legend;
+                s.auto_fit_to_view = cfg.auto_fit.auto_fit_to_view;
+                s.keep_max_fit = cfg.auto_fit.keep_max_fit;
             }
         }
 
@@ -151,20 +162,25 @@ impl LivePlotApp {
         self.subheadline = cfg.subheadline.clone();
 
         // ── Responsive layout configuration ──────────────────────────────────
-        self.main_panel.top_bar_buttons = cfg.top_bar_buttons.clone();
-        self.main_panel.sidebar_buttons = cfg.sidebar_buttons.clone();
-        self.main_panel.min_height_for_top_bar = cfg.min_height_for_top_bar;
-        self.main_panel.min_width_for_sidebar = cfg.min_width_for_sidebar;
-        self.main_panel.min_height_for_sidebar = cfg.min_height_for_sidebar;
+        self.main_panel.top_bar_buttons = cfg.layout.top_bar_buttons.clone();
+        self.main_panel.sidebar_buttons = cfg.layout.sidebar_buttons.clone();
+        self.main_panel.min_height_for_top_bar = cfg.layout.min_height_for_top_bar;
+        self.main_panel.min_width_for_sidebar = cfg.layout.min_width_for_sidebar;
+        self.main_panel.min_height_for_sidebar = cfg.layout.min_height_for_sidebar;
 
         // ── Tick-label visibility thresholds ─────────────────────────────────
         self.main_panel.liveplot_panel.set_tick_label_thresholds(
-            cfg.min_width_for_y_ticklabels,
-            cfg.min_height_for_x_ticklabels,
+            cfg.layout.min_width_for_y_ticklabels,
+            cfg.layout.min_height_for_x_ticklabels,
         );
-        self.main_panel
-            .liveplot_panel
-            .set_legend_thresholds(cfg.min_width_for_legend, cfg.min_height_for_legend);
+        self.main_panel.liveplot_panel.set_legend_thresholds(
+            cfg.layout.min_width_for_legend,
+            cfg.layout.min_height_for_legend,
+        );
+
+        // ── Color scheme ─────────────────────────────────────────────────────
+        self.color_scheme = Some(cfg.color_scheme.clone());
+        self.color_scheme_applied = false;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -576,6 +592,14 @@ impl LivePlotApp {
 
 impl eframe::App for LivePlotApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Apply color scheme once on the first frame (after egui context is available).
+        if !self.color_scheme_applied {
+            if let Some(scheme) = &self.color_scheme {
+                scheme.apply(ctx);
+            }
+            self.color_scheme_applied = true;
+        }
+
         // Process global hotkey bindings (panel toggles, pause/resume, etc.).
         hotkey_helpers::handle_hotkeys(&mut self.main_panel, ctx);
 

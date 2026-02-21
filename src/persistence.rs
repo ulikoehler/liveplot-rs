@@ -14,6 +14,11 @@ use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceRef;
 use crate::data::triggers::{Trigger, TriggerSlope};
 
+/// Helper for `#[serde(default = "default_true")]` attributes.
+fn default_true() -> bool {
+    true
+}
+
 // ---------- Serializable mirror types ----------
 
 /// Serializable version of AxisSettings.
@@ -243,6 +248,9 @@ pub struct TriggerSerde {
     pub single_shot: bool,
     pub trigger_position: f64,
     pub look: TraceLookSerde,
+    /// Holdoff time in seconds.
+    #[serde(default)]
+    pub holdoff_secs: f64,
 }
 
 impl TriggerSerde {
@@ -257,6 +265,7 @@ impl TriggerSerde {
             single_shot: t.single_shot,
             trigger_position: t.trigger_position,
             look: TraceLookSerde::from(&t.look),
+            holdoff_secs: t.holdoff_secs,
         }
     }
 
@@ -271,6 +280,7 @@ impl TriggerSerde {
         t.single_shot = self.single_shot;
         t.trigger_position = self.trigger_position;
         t.look = self.look.into_look();
+        t.holdoff_secs = self.holdoff_secs;
         t
     }
 }
@@ -335,6 +345,12 @@ pub struct ScopeStateSerde {
     pub scope_is_xy: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
+    /// Whether automatic Y-axis fit-to-view is enabled.
+    #[serde(default = "default_true")]
+    pub auto_fit_to_view: bool,
+    /// Whether auto-fit only expands (never shrinks).
+    #[serde(default)]
+    pub keep_max_fit: bool,
     /// Scope id (for multi-scope layouts).
     #[serde(default)]
     pub id: Option<usize>,
@@ -358,6 +374,8 @@ impl From<&ScopeData> for ScopeStateSerde {
             scope_is_xy: matches!(s.scope_type, ScopeType::XYScope),
             show_legend: s.show_legend,
             show_info_in_legend: s.show_info_in_legend,
+            auto_fit_to_view: s.auto_fit_to_view,
+            keep_max_fit: s.keep_max_fit,
             id: Some(s.id),
             name: Some(s.name.clone()),
             trace_order: s.trace_order.iter().map(|t| t.0.clone()).collect(),
@@ -387,6 +405,8 @@ impl ScopeStateSerde {
         };
         scope.show_legend = self.show_legend;
         scope.show_info_in_legend = self.show_info_in_legend;
+        scope.auto_fit_to_view = self.auto_fit_to_view;
+        scope.keep_max_fit = self.keep_max_fit;
         if let Some(name) = self.name {
             scope.name = name;
         }
@@ -478,6 +498,8 @@ impl Default for AppStateSerde {
                 scope_is_xy: false,
                 show_legend: true,
                 show_info_in_legend: false,
+                auto_fit_to_view: true,
+                keep_max_fit: false,
                 id: Some(0),
                 name: Some("Scope".to_string()),
                 trace_order: Vec::new(),

@@ -1,5 +1,6 @@
-//! LivePlot crate root: re-exports and module wiring.
-
+pub mod color_scheme;
+pub use color_scheme::{ColorScheme, CustomColorScheme};
+/// LivePlot crate root: re-exports and module wiring.
 mod app;
 pub mod data;
 pub use data::hotkeys;
@@ -40,5 +41,6 @@ pub use panels::{
 pub use data::triggers::{Trigger, TriggerSlope};
 
 // Convenience re-export for examples & embedded use
-pub use config::LivePlotConfig;
-pub use config::ScopeButton;
+pub use config::{
+    AutoFitConfig, Controllers, FeatureFlags, LivePlotConfig, ResponsiveLayout, ScopeButton,
+};

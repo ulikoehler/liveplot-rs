@@ -252,6 +252,14 @@ pub struct ScopeData {
     pub force_hide_legend: bool,
     pub show_info_in_legend: bool,
 
+    /// When `true`, Y-axis bounds are automatically fitted to the visible data
+    /// each frame. Manual pan/zoom disables this; clicking "Fit to View" or
+    /// double-clicking re-enables it. Default: `true`.
+    pub auto_fit_to_view: bool,
+    /// When `true`, auto-fit only *expands* the view — it never shrinks.
+    /// Historical peaks remain visible. Default: `false`.
+    pub keep_max_fit: bool,
+
     pub trace_order: Vec<TraceRef>,
     pub clicked_point: Option<[f64; 2]>,
     /// When `true`, clicking while paused sets `clicked_point` without resuming.
@@ -273,6 +281,8 @@ impl Default for ScopeData {
             show_legend: true,
             force_hide_legend: false,
             show_info_in_legend: false,
+            auto_fit_to_view: true,
+            keep_max_fit: false,
             trace_order: Vec::new(),
             clicked_point: None,
             measurement_active: false,
@@ -312,7 +322,7 @@ impl ScopeData {
 
         self.live_update(traces);
 
-        if self.y_axis.auto_fit {
+        if self.y_axis.auto_fit || self.auto_fit_to_view {
             self.fit_y_bounds(traces);
         }
     }
@@ -490,7 +500,12 @@ impl ScopeData {
             }
 
             if min_y < max_y {
-                self.y_axis.bounds = (min_y, max_y);
+                if self.keep_max_fit {
+                    let cur = self.y_axis.bounds;
+                    self.y_axis.bounds = (min_y.min(cur.0), max_y.max(cur.1));
+                } else {
+                    self.y_axis.bounds = (min_y, max_y);
+                }
             }
             return;
         }
@@ -530,7 +545,12 @@ impl ScopeData {
             }
         }
         if min_y < max_y {
-            self.y_axis.bounds = (min_y, max_y);
+            if self.keep_max_fit {
+                let cur = self.y_axis.bounds;
+                self.y_axis.bounds = (min_y.min(cur.0), max_y.max(cur.1));
+            } else {
+                self.y_axis.bounds = (min_y, max_y);
+            }
         } else if min_y == max_y {
             if min_y < 0.0 {
                 self.y_axis.bounds = (min_y, 0.0);

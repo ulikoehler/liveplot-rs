@@ -57,7 +57,7 @@ fn main() -> eframe::Result<()> {
     });
 
     let mut cfg = LivePlotConfig::default();
-    cfg.event_controller = Some(event_ctrl);
+    cfg.controllers.event = Some(event_ctrl);
 
     run_liveplot(data_rx, cfg)
 }
