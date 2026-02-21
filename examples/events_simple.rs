@@ -26,7 +26,7 @@ fn main() -> eframe::Result<()> {
     // Print received events on a background thread.
     std::thread::spawn(move || {
         while let Ok(evt) = rx.recv() {
-            println!("[event] kind={:?}", evt.kinds);
+            println!("[event] kind={}", evt.kinds);
             if let Some(click) = &evt.click {
                 if let Some(pp) = &click.plot_pos {
                     println!("  plot position: ({:.4}, {:.4})", pp.x, pp.y);

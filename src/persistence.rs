@@ -363,6 +363,10 @@ pub struct ScopeStateSerde {
     /// XY pair assignments (xy-scope mode).
     #[serde(default)]
     pub xy_pairs: Vec<XYPairSerde>,
+    /// Whether clicks should pause/resume the scope. Defaults to `false` when
+    /// absent so the behaviour is opt-in on new installs.
+    #[serde(default)]
+    pub pause_on_click: bool,
 }
 
 impl From<&ScopeData> for ScopeStateSerde {
@@ -388,6 +392,7 @@ impl From<&ScopeData> for ScopeStateSerde {
                     look: TraceLookSerde::from(look),
                 })
                 .collect(),
+            pause_on_click: s.pause_on_click,
         }
     }
 }
@@ -420,6 +425,7 @@ impl ScopeStateSerde {
                 .map(|p| (p.x.map(TraceRef), p.y.map(TraceRef), p.look.into_look()))
                 .collect();
         }
+        scope.pause_on_click = self.pause_on_click;
     }
 }
 
@@ -500,6 +506,7 @@ impl Default for AppStateSerde {
                 show_info_in_legend: false,
                 auto_fit_to_view: true,
                 keep_max_fit: false,
+                pause_on_click: false,
                 id: Some(0),
                 name: Some("Scope".to_string()),
                 trace_order: Vec::new(),

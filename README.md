@@ -148,6 +148,17 @@ Choose a specific trace for point snapping, or use the free mode to place marker
 
 Pan with the left mouse, use box-zoom with right drag, and reset the view from the toolbar. A small on-screen hint summarizes the available interactions.
 
+By default a primary-click on the plot does **nothing**; pause/resume
+behaviour is now opt‑in.  Enable it by setting the
+`pause_on_click` flag on a scope (it defaults to `false`).  Example:
+
+```rust
+// assume `app` is a `LivePlotApp` or similar containing at least one scope
+if let Some(scope) = app.ui_mut().primary_scope_mut() {
+    scope.set_pause_on_click(true);
+}
+```
+
 #### Math (virtual) traces
 
 Create derived traces from existing ones (oscilloscope-style Math). Click the `Math…` button to open a dialog that lets you define and manage math traces. Supported operations:

@@ -139,6 +139,7 @@ impl LivePlotApp {
                     crate::data::scope::AxisType::Time(crate::data::scope::XDateFormat::default());
                 s.x_axis.x_formatter = cfg.x_formatter.clone();
                 s.show_legend = cfg.features.legend;
+                s.show_grid = cfg.features.grid;
                 s.auto_fit_to_view = cfg.auto_fit.auto_fit_to_view;
                 s.keep_max_fit = cfg.auto_fit.keep_max_fit;
             }

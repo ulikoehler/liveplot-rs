@@ -87,17 +87,15 @@ fn main() -> eframe::Result<()> {
         for i in 0..n {
             let color = palette[i];
             let x = rect.left() + rect.width() * (i as f32) / (n as f32);
-            plot_ui
-                .ctx()
-                .debug_painter()
-                .line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-                    (1.0, color));
+            plot_ui.ctx().debug_painter().line_segment(
+                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                (1.0, color),
+            );
             let y = rect.top() + rect.height() * (i as f32) / (n as f32);
-            plot_ui
-                .ctx()
-                .debug_painter()
-                .line_segment([Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
-                    (1.0, color));
+            plot_ui.ctx().debug_painter().line_segment(
+                [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+                (1.0, color),
+            );
         }
     }));
 

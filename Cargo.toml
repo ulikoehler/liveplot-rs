@@ -121,3 +121,7 @@ path = "examples/custom_trace_colors.rs"
 [[example]]
 name = "embedded_window"
 path = "examples/embedded_window.rs"
+
+[[example]]
+name = "features"
+path = "examples/features.rs"

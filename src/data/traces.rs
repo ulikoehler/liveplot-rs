@@ -554,6 +554,15 @@ pub struct TraceData {
     /// colour allocation so that recolouring after a scheme change keeps the
     /// same order.
     pub creation_index: usize,
+    /// Cached spectrum for the trace when the `fft` feature is enabled.
+    ///
+    /// The various constructors in this module previously filled this field
+    /// during `cfg(feature = "fft")` builds, which led to compilation
+    /// failures when the field was missing.  The value is not used anywhere
+    /// outside of FFT-related code, so it is only included behind the same
+    /// feature flag.
+    #[cfg(feature = "fft")]
+    pub last_fft: Option<VecDeque<[f64; 2]>>,
 }
 
 impl TraceData {

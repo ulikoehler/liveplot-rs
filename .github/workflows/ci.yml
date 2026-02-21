@@ -37,5 +37,11 @@ jobs:
           workspaces: |
             . -> target
 
-      - name: cargo check --examples
+      - name: cargo check (default features)
         run: cargo check --examples
+
+      - name: cargo check (no optional features)
+        run: cargo check --no-default-features --features tiles --examples
+
+      - name: cargo check (all features)
+        run: cargo check --all-features --examples

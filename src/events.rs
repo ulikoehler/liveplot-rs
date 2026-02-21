@@ -179,6 +179,81 @@ impl std::ops::Not for EventKind {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// String conversions
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl std::fmt::Display for EventKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.is_empty() {
+            return write!(f, "EMPTY");
+        }
+
+        // The ALL constant is a useful shorthand; print it directly instead
+        if *self == EventKind::ALL {
+            return write!(f, "ALL");
+        }
+
+        // Known kinds with their string names in declaration order.
+        let pairs: &[(EventKind, &str)] = &[
+            (EventKind::CLICK, "CLICK"),
+            (EventKind::DOUBLE_CLICK, "DOUBLE_CLICK"),
+            (EventKind::CLICK_ON_TRACE, "CLICK_ON_TRACE"),
+            (EventKind::PAUSE, "PAUSE"),
+            (EventKind::RESUME, "RESUME"),
+            (EventKind::MEASUREMENT_POINT, "MEASUREMENT_POINT"),
+            (EventKind::MEASUREMENT_COMPLETE, "MEASUREMENT_COMPLETE"),
+            (EventKind::MEASUREMENT_CLEARED, "MEASUREMENT_CLEARED"),
+            (EventKind::TRACE_SHOWN, "TRACE_SHOWN"),
+            (EventKind::TRACE_HIDDEN, "TRACE_HIDDEN"),
+            (EventKind::TRACE_COLOR_CHANGED, "TRACE_COLOR_CHANGED"),
+            (EventKind::MATH_TRACE_ADDED, "MATH_TRACE_ADDED"),
+            (EventKind::MATH_TRACE_REMOVED, "MATH_TRACE_REMOVED"),
+            (EventKind::ZOOM, "ZOOM"),
+            (EventKind::FIT_TO_VIEW, "FIT_TO_VIEW"),
+            (EventKind::PAN, "PAN"),
+            (EventKind::RESIZE, "RESIZE"),
+            (EventKind::DATA_UPDATED, "DATA_UPDATED"),
+            (EventKind::DATA_CLEARED, "DATA_CLEARED"),
+            (EventKind::THRESHOLD_EXCEEDED, "THRESHOLD_EXCEEDED"),
+            (EventKind::THRESHOLD_ADDED, "THRESHOLD_ADDED"),
+            (EventKind::THRESHOLD_REMOVED, "THRESHOLD_REMOVED"),
+            (EventKind::KEY_PRESSED, "KEY_PRESSED"),
+            (EventKind::EXPORT, "EXPORT"),
+            (EventKind::SCREENSHOT, "SCREENSHOT"),
+            (EventKind::SCOPE_ADDED, "SCOPE_ADDED"),
+            (EventKind::SCOPE_REMOVED, "SCOPE_REMOVED"),
+            (EventKind::TRIGGER_FIRED, "TRIGGER_FIRED"),
+            (EventKind::TRACE_OFFSET_CHANGED, "TRACE_OFFSET_CHANGED"),
+            (EventKind::Y_LOG_CHANGED, "Y_LOG_CHANGED"),
+            (EventKind::Y_UNIT_CHANGED, "Y_UNIT_CHANGED"),
+        ];
+
+        let mut names = Vec::new();
+        let mut known_bits: u64 = 0;
+
+        for (kind, name) in pairs {
+            known_bits |= kind.0;
+            if self.contains(*kind) {
+                names.push((*name).to_string());
+            }
+        }
+
+        // Bits that weren't covered by the known list
+        let extra = self.0 & !known_bits;
+        if extra != 0 {
+            names.push(format!("0x{:x}", extra));
+        }
+
+        if names.is_empty() {
+            // No named bits and not ALL (handled above) -> just show hex
+            write!(f, "0x{:x}", self.0)
+        } else {
+            write!(f, "{}", names.join("|"))
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Metadata – per-event-type payloads
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -645,6 +720,21 @@ mod tests {
 
         let evt = rx.try_recv().unwrap();
         assert!(evt.timestamp > 0.0);
+    }
+
+    #[test]
+    fn event_kind_display() {
+        // Single bit
+        assert_eq!(format!("{}", EventKind::CLICK), "CLICK");
+        assert_eq!(format!("{}", EventKind::DOUBLE_CLICK), "DOUBLE_CLICK");
+        // Combined bits are joined with '|'
+        let combo = EventKind::CLICK | EventKind::DOUBLE_CLICK;
+        assert_eq!(format!("{}", combo), "CLICK|DOUBLE_CLICK");
+        // ALL should print as "ALL"
+        assert_eq!(format!("{}", EventKind::ALL), "ALL");
+        // Unknown bits still produce hex representation
+        let unknown = EventKind(1 << 63);
+        assert!(format!("{}", unknown).starts_with("0x"));
     }
 
     #[test]

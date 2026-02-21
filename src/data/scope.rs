@@ -251,6 +251,8 @@ pub struct ScopeData {
     /// Useful for compact/embedded layouts where an overlay legend wastes space.
     pub force_hide_legend: bool,
     pub show_info_in_legend: bool,
+    /// When `true`, the plot background grid is visible.
+    pub show_grid: bool,
 
     /// When `true`, Y-axis bounds are automatically fitted to the visible data
     /// each frame. Manual pan/zoom disables this; clicking "Fit to View" or
@@ -265,6 +267,10 @@ pub struct ScopeData {
     /// When `true`, clicking while paused sets `clicked_point` without resuming.
     /// Set by the measurement panel when measurements exist.
     pub measurement_active: bool,
+    /// If `true`, clicking the plot toggles pause/resume. Set to `false` to
+    /// completely disable this default interaction (useful for embedded or
+    /// interactive applications that handle pausing externally).
+    pub pause_on_click: bool,
 }
 
 impl Default for ScopeData {
@@ -281,11 +287,13 @@ impl Default for ScopeData {
             show_legend: true,
             force_hide_legend: false,
             show_info_in_legend: false,
+            show_grid: true,
             auto_fit_to_view: true,
             keep_max_fit: false,
             trace_order: Vec::new(),
             clicked_point: None,
             measurement_active: false,
+            pause_on_click: false,
         }
     }
 }

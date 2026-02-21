@@ -105,6 +105,16 @@ impl ScopePanel {
         &self.data
     }
 
+    /// Returns current value of the `pause_on_click` flag.
+    pub fn pause_on_click(&self) -> bool {
+        self.data.pause_on_click
+    }
+
+    /// Enable or disable the left-click pause/resume behaviour for this scope.
+    pub fn set_pause_on_click(&mut self, enabled: bool) {
+        self.data.pause_on_click = enabled;
+    }
+
     pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
         ui.checkbox(&mut self.controlls_in_toolbar, "Controls in Toolbar");
 
@@ -114,6 +124,8 @@ impl ScopePanel {
 
         ui.separator();
 
+        ui.checkbox(&mut self.data.show_grid, "Show Grid")
+            .on_hover_text("Show or hide the plot background grid");
         ui.checkbox(&mut self.data.show_legend, "Show Legend")
             .on_hover_text("Show or hide the plot legend");
         if !self.data.show_legend {
@@ -401,10 +413,12 @@ impl ScopePanel {
 
         let y_log = self.data.y_axis.log_scale;
         let x_log = self.data.x_axis.log_scale;
+        let show_grid = self.data.show_grid;
         let mut plot = Plot::new(format!("scope_plot_{}", self.data.name))
             .allow_scroll(false)
             .allow_zoom(false)
-            .allow_boxed_zoom(true);
+            .allow_boxed_zoom(true)
+            .show_grid(egui::Vec2b::new(show_grid, show_grid));
         if self.data.show_legend && !hide_legend {
             plot = plot.legend(Legend::default());
         }
@@ -823,6 +837,59 @@ impl ScopePanel {
                 ctrl.emit_filtered(evt);
             }
         } else if plot_response.response.clicked() {
+            // optional feature flag – allow callers to turn off pause/resume-on-click
+            if !self.data.pause_on_click {
+                // Even with pausing disabled we still want measurement clicks when
+                // already paused, and we always emit a plain click event.
+                if self.data.paused && self.data.measurement_active {
+                    if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                        let transform = plot_response.transform;
+                        let plot_pos = transform.value_from_position(screen_pos);
+
+                        let x_plot = if self.data.x_axis.log_scale {
+                            if plot_pos.x > 0.0 {
+                                plot_pos.x.log10()
+                            } else {
+                                plot_pos.x
+                            }
+                        } else {
+                            plot_pos.x
+                        };
+                        let y_plot = if self.data.y_axis.log_scale {
+                            if plot_pos.y > 0.0 {
+                                plot_pos.y.log10()
+                            } else {
+                                plot_pos.y
+                            }
+                        } else {
+                            plot_pos.y
+                        };
+                        self.data.clicked_point = Some([x_plot, y_plot]);
+                    }
+                }
+                if let Some(ctrl) = &self.event_ctrl {
+                    let mut evt = crate::events::PlotEvent::new(crate::events::EventKind::CLICK);
+                    if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                        let transform = plot_response.transform;
+                        let plot_pos = transform.value_from_position(screen_pos);
+                        evt.click = Some(crate::events::ClickMeta {
+                            screen_pos: Some(crate::events::ScreenPos {
+                                x: screen_pos.x,
+                                y: screen_pos.y,
+                            }),
+                            plot_pos: Some(crate::events::PlotPos {
+                                x: plot_pos.x,
+                                y: plot_pos.y,
+                            }),
+                            trace: None,
+                            scope_id: Some(self.data.id),
+                        });
+                    }
+                    ctrl.emit_filtered(evt);
+                }
+                return;
+            }
+
             if self.data.paused {
                 if self.data.measurement_active {
                     // Measurement is active – set clicked point without resuming
