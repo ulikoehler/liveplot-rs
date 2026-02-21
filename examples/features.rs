@@ -136,11 +136,19 @@ impl FeaturesApp {
 
             // remove any panels whose feature has been disabled
             panel.right_side_panels.retain(|p| {
-                if p.downcast_ref::<liveplot::panels::traces_ui::TracesPanel>().is_some() {
+                if p.downcast_ref::<liveplot::panels::traces_ui::TracesPanel>()
+                    .is_some()
+                {
                     f.sidebar
-                } else if p.downcast_ref::<liveplot::panels::math_ui::MathPanel>().is_some() {
+                } else if p
+                    .downcast_ref::<liveplot::panels::math_ui::MathPanel>()
+                    .is_some()
+                {
                     f.sidebar && f.math
-                } else if p.downcast_ref::<liveplot::panels::hotkeys_ui::HotkeysPanel>().is_some() {
+                } else if p
+                    .downcast_ref::<liveplot::panels::hotkeys_ui::HotkeysPanel>()
+                    .is_some()
+                {
                     f.sidebar && f.hotkeys
                 } else if p
                     .downcast_ref::<liveplot::panels::thresholds_ui::ThresholdsPanel>()
@@ -164,71 +172,70 @@ impl FeaturesApp {
             });
 
             // add missing panels for which the feature is enabled
-            if f.sidebar && !panel
-                .right_side_panels
-                .iter()
-                .any(|p| p.downcast_ref::<liveplot::panels::traces_ui::TracesPanel>().is_some())
+            if f.sidebar
+                && !panel.right_side_panels.iter().any(|p| {
+                    p.downcast_ref::<liveplot::panels::traces_ui::TracesPanel>()
+                        .is_some()
+                })
             {
                 panel
                     .right_side_panels
                     .push(Box::new(liveplot::panels::traces_ui::TracesPanel::default()));
             }
-            if f.sidebar && f.math && !panel
-                .right_side_panels
-                .iter()
-                .any(|p| p.downcast_ref::<liveplot::panels::math_ui::MathPanel>().is_some())
+            if f.sidebar
+                && f.math
+                && !panel.right_side_panels.iter().any(|p| {
+                    p.downcast_ref::<liveplot::panels::math_ui::MathPanel>()
+                        .is_some()
+                })
             {
                 panel
                     .right_side_panels
                     .push(Box::new(liveplot::panels::math_ui::MathPanel::default()));
             }
-            if f.sidebar && f.hotkeys && !panel
-                .right_side_panels
-                .iter()
-                .any(|p| p.downcast_ref::<liveplot::panels::hotkeys_ui::HotkeysPanel>().is_some())
+            if f.sidebar
+                && f.hotkeys
+                && !panel.right_side_panels.iter().any(|p| {
+                    p.downcast_ref::<liveplot::panels::hotkeys_ui::HotkeysPanel>()
+                        .is_some()
+                })
             {
-                panel
-                    .right_side_panels
-                    .push(Box::new(liveplot::panels::hotkeys_ui::HotkeysPanel::new(
-                        hk.clone(),
-                    )));
+                panel.right_side_panels.push(Box::new(
+                    liveplot::panels::hotkeys_ui::HotkeysPanel::new(hk.clone()),
+                ));
             }
-            if f.sidebar && f.thresholds && !panel
-                .right_side_panels
-                .iter()
-                .any(|p| {
+            if f.sidebar
+                && f.thresholds
+                && !panel.right_side_panels.iter().any(|p| {
                     p.downcast_ref::<liveplot::panels::thresholds_ui::ThresholdsPanel>()
                         .is_some()
                 })
             {
-                panel
-                    .right_side_panels
-                    .push(Box::new(
-                        liveplot::panels::thresholds_ui::ThresholdsPanel::default(),
-                    ));
+                panel.right_side_panels.push(Box::new(
+                    liveplot::panels::thresholds_ui::ThresholdsPanel::default(),
+                ));
             }
-            if f.sidebar && f.triggers && !panel
-                .right_side_panels
-                .iter()
-                .any(|p| p.downcast_ref::<liveplot::panels::triggers_ui::TriggersPanel>().is_some())
+            if f.sidebar
+                && f.triggers
+                && !panel.right_side_panels.iter().any(|p| {
+                    p.downcast_ref::<liveplot::panels::triggers_ui::TriggersPanel>()
+                        .is_some()
+                })
             {
-                panel
-                    .right_side_panels
-                    .push(Box::new(liveplot::panels::triggers_ui::TriggersPanel::default()));
+                panel.right_side_panels.push(Box::new(
+                    liveplot::panels::triggers_ui::TriggersPanel::default(),
+                ));
             }
-            if f.sidebar && f.measurement && !panel
-                .right_side_panels
-                .iter()
-                .any(|p| {
+            if f.sidebar
+                && f.measurement
+                && !panel.right_side_panels.iter().any(|p| {
                     p.downcast_ref::<liveplot::panels::measurment_ui::MeasurementPanel>()
                         .is_some()
                 })
             {
-                panel
-                    .right_side_panels
-                    .push(Box::new(
-                        liveplot::panels::measurment_ui::MeasurementPanel::default(),
-                    ));
+                panel.right_side_panels.push(Box::new(
+                    liveplot::panels::measurment_ui::MeasurementPanel::default(),
+                ));
             }
         }
 
@@ -241,19 +248,20 @@ impl FeaturesApp {
             // changes.  This keeps the panel object alive across frames so
             // its `visible`/`detached` state is preserved.
             if f.fft {
-                let has_fft = panel
-                    .bottom_panels
-                    .iter()
-                    .any(|p| p.downcast_ref::<liveplot::panels::fft_ui::FftPanel>().is_some());
+                let has_fft = panel.bottom_panels.iter().any(|p| {
+                    p.downcast_ref::<liveplot::panels::fft_ui::FftPanel>()
+                        .is_some()
+                });
                 if !has_fft {
                     panel
                         .bottom_panels
                         .push(Box::new(liveplot::panels::fft_ui::FftPanel::default()));
                 }
             } else {
-                panel
-                    .bottom_panels
-                    .retain(|p| p.downcast_ref::<liveplot::panels::fft_ui::FftPanel>().is_none());
+                panel.bottom_panels.retain(|p| {
+                    p.downcast_ref::<liveplot::panels::fft_ui::FftPanel>()
+                        .is_none()
+                });
             }
         }
 

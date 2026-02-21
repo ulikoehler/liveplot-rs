@@ -11,7 +11,6 @@ pub struct FftPanel {
     pub fft_data: FftData,
     pub scope_ui: ScopePanel,
     pub fft_db: bool,
-    pending_auto_fit: bool,
 }
 
 impl Default for FftPanel {
@@ -21,7 +20,6 @@ impl Default for FftPanel {
             fft_data: FftData::default(),
             scope_ui: ScopePanel::default(),
             fft_db: false,
-            pending_auto_fit: true,
         }
     }
 }
@@ -78,7 +76,6 @@ impl Panel for FftPanel {
                     if ui.selectable_label(sel, w.label()).clicked() {
                         if self.fft_data.fft_window != w {
                             self.fft_data.fft_window = w;
-                            self.pending_auto_fit = true; // re-fit after next update
                         }
                         changed = true;
                     }
@@ -174,23 +171,33 @@ impl Panel for FftPanel {
         });
         scope_data.y_axis.log_scale = false;
 
-        // Update scope ordering
-        self.scope_ui.update_data(&tmp_traces);
-
-        if self.pending_auto_fit {
-            self.scope_ui.fit_all(&tmp_traces);
-            self.pending_auto_fit = false;
+        // Sync the internal scope's trace_order with whatever FFT traces are present.
+        // `scope_data.update()` only *retains* existing entries – it never adds new ones –
+        // so we must explicitly insert any trace names that are in tmp_traces but not yet
+        // in trace_order.  We also prune stale entries (traces that disappeared).
+        scope_data
+            .trace_order
+            .retain(|n| tmp_traces.contains_key(n));
+        for name in self.fft_data.fft_traces.keys() {
+            if !scope_data.trace_order.iter().any(|n| n == name) {
+                scope_data.trace_order.push(name.clone());
+            }
         }
 
+        // Auto-fit both axes every frame so the plot rescales as new FFT data arrives.
+        scope_data.x_axis.auto_fit = true;
+        scope_data.y_axis.auto_fit = true;
+
+        // Update scope ordering and auto-fit bounds
+        self.scope_ui.update_data(&tmp_traces);
+
         // FFT-specific controls above the plot
-        let mut changed_settings = false;
         ui.horizontal(|ui| {
             ui.label("FFT size:");
             let mut size_log2 = (self.fft_data.fft_size as f32).log2() as u32;
             let slider = egui::Slider::new(&mut size_log2, 8..=15).text("2^N");
             if ui.add(slider).changed() {
                 self.fft_data.fft_size = 1usize << size_log2;
-                changed_settings = true;
             }
             ui.separator();
             ui.label("Window:");
@@ -198,19 +205,14 @@ impl Panel for FftPanel {
                 .iter()
                 .position(|w| *w == self.fft_data.fft_window)
                 .unwrap_or(1);
-            let combo = egui::ComboBox::from_id_salt("fft_window_multi")
+            let _ = egui::ComboBox::from_id_salt("fft_window_multi")
                 .selected_text(self.fft_data.fft_window.label())
                 .show_ui(ui, |ui| {
                     for (i, w) in FFTWindow::ALL.iter().enumerate() {
                         ui.selectable_value(&mut w_idx, i, w.label());
                     }
                 });
-            if combo.response.changed() {
-                self.fft_data.fft_window = FFTWindow::ALL[w_idx];
-                changed_settings = true;
-            } else {
-                self.fft_data.fft_window = FFTWindow::ALL[w_idx];
-            }
+            self.fft_data.fft_window = FFTWindow::ALL[w_idx];
             ui.separator();
             if ui
                 .button(if self.fft_db { "Linear" } else { "dB" })
@@ -218,15 +220,8 @@ impl Panel for FftPanel {
                 .clicked()
             {
                 self.fft_db = !self.fft_db;
-                changed_settings = true;
             }
         });
-
-        if changed_settings {
-            // Defer fit until after next update_data so new spectrum sizes are reflected
-            self.pending_auto_fit = true;
-            ui.label("(auto-fit next)");
-        }
 
         ui.separator();
 
