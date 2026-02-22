@@ -1,0 +1,9 @@
+[build]
+# trunk builds relative to this file; target is the HTML entry-point.
+target = "index.html"
+
+[serve]
+# Bind to all interfaces so the page is reachable from outside the container.
+address = "127.0.0.1"
+port = 8080
+open = false
