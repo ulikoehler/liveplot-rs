@@ -418,7 +418,11 @@ impl ScopePanel {
             .allow_scroll(false)
             .allow_zoom(false)
             .allow_boxed_zoom(true)
-            .show_grid(egui::Vec2b::new(show_grid, show_grid));
+            .show_grid(egui::Vec2b::new(show_grid, show_grid))
+            // When tick labels are hidden (thresholds set above available size), also
+            // suppress the egui_plot axis space reservation so the plot fills the full
+            // widget width without a black gutter on the left (Y axis) or bottom (X axis).
+            .show_axes(egui::Vec2b::new(!hide_x_labels, !hide_y_labels));
         if self.data.show_legend && !hide_legend {
             plot = plot.legend(Legend::default());
         }
