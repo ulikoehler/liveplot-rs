@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 use eframe::egui;
 
-use crate::app::MainPanel;
+use crate::app::LivePlotPanel;
 use crate::data::data::LivePlotData;
 #[cfg(feature = "fft")]
 use crate::panels::fft_ui::FftPanel;
@@ -157,13 +157,16 @@ impl Default for Hotkeys {
     fn default() -> Self {
         Self {
             fft: Some(Hotkey::new(Modifier::Ctrl, 'F')),
+            // revert math hotkey back to Ctrl+M and move measurements to 'P'.
+            // (Pause also uses 'P' by default; users can reconfigure if that
+            // conflict is undesirable.)
             math: Some(Hotkey::new(Modifier::Ctrl, 'M')),
             fit_view: Some(Hotkey::new(Modifier::None, 'F')),
             fit_view_cont: Some(Hotkey::new(Modifier::None, 'C')),
             fit_y: Some(Hotkey::new(Modifier::None, 'Y')),
             traces: Some(Hotkey::new(Modifier::None, 'T')),
             thresholds: Some(Hotkey::new(Modifier::Ctrl, 'T')),
-            measurements: Some(Hotkey::new(Modifier::None, 'M')),
+            measurements: Some(Hotkey::new(Modifier::None, 'P')),
             triggers: Some(Hotkey::new(Modifier::Alt, 'G')),
             hotkeys_panel: Some(Hotkey::new(Modifier::Ctrl, 'H')),
             pause: Some(Hotkey::new(Modifier::None, 'P')),
@@ -498,7 +501,7 @@ pub fn detect_hotkey_actions(cfg: &Hotkeys, ctx: &egui::Context) -> Vec<HotkeyNa
     actions
 }
 
-pub fn handle_hotkeys(main_panel: &mut MainPanel, ctx: &egui::Context) {
+pub fn handle_hotkeys(main_panel: &mut LivePlotPanel, ctx: &egui::Context) {
     let hk = main_panel.hotkeys.borrow().clone();
     let actions = detect_hotkey_actions(&hk, ctx);
     for act in actions {
@@ -506,6 +509,7 @@ pub fn handle_hotkeys(main_panel: &mut MainPanel, ctx: &egui::Context) {
             scope_data: main_panel.liveplot_panel.get_data_mut(),
             traces: &mut main_panel.traces_data,
             pending_requests: &mut main_panel.pending_requests,
+            event_ctrl: main_panel.event_ctrl.clone(),
         };
         match act {
             HotkeyName::Pause => {
@@ -574,3 +578,201 @@ pub fn handle_hotkeys(main_panel: &mut MainPanel, ctx: &egui::Context) {
         }
     }
 }
+
+/// Return a reference to the `Hotkey` associated with `name` within a `Hotkeys` configuration.
+///
+/// Returns `None` when the hotkey for that action has been unset by the user.
+pub fn get_hotkey_for_name<'h>(hotkeys: &'h Hotkeys, name: HotkeyName) -> Option<&'h Hotkey> {
+    match name {
+        HotkeyName::Fft => hotkeys.fft.as_ref(),
+        HotkeyName::Math => hotkeys.math.as_ref(),
+        HotkeyName::FitView => hotkeys.fit_view.as_ref(),
+        HotkeyName::FitY => hotkeys.fit_y.as_ref(),
+        HotkeyName::FitViewCont => hotkeys.fit_view_cont.as_ref(),
+        HotkeyName::Pause => hotkeys.pause.as_ref(),
+        HotkeyName::Traces => hotkeys.traces.as_ref(),
+        HotkeyName::Thresholds => hotkeys.thresholds.as_ref(),
+        HotkeyName::Measurements => hotkeys.measurements.as_ref(),
+        HotkeyName::Triggers => hotkeys.triggers.as_ref(),
+        HotkeyName::HotkeysPanel => hotkeys.hotkeys_panel.as_ref(),
+        HotkeyName::SavePng => hotkeys.save_png.as_ref(),
+        HotkeyName::ExportData => hotkeys.export_data.as_ref(),
+        HotkeyName::ClearAll => hotkeys.clear_all.as_ref(),
+        HotkeyName::ResetMeasurements => hotkeys.reset_measurements.as_ref(),
+    }
+}
+
+/// Format a tooltip string that combines a human-readable description with an optional hotkey.
+///
+/// When `hotkey` is `None` the description is returned as-is.
+/// When `hotkey` is `Some(hk)` the returned string has the form `"Description [Ctrl+X]"`.
+pub fn format_button_tooltip(description: &str, hotkey: Option<&Hotkey>) -> String {
+    match hotkey {
+        Some(hk) => format!("{} [{}]", description, hk),
+        None => description.to_string(),
+    }
+}
+
+/// Determine whether the top menu-bar buttons should be collapsed to icon-only mode.
+///
+/// Collapse happens when `available_width` is strictly less than
+/// `min_required_width` (the pixel width needed to render the rightmost button
+/// at full text labels).
+pub fn should_collapse_topbar(available_width: f32, min_required_width: f32) -> bool {
+    available_width < min_required_width
+}
+
+// tests moved to `tests/hotkeys.rs`
+
+#[test]
+fn get_hotkey_pause_default() {
+    let hk = Hotkeys::default();
+    let result = get_hotkey_for_name(&hk, HotkeyName::Pause);
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(result.key, 'P');
+    assert_eq!(result.modifier, Modifier::None);
+}
+
+#[test]
+fn get_hotkey_thresholds_default() {
+    let hk = Hotkeys::default();
+    let result = get_hotkey_for_name(&hk, HotkeyName::Thresholds);
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(result.key, 'T');
+    assert_eq!(result.modifier, Modifier::Ctrl);
+}
+
+#[test]
+fn get_hotkey_measurements_default() {
+    let hk = Hotkeys::default();
+    let result = get_hotkey_for_name(&hk, HotkeyName::Measurements);
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(result.key, 'P');
+    assert_eq!(result.modifier, Modifier::None);
+}
+
+#[test]
+fn get_hotkey_triggers_default() {
+    let hk = Hotkeys::default();
+    let result = get_hotkey_for_name(&hk, HotkeyName::Triggers);
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(result.key, 'G');
+    assert_eq!(result.modifier, Modifier::Alt);
+}
+
+#[test]
+fn get_hotkey_fft_default() {
+    let hk = Hotkeys::default();
+    let result = get_hotkey_for_name(&hk, HotkeyName::Fft);
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(result.key, 'F');
+    assert_eq!(result.modifier, Modifier::Ctrl);
+}
+
+#[test]
+fn get_hotkey_hotkeys_panel_default() {
+    let hk = Hotkeys::default();
+    let result = get_hotkey_for_name(&hk, HotkeyName::HotkeysPanel);
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(result.key, 'H');
+    assert_eq!(result.modifier, Modifier::Ctrl);
+}
+
+#[test]
+fn get_hotkey_returns_none_when_unset() {
+    let mut hk = Hotkeys::default();
+    hk.traces = None;
+    let result = get_hotkey_for_name(&hk, HotkeyName::Traces);
+    assert!(result.is_none(), "Should return None when hotkey is unset");
+}
+
+#[test]
+fn get_hotkey_save_png_default() {
+    let hk = Hotkeys::default();
+    let result = get_hotkey_for_name(&hk, HotkeyName::SavePng);
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(result.key, 'S');
+    assert_eq!(result.modifier, Modifier::None);
+}
+
+#[test]
+fn get_hotkey_export_data_default() {
+    let hk = Hotkeys::default();
+    let result = get_hotkey_for_name(&hk, HotkeyName::ExportData);
+    assert!(result.is_some());
+    let result = result.unwrap();
+    assert_eq!(result.key, 'E');
+    assert_eq!(result.modifier, Modifier::None);
+}
+
+// ── tooltip round-trip integration ──────────────────────────────────────
+
+#[test]
+fn tooltip_round_trip_traces() {
+    let hk = Hotkeys::default();
+    let hotkey = get_hotkey_for_name(&hk, HotkeyName::Traces);
+    let tooltip = format_button_tooltip("Traces", hotkey);
+    assert_eq!(tooltip, "Traces [T]");
+}
+
+#[test]
+fn tooltip_round_trip_clear_all() {
+    let hk = Hotkeys::default();
+    let hotkey = get_hotkey_for_name(&hk, HotkeyName::ClearAll);
+    let tooltip = format_button_tooltip("Clear All", hotkey);
+    assert_eq!(tooltip, "Clear All [Ctrl+X]");
+}
+
+#[test]
+fn tooltip_round_trip_math() {
+    let hk = Hotkeys::default();
+    let hotkey = get_hotkey_for_name(&hk, HotkeyName::Math);
+    let tooltip = format_button_tooltip("Math", hotkey);
+    assert_eq!(tooltip, "Math [Ctrl+M]");
+}
+
+#[test]
+fn tooltip_round_trip_unset_hotkey() {
+    let mut hk = Hotkeys::default();
+    hk.math = None;
+    let hotkey = get_hotkey_for_name(&hk, HotkeyName::Math);
+    let tooltip = format_button_tooltip("Math", hotkey);
+    assert_eq!(
+        tooltip, "Math",
+        "When hotkey is unset, tooltip should be description only"
+    );
+}
+
+// ── collapse + tooltip combined decision ────────────────────────────────
+
+#[test]
+fn collapse_decision_wide_window() {
+    // 1920-pixel-wide window with a 100px rightmost-button requirement
+    assert!(!should_collapse_topbar(1920.0, 100.0));
+}
+
+#[test]
+fn collapse_decision_very_narrow_window() {
+    // Phone-sized or small embedded widget: always collapse
+    assert!(should_collapse_topbar(50.0, 100.0));
+}
+
+#[test]
+fn collapse_decision_exactly_at_boundary() {
+    // Exactly at the boundary: should NOT collapse (≥ required)
+    assert!(!should_collapse_topbar(100.0, 100.0));
+}
+
+#[test]
+fn collapse_decision_one_pixel_short() {
+    // One floating-point unit below the threshold: should collapse
+    assert!(should_collapse_topbar(99.999_985, 100.0));
+}
+// tests moved to `tests/hotkeys.rs`

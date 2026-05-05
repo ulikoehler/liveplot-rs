@@ -45,8 +45,25 @@ impl Panel for MathPanel {
         &mut self.state
     }
 
-    fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
-        ui.menu_button(self.title_and_icon(), |ui| {
+    fn hotkey_name(&self) -> Option<crate::data::hotkeys::HotkeyName> {
+        Some(crate::data::hotkeys::HotkeyName::Math)
+    }
+
+    fn render_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        data: &mut LivePlotData<'_>,
+        collapsed: bool,
+        tooltip: &str,
+    ) {
+        let label = if collapsed {
+            self.icon_only()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| self.title().to_string())
+        } else {
+            self.title_and_icon()
+        };
+        let mr = ui.menu_button(label, |ui| {
             if ui.button("Show Math").clicked() {
                 let st = self.state_mut();
                 st.visible = true;
@@ -76,6 +93,17 @@ impl Panel for MathPanel {
             if ui.button("X Clear All math traces").clicked() {
                 // Remove math traces & their underlying live data
                 for def in self.math_traces.iter() {
+                    // Emit MATH_TRACE_REMOVED for each
+                    if let Some(ctrl) = &data.event_ctrl {
+                        let mut evt = crate::events::PlotEvent::new(
+                            crate::events::EventKind::MATH_TRACE_REMOVED,
+                        );
+                        evt.math_trace = Some(crate::events::MathTraceMeta {
+                            name: def.name.0.clone(),
+                            formula: None,
+                        });
+                        ctrl.emit_filtered(evt);
+                    }
                     data.traces.remove_trace(&def.name);
                 }
                 self.math_traces.clear();
@@ -84,6 +112,9 @@ impl Panel for MathPanel {
                 ui.close();
             }
         });
+        if !tooltip.is_empty() {
+            mr.response.on_hover_text(tooltip);
+        }
     }
 
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
@@ -104,7 +135,6 @@ impl Panel for MathPanel {
 
             let tr = data.get_trace_or_new(&def.name);
             tr.live = out.iter().copied().collect();
-            tr.is_math = true;
 
             sources.insert(def.name.clone(), out);
         }
@@ -121,7 +151,6 @@ impl Panel for MathPanel {
 
             let tr = data.get_trace_or_new(&def.name);
             tr.snap = Some(out.iter().copied().collect());
-            tr.is_math = true;
 
             sources.insert(def.name.clone(), out);
         }
@@ -217,6 +246,17 @@ impl Panel for MathPanel {
                     }
                     if remove_resp.clicked() {
                         let removing = def.name.clone();
+                        // Emit MATH_TRACE_REMOVED
+                        if let Some(ctrl) = &data.event_ctrl {
+                            let mut evt = crate::events::PlotEvent::new(
+                                crate::events::EventKind::MATH_TRACE_REMOVED,
+                            );
+                            evt.math_trace = Some(crate::events::MathTraceMeta {
+                                name: removing.0.clone(),
+                                formula: None,
+                            });
+                            ctrl.emit_filtered(evt);
+                        }
                         data.remove_trace(&removing);
                         self.math_traces.retain(|d| d.name != removing);
                         if self.editing.as_deref() == Some(&removing) {
@@ -697,6 +737,17 @@ impl Panel for MathPanel {
                             trace.look = self.builder_look.clone();
                             trace.info = tr.math_formula_string();
                             self.math_traces.push(tr.clone());
+                            // Emit MATH_TRACE_ADDED
+                            if let Some(ctrl) = &data.event_ctrl {
+                                let mut evt = crate::events::PlotEvent::new(
+                                    crate::events::EventKind::MATH_TRACE_ADDED,
+                                );
+                                evt.math_trace = Some(crate::events::MathTraceMeta {
+                                    name: tr.name.0.clone(),
+                                    formula: Some(tr.math_formula_string()),
+                                });
+                                ctrl.emit_filtered(evt);
+                            }
                         }
                         self.editing = None;
                         self.creating = false;

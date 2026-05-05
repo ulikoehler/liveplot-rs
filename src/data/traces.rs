@@ -123,6 +123,10 @@ pub struct TracesCollection {
     rx: Option<std::sync::mpsc::Receiver<PlotCommand>>,
     /// Mapping from numeric trace ID to trace name (for PlotCommand API)
     id_to_name: HashMap<u32, String>,
+    /// Pending styles for traces that haven't been created yet.
+    /// When a trace is loaded from a saved state, the style is stored here
+    /// until the trace is created from incoming data.
+    pending_styles: HashMap<String, (TraceLook, f64)>,
 }
 
 impl Default for TracesCollection {
@@ -134,6 +138,7 @@ impl Default for TracesCollection {
             hover_trace: None,
             rx: None,
             id_to_name: HashMap::new(),
+            pending_styles: HashMap::new(),
         }
     }
 }
@@ -149,6 +154,20 @@ impl TracesCollection {
         self.rx = Some(rx);
     }
 
+    /// Store a pending style for a trace that may not exist yet.
+    /// When the trace is created from incoming data, this style will be applied
+    /// instead of the default palette color.
+    pub fn set_pending_style(&mut self, name: &str, look: TraceLook, offset: f64) {
+        // If the trace already exists, apply immediately
+        let tref = TraceRef(name.to_string());
+        if let Some(tr) = self.traces.get_mut(&tref) {
+            tr.look = look;
+            tr.offset = offset;
+        } else {
+            self.pending_styles.insert(name.to_string(), (look, offset));
+        }
+    }
+
     fn update_rx(&mut self) -> Vec<TraceRef> {
         let mut new_traces: Vec<TraceRef> = Vec::new();
         if let Some(rx) = &self.rx {
@@ -158,19 +177,22 @@ impl TracesCollection {
                         self.id_to_name.insert(id, name.clone());
                         let tref = TraceRef(name.clone());
                         let new_index = self.traces.len();
+                        let pending = self.pending_styles.remove(name.as_str());
                         let entry = match self.traces.entry(tref.clone()) {
                             Entry::Occupied(entry) => entry.into_mut(),
                             Entry::Vacant(entry) => {
                                 new_traces.push(tref.clone());
+                                let (look, offset) =
+                                    pending.unwrap_or((TraceLook::new(new_index), 0.0));
                                 entry.insert(TraceData {
-                                    look: TraceLook::new(new_index),
-                                    offset: 0.0,
+                                    look,
+                                    offset,
                                     live: VecDeque::new(),
                                     snap: None,
                                     info: String::new(),
+                                    creation_index: new_index,
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
-                                    is_math: false,
                                 })
                             }
                         };
@@ -188,21 +210,24 @@ impl TracesCollection {
                     }
                     PlotCommand::Point { trace_id, point } => {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
-                            let tref = TraceRef(name);
+                            let tref = TraceRef(name.clone());
                             let new_index = self.traces.len();
+                            let pending = self.pending_styles.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
                                 Entry::Vacant(entry) => {
                                     new_traces.push(tref.clone());
+                                    let (look, offset) =
+                                        pending.unwrap_or((TraceLook::new(new_index), 0.0));
                                     entry.insert(TraceData {
-                                        look: TraceLook::new(new_index),
-                                        offset: 0.0,
+                                        look,
+                                        offset,
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
+                                        creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
-                                        is_math: false,
                                     })
                                 }
                             };
@@ -214,19 +239,22 @@ impl TracesCollection {
                             // Auto-register trace
                             let name = format!("trace-{}", trace_id);
                             self.id_to_name.insert(trace_id, name.clone());
-                            let tref = TraceRef(name);
+                            let tref = TraceRef(name.clone());
                             let new_index = self.traces.len();
+                            let pending = self.pending_styles.remove(name.as_str());
                             let entry = self.traces.entry(tref.clone()).or_insert_with(|| {
                                 new_traces.push(tref.clone());
+                                let (look, offset) =
+                                    pending.unwrap_or((TraceLook::new(new_index), 0.0));
                                 TraceData {
-                                    look: TraceLook::new(new_index),
-                                    offset: 0.0,
+                                    look,
+                                    offset,
                                     live: VecDeque::new(),
                                     snap: None,
                                     info: String::new(),
+                                    creation_index: new_index,
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
-                                    is_math: false,
                                 }
                             });
                             entry.live.push_back([point.x, point.y]);
@@ -234,21 +262,24 @@ impl TracesCollection {
                     }
                     PlotCommand::Points { trace_id, points } => {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
-                            let tref = TraceRef(name);
+                            let tref = TraceRef(name.clone());
                             let new_index = self.traces.len();
+                            let pending = self.pending_styles.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
                                 Entry::Vacant(entry) => {
                                     new_traces.push(tref.clone());
+                                    let (look, offset) =
+                                        pending.unwrap_or((TraceLook::new(new_index), 0.0));
                                     entry.insert(TraceData {
-                                        look: TraceLook::new(new_index),
-                                        offset: 0.0,
+                                        look,
+                                        offset,
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
+                                        creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
-                                        is_math: false,
                                     })
                                 }
                             };
@@ -262,21 +293,24 @@ impl TracesCollection {
                     }
                     PlotCommand::SetData { trace_id, points } => {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
-                            let tref = TraceRef(name);
+                            let tref = TraceRef(name.clone());
                             let new_index = self.traces.len();
+                            let pending = self.pending_styles.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
                                 Entry::Vacant(entry) => {
                                     new_traces.push(tref.clone());
+                                    let (look, offset) =
+                                        pending.unwrap_or((TraceLook::new(new_index), 0.0));
                                     entry.insert(TraceData {
-                                        look: TraceLook::new(new_index),
-                                        offset: 0.0,
+                                        look,
+                                        offset,
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
+                                        creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
-                                        is_math: false,
                                     })
                                 }
                             };
@@ -408,17 +442,22 @@ impl TracesCollection {
 
     pub fn get_trace_or_new(&mut self, name: &TraceRef) -> &mut TraceData {
         if !self.traces.contains_key(name) {
+            let new_index = self.traces.len();
+            let pending = self.pending_styles.remove(name.as_ref());
+            let (look, offset) = pending.unwrap_or((TraceLook::new(new_index), 0.0));
+            // note: later when the TraceData is created the `creation_index` is set
+            // appropriately (see above insertion sites)
             self.traces.insert(
                 name.clone(),
                 TraceData {
-                    look: TraceLook::new(self.traces.len()),
-                    offset: 0.0,
+                    look,
+                    offset,
                     live: VecDeque::new(),
                     snap: None,
                     info: String::new(),
+                    creation_index: new_index,
                     #[cfg(feature = "fft")]
                     last_fft: None,
-                    is_math: false,
                 },
             );
         }
@@ -479,6 +518,21 @@ impl TracesCollection {
         self.traces.keys().cloned().collect()
     }
 
+    /// Update every trace's colour to match the current global palette.
+    ///
+    /// This is called when the colour scheme changes so that existing traces
+    /// (created before the scheme was applied) are recoloured appropriately.
+    pub fn recolor_using_palette(&mut self) {
+        let palette = crate::color_scheme::global_palette();
+        if palette.is_empty() {
+            return;
+        }
+        for (_name, tr) in self.traces.iter_mut() {
+            let idx = tr.creation_index;
+            tr.look.color = palette[idx % palette.len()];
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.traces.len()
     }
@@ -496,11 +550,19 @@ pub struct TraceData {
     pub live: VecDeque<[f64; 2]>,
     pub snap: Option<VecDeque<[f64; 2]>>,
     pub info: String,
-    /// Cached last computed FFT (frequency, magnitude)
+    /// Index assigned when the trace was created.  Used for deterministic
+    /// colour allocation so that recolouring after a scheme change keeps the
+    /// same order.
+    pub creation_index: usize,
+    /// Cached spectrum for the trace when the `fft` feature is enabled.
+    ///
+    /// The various constructors in this module previously filled this field
+    /// during `cfg(feature = "fft")` builds, which led to compilation
+    /// failures when the field was missing.  The value is not used anywhere
+    /// outside of FFT-related code, so it is only included behind the same
+    /// feature flag.
     #[cfg(feature = "fft")]
-    pub last_fft: Option<Vec<[f64; 2]>>,
-    /// Whether this trace is a derived math trace
-    pub is_math: bool,
+    pub last_fft: Option<VecDeque<[f64; 2]>>,
 }
 
 impl TraceData {
@@ -536,5 +598,52 @@ impl TraceData {
             .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
             .cloned()
             .collect()
+    }
+}
+
+// --- tests -----------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::color_scheme;
+    use crate::sink::PlotCommand;
+    use egui::Color32;
+
+    #[test]
+    fn recolor_changes_existing_traces() {
+        // create collection with two traces
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut col = TracesCollection::new(rx);
+        // register two traces via commands
+        let _ = tx.send(PlotCommand::RegisterTrace {
+            id: 1,
+            name: "a".to_string(),
+            info: None,
+        });
+        let _ = tx.send(PlotCommand::RegisterTrace {
+            id: 2,
+            name: "b".to_string(),
+            info: None,
+        });
+        let new = col.update();
+        assert_eq!(new.len(), 2);
+        // initial palette must be default dark
+        let first_color = col.traces.get(&TraceRef("a".into())).unwrap().look.color;
+        assert_ne!(first_color, Color32::GRAY); // sanity
+                                                // set a simple custom palette
+        color_scheme::set_global_palette(vec![
+            Color32::from_rgb(9, 9, 9),
+            Color32::from_rgb(8, 8, 8),
+        ]);
+        col.recolor_using_palette();
+        assert_eq!(
+            col.traces.get(&TraceRef("a".into())).unwrap().look.color,
+            Color32::from_rgb(9, 9, 9)
+        );
+        assert_eq!(
+            col.traces.get(&TraceRef("b".into())).unwrap().look.color,
+            Color32::from_rgb(8, 8, 8)
+        );
     }
 }

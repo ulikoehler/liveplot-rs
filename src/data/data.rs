@@ -2,6 +2,7 @@
 
 use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
+use crate::events::EventController;
 use std::collections::{HashMap, VecDeque};
 
 pub struct LivePlotRequests {
@@ -36,6 +37,8 @@ pub struct LivePlotData<'a> {
     pub traces: &'a mut TracesCollection,
     // Optional requests set by panel UI to trigger app-level persistence actions.
     pub pending_requests: &'a mut LivePlotRequests,
+    /// Optional event controller for emitting events from panels.
+    pub event_ctrl: Option<EventController>,
 }
 
 impl<'a> LivePlotData<'a> {

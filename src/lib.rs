@@ -1,5 +1,6 @@
-//! LivePlot crate root: re-exports and module wiring.
-
+pub mod color_scheme;
+pub use color_scheme::{ColorScheme, CustomColorScheme};
+/// LivePlot crate root: re-exports and module wiring.
 mod app;
 pub mod data;
 pub use data::hotkeys;
@@ -10,10 +11,11 @@ pub mod persistence;
 
 pub mod config;
 pub mod controllers;
+pub mod events;
 pub mod sink;
 
 // Public re-exports for a compact external API
-pub use app::{run_liveplot, MainApp, MainPanel};
+pub use app::{run_liveplot, LivePlotApp, LivePlotPanel};
 pub use controllers::{
     FFTController, FFTDataRequest, FFTPanelInfo, FFTRawData, LiveplotController, LiveplotState,
     RawExportFormat, ScopeControlState, ScopesController, ScopesState, ThresholdController,
@@ -21,6 +23,11 @@ pub use controllers::{
     UiActionController, WindowController, WindowInfo,
 };
 pub use data::traces::TraceRef;
+pub use events::{
+    ClickMeta, DataUpdateMeta, EventController, EventFilter, EventKind, ExportMeta, KeyModifiers,
+    KeyPressMeta, MathTraceMeta, MeasurementMeta, PauseMeta, PlotEvent, PlotPos, ResizeMeta,
+    ScopeManageMeta, ScreenPos, ThresholdMeta, TraceMeta, TriggerMeta, ViewChangeMeta, YAxisMeta,
+};
 pub use panels::{Panel, PanelState};
 pub use sink::{channel_plot, PlotCommand, PlotPoint, PlotSink, Trace, TraceId};
 // Re-export individual panel types from panels module
@@ -34,4 +41,6 @@ pub use panels::{
 pub use data::triggers::{Trigger, TriggerSlope};
 
 // Convenience re-export for examples & embedded use
-pub use config::LivePlotConfig;
+pub use config::{
+    AutoFitConfig, Controllers, FeatureFlags, LivePlotConfig, ResponsiveLayout, ScopeButton,
+};

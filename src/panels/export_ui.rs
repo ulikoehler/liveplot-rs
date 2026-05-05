@@ -15,6 +15,13 @@ impl Default for ExportPanel {
         }
     }
 }
+
+impl ExportPanel {
+    pub const SNAPSHOT_CSV_LABEL: &'static str = "🖹 Snapshot as CSV";
+    pub const SAVE_STATE_LABEL: &'static str = "📂 Save state...";
+    pub const LOAD_STATE_LABEL: &'static str = "📂 Load state...";
+}
+
 impl Panel for ExportPanel {
     fn state(&self) -> &PanelState {
         &self.state
@@ -23,8 +30,25 @@ impl Panel for ExportPanel {
         &mut self.state
     }
 
-    fn render_menu(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
-        ui.menu_button(self.title_and_icon(), |ui| {
+    fn hotkey_name(&self) -> Option<crate::data::hotkeys::HotkeyName> {
+        Some(crate::data::hotkeys::HotkeyName::ExportData)
+    }
+
+    fn render_menu(
+        &mut self,
+        ui: &mut Ui,
+        data: &mut LivePlotData<'_>,
+        collapsed: bool,
+        tooltip: &str,
+    ) {
+        let label = if collapsed {
+            self.icon_only()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| self.title().to_string())
+        } else {
+            self.title_and_icon()
+        };
+        let mr = ui.menu_button(label, |ui| {
             if ui
                 .button("🖼 Save Screenshot")
                 .on_hover_text("Take a screenshot of the entire window")
@@ -40,6 +64,16 @@ impl Panel for ExportPanel {
                         "LIVEPLOT_SAVE_SCREENSHOT_TO",
                         path.to_string_lossy().to_string(),
                     );
+                    // Emit SCREENSHOT event
+                    if let Some(ctrl) = &data.event_ctrl {
+                        let mut evt =
+                            crate::events::PlotEvent::new(crate::events::EventKind::SCREENSHOT);
+                        evt.export = Some(crate::events::ExportMeta {
+                            format: "png".to_string(),
+                            path: Some(path.to_string_lossy().to_string()),
+                        });
+                        ctrl.emit_filtered(evt);
+                    }
                 }
                 ui.ctx()
                     .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
@@ -74,13 +108,24 @@ impl Panel for ExportPanel {
                         1e-9,
                     ) {
                         eprintln!("Failed to export snapshot CSV: {e}");
+                    } else {
+                        // Emit EXPORT event
+                        if let Some(ctrl) = &data.event_ctrl {
+                            let mut evt =
+                                crate::events::PlotEvent::new(crate::events::EventKind::EXPORT);
+                            evt.export = Some(crate::events::ExportMeta {
+                                format: "csv".to_string(),
+                                path: Some(path.to_string_lossy().to_string()),
+                            });
+                            ctrl.emit_filtered(evt);
+                        }
                     }
                 }
                 ui.close();
             }
             // Move Save/Load state into Export menu
             ui.separator();
-            if ui.button("Save state...").clicked() {
+            if ui.button(Self::SAVE_STATE_LABEL).clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("JSON", &["json"])
                     .set_file_name("liveplot_state.json")
@@ -90,7 +135,7 @@ impl Panel for ExportPanel {
                 }
                 ui.close();
             }
-            if ui.button("Load state...").clicked() {
+            if ui.button(Self::LOAD_STATE_LABEL).clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("JSON", &["json"])
                     .pick_file()
@@ -136,5 +181,10 @@ impl Panel for ExportPanel {
                 }
             }
         });
+        if !tooltip.is_empty() {
+            mr.response.on_hover_text(tooltip);
+        }
     }
 }
+
+// tests moved to `tests/export_ui.rs`

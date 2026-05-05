@@ -19,13 +19,20 @@ impl Default for MeasurementPanel {
     fn default() -> Self {
         Self {
             state: PanelState::new("Measurement", "📏"),
-            measurements: vec![Measurement::new("M1")],
-            selected_measurement: Some(0),
+            measurements: Vec::new(),
+            selected_measurement: None,
             selected_point_index: None,
             last_clicked_point: None,
             hovered_measurement: None,
         }
     }
+}
+
+impl MeasurementPanel {
+    /// Menu/button labels (exported for unit tests).
+    pub const SHOW_MEASUREMENTS_LABEL: &'static str = "👁 Show Measurements";
+    pub const TAKE_P1_LABEL: &'static str = "⌖ Take P1 at click";
+    pub const TAKE_P2_LABEL: &'static str = "⌖ Take P2 at click";
 }
 
 impl Panel for MeasurementPanel {
@@ -47,9 +54,26 @@ impl Panel for MeasurementPanel {
         self.hovered_measurement = None;
     }
 
-    fn render_menu(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
-        ui.menu_button(self.title_and_icon(), |ui| {
-            if ui.button("Show Measurements").clicked() {
+    fn hotkey_name(&self) -> Option<crate::data::hotkeys::HotkeyName> {
+        Some(crate::data::hotkeys::HotkeyName::Measurements)
+    }
+
+    fn render_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        data: &mut LivePlotData<'_>,
+        collapsed: bool,
+        tooltip: &str,
+    ) {
+        let label = if collapsed {
+            self.icon_only()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| self.title().to_string())
+        } else {
+            self.title_and_icon()
+        };
+        let mr = ui.menu_button(label, |ui| {
+            if ui.button(Self::SHOW_MEASUREMENTS_LABEL).clicked() {
                 let st = self.state_mut();
                 st.visible = true;
                 st.request_focus = true;
@@ -80,21 +104,61 @@ impl Panel for MeasurementPanel {
                 }
                 ui.close();
             }
-            if ui.button("Take P1 at click").clicked() {
+            if ui.button(Self::TAKE_P1_LABEL).clicked() {
                 self.selected_point_index = Some(0);
                 ui.close();
             }
-            if ui.button("Take P2 at click").clicked() {
+            if ui.button(Self::TAKE_P2_LABEL).clicked() {
                 self.selected_point_index = Some(1);
                 ui.close();
             }
         });
+        if !tooltip.is_empty() {
+            mr.response.on_hover_text(tooltip);
+        }
     }
 
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
         if data.pending_requests.clear_measurements {
             self.clear_all();
             data.pending_requests.clear_measurements = false;
+
+            // ── Emit MEASUREMENT_CLEARED event ──────────────────────────
+            if let Some(ctrl) = &data.event_ctrl {
+                let evt =
+                    crate::events::PlotEvent::new(crate::events::EventKind::MEASUREMENT_CLEARED);
+                ctrl.emit_filtered(evt);
+            }
+        }
+
+        // Tell each scope whether a measurement is active so clicking while
+        // paused sets a clicked_point instead of resuming.
+        let has_measurements = !self.measurements.is_empty();
+        for scope in data.scope_data.iter_mut() {
+            scope.measurement_active = has_measurements;
+
+            // Compute the X-coordinate range of all measurement points on this
+            // scope so that live_update can extend x_axis.bounds to keep the
+            // markers visible after the scope is resumed.
+            let scope_id = scope.id;
+            let mut x_min = f64::INFINITY;
+            let mut x_max = f64::NEG_INFINITY;
+            let mut found = false;
+            for m in &self.measurements {
+                if m.scope_id == Some(scope_id) {
+                    if let Some(p) = m.p1 {
+                        x_min = x_min.min(p[0]);
+                        x_max = x_max.max(p[0]);
+                        found = true;
+                    }
+                    if let Some(p) = m.p2 {
+                        x_min = x_min.min(p[0]);
+                        x_max = x_max.max(p[0]);
+                        found = true;
+                    }
+                }
+            }
+            scope.measurement_x_range = if found { Some((x_min, x_max)) } else { None };
         }
 
         for scope in data.scope_data.iter_mut() {
@@ -171,6 +235,47 @@ impl Panel for MeasurementPanel {
                 }
 
                 measurement.scope_id = Some(scope.id);
+
+                // ── Emit MEASUREMENT_POINT event ──────────────────────────
+                if let Some(ctrl) = &data.event_ctrl {
+                    let (p1, p2) = measurement.get_points();
+                    let (slope, distance, delta_x, delta_y) = if let (Some(a), Some(b)) = (p1, p2) {
+                        let dx = b[0] - a[0];
+                        let dy = b[1] - a[1];
+                        let slope = if dx.abs() > 1e-12 {
+                            Some(dy / dx)
+                        } else {
+                            None
+                        };
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        (slope, Some(dist), Some(dx), Some(dy))
+                    } else {
+                        (None, None, None, None)
+                    };
+                    let kind = if p1.is_some() && p2.is_some() {
+                        crate::events::EventKind::MEASUREMENT_POINT
+                            | crate::events::EventKind::MEASUREMENT_COMPLETE
+                    } else {
+                        crate::events::EventKind::MEASUREMENT_POINT
+                    };
+                    let point_index =
+                        self.selected_point_index
+                            .unwrap_or(if p2.is_some() { 1 } else { 0 });
+                    let mut evt = crate::events::PlotEvent::new(kind);
+                    evt.measurement = Some(crate::events::MeasurementMeta {
+                        point_index,
+                        point,
+                        measurement_name: Some(measurement.name.clone()),
+                        p1,
+                        p2,
+                        delta_x,
+                        delta_y,
+                        slope,
+                        distance,
+                        trace: measurement.catch_trace.clone(),
+                    });
+                    ctrl.emit_filtered(evt);
+                }
             }
         }
     }
@@ -417,7 +522,7 @@ impl Panel for MeasurementPanel {
                 self.selected_measurement = Some(self.measurements.len() - 1);
                 self.selected_point_index = None;
             }
-            if ui.button("{BROOM} Clear All").clicked() {
+            if ui.button(format!("{} Clear All", BROOM)).clicked() {
                 for m in &mut self.measurements {
                     m.clear();
                 }
@@ -489,18 +594,18 @@ impl Panel for MeasurementPanel {
                     scope
                 } else {
                     self.measurements[i].clear();
-                    return;
+                    continue;
                 }
             } else if let Some(name) = &self.measurements[i].catch_trace {
                 if let Some(scope) = data.scope_containing_trace(name) {
                     scope
                 } else {
                     self.measurements[i].clear();
-                    return;
+                    continue;
                 }
             } else {
                 self.measurements[i].clear();
-                return;
+                continue;
             };
 
             // Show values for P1/P2 and delta if available
@@ -707,5 +812,38 @@ impl MeasurementPanel {
                 format!("Δx=0  Δy={}", dy_txt)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_measurement_panel_has_no_measurements() {
+        let panel = MeasurementPanel::default();
+        assert!(
+            panel.measurements.is_empty(),
+            "Default panel should have no measurements"
+        );
+    }
+
+    #[test]
+    fn default_measurement_panel_has_no_selection() {
+        let panel = MeasurementPanel::default();
+        assert_eq!(
+            panel.selected_measurement, None,
+            "Default panel should have no selected measurement"
+        );
+    }
+
+    #[test]
+    fn measurement_menu_labels_include_icons() {
+        assert_eq!(
+            MeasurementPanel::SHOW_MEASUREMENTS_LABEL,
+            "👁 Show Measurements"
+        );
+        assert_eq!(MeasurementPanel::TAKE_P1_LABEL, "⌖ Take P1 at click");
+        assert_eq!(MeasurementPanel::TAKE_P2_LABEL, "⌖ Take P2 at click");
     }
 }

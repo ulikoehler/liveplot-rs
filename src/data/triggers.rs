@@ -32,6 +32,10 @@ pub struct Trigger {
     /// Visual appearance for the trigger level line
     pub look: TraceLook,
 
+    /// Holdoff time in seconds. After a trigger fires, the next trigger
+    /// will not fire until at least this much time has passed. Default: `0.0`.
+    pub holdoff_secs: f64,
+
     // Runtime state (not serialized)
     start_trigger: bool,
     last_triggered: Option<f64>,
@@ -52,6 +56,7 @@ impl Default for Trigger {
                 style: LineStyle::Dotted { spacing: 4.0 },
                 ..TraceLook::default()
             },
+            holdoff_secs: 0.0,
             start_trigger: false,
             last_triggered: None,
             trigger_pending: None,
@@ -203,8 +208,14 @@ impl Trigger {
                             }
                         };
                         if crossed {
+                            // Holdoff: skip crossings too close to the previous trigger
                             if let Some(last_t) = self.last_triggered {
-                                if (t1 - last_t).abs() < f64::EPSILON {
+                                let holdoff = if self.holdoff_secs > 0.0 {
+                                    self.holdoff_secs
+                                } else {
+                                    f64::EPSILON
+                                };
+                                if (t1 - last_t) < holdoff {
                                     continue;
                                 }
                             }

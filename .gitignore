@@ -23,3 +23,6 @@ target
 # Example data
 snapshot.*
 *.csv
+
+# web g
+dist

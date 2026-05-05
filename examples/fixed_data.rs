@@ -63,7 +63,7 @@ fn main() -> eframe::Result<()> {
     let mut cfg = LivePlotConfig::default();
     cfg.time_window_secs = 10.0;
     cfg.max_points = 10_000;
-    cfg.show_legend = true;
+    cfg.features.legend = true;
 
     // Show the UI using the channel receiver and the config
     run_liveplot(rx, cfg)

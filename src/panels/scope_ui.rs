@@ -4,6 +4,7 @@ use egui_plot::{Legend, Line, Plot, Points};
 use crate::data::scope::ScopeData;
 use crate::data::scope::ScopeType;
 use crate::data::traces::TracesCollection;
+use crate::events::EventController;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum ZoomMode {
@@ -21,6 +22,23 @@ pub struct ScopePanel {
     zoom_mode: ZoomMode,
     time_slider_dragging: bool,
     time_window_bounds: (f64, f64),
+
+    // Event controller reference for emitting events
+    pub(crate) event_ctrl: Option<EventController>,
+
+    // Responsive tick-label thresholds
+    /// Hide Y-axis tick labels when the plot width (px) falls below this value.
+    pub min_width_for_y_ticklabels: f32,
+    /// Hide X-axis tick labels when the plot height (px) falls below this value.
+    pub min_height_for_x_ticklabels: f32,
+    /// Hide the legend when the total widget width (px) falls below this value. `0.0` = always show.
+    pub min_width_for_legend: f32,
+    /// Hide the legend when the total widget height (px) falls below this value. `0.0` = always show.
+    pub min_height_for_legend: f32,
+
+    /// Total size of the entire plot widget (including top bar, side panels, etc.).
+    /// Set by the parent before rendering; used for responsive tick-label decisions.
+    pub total_widget_size: egui::Vec2,
 }
 
 impl Default for ScopePanel {
@@ -31,6 +49,12 @@ impl Default for ScopePanel {
             zoom_mode: ZoomMode::X,
             time_slider_dragging: false,
             time_window_bounds: (0.1, 100.0),
+            event_ctrl: None,
+            min_width_for_y_ticklabels: 250.0,
+            min_height_for_x_ticklabels: 200.0,
+            min_width_for_legend: 0.0,
+            min_height_for_legend: 0.0,
+            total_widget_size: egui::Vec2::new(10_000.0, 10_000.0),
         }
     }
 }
@@ -59,6 +83,16 @@ impl ScopePanel {
         self.data.name = n;
     }
 
+    /// Return whether the controls toolbar is currently visible for this scope.
+    pub fn controls_in_toolbar(&self) -> bool {
+        self.controlls_in_toolbar
+    }
+
+    /// Set whether the controls toolbar is visible for this scope.
+    pub fn set_controls_in_toolbar(&mut self, visible: bool) {
+        self.controlls_in_toolbar = visible;
+    }
+
     pub fn update_data(&mut self, traces: &TracesCollection) {
         self.data.update(traces);
     }
@@ -71,6 +105,16 @@ impl ScopePanel {
         &self.data
     }
 
+    /// Returns current value of the `pause_on_click` flag.
+    pub fn pause_on_click(&self) -> bool {
+        self.data.pause_on_click
+    }
+
+    /// Enable or disable the left-click pause/resume behaviour for this scope.
+    pub fn set_pause_on_click(&mut self, enabled: bool) {
+        self.data.pause_on_click = enabled;
+    }
+
     pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
         ui.checkbox(&mut self.controlls_in_toolbar, "Controls in Toolbar");
 
@@ -80,6 +124,8 @@ impl ScopePanel {
 
         ui.separator();
 
+        ui.checkbox(&mut self.data.show_grid, "Show Grid")
+            .on_hover_text("Show or hide the plot background grid");
         ui.checkbox(&mut self.data.show_legend, "Show Legend")
             .on_hover_text("Show or hide the plot legend");
         if !self.data.show_legend {
@@ -262,6 +308,19 @@ impl ScopePanel {
             .clicked()
         {
             self.data.fit_bounds(traces);
+            self.data.auto_fit_to_view = true;
+            // Emit fit-to-view event
+            if let Some(ctrl) = &self.event_ctrl {
+                let mut evt = crate::events::PlotEvent::new(
+                    crate::events::EventKind::FIT_TO_VIEW | crate::events::EventKind::ZOOM,
+                );
+                evt.view_change = Some(crate::events::ViewChangeMeta {
+                    x_range: Some(self.data.x_axis.bounds),
+                    y_range: Some(self.data.y_axis.bounds),
+                    scope_id: Some(self.data.id),
+                });
+                ctrl.emit_filtered(evt);
+            }
         }
 
         ui.separator();
@@ -341,24 +400,60 @@ impl ScopePanel {
         // First, handle any completed screenshot events from the OS/windowing backend.
         self.handle_screenshot_result(ui);
 
+        // Determine whether tick labels should be suppressed based on the TOTAL
+        // widget size (including top bar, sidebars, etc.) so the decision is
+        // stable and doesn't jump as sub-panels are toggled.
+        let hide_y_labels = self.total_widget_size.x < self.min_width_for_y_ticklabels;
+        let hide_x_labels = self.total_widget_size.y < self.min_height_for_x_ticklabels;
+        let hide_legend = self.data.force_hide_legend
+            || (self.min_width_for_legend > 0.0
+                && self.total_widget_size.x < self.min_width_for_legend)
+            || (self.min_height_for_legend > 0.0
+                && self.total_widget_size.y < self.min_height_for_legend);
+
         let y_log = self.data.y_axis.log_scale;
         let x_log = self.data.x_axis.log_scale;
+        let show_grid = self.data.show_grid;
         let mut plot = Plot::new(format!("scope_plot_{}", self.data.name))
             .allow_scroll(false)
             .allow_zoom(false)
-            .allow_boxed_zoom(true);
-        if self.data.show_legend {
+            .allow_boxed_zoom(true)
+            .show_grid(egui::Vec2b::new(show_grid, show_grid))
+            // When tick labels are hidden (thresholds set above available size), also
+            // suppress the egui_plot axis space reservation so the plot fills the full
+            // widget width without a black gutter on the left (Y axis) or bottom (X axis).
+            .show_axes(egui::Vec2b::new(!hide_x_labels, !hide_y_labels));
+        if self.data.show_legend && !hide_legend {
             plot = plot.legend(Legend::default());
         }
         let plot = plot
             .x_axis_formatter(|x, _range| {
+                if hide_x_labels {
+                    return String::new();
+                }
                 let x_value = if x_log { 10f64.powf(x.value) } else { x.value };
                 self.data.x_axis.format_value(x_value, 4, x.step_size.abs())
             })
             .y_axis_formatter(|y, _range| {
+                if hide_y_labels {
+                    return String::new();
+                }
                 // Scientific ticks with optional unit, apply inverse log mapping for display
                 let y_value = if y_log { 10f64.powf(y.value) } else { y.value };
                 self.data.y_axis.format_value(y_value, 4, y.step_size.abs())
+            })
+            .label_formatter(|name, value| {
+                let x = if x_log { 10f64.powf(value.x) } else { value.x };
+                let y = if y_log { 10f64.powf(value.y) } else { value.y };
+                // For time axes this routes through TimeFormatter; for value axes numeric.
+                // For XY scopes both axes are value-typed, so both format numerically.
+                let x_str = self.data.x_axis.format_value(x, 6, 0.0);
+                let y_str = self.data.y_axis.format_value(y, 6, 0.0);
+                if name.is_empty() {
+                    format!("x = {}\ny = {}", x_str, y_str)
+                } else {
+                    format!("{}\nx = {}\ny = {}", name, x_str, y_str)
+                }
             });
 
         let plot_resp = plot.show(ui, |plot_ui| {
@@ -617,6 +712,9 @@ impl ScopePanel {
 
         // After plot: if bounds changed, sync time_window and Y limits from actual plot bounds
         if plot_resp.inner {
+            // Disable auto-fit-to-view on manual user interaction
+            self.data.auto_fit_to_view = false;
+
             let b = plot_resp.transform.bounds();
             let xr = b.range_x();
             let (x_min, x_max) = (xr.start(), xr.end());
@@ -630,6 +728,19 @@ impl ScopePanel {
             let space_y = (0.05 / 1.1) * (y_max - y_min);
             if y_min.is_finite() && y_max.is_finite() && y_max > y_min {
                 self.data.y_axis.bounds = (y_min + space_y, y_max - space_y);
+            }
+
+            // Emit zoom/pan event
+            if let Some(ctrl) = &self.event_ctrl {
+                let mut evt = crate::events::PlotEvent::new(
+                    crate::events::EventKind::ZOOM | crate::events::EventKind::PAN,
+                );
+                evt.view_change = Some(crate::events::ViewChangeMeta {
+                    x_range: Some(self.data.x_axis.bounds),
+                    y_range: Some(self.data.y_axis.bounds),
+                    scope_id: Some(self.data.id),
+                });
+                ctrl.emit_filtered(evt);
             }
         }
 
@@ -697,10 +808,168 @@ impl ScopePanel {
         self.data.clicked_point = None;
         if plot_response.response.double_clicked() {
             self.data.fit_bounds(traces);
+            self.data.auto_fit_to_view = true;
+            // Emit double-click + fit-to-view events
+            if let Some(ctrl) = &self.event_ctrl {
+                let kinds =
+                    crate::events::EventKind::DOUBLE_CLICK | crate::events::EventKind::FIT_TO_VIEW;
+                let mut evt = crate::events::PlotEvent::new(kinds);
+                // Try to get click position for metadata
+                if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                    let transform = plot_response.transform;
+                    let plot_pos = transform.value_from_position(screen_pos);
+                    evt.click = Some(crate::events::ClickMeta {
+                        screen_pos: Some(crate::events::ScreenPos {
+                            x: screen_pos.x,
+                            y: screen_pos.y,
+                        }),
+                        plot_pos: Some(crate::events::PlotPos {
+                            x: plot_pos.x,
+                            y: plot_pos.y,
+                        }),
+                        trace: None,
+                        scope_id: Some(self.data.id),
+                    });
+                }
+                let (xmin, xmax) = self.data.x_axis.bounds;
+                let (ymin, ymax) = self.data.y_axis.bounds;
+                evt.view_change = Some(crate::events::ViewChangeMeta {
+                    x_range: Some((xmin, xmax)),
+                    y_range: Some((ymin, ymax)),
+                    scope_id: Some(self.data.id),
+                });
+                ctrl.emit_filtered(evt);
+            }
         } else if plot_response.response.clicked() {
+            // optional feature flag – allow callers to turn off pause/resume-on-click
+            if !self.data.pause_on_click {
+                // Even with pausing disabled we still want measurement clicks when
+                // already paused, and we always emit a plain click event.
+                if self.data.paused && self.data.measurement_active {
+                    if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                        let transform = plot_response.transform;
+                        let plot_pos = transform.value_from_position(screen_pos);
+
+                        let x_plot = if self.data.x_axis.log_scale {
+                            if plot_pos.x > 0.0 {
+                                plot_pos.x.log10()
+                            } else {
+                                plot_pos.x
+                            }
+                        } else {
+                            plot_pos.x
+                        };
+                        let y_plot = if self.data.y_axis.log_scale {
+                            if plot_pos.y > 0.0 {
+                                plot_pos.y.log10()
+                            } else {
+                                plot_pos.y
+                            }
+                        } else {
+                            plot_pos.y
+                        };
+                        self.data.clicked_point = Some([x_plot, y_plot]);
+                    }
+                }
+                if let Some(ctrl) = &self.event_ctrl {
+                    let mut evt = crate::events::PlotEvent::new(crate::events::EventKind::CLICK);
+                    if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                        let transform = plot_response.transform;
+                        let plot_pos = transform.value_from_position(screen_pos);
+                        evt.click = Some(crate::events::ClickMeta {
+                            screen_pos: Some(crate::events::ScreenPos {
+                                x: screen_pos.x,
+                                y: screen_pos.y,
+                            }),
+                            plot_pos: Some(crate::events::PlotPos {
+                                x: plot_pos.x,
+                                y: plot_pos.y,
+                            }),
+                            trace: None,
+                            scope_id: Some(self.data.id),
+                        });
+                    }
+                    ctrl.emit_filtered(evt);
+                }
+                return;
+            }
+
             if self.data.paused {
-                // Already paused – resume on click.
-                self.data.paused = false;
+                if self.data.measurement_active {
+                    // Measurement is active – set clicked point without resuming
+                    // so the measurement panel can pick up the new point.
+                    if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                        let transform = plot_response.transform;
+                        let plot_pos = transform.value_from_position(screen_pos);
+
+                        let x_plot = if self.data.x_axis.log_scale {
+                            if plot_pos.x > 0.0 {
+                                plot_pos.x.log10()
+                            } else {
+                                plot_pos.x
+                            }
+                        } else {
+                            plot_pos.x
+                        };
+                        let y_plot = if self.data.y_axis.log_scale {
+                            if plot_pos.y > 0.0 {
+                                plot_pos.y.log10()
+                            } else {
+                                plot_pos.y
+                            }
+                        } else {
+                            plot_pos.y
+                        };
+                        self.data.clicked_point = Some([x_plot, y_plot]);
+
+                        // Emit click event (measurement point will be emitted by measurement panel)
+                        if let Some(ctrl) = &self.event_ctrl {
+                            let mut evt =
+                                crate::events::PlotEvent::new(crate::events::EventKind::CLICK);
+                            evt.click = Some(crate::events::ClickMeta {
+                                screen_pos: Some(crate::events::ScreenPos {
+                                    x: screen_pos.x,
+                                    y: screen_pos.y,
+                                }),
+                                plot_pos: Some(crate::events::PlotPos {
+                                    x: x_plot,
+                                    y: y_plot,
+                                }),
+                                trace: None,
+                                scope_id: Some(self.data.id),
+                            });
+                            ctrl.emit_filtered(evt);
+                        }
+                    }
+                } else {
+                    // No measurement active – resume on click.
+                    self.data.paused = false;
+                    if let Some(ctrl) = &self.event_ctrl {
+                        let mut evt = crate::events::PlotEvent::new(
+                            crate::events::EventKind::CLICK | crate::events::EventKind::RESUME,
+                        );
+                        evt.pause = Some(crate::events::PauseMeta {
+                            scope_id: Some(self.data.id),
+                        });
+                        if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                            let transform = plot_response.transform;
+                            let plot_pos = transform.value_from_position(screen_pos);
+                            evt.click = Some(crate::events::ClickMeta {
+                                screen_pos: Some(crate::events::ScreenPos {
+                                    x: screen_pos.x,
+                                    y: screen_pos.y,
+                                }),
+                                plot_pos: Some(crate::events::PlotPos {
+                                    x: plot_pos.x,
+                                    y: plot_pos.y,
+                                }),
+                                trace: None,
+                                scope_id: Some(self.data.id),
+                            });
+                        }
+                        ctrl.emit_filtered(evt);
+                    }
+                }
             } else {
                 self.data.paused = true;
                 traces.take_snapshot();
@@ -728,6 +997,29 @@ impl ScopePanel {
                         plot_pos.y
                     };
                     self.data.clicked_point = Some([x_plot, y_plot]);
+
+                    // Emit click + pause events
+                    if let Some(ctrl) = &self.event_ctrl {
+                        let mut evt = crate::events::PlotEvent::new(
+                            crate::events::EventKind::CLICK | crate::events::EventKind::PAUSE,
+                        );
+                        evt.click = Some(crate::events::ClickMeta {
+                            screen_pos: Some(crate::events::ScreenPos {
+                                x: screen_pos.x,
+                                y: screen_pos.y,
+                            }),
+                            plot_pos: Some(crate::events::PlotPos {
+                                x: x_plot,
+                                y: y_plot,
+                            }),
+                            trace: None,
+                            scope_id: Some(self.data.id),
+                        });
+                        evt.pause = Some(crate::events::PauseMeta {
+                            scope_id: Some(self.data.id),
+                        });
+                        ctrl.emit_filtered(evt);
+                    }
                 }
             }
         }

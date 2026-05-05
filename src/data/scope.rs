@@ -2,6 +2,7 @@
 
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
+use crate::data::x_formatter::{TimeFormatter, XFormatter};
 use std::collections::{HashMap, VecDeque};
 
 /// Formatting options for the x-value (time) shown in point labels.
@@ -54,6 +55,10 @@ pub struct AxisSettings {
     pub bounds: (f64, f64),
     pub auto_fit: bool,
     pub axis_type: AxisType,
+    /// Controls how X (and incidentally Y) values are formatted for tick labels
+    /// and cursor readouts. Defaults to [`XFormatter::Auto`] which picks the
+    /// appropriate formatter based on [`axis_type`](Self::axis_type).
+    pub x_formatter: XFormatter,
 }
 
 impl Default for AxisSettings {
@@ -64,6 +69,7 @@ impl Default for AxisSettings {
             bounds: (0.0, 1.0),
             auto_fit: false,
             axis_type: AxisType::Value(None),
+            x_formatter: XFormatter::Auto,
         }
     }
 }
@@ -133,6 +139,7 @@ impl AxisSettings {
         }
     }
 
+    #[allow(dead_code)]
     fn format_time_with_precision(fmt: XDateFormat, v: f64, step: f64) -> String {
         // Choose base format (date vs time-of-day) using the same threshold as before
         let use_date = step.is_finite() && step >= 86400.0;
@@ -184,10 +191,40 @@ impl AxisSettings {
     }
 
     /// Format a value, with special handling for time axes.
+    ///
+    /// The `x_formatter` field controls the exact rendering mode. When set to
+    /// `XFormatter::Auto` the behaviour matches the legacy logic:
+    /// * time axes → [`TimeFormatter`] driven by [`bounds`](Self::bounds) (the visible X range).
+    /// * value axes → adaptive decimal / scientific notation.
     pub fn format_value(&self, v: f64, dec_pl: usize, step: f64) -> String {
-        match self.axis_type {
-            AxisType::Time(fmt) => Self::format_time_with_precision(fmt, v, step),
-            AxisType::Value(_) => self.format_value_numeric(v, dec_pl, step),
+        match &self.x_formatter {
+            XFormatter::Auto => match self.axis_type {
+                AxisType::Time(_fmt) => {
+                    // Use the stored visible bounds for date-change detection;
+                    // fall back to step-based precision for tick granularity.
+                    let tf = TimeFormatter::default();
+                    // Prefer self.bounds for the visible range, but if bounds
+                    // are degenerate (zero-width), fall back to step.
+                    let range = if (self.bounds.1 - self.bounds.0).abs() > 1e-15 {
+                        self.bounds
+                    } else {
+                        // Construct a symmetric window around v using step
+                        (v - step * 0.5, v + step * 0.5)
+                    };
+                    tf.format(v, range)
+                }
+                AxisType::Value(_) => self.format_value_numeric(v, dec_pl, step),
+            },
+            XFormatter::Decimal(df) => df.format(v, dec_pl),
+            XFormatter::Scientific(sf) => sf.format(v, dec_pl),
+            XFormatter::Time(tf) => {
+                let range = if (self.bounds.1 - self.bounds.0).abs() > 1e-15 {
+                    self.bounds
+                } else {
+                    (v - step * 0.5, v + step * 0.5)
+                };
+                tf.format(v, range)
+            }
         }
     }
 }
@@ -210,10 +247,35 @@ pub struct ScopeData {
     pub xy_pairs: Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)>,
     pub paused: bool,
     pub show_legend: bool,
+    /// When `true`, the legend is unconditionally hidden regardless of `show_legend`.
+    /// Useful for compact/embedded layouts where an overlay legend wastes space.
+    pub force_hide_legend: bool,
     pub show_info_in_legend: bool,
+    /// When `true`, the plot background grid is visible.
+    pub show_grid: bool,
+
+    /// When `true`, Y-axis bounds are automatically fitted to the visible data
+    /// each frame. Manual pan/zoom disables this; clicking "Fit to View" or
+    /// double-clicking re-enables it. Default: `true`.
+    pub auto_fit_to_view: bool,
+    /// When `true`, auto-fit only *expands* the view — it never shrinks.
+    /// Historical peaks remain visible. Default: `false`.
+    pub keep_max_fit: bool,
 
     pub trace_order: Vec<TraceRef>,
     pub clicked_point: Option<[f64; 2]>,
+    /// When `true`, clicking while paused sets `clicked_point` without resuming.
+    /// Set by the measurement panel when measurements exist.
+    pub measurement_active: bool,
+    /// If `true`, clicking the plot toggles pause/resume. Set to `false` to
+    /// completely disable this default interaction (useful for embedded or
+    /// interactive applications that handle pausing externally).
+    pub pause_on_click: bool,
+    /// X-coordinate range of active measurement points on this scope.
+    /// Set by the measurement panel each frame so that `live_update` can
+    /// extend `x_axis.bounds` to keep measurement markers in view after
+    /// the scope is resumed.
+    pub measurement_x_range: Option<(f64, f64)>,
 }
 
 impl Default for ScopeData {
@@ -228,9 +290,16 @@ impl Default for ScopeData {
             xy_pairs: Vec::new(),
             paused: false,
             show_legend: true,
+            force_hide_legend: false,
             show_info_in_legend: false,
+            show_grid: true,
+            auto_fit_to_view: true,
+            keep_max_fit: false,
             trace_order: Vec::new(),
             clicked_point: None,
+            measurement_active: false,
+            pause_on_click: false,
+            measurement_x_range: None,
         }
     }
 }
@@ -267,7 +336,7 @@ impl ScopeData {
 
         self.live_update(traces);
 
-        if self.y_axis.auto_fit {
+        if self.y_axis.auto_fit || self.auto_fit_to_view {
             self.fit_y_bounds(traces);
         }
     }
@@ -286,7 +355,15 @@ impl ScopeData {
                     })
                     .unwrap_or(self.time_window);
                 let time_lower = now - self.time_window;
-                self.x_axis.bounds = (time_lower, now);
+                // Extend the lower bound to keep any active measurement markers
+                // visible. Without this, markers scroll off-screen after resuming
+                // because set_plot_bounds_x forces the view to the current window.
+                let x_lower = if let Some((m_min, _)) = self.measurement_x_range {
+                    m_min.min(time_lower)
+                } else {
+                    time_lower
+                };
+                self.x_axis.bounds = (x_lower, now);
             } else {
                 let diff = ((self.x_axis.bounds.1 - self.x_axis.bounds.0) - self.time_window) / 2.0;
                 self.x_axis.bounds = (self.x_axis.bounds.0 + diff, self.x_axis.bounds.1 - diff);
@@ -445,7 +522,12 @@ impl ScopeData {
             }
 
             if min_y < max_y {
-                self.y_axis.bounds = (min_y, max_y);
+                if self.keep_max_fit {
+                    let cur = self.y_axis.bounds;
+                    self.y_axis.bounds = (min_y.min(cur.0), max_y.max(cur.1));
+                } else {
+                    self.y_axis.bounds = (min_y, max_y);
+                }
             }
             return;
         }
@@ -485,7 +567,12 @@ impl ScopeData {
             }
         }
         if min_y < max_y {
-            self.y_axis.bounds = (min_y, max_y);
+            if self.keep_max_fit {
+                let cur = self.y_axis.bounds;
+                self.y_axis.bounds = (min_y.min(cur.0), max_y.max(cur.1));
+            } else {
+                self.y_axis.bounds = (min_y, max_y);
+            }
         } else if min_y == max_y {
             if min_y < 0.0 {
                 self.y_axis.bounds = (min_y, 0.0);

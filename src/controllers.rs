@@ -300,8 +300,7 @@ pub struct TraceInfo {
     pub name: String,
     pub color_rgb: [u8; 3],
     pub visible: bool,
-    pub is_math: bool,
-    /// Additive offset applied to Y before plotting or log-transform
+    /// Y-offset applied to the trace (empty by default).
     pub offset: f64,
 }
 
@@ -332,7 +331,6 @@ pub struct TraceControlState {
     pub style: LineStyle,
     pub visible: bool,
     pub offset: f64,
-    pub is_math: bool,
 }
 
 /// Controller to observe and modify traces UI state (color/visibility/marker selection).

@@ -148,6 +148,17 @@ Choose a specific trace for point snapping, or use the free mode to place marker
 
 Pan with the left mouse, use box-zoom with right drag, and reset the view from the toolbar. A small on-screen hint summarizes the available interactions.
 
+By default a primary-click on the plot does **nothing**; pause/resume
+behaviour is now opt‑in.  Enable it by setting the
+`pause_on_click` flag on a scope (it defaults to `false`).  Example:
+
+```rust
+// assume `app` is a `LivePlotApp` or similar containing at least one scope
+if let Some(scope) = app.ui_mut().primary_scope_mut() {
+    scope.set_pause_on_click(true);
+}
+```
+
 #### Math (virtual) traces
 
 Create derived traces from existing ones (oscilloscope-style Math). Click the `Math…` button to open a dialog that lets you define and manage math traces. Supported operations:
@@ -289,6 +300,8 @@ This will open the plotting UI and stream a synthetic sine signal into it.
 
 ## Built-in synthetic example: `sine_cosine`
 
+![LivePlot sine and cosine screenshot](docs/liveplot%20sine-cosine.png)
+
 An example that produces both sine and cosine traces and displays them together with a legend.
 
 Run it with:
@@ -297,15 +310,42 @@ Run it with:
 cargo run --example sine_cosine
 ```
 
-## Built-in example: `custom_colors`
+## Built-in example: `custom_trace_colors`
 
 Demonstrates setting per-trace colors via the API using `TracesController`.
 
 Run it with:
 
 ```bash
-cargo run --example custom_colors
+cargo run --example custom_trace_colors
 ```
+
+## Built-in example: `custom_color_scheme`
+
+Demonstrates defining a custom color scheme with a bright yellow background and rainbow grid lines
+
+![LivePlot custom color scheme screenshot](docs/liveplot%20custom%20color%20scheme.png)
+
+## Built-in example: `lots_of_tiny_plots`
+
+Shows a 20×15 grid of tiny embedded plots. Each cell renders the same sine waveform
+with a different phase offset and unique color; this example exercises embedding
+many `LivePlotPanel` instances in a compact layout.
+
+Run it with:
+
+```bash
+cargo run --example lots_of_tiny_plots
+```
+
+You can adjust samples-per-second and sine frequency:
+
+```bash
+cargo run --example lots_of_tiny_plots -- -s 10 -h 2.5
+cargo run --example lots_of_tiny_plots -- --samples-per-second 10.0 --hz 2.5
+```
+
+![Lots of tiny plots screenshot](docs/liveplot%20lots%20of%20tiny%20plots.png)
 
 ## Built-in example: `thresholds_sine`
 

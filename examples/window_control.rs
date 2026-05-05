@@ -78,6 +78,6 @@ fn main() -> eframe::Result<()> {
     let mut cfg = LivePlotConfig::default();
     cfg.title = "LivePlot (window control demo)".into();
     cfg.native_options = Some(eframe::NativeOptions::default());
-    cfg.window_controller = Some(window_ctrl);
+    cfg.controllers.window = Some(window_ctrl);
     run_liveplot(rx, cfg)
 }
