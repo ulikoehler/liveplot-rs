@@ -153,21 +153,21 @@ impl DashboardApp {
 }
 
 impl eframe::App for DashboardApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let now_us = chrono::Utc::now().timestamp_micros();
         let t = (now_us as f64) * 1e-6;
         for (panel, _) in &self.panels {
             panel.feed(t);
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("Embedded LivePlot dashboard");
             ui.label("Four independent LivePlot instances embedded in a resizable 2 x 2 grid.");
             ui.add_space(8.0);
             self.render_dashboard(ui);
         });
 
-        ctx.request_repaint_after(Duration::from_millis(16));
+        ui.request_repaint_after(Duration::from_millis(16));
     }
 }
 

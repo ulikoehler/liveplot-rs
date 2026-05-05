@@ -182,7 +182,7 @@ impl Panel for MeasurementPanel {
         _traces: &crate::data::traces::TracesCollection,
     ) {
         // Measurement overlays
-        let base_body = plot_ui.ctx().style().text_styles[&egui::TextStyle::Body].size;
+        let base_body = plot_ui.ctx().global_style().text_styles[&egui::TextStyle::Body].size;
         let marker_font_size = base_body * 1.5;
 
         let hovered_idx = self.hovered_measurement;

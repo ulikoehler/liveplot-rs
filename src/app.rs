@@ -1233,10 +1233,10 @@ impl MainPanel {
 
         if show_left {
             let mut list = std::mem::take(&mut self.left_side_panels);
-            egui::SidePanel::left("left_sidebar")
+            egui::Panel::left("left_sidebar")
                 .resizable(true)
-                .default_width(280.0)
-                .min_width(160.0)
+                .default_size(280.0)
+                .min_size(160.0)
                 .show_inside(ui, |ui| {
                     egui::ScrollArea::vertical()
                         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
@@ -1248,10 +1248,10 @@ impl MainPanel {
             self.left_side_panels = list;
         } else if !self.left_side_panels.is_empty() {
             let mut list = std::mem::take(&mut self.left_side_panels);
-            egui::SidePanel::left("left_sidebar")
+            egui::Panel::left("left_sidebar")
                 .resizable(true)
-                .default_width(30.0)
-                .min_width(30.0)
+                .default_size(30.0)
+                .min_size(30.0)
                 .show_inside(ui, |ui| {
                     egui::ScrollArea::vertical()
                         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
@@ -1304,20 +1304,20 @@ impl MainPanel {
         }
         if show_right {
             let mut list = std::mem::take(&mut self.right_side_panels);
-            egui::SidePanel::right("right_sidebar")
+            egui::Panel::right("right_sidebar")
                 .resizable(true)
-                .default_width(320.0)
-                .min_width(200.0)
+                .default_size(320.0)
+                .min_size(200.0)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list);
                 });
             self.right_side_panels = list;
         } else if !self.right_side_panels.is_empty() {
             let mut list = std::mem::take(&mut self.right_side_panels);
-            egui::SidePanel::right("right_sidebar")
+            egui::Panel::right("right_sidebar")
                 .resizable(true)
-                .default_width(30.0)
-                .min_width(30.0)
+                .default_size(30.0)
+                .min_size(30.0)
                 .show_inside(ui, |ui| {
                     let mut clicked: Option<usize> = None;
                     ui.vertical(|ui| {
@@ -1366,20 +1366,20 @@ impl MainPanel {
 
         if show_bottom {
             let mut list = std::mem::take(&mut self.bottom_panels);
-            egui::TopBottomPanel::bottom("bottom_bar")
+            egui::Panel::bottom("bottom_bar")
                 .resizable(true)
-                .default_height(220.0)
-                .min_height(120.0)
+                .default_size(220.0)
+                .min_size(120.0)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list);
                 });
             self.bottom_panels = list;
         } else if !self.bottom_panels.is_empty() {
             let mut list = std::mem::take(&mut self.bottom_panels);
-            egui::TopBottomPanel::bottom("bottom_bar")
+            egui::Panel::bottom("bottom_bar")
                 .resizable(false)
-                .default_height(24.0)
-                .min_height(24.0)
+                .default_size(24.0)
+                .min_size(24.0)
                 .show_inside(ui, |ui| {
                     let mut clicked: Option<usize> = None;
                     ui.add_space(2.0);
@@ -2163,11 +2163,12 @@ impl MainApp {
 }
 
 impl eframe::App for MainApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        hotkey_helpers::handle_hotkeys(&mut self.main_panel, ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        hotkey_helpers::handle_hotkeys(&mut self.main_panel, &ctx);
 
         if self.headline.is_some() || self.subheadline.is_some() {
-            egui::TopBottomPanel::top("liveplot_headline").show(ctx, |ui| {
+            egui::Panel::top("liveplot_headline").show_inside(ui, |ui| {
                 if let Some(h) = &self.headline {
                     ui.heading(h);
                 }
@@ -2177,13 +2178,13 @@ impl eframe::App for MainApp {
             });
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             // Non-UI calculations first
             self.main_panel.update(ui);
         });
         // Apply and publish controller requests after update
-        self.apply_controllers(ctx, frame);
-        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        self.apply_controllers(&ctx, frame);
+        ui.request_repaint_after(std::time::Duration::from_millis(16));
     }
 }
 

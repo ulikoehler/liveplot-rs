@@ -151,7 +151,7 @@ pub trait Panel: Downcast {
             };
 
             match class {
-                egui::ViewportClass::Embedded => {
+                egui::ViewportClass::Root => {
                     // In backends without multi-viewport support, embed as a normal egui window
                     let mut show_flag = vis;
                     let mut win = egui::Window::new(title).open(&mut show_flag);
@@ -184,7 +184,7 @@ pub trait Panel: Downcast {
                 }
                 _ => {
                     // External OS window: render content in the child viewport
-                    egui::CentralPanel::default().show(vctx, |ui| draw_ui(ui));
+                    egui::CentralPanel::default().show_inside(vctx, |ui| draw_ui(ui));
                     if dock_clicked {
                         let st = self.state_mut();
                         st.detached = false;

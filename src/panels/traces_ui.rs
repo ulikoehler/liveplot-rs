@@ -97,7 +97,7 @@ impl Panel for TracesPanel {
         // without scrolling.
         let has_editor = self.look_editor_trace.is_some() || self.look_editor_xy_pair.is_some();
         if has_editor {
-            egui::TopBottomPanel::bottom("traces_look_editor_panel")
+            egui::Panel::bottom("traces_look_editor_panel")
                 .resizable(true)
                 .show_inside(ui, |ui| {
                     if let Some(tn) = self.look_editor_trace.clone() {

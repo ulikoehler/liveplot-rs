@@ -370,7 +370,7 @@ fn mods_to_modifier(m: egui::Modifiers) -> Modifier {
 pub fn detect_hotkey_actions(cfg: &Hotkeys, ctx: &egui::Context) -> Vec<HotkeyName> {
     let mut actions: Vec<HotkeyName> = Vec::new();
     let input = ctx.input(|i| i.clone());
-    if ctx.wants_keyboard_input() {
+    if ctx.egui_wants_keyboard_input() {
         return actions;
     }
 

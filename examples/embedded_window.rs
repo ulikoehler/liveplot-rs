@@ -56,8 +56,8 @@ impl DemoApp {
 }
 
 impl eframe::App for DemoApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("Embedding LivePlot in egui::Window");
             ui.horizontal(|ui| {
                 ui.label("Select wave:");
@@ -81,6 +81,7 @@ impl eframe::App for DemoApp {
         // Show the embedded plot in its own egui::Window when requested
         if self.show_plot_window {
             let mut open = true;
+            let ctx = ui.ctx();
             egui::Window::new("LivePlot Window")
                 .open(&mut open)
                 .show(ctx, |ui| {
@@ -107,7 +108,7 @@ impl eframe::App for DemoApp {
         };
         let _ = self.sink.send_point(tr, PlotPoint { x: t, y: val });
 
-        ctx.request_repaint_after(Duration::from_millis(16));
+        ui.request_repaint_after(Duration::from_millis(16));
     }
 }
 

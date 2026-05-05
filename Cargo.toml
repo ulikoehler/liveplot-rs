@@ -1,6 +1,6 @@
 [package]
 name = "liveplot"
-version = "1.1.0"
+version = "2.0.2"
 edition = "2021"
 autobins = false
 license = "Apache-2.0"
@@ -45,22 +45,22 @@ window_control_display_info = [
 tiles = ["dep:egui_tiles"]
 
 [dependencies]
-eframe = { version = "0.33", features = ["wgpu"] }
-egui = "0.33"
-egui_plot = "0.34"
-egui_tiles = { version = "0.14", optional = true }
-egui_dnd = "0.14"
+eframe = { version = "0.34", features = ["wgpu"] }
+egui = "0.34"
+egui_plot = "0.35"
+egui_tiles = { version = "0.15", optional = true }
+egui_dnd = "0.15"
 chrono = "0.4"
 rfd = "0.17"
 image = "0.25"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-egui_table = "0.5"
+egui_table = "0.8"
 serde_yaml = "0.9"
 downcast-rs = "2"
-usvg = "0.45"
-resvg = "0.45"
-tiny-skia = "0.11"
+usvg = "0.47"
+resvg = "0.47"
+tiny-skia = "0.12"
 rustfft = { version = "6", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"], optional = true }
 tonic = { version = "0.14", features = ["transport"], optional = true }
@@ -69,11 +69,11 @@ prost = { version = "0.14", optional = true }
 prost-types = { version = "0.14", optional = true }
 async-stream = { version = "0.3", optional = true }
 futures-core = { version = "0.3", optional = true }
-arrow-array = { version = "57", optional = true }
-arrow-schema = { version = "57", optional = true }
-parquet = { version = "57", optional = true, features = ["arrow"] }
+arrow-array = { version = "58", optional = true }
+arrow-schema = { version = "58", optional = true }
+parquet = { version = "58", optional = true, features = ["arrow"] }
 display-info = { version = "0.5", optional = true }
-egui-phosphor = "0.11"
+egui-phosphor = "0.12"
 
 [build-dependencies]
 tonic-prost-build = "0.14"

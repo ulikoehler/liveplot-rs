@@ -369,7 +369,7 @@ impl ScopePanel {
             let is_panning =
                 resp.dragged_by(egui::PointerButton::Primary) && resp.is_pointer_button_down_on();
 
-            let scroll_data = resp.ctx.input(|i| i.raw_scroll_delta);
+            let scroll_data = resp.ctx.input(|i| i.smooth_scroll_delta);
             let is_zooming_with_wheel =
                 (scroll_data.x != 0.0 || scroll_data.y != 0.0) && resp.hovered();
 
