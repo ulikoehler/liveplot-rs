@@ -1358,9 +1358,9 @@ dependencies = [
 
 [[package]]
 name = "egui_table"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f2cf21af68301c187bfd9c89a35f13bf2cbbcc78587f6d7ba3c5b36259337ba"
+checksum = "8512decdd471a2b6106d0b42cc0662f0e94b0ca8f21bc1b0075f455f58901010"
 dependencies = [
  "egui",
  "serde",
@@ -2574,7 +2574,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "liveplot"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "arrow-array",
  "arrow-schema",

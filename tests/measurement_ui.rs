@@ -13,7 +13,7 @@ fn default_measurement_panel_has_no_measurements() {
     let mut traces = TracesCollection::default();
     let mut requests = LivePlotRequests::default();
 
-    let mut scope_refs: Vec<&mut ScopeData> = vec![&mut scope];
+    let scope_refs: Vec<&mut ScopeData> = vec![&mut scope];
     let mut live = LivePlotData {
         scope_data: scope_refs,
         traces: &mut traces,

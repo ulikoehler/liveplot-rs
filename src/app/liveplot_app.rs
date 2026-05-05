@@ -592,11 +592,13 @@ impl LivePlotApp {
 // ─────────────────────────────────────────────────────────────────────────────
 
 impl eframe::App for LivePlotApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
         // Apply color scheme once on the first frame (after egui context is available).
         if !self.color_scheme_applied {
             if let Some(scheme) = &self.color_scheme {
-                scheme.apply(ctx);
+                scheme.apply(&ctx);
                 // existing traces may have been created before the scheme was
                 // applied, so ensure their colours are updated to match the
                 // new palette.  This is a no-op if the palette hasn't changed
@@ -607,11 +609,11 @@ impl eframe::App for LivePlotApp {
         }
 
         // Process global hotkey bindings (panel toggles, pause/resume, etc.).
-        hotkey_helpers::handle_hotkeys(&mut self.main_panel, ctx);
+        hotkey_helpers::handle_hotkeys(&mut self.main_panel, &ctx);
 
         // Optional headline banner at the top of the window.
         if self.headline.is_some() || self.subheadline.is_some() {
-            egui::TopBottomPanel::top("liveplot_headline").show(ctx, |ui| {
+            egui::Panel::top("liveplot_headline").show_inside(ui, |ui| {
                 if let Some(h) = &self.headline {
                     ui.heading(h);
                 }
@@ -622,14 +624,14 @@ impl eframe::App for LivePlotApp {
         }
 
         // Main content area.
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             self.main_panel.update(ui);
         });
 
         // Apply and publish controller requests after the main panel has updated.
-        self.apply_controllers(ctx, frame);
+        self.apply_controllers(&ctx, frame);
 
         // Request continuous repainting (~60 fps).
-        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        ui.request_repaint_after(std::time::Duration::from_millis(16));
     }
 }

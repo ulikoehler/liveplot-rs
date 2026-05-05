@@ -1,4 +1,4 @@
-use liveplot::data::scope::{AxisSettings, AxisType, ScopeData, ScopeType, XDateFormat};
+use liveplot::data::scope::{AxisType, ScopeData, ScopeType};
 use liveplot::data::x_formatter::XFormatter;
 
 #[test]

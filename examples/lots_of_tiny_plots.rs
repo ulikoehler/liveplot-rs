@@ -166,7 +166,8 @@ impl LotsOfTinyPlotsApp {
 }
 
 impl eframe::App for LotsOfTinyPlotsApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         // use wall-clock time as sample x
         let now_us = chrono::Utc::now().timestamp_micros();
         let t = (now_us as f64) * 1e-6;
@@ -191,7 +192,7 @@ impl eframe::App for LotsOfTinyPlotsApp {
         }
         self.last_window_size = current_size;
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("Lots of tiny sine plots — 20 × 15");
             ui.label(format!(
                 "Each plot shows the same sine wave shifted by phase; every trace has its own color. — samples: {:.1} Hz, sine: {:.3} Hz",

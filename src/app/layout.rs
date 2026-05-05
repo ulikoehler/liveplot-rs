@@ -565,9 +565,9 @@ impl LivePlotPanel {
             let all_paused = self.liveplot_panel.get_data().iter().all(|s| s.paused);
             let mut clicked_btns: Vec<ScopeButton> = Vec::new();
 
-            egui::SidePanel::right(format!("right_icon_strip_{}", self.panel_id))
+            egui::Panel::right(format!("right_icon_strip_{}", self.panel_id))
                 .resizable(false)
-                .exact_width(36.0)
+                .exact_size(36.0)
                 .show_inside(ui, |ui| {
                     let hk = hk_rc.borrow();
                     ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
@@ -703,10 +703,10 @@ impl LivePlotPanel {
 
         if show_left {
             let mut list = std::mem::take(&mut self.left_side_panels);
-            egui::SidePanel::left(format!("left_sidebar_{}", self.panel_id))
+            egui::Panel::left(format!("left_sidebar_{}", self.panel_id))
                 .resizable(true)
-                .default_width(280.0)
-                .min_width(160.0)
+                .default_size(280.0)
+                .min_size(160.0)
                 .show_inside(ui, |ui| {
                     egui::ScrollArea::vertical()
                         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
@@ -719,10 +719,10 @@ impl LivePlotPanel {
         } else if !self.left_side_panels.is_empty() {
             let mut list = std::mem::take(&mut self.left_side_panels);
             let hk_rc_left = self.hotkeys.clone();
-            egui::SidePanel::left(format!("left_sidebar_{}", self.panel_id))
+            egui::Panel::left(format!("left_sidebar_{}", self.panel_id))
                 .resizable(true)
-                .default_width(30.0)
-                .min_width(30.0)
+                .default_size(30.0)
+                .min_size(30.0)
                 .show_inside(ui, |ui| {
                     let hk = hk_rc_left.borrow();
                     egui::ScrollArea::vertical()
@@ -773,10 +773,10 @@ impl LivePlotPanel {
 
         if show_right {
             let mut list = std::mem::take(&mut self.right_side_panels);
-            egui::SidePanel::right(format!("right_sidebar_{}", self.panel_id))
+            egui::Panel::right(format!("right_sidebar_{}", self.panel_id))
                 .resizable(true)
-                .default_width(320.0)
-                .min_width(200.0)
+                .default_size(320.0)
+                .min_size(200.0)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list);
                 });
@@ -786,10 +786,10 @@ impl LivePlotPanel {
             // icon strip (which already provides this navigation).
             let mut list = std::mem::take(&mut self.right_side_panels);
             let hk_rc_right = self.hotkeys.clone();
-            egui::SidePanel::right(format!("right_sidebar_{}", self.panel_id))
+            egui::Panel::right(format!("right_sidebar_{}", self.panel_id))
                 .resizable(true)
-                .default_width(30.0)
-                .min_width(30.0)
+                .default_size(30.0)
+                .min_size(30.0)
                 .show_inside(ui, |ui| {
                     let hk = hk_rc_right.borrow();
                     let mut clicked: Option<usize> = None;
@@ -835,10 +835,10 @@ impl LivePlotPanel {
 
         if show_bottom {
             let mut list = std::mem::take(&mut self.bottom_panels);
-            egui::TopBottomPanel::bottom(format!("bottom_bar_{}", self.panel_id))
+            egui::Panel::bottom(format!("bottom_bar_{}", self.panel_id))
                 .resizable(true)
-                .default_height(220.0)
-                .min_height(120.0)
+                .default_size(220.0)
+                .min_size(120.0)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list);
                 });
@@ -846,10 +846,10 @@ impl LivePlotPanel {
         } else if !self.bottom_panels.is_empty() {
             let mut list = std::mem::take(&mut self.bottom_panels);
             let hk_rc_bottom = self.hotkeys.clone();
-            egui::TopBottomPanel::bottom(format!("bottom_bar_{}", self.panel_id))
+            egui::Panel::bottom(format!("bottom_bar_{}", self.panel_id))
                 .resizable(false)
-                .default_height(24.0)
-                .min_height(24.0)
+                .default_size(24.0)
+                .min_size(24.0)
                 .show_inside(ui, |ui| {
                     let hk = hk_rc_bottom.borrow();
                     let mut clicked: Option<usize> = None;

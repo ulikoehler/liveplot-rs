@@ -50,11 +50,12 @@ struct ColorSchemePickerApp {
 }
 
 impl eframe::App for ColorSchemePickerApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         // Apply color scheme
-        self.scheme.apply(ctx);
+        self.scheme.apply(&ctx);
 
-        egui::TopBottomPanel::top("color_scheme_picker_top").show(ctx, |ui| {
+        egui::Panel::top("color_scheme_picker_top").show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Color scheme:");
                 ComboBox::from_id_salt("color_scheme_picker")
@@ -70,7 +71,7 @@ impl eframe::App for ColorSchemePickerApp {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             self.plot.main_panel.update_embedded(ui);
         });
 
