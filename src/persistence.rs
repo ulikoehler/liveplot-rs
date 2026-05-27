@@ -7,6 +7,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "fft")]
+use crate::data::fft::FFTWindow;
 use crate::data::math::MathTrace;
 use crate::data::scope::{AxisSettings, ScopeData, ScopeType};
 use crate::data::thresholds::{ThresholdDef, ThresholdKind};
@@ -367,6 +369,12 @@ pub struct ScopeStateSerde {
     /// absent so the behaviour is opt-in on new installs.
     #[serde(default)]
     pub pause_on_click: bool,
+    /// Whether this scope shows its controls in the toolbar.
+    #[serde(default)]
+    pub controls_in_toolbar: bool,
+    /// Scroll-wheel zoom mode for this scope.
+    #[serde(default)]
+    pub zoom_mode: crate::panels::scope_ui::ZoomMode,
 }
 
 impl From<&ScopeData> for ScopeStateSerde {
@@ -393,7 +401,18 @@ impl From<&ScopeData> for ScopeStateSerde {
                 })
                 .collect(),
             pause_on_click: s.pause_on_click,
+            controls_in_toolbar: false,
+            zoom_mode: crate::panels::scope_ui::ZoomMode::default(),
         }
+    }
+}
+
+impl From<&crate::panels::scope_ui::ScopePanel> for ScopeStateSerde {
+    fn from(panel: &crate::panels::scope_ui::ScopePanel) -> Self {
+        let mut state = Self::from(panel.get_data());
+        state.controls_in_toolbar = panel.controls_in_toolbar();
+        state.zoom_mode = panel.zoom_mode();
+        state
     }
 }
 
@@ -426,6 +445,48 @@ impl ScopeStateSerde {
                 .collect();
         }
         scope.pause_on_click = self.pause_on_click;
+    }
+
+    /// Apply stored settings to a full scope panel, including UI-only state.
+    pub fn apply_to_panel(self, panel: &mut crate::panels::scope_ui::ScopePanel) {
+        let controls_in_toolbar = self.controls_in_toolbar;
+        let zoom_mode = self.zoom_mode;
+        self.apply_to(panel.get_data_mut());
+        panel.set_controls_in_toolbar(controls_in_toolbar);
+        panel.set_zoom_mode(zoom_mode);
+    }
+}
+
+#[cfg(feature = "fft")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FftPanelStateSerde {
+    pub fft_size: usize,
+    pub fft_window: String,
+    pub fft_db: bool,
+    pub scope: ScopeStateSerde,
+}
+
+#[cfg(feature = "fft")]
+impl FftPanelStateSerde {
+    pub fn from_panel(panel: &crate::panels::fft_ui::FftPanel) -> Self {
+        Self {
+            fft_size: panel.fft_data.fft_size,
+            fft_window: panel.fft_data.fft_window.label().to_string(),
+            fft_db: panel.fft_db,
+            scope: ScopeStateSerde::from(&panel.scope_ui),
+        }
+    }
+
+    pub fn apply_to_panel(&self, panel: &mut crate::panels::fft_ui::FftPanel) {
+        panel.fft_data.fft_size = self.fft_size;
+        panel.fft_data.fft_window = match self.fft_window.as_str() {
+            "Rect" => FFTWindow::Rect,
+            "Hamming" => FFTWindow::Hamming,
+            "Blackman" => FFTWindow::Blackman,
+            _ => FFTWindow::Hann,
+        };
+        panel.fft_db = self.fft_db;
+        self.scope.clone().apply_to_panel(&mut panel.scope_ui);
     }
 }
 
@@ -460,6 +521,9 @@ pub struct AppStateSerde {
     /// Next scope index counter for consistent naming.
     #[serde(default)]
     pub next_scope_idx: Option<usize>,
+    #[cfg(feature = "fft")]
+    #[serde(default)]
+    pub fft_panel: Option<FftPanelStateSerde>,
 }
 
 impl AppStateSerde {
@@ -507,6 +571,8 @@ impl Default for AppStateSerde {
                 auto_fit_to_view: true,
                 keep_max_fit: false,
                 pause_on_click: false,
+                controls_in_toolbar: true,
+                zoom_mode: crate::panels::scope_ui::ZoomMode::default(),
                 id: Some(0),
                 name: Some("Scope".to_string()),
                 trace_order: Vec::new(),
@@ -518,6 +584,8 @@ impl Default for AppStateSerde {
             triggers: Vec::new(),
             math_traces: Vec::new(),
             next_scope_idx: None,
+            #[cfg(feature = "fft")]
+            fft_panel: None,
         }
     }
 }

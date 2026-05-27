@@ -1,14 +1,17 @@
 use egui::{Color32, Ui};
 use egui_plot::{Legend, Line, Plot, Points};
+use serde::{Deserialize, Serialize};
 
 use crate::data::scope::ScopeData;
 use crate::data::scope::ScopeType;
 use crate::data::traces::TracesCollection;
 use crate::events::EventController;
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum ZoomMode {
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ZoomMode {
     Off,
+    #[default]
     X,
     Y,
     Both,
@@ -91,6 +94,14 @@ impl ScopePanel {
     /// Set whether the controls toolbar is visible for this scope.
     pub fn set_controls_in_toolbar(&mut self, visible: bool) {
         self.controlls_in_toolbar = visible;
+    }
+
+    pub fn zoom_mode(&self) -> ZoomMode {
+        self.zoom_mode
+    }
+
+    pub fn set_zoom_mode(&mut self, mode: ZoomMode) {
+        self.zoom_mode = mode;
     }
 
     pub fn update_data(&mut self, traces: &TracesCollection) {
@@ -269,7 +280,13 @@ impl ScopePanel {
                 self.data.fit_y_bounds(traces);
             }
 
-            ui.checkbox(&mut self.data.y_axis.auto_fit, "Auto Fit Y");
+            let mut auto_fit_y = self.data.y_axis.auto_fit || self.data.auto_fit_to_view;
+            if ui.checkbox(&mut auto_fit_y, "Auto Fit Y").changed() {
+                self.data.y_axis.auto_fit = auto_fit_y;
+                if !auto_fit_y {
+                    self.data.auto_fit_to_view = false;
+                }
+            }
         });
 
         ui.checkbox(&mut self.data.y_axis.log_scale, "Log scale")
@@ -712,7 +729,9 @@ impl ScopePanel {
 
         // After plot: if bounds changed, sync time_window and Y limits from actual plot bounds
         if plot_resp.inner {
-            // Disable auto-fit-to-view on manual user interaction
+            // Manual interaction disables all active auto-fit modes for this scope.
+            self.data.x_axis.auto_fit = false;
+            self.data.y_axis.auto_fit = false;
             self.data.auto_fit_to_view = false;
 
             let b = plot_resp.transform.bounds();

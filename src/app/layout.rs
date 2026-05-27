@@ -322,19 +322,13 @@ impl LivePlotPanel {
         let rect = ctx.input(|i| i.content_rect());
         let win_size = Some([rect.width(), rect.height()]);
         let win_pos = Some([rect.left(), rect.top()]);
+        let scope_states = self.liveplot_panel.scope_states();
         let live_data = LivePlotData {
             scope_data: self.liveplot_panel.get_data_mut(),
             traces: &mut self.traces_data,
             pending_requests: &mut self.pending_requests,
             event_ctrl: self.event_ctrl.clone(),
         };
-
-        // Save all scopes.
-        let scope_states: Vec<crate::persistence::ScopeStateSerde> = live_data
-            .scope_data
-            .iter()
-            .map(|s| crate::persistence::ScopeStateSerde::from(&**s))
-            .collect();
 
         // Helper to convert Panel::state() to PanelVisSerde.
         let mut panels_state: Vec<crate::persistence::PanelVisSerde> = Vec::new();
@@ -430,6 +424,20 @@ impl LivePlotPanel {
             }
         }
 
+        #[cfg(feature = "fft")]
+        let fft_panel = self
+            .left_side_panels
+            .iter()
+            .chain(self.right_side_panels.iter())
+            .chain(self.bottom_panels.iter())
+            .chain(self.detached_panels.iter())
+            .chain(self.empty_panels.iter())
+            .find_map(|panel| {
+                let any: &dyn Panel = &**panel;
+                any.downcast_ref::<crate::panels::fft_ui::FftPanel>()
+                    .map(crate::persistence::FftPanelStateSerde::from_panel)
+            });
+
         let state = crate::persistence::AppStateSerde {
             window_size: win_size,
             window_pos: win_pos,
@@ -441,6 +449,8 @@ impl LivePlotPanel {
             triggers: triggers_ser,
             math_traces: math_traces_ser,
             next_scope_idx: Some(self.liveplot_panel.next_scope_idx()),
+            #[cfg(feature = "fft")]
+            fft_panel,
         };
 
         let _ = crate::persistence::save_state_to_path(&state, path);
@@ -517,6 +527,24 @@ impl LivePlotPanel {
                 let any: &mut dyn Panel = &mut **p;
                 if let Some(mp) = any.downcast_mut::<crate::panels::math_ui::MathPanel>() {
                     mp.set_math_traces(loaded.math_traces.clone());
+                }
+            }
+        }
+
+        #[cfg(feature = "fft")]
+        if let Some(fft_state) = &loaded.fft_panel {
+            for p in self
+                .left_side_panels
+                .iter_mut()
+                .chain(self.right_side_panels.iter_mut())
+                .chain(self.bottom_panels.iter_mut())
+                .chain(self.detached_panels.iter_mut())
+                .chain(self.empty_panels.iter_mut())
+            {
+                let any: &mut dyn Panel = &mut **p;
+                if let Some(fft_panel) = any.downcast_mut::<crate::panels::fft_ui::FftPanel>() {
+                    fft_state.apply_to_panel(fft_panel);
+                    break;
                 }
             }
         }

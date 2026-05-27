@@ -15,10 +15,14 @@ pub struct FftPanel {
 
 impl Default for FftPanel {
     fn default() -> Self {
+        let mut scope_ui = ScopePanel::default();
+        scope_ui.get_data_mut().x_axis.auto_fit = true;
+        scope_ui.get_data_mut().y_axis.auto_fit = true;
+
         Self {
             state: PanelState::new("FFT", "📊"),
             fft_data: FftData::default(),
-            scope_ui: ScopePanel::default(),
+            scope_ui,
             fft_db: false,
         }
     }
@@ -183,10 +187,6 @@ impl Panel for FftPanel {
                 scope_data.trace_order.push(name.clone());
             }
         }
-
-        // Auto-fit both axes every frame so the plot rescales as new FFT data arrives.
-        scope_data.x_axis.auto_fit = true;
-        scope_data.y_axis.auto_fit = true;
 
         // Update scope ordering and auto-fit bounds
         self.scope_ui.update_data(&tmp_traces);

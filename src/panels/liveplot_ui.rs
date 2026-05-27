@@ -31,6 +31,7 @@ impl LiveplotPanel {
     pub fn new_with_id(tree_key: impl std::hash::Hash, scope_id_offset: usize) -> Self {
         let mut tiles = Tiles::default();
         let mut scope = ScopePanel::new(0);
+        scope.set_controls_in_toolbar(true);
         // Give the scope a name that includes the offset so the egui Plot ID is unique.
         if scope_id_offset != 0 {
             scope.set_name(format!("Scope 1 ({})", scope_id_offset));
@@ -75,6 +76,22 @@ impl LiveplotPanel {
         let mut scopes_data = scopes_data;
         scopes_data.sort_by_key(|s| s.id);
         scopes_data
+    }
+
+    pub fn scope_states(&self) -> Vec<crate::persistence::ScopeStateSerde> {
+        let mut states: Vec<(usize, crate::persistence::ScopeStateSerde)> = self
+            .tree
+            .tiles
+            .tiles()
+            .filter_map(|tile| match tile {
+                Tile::Pane(pane) => {
+                    Some((pane.id(), crate::persistence::ScopeStateSerde::from(pane)))
+                }
+                _ => None,
+            })
+            .collect();
+        states.sort_by_key(|(id, _)| *id);
+        states.into_iter().map(|(_, state)| state).collect()
     }
 
     pub fn update_data(&mut self, traces: &TracesCollection) {
@@ -398,7 +415,7 @@ impl LiveplotPanel {
             max_id = max_id.max(scope_id + 1);
             let mut panel = ScopePanel::new(scope_id);
             panel.event_ctrl = self.event_ctrl_cache.clone();
-            ss.apply_to(panel.get_data_mut());
+            ss.apply_to_panel(&mut panel);
             let tid = self.tree.tiles.insert_pane(panel);
             tile_ids.push(tid);
         }
