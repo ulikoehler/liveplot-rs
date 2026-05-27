@@ -3,7 +3,7 @@ use crate::data::data::LivePlotData;
 use crate::data::fft::{FFTWindow, FftData};
 use crate::data::scope::ScopeType;
 use crate::data::traces::{TraceData, TracesCollection};
-use crate::panels::scope_ui::ScopePanel;
+use crate::panels::scope_ui::{ScopePanel, ZoomMode};
 use egui::Ui;
 
 pub struct FftPanel {
@@ -221,6 +221,15 @@ impl Panel for FftPanel {
             {
                 self.fft_db = !self.fft_db;
             }
+            ui.separator();
+            ui.label("Zoom:");
+
+            let mut zoom_mode = self.scope_ui.zoom_mode();
+            ui.selectable_value(&mut zoom_mode, ZoomMode::Off, "Off");
+            ui.selectable_value(&mut zoom_mode, ZoomMode::X, "X");
+            ui.selectable_value(&mut zoom_mode, ZoomMode::Y, "Y");
+            ui.selectable_value(&mut zoom_mode, ZoomMode::Both, "Both");
+            self.scope_ui.set_zoom_mode(zoom_mode);
         });
 
         ui.separator();

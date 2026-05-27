@@ -33,6 +33,44 @@ impl MeasurementPanel {
     pub const SHOW_MEASUREMENTS_LABEL: &'static str = "👁 Show Measurements";
     pub const TAKE_P1_LABEL: &'static str = "⌖ Take P1 at click";
     pub const TAKE_P2_LABEL: &'static str = "⌖ Take P2 at click";
+
+    fn trace_point_to_plot_coords(
+        scope: &ScopeData,
+        point: [f64; 2],
+        offset: f64,
+    ) -> Option<[f64; 2]> {
+        let x_plot = if scope.x_axis.log_scale {
+            (point[0] > 0.0).then(|| point[0].log10())?
+        } else {
+            point[0]
+        };
+        let y_linear = point[1] + offset;
+        let y_plot = if scope.y_axis.log_scale {
+            (y_linear > 0.0).then(|| y_linear.log10())?
+        } else {
+            y_linear
+        };
+        Some([x_plot, y_plot])
+    }
+
+    fn plot_point_to_screen(scope: &ScopeData, point: [f64; 2]) -> Option<[f64; 2]> {
+        let ([x_min, x_max], [y_min, y_max]) = scope.last_plot_bounds?;
+        let [left, top, right, bottom] = scope.last_plot_screen_rect?;
+        let width = f64::from(right - left);
+        let height = f64::from(bottom - top);
+        if width <= 0.0 || height <= 0.0 {
+            return None;
+        }
+        let x_span = x_max - x_min;
+        let y_span = y_max - y_min;
+        if x_span.abs() <= f64::EPSILON || y_span.abs() <= f64::EPSILON {
+            return None;
+        }
+
+        let x = f64::from(left) + ((point[0] - x_min) / x_span) * width;
+        let y = f64::from(bottom) - ((point[1] - y_min) / y_span) * height;
+        Some([x, y])
+    }
 }
 
 impl Panel for MeasurementPanel {
@@ -201,21 +239,36 @@ impl Panel for MeasurementPanel {
                 let point = match (&measurement.catch_trace, &sel_data_points) {
                     (Some(name), Some(data_points)) if !data_points.is_empty() => {
                         let off = data.traces.get_trace(name).map(|t| t.offset).unwrap_or(0.0);
-                        let mut best_i = None;
+                        let clicked_screen = scope
+                            .clicked_screen_pos
+                            .map(|screen| [f64::from(screen[0]), f64::from(screen[1])]);
+                        let mut best_point = None;
                         let mut best_d2 = f64::INFINITY;
-                        for (i, p) in data_points.iter().enumerate() {
-                            let x_plot = p[0];
-                            let y_plot = p[1] + off;
-                            let dx = x_plot - point[0];
-                            let dy = y_plot - point[1];
+                        for p in data_points.iter() {
+                            let Some(candidate_plot) =
+                                Self::trace_point_to_plot_coords(scope, *p, off)
+                            else {
+                                continue;
+                            };
+                            let (dx, dy) = if let (Some(clicked), Some(candidate_screen)) = (
+                                clicked_screen,
+                                Self::plot_point_to_screen(scope, candidate_plot),
+                            ) {
+                                (
+                                    candidate_screen[0] - clicked[0],
+                                    candidate_screen[1] - clicked[1],
+                                )
+                            } else {
+                                (candidate_plot[0] - point[0], candidate_plot[1] - point[1])
+                            };
                             let d2 = dx * dx + dy * dy;
                             if d2 < best_d2 {
                                 best_d2 = d2;
-                                best_i = Some(i);
+                                best_point = Some(candidate_plot);
                             }
                         }
-                        if let Some(i) = best_i {
-                            data_points[i]
+                        if let Some(best_point) = best_point {
+                            best_point
                         } else {
                             point
                         }
@@ -574,12 +627,12 @@ impl Panel for MeasurementPanel {
                     m.catch_trace = selected_trace_name.clone();
                 }
 
-                let clear_btn = ui.button("X Clear");
+                let clear_btn = ui.button(egui_phosphor::regular::BROOM).on_hover_text("Clear");
                 if clear_btn.clicked() {
                     m.clear();
                 }
 
-                let rm_btn = ui.button("🗑 Remove");
+                let rm_btn = ui.button(egui_phosphor::regular::TRASH).on_hover_text("Remove");
                 if rm_btn.clicked() {
                     remove_this = true;
                 }
@@ -716,6 +769,27 @@ impl MeasurementPanel {
         for m in &mut self.measurements {
             m.clear();
         }
+    }
+
+    pub fn measurements(&self) -> &[Measurement] {
+        &self.measurements
+    }
+
+    pub fn selected_measurement_index(&self) -> Option<usize> {
+        self.selected_measurement
+    }
+
+    pub fn restore_measurements(
+        &mut self,
+        measurements: Vec<Measurement>,
+        selected_measurement: Option<usize>,
+    ) {
+        self.measurements = measurements;
+        self.selected_measurement =
+            selected_measurement.filter(|idx| *idx < self.measurements.len());
+        self.selected_point_index = None;
+        self.last_clicked_point = None;
+        self.hovered_measurement = None;
     }
 
     /// Format Δx/Δy and slope consistently for UI and plot overlays.

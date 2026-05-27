@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "fft")]
 use crate::data::fft::FFTWindow;
 use crate::data::math::MathTrace;
+use crate::data::measurement::Measurement;
 use crate::data::scope::{AxisSettings, ScopeData, ScopeType};
 use crate::data::thresholds::{ThresholdDef, ThresholdKind};
 use crate::data::trace_look::TraceLook;
@@ -500,6 +501,27 @@ pub struct PanelVisSerde {
     pub window_size: Option<[f32; 2]>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeasurementPanelStateSerde {
+    #[serde(default)]
+    pub measurements: Vec<Measurement>,
+    #[serde(default)]
+    pub selected_measurement: Option<usize>,
+}
+
+impl MeasurementPanelStateSerde {
+    pub fn from_panel(panel: &crate::panels::measurment_ui::MeasurementPanel) -> Self {
+        Self {
+            measurements: panel.measurements().to_vec(),
+            selected_measurement: panel.selected_measurement_index(),
+        }
+    }
+
+    pub fn apply_to_panel(&self, panel: &mut crate::panels::measurment_ui::MeasurementPanel) {
+        panel.restore_measurements(self.measurements.clone(), self.selected_measurement);
+    }
+}
+
 /// Full application state (for save/load).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppStateSerde {
@@ -518,6 +540,8 @@ pub struct AppStateSerde {
     /// Math trace definitions.
     #[serde(default)]
     pub math_traces: Vec<MathTrace>,
+    #[serde(default)]
+    pub measurements: Option<MeasurementPanelStateSerde>,
     /// Next scope index counter for consistent naming.
     #[serde(default)]
     pub next_scope_idx: Option<usize>,
@@ -583,6 +607,7 @@ impl Default for AppStateSerde {
             thresholds: Vec::new(),
             triggers: Vec::new(),
             math_traces: Vec::new(),
+            measurements: None,
             next_scope_idx: None,
             #[cfg(feature = "fft")]
             fft_panel: None,

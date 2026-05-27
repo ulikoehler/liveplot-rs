@@ -357,7 +357,7 @@ impl Panel for ThresholdsPanel {
                 // Right-aligned actions: Clear (events) and Remove (definition)
                 let removing_name = def.name.clone();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let remove_resp = ui.button("🗑 Remove");
+                    let remove_resp = ui.button(egui_phosphor::regular::TRASH).on_hover_text("Remove");
                     if remove_resp.hovered() {
                         self.hover_threshold = Some(removing_name.clone());
                     }

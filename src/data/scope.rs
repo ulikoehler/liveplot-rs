@@ -264,6 +264,7 @@ pub struct ScopeData {
 
     pub trace_order: Vec<TraceRef>,
     pub clicked_point: Option<[f64; 2]>,
+    pub clicked_screen_pos: Option<[f32; 2]>,
     /// When `true`, clicking while paused sets `clicked_point` without resuming.
     /// Set by the measurement panel when measurements exist.
     pub measurement_active: bool,
@@ -276,6 +277,8 @@ pub struct ScopeData {
     /// extend `x_axis.bounds` to keep measurement markers in view after
     /// the scope is resumed.
     pub measurement_x_range: Option<(f64, f64)>,
+    pub last_plot_bounds: Option<([f64; 2], [f64; 2])>,
+    pub last_plot_screen_rect: Option<[f32; 4]>,
 }
 
 impl Default for ScopeData {
@@ -297,9 +300,12 @@ impl Default for ScopeData {
             keep_max_fit: false,
             trace_order: Vec::new(),
             clicked_point: None,
+            clicked_screen_pos: None,
             measurement_active: false,
             pause_on_click: false,
             measurement_x_range: None,
+            last_plot_bounds: None,
+            last_plot_screen_rect: None,
         }
     }
 }

@@ -1,5 +1,7 @@
 use crate::TraceRef;
+use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Measurement {
     pub name: String,
     pub p1: Option<[f64; 2]>,

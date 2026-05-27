@@ -366,7 +366,7 @@ impl ScopeSettingsUiPanel {
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
                                                 if ui
-                                                    .small_button("🗑")
+                                                    .small_button(egui_phosphor::regular::TRASH)
                                                     .on_hover_text("Remove")
                                                     .clicked()
                                                 {

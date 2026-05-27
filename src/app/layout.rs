@@ -400,6 +400,19 @@ impl LivePlotPanel {
             out
         };
 
+        let measurements = self
+            .left_side_panels
+            .iter()
+            .chain(self.right_side_panels.iter())
+            .chain(self.bottom_panels.iter())
+            .chain(self.detached_panels.iter())
+            .chain(self.empty_panels.iter())
+            .find_map(|panel| {
+                let any: &dyn Panel = &**panel;
+                any.downcast_ref::<crate::panels::measurment_ui::MeasurementPanel>()
+                    .map(crate::persistence::MeasurementPanelStateSerde::from_panel)
+            });
+
         // Thresholds & Triggers: extract from specialized panels, if present.
         let mut thresholds_ser: Vec<crate::persistence::ThresholdSerde> = Vec::new();
         let mut triggers_ser: Vec<crate::persistence::TriggerSerde> = Vec::new();
@@ -448,6 +461,7 @@ impl LivePlotPanel {
             thresholds: thresholds_ser,
             triggers: triggers_ser,
             math_traces: math_traces_ser,
+            measurements,
             next_scope_idx: Some(self.liveplot_panel.next_scope_idx()),
             #[cfg(feature = "fft")]
             fft_panel,
@@ -527,6 +541,25 @@ impl LivePlotPanel {
                 let any: &mut dyn Panel = &mut **p;
                 if let Some(mp) = any.downcast_mut::<crate::panels::math_ui::MathPanel>() {
                     mp.set_math_traces(loaded.math_traces.clone());
+                }
+            }
+        }
+
+        if let Some(measurements) = &loaded.measurements {
+            for p in self
+                .left_side_panels
+                .iter_mut()
+                .chain(self.right_side_panels.iter_mut())
+                .chain(self.bottom_panels.iter_mut())
+                .chain(self.detached_panels.iter_mut())
+                .chain(self.empty_panels.iter_mut())
+            {
+                let any: &mut dyn Panel = &mut **p;
+                if let Some(panel) =
+                    any.downcast_mut::<crate::panels::measurment_ui::MeasurementPanel>()
+                {
+                    measurements.apply_to_panel(panel);
+                    break;
                 }
             }
         }

@@ -104,6 +104,47 @@ impl ScopePanel {
         self.zoom_mode = mode;
     }
 
+    fn record_plot_geometry(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
+        let bounds = plot_response.transform.bounds();
+        let xr = bounds.range_x();
+        let yr = bounds.range_y();
+        self.data.last_plot_bounds = Some(([*xr.start(), *xr.end()], [*yr.start(), *yr.end()]));
+
+        let rect = plot_response.response.rect;
+        self.data.last_plot_screen_rect =
+            Some([rect.left(), rect.top(), rect.right(), rect.bottom()]);
+    }
+
+    fn capture_clicked_plot_point(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
+        let Some(screen_pos) = plot_response.response.interact_pointer_pos() else {
+            return;
+        };
+
+        let transform = plot_response.transform;
+        let plot_pos = transform.value_from_position(screen_pos);
+        let x_plot = if self.data.x_axis.log_scale {
+            if plot_pos.x > 0.0 {
+                plot_pos.x.log10()
+            } else {
+                plot_pos.x
+            }
+        } else {
+            plot_pos.x
+        };
+        let y_plot = if self.data.y_axis.log_scale {
+            if plot_pos.y > 0.0 {
+                plot_pos.y.log10()
+            } else {
+                plot_pos.y
+            }
+        } else {
+            plot_pos.y
+        };
+
+        self.data.clicked_point = Some([x_plot, y_plot]);
+        self.data.clicked_screen_pos = Some([screen_pos.x, screen_pos.y]);
+    }
+
     pub fn update_data(&mut self, traces: &TracesCollection) {
         self.data.update(traces);
     }
@@ -727,6 +768,8 @@ impl ScopePanel {
             bounds_changed
         });
 
+        self.record_plot_geometry(&plot_resp);
+
         // After plot: if bounds changed, sync time_window and Y limits from actual plot bounds
         if plot_resp.inner {
             // Manual interaction disables all active auto-fit modes for this scope.
@@ -825,6 +868,7 @@ impl ScopePanel {
         traces: &mut TracesCollection,
     ) {
         self.data.clicked_point = None;
+        self.data.clicked_screen_pos = None;
         if plot_response.response.double_clicked() {
             self.data.fit_bounds(traces);
             self.data.auto_fit_to_view = true;
@@ -865,30 +909,7 @@ impl ScopePanel {
                 // Even with pausing disabled we still want measurement clicks when
                 // already paused, and we always emit a plain click event.
                 if self.data.paused && self.data.measurement_active {
-                    if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
-                        let transform = plot_response.transform;
-                        let plot_pos = transform.value_from_position(screen_pos);
-
-                        let x_plot = if self.data.x_axis.log_scale {
-                            if plot_pos.x > 0.0 {
-                                plot_pos.x.log10()
-                            } else {
-                                plot_pos.x
-                            }
-                        } else {
-                            plot_pos.x
-                        };
-                        let y_plot = if self.data.y_axis.log_scale {
-                            if plot_pos.y > 0.0 {
-                                plot_pos.y.log10()
-                            } else {
-                                plot_pos.y
-                            }
-                        } else {
-                            plot_pos.y
-                        };
-                        self.data.clicked_point = Some([x_plot, y_plot]);
-                    }
+                    self.capture_clicked_plot_point(plot_response);
                 }
                 if let Some(ctrl) = &self.event_ctrl {
                     let mut evt = crate::events::PlotEvent::new(crate::events::EventKind::CLICK);
@@ -918,29 +939,7 @@ impl ScopePanel {
                     // Measurement is active – set clicked point without resuming
                     // so the measurement panel can pick up the new point.
                     if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
-                        let transform = plot_response.transform;
-                        let plot_pos = transform.value_from_position(screen_pos);
-
-                        let x_plot = if self.data.x_axis.log_scale {
-                            if plot_pos.x > 0.0 {
-                                plot_pos.x.log10()
-                            } else {
-                                plot_pos.x
-                            }
-                        } else {
-                            plot_pos.x
-                        };
-                        let y_plot = if self.data.y_axis.log_scale {
-                            if plot_pos.y > 0.0 {
-                                plot_pos.y.log10()
-                            } else {
-                                plot_pos.y
-                            }
-                        } else {
-                            plot_pos.y
-                        };
-                        self.data.clicked_point = Some([x_plot, y_plot]);
-
+                        self.capture_clicked_plot_point(plot_response);
                         // Emit click event (measurement point will be emitted by measurement panel)
                         if let Some(ctrl) = &self.event_ctrl {
                             let mut evt =
@@ -951,8 +950,8 @@ impl ScopePanel {
                                     y: screen_pos.y,
                                 }),
                                 plot_pos: Some(crate::events::PlotPos {
-                                    x: x_plot,
-                                    y: y_plot,
+                                    x: self.data.clicked_point.map(|p| p[0]).unwrap_or_default(),
+                                    y: self.data.clicked_point.map(|p| p[1]).unwrap_or_default(),
                                 }),
                                 trace: None,
                                 scope_id: Some(self.data.id),
@@ -994,28 +993,7 @@ impl ScopePanel {
                 traces.take_snapshot();
 
                 if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
-                    let transform = plot_response.transform;
-                    let plot_pos = transform.value_from_position(screen_pos);
-
-                    let x_plot = if self.data.x_axis.log_scale {
-                        if plot_pos.x > 0.0 {
-                            plot_pos.x.log10()
-                        } else {
-                            plot_pos.x
-                        }
-                    } else {
-                        plot_pos.x
-                    };
-                    let y_plot = if self.data.y_axis.log_scale {
-                        if plot_pos.y > 0.0 {
-                            plot_pos.y.log10()
-                        } else {
-                            plot_pos.y
-                        }
-                    } else {
-                        plot_pos.y
-                    };
-                    self.data.clicked_point = Some([x_plot, y_plot]);
+                    self.capture_clicked_plot_point(plot_response);
 
                     // Emit click + pause events
                     if let Some(ctrl) = &self.event_ctrl {
@@ -1028,8 +1006,8 @@ impl ScopePanel {
                                 y: screen_pos.y,
                             }),
                             plot_pos: Some(crate::events::PlotPos {
-                                x: x_plot,
-                                y: y_plot,
+                                x: self.data.clicked_point.map(|p| p[0]).unwrap_or_default(),
+                                y: self.data.clicked_point.map(|p| p[1]).unwrap_or_default(),
                             }),
                             trace: None,
                             scope_id: Some(self.data.id),
