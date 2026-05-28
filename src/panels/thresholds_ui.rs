@@ -69,34 +69,38 @@ impl Panel for ThresholdsPanel {
         } else {
             self.title_and_icon()
         };
-        let mr = ui.menu_button(label, |ui| {
-            if ui.button("Show Thresholds").clicked() {
-                let st = self.state_mut();
-                st.visible = true;
-                st.request_focus = true;
-                ui.close();
-            }
+        let menu_cfg = egui::containers::menu::MenuConfig::new()
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        let mr = egui::containers::menu::MenuButton::new(label)
+            .config(menu_cfg)
+            .ui(ui, |ui| {
+                if ui.button("Show Thresholds").clicked() {
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.request_focus = true;
+                    ui.close();
+                }
 
-            ui.separator();
+                ui.separator();
 
-            if ui.button("New").clicked() {
-                self.builder = ThresholdDef::default();
-                self.editing = None;
-                self.creating = true;
-                self.error = None;
-                let st = self.state_mut();
-                st.visible = true;
-                st.detached = false;
-                st.request_docket = true;
-                ui.close();
-            }
-            if ui.button("X Clear events").clicked() {
-                self.clear_all_events();
-                ui.close();
-            }
-        });
+                if ui.button("New").clicked() {
+                    self.builder = ThresholdDef::default();
+                    self.editing = None;
+                    self.creating = true;
+                    self.error = None;
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.detached = false;
+                    st.request_docket = true;
+                    ui.close();
+                }
+                if ui.button("X Clear events").clicked() {
+                    self.clear_all_events();
+                    ui.close();
+                }
+            });
         if !tooltip.is_empty() {
-            mr.response.on_hover_text(tooltip);
+            mr.0.on_hover_text(tooltip);
         }
     }
 

@@ -5,7 +5,9 @@ use crate::data::scope::ScopeData;
 use crate::data::traces::TracesCollection;
 use egui::{Stroke, Ui, Visuals, WidgetText};
 use egui_phosphor::regular::{BROOM, MINUS, PLUS, SIDEBAR};
-use egui_tiles::{Behavior, Container, TabState, Tabs, Tile, TileId, Tiles, Tree, UiResponse};
+use egui_tiles::{
+    Behavior, Container, Linear, LinearDir, TabState, Tabs, Tile, TileId, Tiles, Tree, UiResponse,
+};
 
 pub struct LiveplotPanel {
     tree: Tree<ScopePanel>,
@@ -138,47 +140,52 @@ impl LiveplotPanel {
 
         // Add an icon to the Scopes menu for easier recognition; collapse to icon when narrow
         let scopes_label = if collapsed { "🔭" } else { "🔭 Scopes" };
-        ui.menu_button(scopes_label, |ui| {
-            if ui.button(format!("{PLUS} Add scope")).clicked() {
-                self.add_scope();
-            }
+        egui::containers::menu::MenuButton::new(scopes_label)
+            .config(
+                egui::containers::menu::MenuConfig::new()
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+            )
+            .ui(ui, |ui| {
+                if ui.button(format!("{PLUS} Add scope")).clicked() {
+                    self.add_scope();
+                }
 
-            if ui
-                .button(format!("{BROOM} Clear all"))
-                .on_hover_text("Clear all trace data")
-                .clicked()
-            {
-                traces.clear_all();
-                for tile in self.tree.tiles.tiles_mut() {
-                    if let Tile::Pane(pane) = tile {
-                        pane.get_data_mut().clicked_point = None;
+                if ui
+                    .button(format!("{BROOM} Clear all"))
+                    .on_hover_text("Clear all trace data")
+                    .clicked()
+                {
+                    traces.clear_all();
+                    for tile in self.tree.tiles.tiles_mut() {
+                        if let Tile::Pane(pane) = tile {
+                            pane.get_data_mut().clicked_point = None;
+                        }
+                    }
+                    ui.close();
+                }
+
+                ui.separator();
+
+                for tile_id in pane_ids.iter().copied() {
+                    if let Some(Tile::Pane(panel)) = self.tree.tiles.get_mut(tile_id) {
+                        let name = panel.name().to_string();
+                        ui.menu_button(name, |ui| {
+                            panel.render_menu(ui, traces);
+                            if can_remove {
+                                ui.separator();
+                                if ui
+                                    .button("Remove scope")
+                                    .on_hover_text("Remove this scope from layout")
+                                    .clicked()
+                                {
+                                    remove_target = Some(tile_id);
+                                    ui.close();
+                                }
+                            }
+                        });
                     }
                 }
-                ui.close();
-            }
-
-            ui.separator();
-
-            for tile_id in pane_ids.iter().copied() {
-                if let Some(Tile::Pane(panel)) = self.tree.tiles.get_mut(tile_id) {
-                    let name = panel.name().to_string();
-                    ui.menu_button(name, |ui| {
-                        panel.render_menu(ui, traces);
-                        if can_remove {
-                            ui.separator();
-                            if ui
-                                .button("Remove scope")
-                                .on_hover_text("Remove this scope from layout")
-                                .clicked()
-                            {
-                                remove_target = Some(tile_id);
-                                ui.close();
-                            }
-                        }
-                    });
-                }
-            }
-        });
+            });
 
         if let Some(id) = remove_target {
             self.remove_scope(id);
@@ -334,6 +341,132 @@ impl LiveplotPanel {
         self.next_scope_idx
     }
 
+    pub fn scope_layout_state(&self) -> Option<crate::persistence::ScopeLayoutNodeSerde> {
+        let root = self.tree.root?;
+        self.capture_layout_node(root)
+    }
+
+    fn capture_layout_node(
+        &self,
+        tile_id: TileId,
+    ) -> Option<crate::persistence::ScopeLayoutNodeSerde> {
+        match self.tree.tiles.get(tile_id)? {
+            Tile::Pane(panel) => Some(crate::persistence::ScopeLayoutNodeSerde::Pane {
+                scope_id: panel.id(),
+            }),
+            Tile::Container(Container::Tabs(tabs)) => {
+                let children: Vec<_> = tabs
+                    .children
+                    .iter()
+                    .filter_map(|child| self.capture_layout_node(*child))
+                    .collect();
+                if children.is_empty() {
+                    return None;
+                }
+                let active_scope_id = tabs
+                    .active
+                    .and_then(|active_id| self.scope_id_for_tile(active_id));
+                Some(crate::persistence::ScopeLayoutNodeSerde::Tabs {
+                    active_scope_id,
+                    children,
+                })
+            }
+            Tile::Container(Container::Linear(linear)) => {
+                let children: Vec<_> = linear
+                    .children
+                    .iter()
+                    .filter_map(|child| self.capture_layout_node(*child))
+                    .collect();
+                if children.is_empty() {
+                    return None;
+                }
+                let direction = match linear.dir {
+                    LinearDir::Horizontal => {
+                        crate::persistence::ScopeLayoutDirectionSerde::Horizontal
+                    }
+                    LinearDir::Vertical => crate::persistence::ScopeLayoutDirectionSerde::Vertical,
+                };
+                Some(crate::persistence::ScopeLayoutNodeSerde::Linear {
+                    direction,
+                    children,
+                })
+            }
+            Tile::Container(Container::Grid(_)) => {
+                // Grid layouts are uncommon in this UI; ignore for now and fall back.
+                None
+            }
+        }
+    }
+
+    fn scope_id_for_tile(&self, tile_id: TileId) -> Option<usize> {
+        self.tree.tiles.get(tile_id).and_then(|tile| match tile {
+            Tile::Pane(panel) => Some(panel.id()),
+            _ => None,
+        })
+    }
+
+    fn pane_scope_id_from_tiles(tiles: &Tiles<ScopePanel>, tile_id: TileId) -> Option<usize> {
+        tiles.get(tile_id).and_then(|tile| match tile {
+            Tile::Pane(panel) => Some(panel.id()),
+            _ => None,
+        })
+    }
+
+    fn build_layout_node_from_serde(
+        tiles: &mut Tiles<ScopePanel>,
+        node: &crate::persistence::ScopeLayoutNodeSerde,
+        scope_panels: &mut std::collections::HashMap<usize, ScopePanel>,
+    ) -> Option<TileId> {
+        match node {
+            crate::persistence::ScopeLayoutNodeSerde::Pane { scope_id } => {
+                let panel = scope_panels.remove(scope_id)?;
+                Some(tiles.insert_pane(panel))
+            }
+            crate::persistence::ScopeLayoutNodeSerde::Tabs {
+                active_scope_id,
+                children,
+            } => {
+                let child_ids: Vec<TileId> = children
+                    .iter()
+                    .filter_map(|child| {
+                        Self::build_layout_node_from_serde(tiles, child, scope_panels)
+                    })
+                    .collect();
+                if child_ids.is_empty() {
+                    return None;
+                }
+                let mut tabs = Tabs::new(child_ids.clone());
+                tabs.active = active_scope_id.and_then(|sid| {
+                    child_ids.iter().copied().find(|tile_id| {
+                        Self::pane_scope_id_from_tiles(tiles, *tile_id).is_some_and(|id| id == sid)
+                    })
+                });
+                Some(tiles.insert_container(tabs))
+            }
+            crate::persistence::ScopeLayoutNodeSerde::Linear {
+                direction,
+                children,
+            } => {
+                let child_ids: Vec<TileId> = children
+                    .iter()
+                    .filter_map(|child| {
+                        Self::build_layout_node_from_serde(tiles, child, scope_panels)
+                    })
+                    .collect();
+                if child_ids.is_empty() {
+                    return None;
+                }
+                let dir = match direction {
+                    crate::persistence::ScopeLayoutDirectionSerde::Horizontal => {
+                        LinearDir::Horizontal
+                    }
+                    crate::persistence::ScopeLayoutDirectionSerde::Vertical => LinearDir::Vertical,
+                };
+                Some(tiles.insert_container(Linear::new(dir, child_ids)))
+            }
+        }
+    }
+
     /// Propagate the total widget size to every scope panel.
     pub fn set_total_widget_size(&mut self, size: egui::Vec2) {
         for tile in self.tree.tiles.tiles_mut() {
@@ -386,6 +519,7 @@ impl LiveplotPanel {
         &mut self,
         scope_states: Vec<crate::persistence::ScopeStateSerde>,
         next_idx: Option<usize>,
+        scope_layout: Option<&crate::persistence::ScopeLayoutNodeSerde>,
     ) {
         if scope_states.is_empty() {
             return;
@@ -402,15 +536,8 @@ impl LiveplotPanel {
             })
             .collect();
 
-        // Clear tree
-        self.tree = Tree::new(
-            egui::Id::new("liveplot_scopes_restore"),
-            TileId::from_u64(0), // dummy, replaced below
-            Tiles::default(),
-        );
-
         // Create scope panels from the saved states
-        let mut tile_ids = Vec::new();
+        let mut scope_panels = std::collections::HashMap::new();
         let mut max_id: usize = 0;
         for ss in scope_states {
             let scope_id = ss.id.unwrap_or(max_id);
@@ -418,12 +545,32 @@ impl LiveplotPanel {
             let mut panel = ScopePanel::new(scope_id);
             panel.event_ctrl = self.event_ctrl_cache.clone();
             ss.apply_to_panel(&mut panel);
-            let tid = self.tree.tiles.insert_pane(panel);
-            tile_ids.push(tid);
+            scope_panels.insert(scope_id, panel);
         }
 
-        let root = self.tree.tiles.insert_tab_tile(tile_ids);
-        self.tree.root = Some(root);
+        let mut tiles = Tiles::default();
+        let mut root = scope_layout.and_then(|layout| {
+            Self::build_layout_node_from_serde(&mut tiles, layout, &mut scope_panels)
+        });
+
+        if !scope_panels.is_empty() {
+            let mut remaining: Vec<(usize, ScopePanel)> = scope_panels.into_iter().collect();
+            remaining.sort_by_key(|(sid, _)| *sid);
+            let mut tile_ids: Vec<TileId> = remaining
+                .into_iter()
+                .map(|(_, panel)| tiles.insert_pane(panel))
+                .collect();
+            if let Some(existing_root) = root {
+                tile_ids.insert(0, existing_root);
+            }
+            root = Some(tiles.insert_tab_tile(tile_ids));
+        }
+
+        let Some(root_id) = root else {
+            return;
+        };
+
+        self.tree = Tree::new(egui::Id::new("liveplot_scopes_restore"), root_id, tiles);
 
         self.next_scope_idx = next_idx.unwrap_or(max_id);
     }

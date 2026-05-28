@@ -56,63 +56,67 @@ impl Panel for FftPanel {
         } else {
             self.title_and_icon()
         };
-        let mr = ui.menu_button(label, |ui| {
-            if ui.button("Show FFT").clicked() {
-                let st = self.state_mut();
-                st.visible = true;
-                st.request_focus = true;
-                ui.close();
-            }
-
-            ui.separator();
-
-            let prev = self.fft_db;
-            if ui
-                .button(if self.fft_db { "Linear" } else { "dB" })
-                .clicked()
-            {
-                self.fft_db = !self.fft_db;
-            }
-            ui.menu_button("Window", |ui| {
-                // Select FFT window function
-                let mut changed = false;
-                for w in FFTWindow::ALL.iter().copied() {
-                    let sel = w == self.fft_data.fft_window;
-                    if ui.selectable_label(sel, w.label()).clicked() {
-                        if self.fft_data.fft_window != w {
-                            self.fft_data.fft_window = w;
-                        }
-                        changed = true;
-                    }
-                }
-                if changed {
+        let menu_cfg = egui::containers::menu::MenuConfig::new()
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        let mr = egui::containers::menu::MenuButton::new(label)
+            .config(menu_cfg)
+            .ui(ui, |ui| {
+                if ui.button("Show FFT").clicked() {
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.request_focus = true;
                     ui.close();
                 }
-            });
-            if self.fft_db != prev {
-                ui.close();
-            }
 
-            ui.separator();
+                ui.separator();
 
-            if ui
-                .button("🖼 Save Screenshot")
-                .on_hover_text("Take one screenshot of the full center panel")
-                .clicked()
-            {
-                data.pending_requests.screenshot = Some(ScreenshotRequest {
-                    target: ScreenshotTarget::CenterPanel,
-                    path: None,
+                let prev = self.fft_db;
+                if ui
+                    .button(if self.fft_db { "Linear" } else { "dB" })
+                    .clicked()
+                {
+                    self.fft_db = !self.fft_db;
+                }
+                ui.menu_button("Window", |ui| {
+                    // Select FFT window function
+                    let mut changed = false;
+                    for w in FFTWindow::ALL.iter().copied() {
+                        let sel = w == self.fft_data.fft_window;
+                        if ui.selectable_label(sel, w.label()).clicked() {
+                            if self.fft_data.fft_window != w {
+                                self.fft_data.fft_window = w;
+                            }
+                            changed = true;
+                        }
+                    }
+                    if changed {
+                        ui.close();
+                    }
                 });
-                ui.close();
-            }
+                if self.fft_db != prev {
+                    ui.close();
+                }
 
-            ui.separator();
-            // Reuse scope controls (fit, axes, pause) from Scope panel for FFT view
-            self.scope_ui.render_menu(ui, data.traces);
-        });
+                ui.separator();
+
+                if ui
+                    .button("🖼 Save Screenshot")
+                    .on_hover_text("Take one screenshot of the full center panel")
+                    .clicked()
+                {
+                    data.pending_requests.screenshot = Some(ScreenshotRequest {
+                        target: ScreenshotTarget::CenterPanel,
+                        path: None,
+                    });
+                    ui.close();
+                }
+
+                ui.separator();
+                // Reuse scope controls (fit, axes, pause) from Scope panel for FFT view
+                self.scope_ui.render_menu(ui, data.traces);
+            });
         if !tooltip.is_empty() {
-            mr.response.on_hover_text(tooltip);
+            mr.0.on_hover_text(tooltip);
         }
     }
 
@@ -150,7 +154,7 @@ impl Panel for FftPanel {
         }
     }
 
-    fn render_panel(&mut self, ui: &mut Ui, _data: &mut LivePlotData<'_>) {
+    fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         // Build temporary traces collection for spectra
         let mut tmp_traces = TracesCollection::default();
         for (name, td) in self.fft_data.fft_traces.iter() {
@@ -235,6 +239,18 @@ impl Panel for FftPanel {
                 .clicked()
             {
                 self.fft_db = !self.fft_db;
+            }
+
+            ui.separator();
+            if ui
+                .button("🖼 Screenshot")
+                .on_hover_text("Take one screenshot of the full center panel")
+                .clicked()
+            {
+                data.pending_requests.screenshot = Some(ScreenshotRequest {
+                    target: ScreenshotTarget::CenterPanel,
+                    path: None,
+                });
             }
             ui.separator();
             ui.label("Zoom:");

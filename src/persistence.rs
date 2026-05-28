@@ -373,6 +373,30 @@ pub struct XYPairSerde {
     pub look: TraceLookSerde,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ScopeLayoutDirectionSerde {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ScopeLayoutNodeSerde {
+    Pane {
+        scope_id: usize,
+    },
+    Tabs {
+        #[serde(default)]
+        active_scope_id: Option<usize>,
+        children: Vec<ScopeLayoutNodeSerde>,
+    },
+    Linear {
+        direction: ScopeLayoutDirectionSerde,
+        children: Vec<ScopeLayoutNodeSerde>,
+    },
+}
+
 /// Serializable scope state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScopeStateSerde {
@@ -575,6 +599,9 @@ pub struct AppStateSerde {
     /// All scope states (replaces `scope` for new saves).
     #[serde(default)]
     pub scopes: Vec<ScopeStateSerde>,
+    /// Optional scope layout tree (tabs/splits) for restoring arrangement.
+    #[serde(default)]
+    pub scope_layout: Option<ScopeLayoutNodeSerde>,
     pub panels: Vec<PanelVisSerde>,
     pub traces_style: Vec<TraceStyleSerde>,
     pub thresholds: Vec<ThresholdSerde>,
@@ -654,6 +681,7 @@ impl Default for AppStateSerde {
                 trace_order: Vec::new(),
                 xy_pairs: Vec::new(),
             }],
+            scope_layout: None,
             panels: Vec::new(),
             traces_style: Vec::new(),
             thresholds: Vec::new(),

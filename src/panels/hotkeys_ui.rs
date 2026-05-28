@@ -161,24 +161,28 @@ impl Panel for HotkeysPanel {
             self.title_and_icon()
         };
         // Panel menu item: show panel, reset defaults, save config
-        let mr = ui.menu_button(label, |ui| {
-            if ui.button("Show Hotkeys").clicked() {
-                let st = self.state_mut();
-                st.visible = true;
-                st.request_focus = true;
-                ui.close();
-            }
-            if ui.button("Reset to defaults").clicked() {
-                self.reset_defaults();
-                ui.close();
-            }
-            if ui.button("Save").clicked() {
-                let _ = self.hotkeys.borrow().save_to_default_path();
-                ui.close();
-            }
-        });
+        let menu_cfg = egui::containers::menu::MenuConfig::new()
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        let mr = egui::containers::menu::MenuButton::new(label)
+            .config(menu_cfg)
+            .ui(ui, |ui| {
+                if ui.button("Show Hotkeys").clicked() {
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.request_focus = true;
+                    ui.close();
+                }
+                if ui.button("Reset to defaults").clicked() {
+                    self.reset_defaults();
+                    ui.close();
+                }
+                if ui.button("Save").clicked() {
+                    let _ = self.hotkeys.borrow().save_to_default_path();
+                    ui.close();
+                }
+            });
         if !tooltip.is_empty() {
-            mr.response.on_hover_text(tooltip);
+            mr.0.on_hover_text(tooltip);
         }
     }
 

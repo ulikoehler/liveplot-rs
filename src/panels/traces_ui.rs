@@ -67,51 +67,55 @@ impl Panel for TracesPanel {
         } else {
             self.title_and_icon()
         };
-        let mr = ui.menu_button(label, |ui| {
-            // Show Traces: open the Traces panel and focus dock
-            if ui.button("Show Traces").clicked() {
-                let st = self.state_mut();
-                st.visible = true;
-                st.request_focus = true;
-                ui.close();
-            }
+        let menu_cfg = egui::containers::menu::MenuConfig::new()
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        let mr = egui::containers::menu::MenuButton::new(label)
+            .config(menu_cfg)
+            .ui(ui, |ui| {
+                // Show Traces: open the Traces panel and focus dock
+                if ui.button("Show Traces").clicked() {
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.request_focus = true;
+                    ui.close();
+                }
 
-            ui.separator();
+                ui.separator();
 
-            // Data Points slider (mirror of panel control)
-            ui.horizontal(|ui| {
-                ui.label("Data Points:");
-                ui.add(egui::Slider::new(
-                    &mut data.traces.max_points,
-                    data.traces.points_bounds.0..=data.traces.points_bounds.1,
-                ));
+                // Data Points slider (mirror of panel control)
+                ui.horizontal(|ui| {
+                    ui.label("Data Points:");
+                    ui.add(egui::Slider::new(
+                        &mut data.traces.max_points,
+                        data.traces.points_bounds.0..=data.traces.points_bounds.1,
+                    ));
+                });
+
+                ui.separator();
+
+                // Visibility control: All Visible / All Hidden
+                if ui.button("All Visible").clicked() {
+                    for (_name, tr) in data.traces.traces_iter_mut() {
+                        tr.look.visible = true;
+                    }
+                    ui.close();
+                }
+                if ui.button("All Hidden").clicked() {
+                    for (_name, tr) in data.traces.traces_iter_mut() {
+                        tr.look.visible = false;
+                    }
+                    ui.close();
+                }
+
+                ui.separator();
+
+                if ui.button(format!("{BROOM} Clear All")).clicked() {
+                    data.traces.clear_all();
+                    ui.close();
+                }
             });
-
-            ui.separator();
-
-            // Visibility control: All Visible / All Hidden
-            if ui.button("All Visible").clicked() {
-                for (_name, tr) in data.traces.traces_iter_mut() {
-                    tr.look.visible = true;
-                }
-                ui.close();
-            }
-            if ui.button("All Hidden").clicked() {
-                for (_name, tr) in data.traces.traces_iter_mut() {
-                    tr.look.visible = false;
-                }
-                ui.close();
-            }
-
-            ui.separator();
-
-            if ui.button(format!("{BROOM} Clear All")).clicked() {
-                data.traces.clear_all();
-                ui.close();
-            }
-        });
         if !tooltip.is_empty() {
-            mr.response.on_hover_text(tooltip);
+            mr.0.on_hover_text(tooltip);
         }
     }
 
@@ -434,13 +438,13 @@ impl Panel for TracesPanel {
                     // Color editor: compact
                     egui_table::Column::new(28.0).range(egui::Rangef::new(22.0, 40.0)),
                     // Trace name: flexible
-                    egui_table::Column::new(140.0).range(egui::Rangef::new(80.0, 600.0)),
+                    egui_table::Column::new(140.0).range(egui::Rangef::new(80.0, 320.0)),
                     // Visible checkbox: small
                     egui_table::Column::new(50.0).range(egui::Rangef::new(50.0, 50.0)),
                     // Offset: medium
                     egui_table::Column::new(50.0).range(egui::Rangef::new(50.0, 50.0)),
                     // Info: flexible (large max so the table can still fill wide panels)
-                    egui_table::Column::new(260.0).range(egui::Rangef::new(100.0, 2000.0)),
+                    egui_table::Column::new(200.0).range(egui::Rangef::new(100.0, 360.0)),
                 ];
                 // Compute a preferred height for the table; size it relative to available height
                 let header_h = 24.0_f32;

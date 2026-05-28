@@ -110,49 +110,53 @@ impl Panel for MeasurementPanel {
         } else {
             self.title_and_icon()
         };
-        let mr = ui.menu_button(label, |ui| {
-            if ui.button(Self::SHOW_MEASUREMENTS_LABEL).clicked() {
-                let st = self.state_mut();
-                st.visible = true;
-                st.request_focus = true;
-                ui.close();
-            }
-
-            ui.separator();
-
-            if ui.button("New measurement").clicked() {
-                let idx = self.measurements.len() + 1;
-                self.measurements
-                    .push(Measurement::new(&format!("M{}", idx)));
-                // Focus this panel
-                let st = self.state_mut();
-                st.visible = true;
-                st.request_focus = true;
-                ui.close();
-            }
-            if ui
-                .button(format!("{BROOM} Clear measurements"))
-                .on_hover_text("Clear measurement markers across all scopes")
-                .clicked()
-            {
-                self.clear_all();
-                for scope in data.scope_data.iter_mut() {
-                    let scope = &mut **scope;
-                    scope.clicked_point = None;
+        let menu_cfg = egui::containers::menu::MenuConfig::new()
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        let mr = egui::containers::menu::MenuButton::new(label)
+            .config(menu_cfg)
+            .ui(ui, |ui| {
+                if ui.button(Self::SHOW_MEASUREMENTS_LABEL).clicked() {
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.request_focus = true;
+                    ui.close();
                 }
-                ui.close();
-            }
-            if ui.button(Self::TAKE_P1_LABEL).clicked() {
-                self.selected_point_index = Some(0);
-                ui.close();
-            }
-            if ui.button(Self::TAKE_P2_LABEL).clicked() {
-                self.selected_point_index = Some(1);
-                ui.close();
-            }
-        });
+
+                ui.separator();
+
+                if ui.button("New measurement").clicked() {
+                    let idx = self.measurements.len() + 1;
+                    self.measurements
+                        .push(Measurement::new(&format!("M{}", idx)));
+                    // Focus this panel
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.request_focus = true;
+                    ui.close();
+                }
+                if ui
+                    .button(format!("{BROOM} Clear measurements"))
+                    .on_hover_text("Clear measurement markers across all scopes")
+                    .clicked()
+                {
+                    self.clear_all();
+                    for scope in data.scope_data.iter_mut() {
+                        let scope = &mut **scope;
+                        scope.clicked_point = None;
+                    }
+                    ui.close();
+                }
+                if ui.button(Self::TAKE_P1_LABEL).clicked() {
+                    self.selected_point_index = Some(0);
+                    ui.close();
+                }
+                if ui.button(Self::TAKE_P2_LABEL).clicked() {
+                    self.selected_point_index = Some(1);
+                    ui.close();
+                }
+            });
         if !tooltip.is_empty() {
-            mr.response.on_hover_text(tooltip);
+            mr.0.on_hover_text(tooltip);
         }
     }
 
@@ -596,10 +600,9 @@ impl Panel for MeasurementPanel {
                 }
 
                 let m = &mut self.measurements[i];
-                let name_width = (ui.available_width() * 0.28).clamp(120.0, 320.0);
                 let name_edit = ui.add_sized(
-                    egui::vec2(name_width, 0.0),
-                    egui::TextEdit::singleline(&mut m.name).desired_width(name_width),
+                    [120.0, ui.spacing().interact_size.y],
+                    egui::TextEdit::singleline(&mut m.name),
                 );
                 if name_edit.clicked() {
                     self.selected_measurement = Some(i);
@@ -680,7 +683,7 @@ impl Panel for MeasurementPanel {
                     v_plot
                 }
             };
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let mut p1_label = if let Some(p) = p1 {
                     let x_lin = to_axis_value(&scope.x_axis, p[0]);
                     let y_lin = to_axis_value(&scope.y_axis, p[1]);

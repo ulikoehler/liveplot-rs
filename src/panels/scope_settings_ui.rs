@@ -138,7 +138,10 @@ impl ScopeSettingsUiPanel {
             {
                 scope.scope_type = ScopeType::TimeScope;
                 scope.x_axis.axis_type = AxisType::Time(XDateFormat::default());
-                scope.x_axis.name = Some("Time".to_string());
+                scope.x_axis.name = None;
+                scope.y_axis.name = None;
+                scope.show_x_axis_label = false;
+                scope.show_y_axis_label = false;
                 // Ensure X formatter follows the axis type so hover/readouts/traces
                 // render the X value sensibly for time scopes.
                 scope.x_axis.x_formatter = crate::data::x_formatter::XFormatter::Auto;
@@ -152,10 +155,10 @@ impl ScopeSettingsUiPanel {
             {
                 scope.scope_type = ScopeType::XYScope;
                 scope.x_axis.axis_type = AxisType::Value(None);
-                scope.x_axis.name = Some("X".to_string());
-                if scope.y_axis.name.is_none() {
-                    scope.y_axis.name = Some("Y".to_string());
-                }
+                scope.x_axis.name = None;
+                scope.y_axis.name = None;
+                scope.show_x_axis_label = true;
+                scope.show_y_axis_label = true;
                 // Make sure X formatter auto-selects a decimal formatter for XY scopes
                 scope.x_axis.x_formatter = crate::data::x_formatter::XFormatter::Auto;
             }

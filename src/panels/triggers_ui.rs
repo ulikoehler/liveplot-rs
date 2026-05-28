@@ -63,58 +63,62 @@ impl Panel for TriggersPanel {
         } else {
             self.title_and_icon()
         };
-        let mr = ui.menu_button(label, |ui| {
-            if ui.button("Show Triggers").clicked() {
-                let st = self.state_mut();
-                st.visible = true;
-                st.request_focus = true;
-                ui.close();
-            }
+        let menu_cfg = egui::containers::menu::MenuConfig::new()
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        let mr = egui::containers::menu::MenuButton::new(label)
+            .config(menu_cfg)
+            .ui(ui, |ui| {
+                if ui.button("Show Triggers").clicked() {
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.request_focus = true;
+                    ui.close();
+                }
 
-            ui.separator();
+                ui.separator();
 
-            if ui.button("New").clicked() {
-                let mut t = crate::data::triggers::Trigger::default();
-                let idx = self.triggers.len() + 1;
-                t.name = format!("Trigger{}", idx);
-                t.enabled = false;
-                self.triggers.insert(t.name.clone(), t);
-                let st = self.state_mut();
-                st.visible = true;
-                st.detached = false;
-                st.request_docket = true;
-                ui.close();
-            }
-            if ui
-                .button(egui_phosphor::regular::PLAY.to_string() + " Start all")
-                .clicked()
-            {
-                for (_n, trig) in self.triggers.iter_mut() {
-                    trig.start();
+                if ui.button("New").clicked() {
+                    let mut t = crate::data::triggers::Trigger::default();
+                    let idx = self.triggers.len() + 1;
+                    t.name = format!("Trigger{}", idx);
+                    t.enabled = false;
+                    self.triggers.insert(t.name.clone(), t);
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.detached = false;
+                    st.request_docket = true;
+                    ui.close();
                 }
-                ui.close();
-            }
-            if ui
-                .button(egui_phosphor::regular::STOP.to_string() + " Stop all")
-                .clicked()
-            {
-                for (_n, trig) in self.triggers.iter_mut() {
-                    trig.stop();
+                if ui
+                    .button(egui_phosphor::regular::PLAY.to_string() + " Start all")
+                    .clicked()
+                {
+                    for (_n, trig) in self.triggers.iter_mut() {
+                        trig.start();
+                    }
+                    ui.close();
                 }
-                ui.close();
-            }
-            if ui
-                .button(egui_phosphor::regular::ARROW_CLOCKWISE.to_string() + " Reset all")
-                .clicked()
-            {
-                for (_n, trig) in self.triggers.iter_mut() {
-                    trig.reset_runtime_state();
+                if ui
+                    .button(egui_phosphor::regular::STOP.to_string() + " Stop all")
+                    .clicked()
+                {
+                    for (_n, trig) in self.triggers.iter_mut() {
+                        trig.stop();
+                    }
+                    ui.close();
                 }
-                ui.close();
-            }
-        });
+                if ui
+                    .button(egui_phosphor::regular::ARROW_CLOCKWISE.to_string() + " Reset all")
+                    .clicked()
+                {
+                    for (_n, trig) in self.triggers.iter_mut() {
+                        trig.reset_runtime_state();
+                    }
+                    ui.close();
+                }
+            });
         if !tooltip.is_empty() {
-            mr.response.on_hover_text(tooltip);
+            mr.0.on_hover_text(tooltip);
         }
     }
 

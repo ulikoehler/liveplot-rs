@@ -49,122 +49,126 @@ impl Panel for ExportPanel {
         } else {
             self.title_and_icon()
         };
-        let mr = ui.menu_button(label, |ui| {
-            if ui
-                .button("🖼 Save Screenshot")
-                .on_hover_text("Take one screenshot of the full center panel")
-                .clicked()
-            {
-                data.pending_requests.screenshot = Some(ScreenshotRequest {
-                    target: ScreenshotTarget::CenterPanel,
-                    path: None,
-                });
-                ui.close();
-            }
-            if ui.button("Snapshot as CSV").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .set_file_name("snapshot.csv")
-                    .add_filter("CSV", &["csv"])
-                    .save_file()
+        let menu_cfg = egui::containers::menu::MenuConfig::new()
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        let mr = egui::containers::menu::MenuButton::new(label)
+            .config(menu_cfg)
+            .ui(ui, |ui| {
+                if ui
+                    .button("🖼 Save Screenshot")
+                    .on_hover_text("Take one screenshot of the full center panel")
+                    .clicked()
                 {
-                    // Build series map based on paused/snapshot state (convert TraceRef to String)
-                    let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
-                    for (name, tr) in data.traces.traces_iter() {
-                        let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
-                            if data.are_all_paused() {
-                                if let Some(snap) = &tr.snap {
-                                    Box::new(snap.iter())
-                                } else {
-                                    Box::new(tr.live.iter())
-                                }
-                            } else {
-                                Box::new(tr.live.iter())
-                            };
-                        let vec: Vec<[f64; 2]> = iter.cloned().collect();
-                        series.insert(name.clone(), vec);
-                    }
-                    if let Err(e) = export::write_csv_aligned_path(
-                        &path,
-                        &data.traces.all_trace_names(),
-                        &series,
-                        1e-9,
-                    ) {
-                        eprintln!("Failed to export snapshot CSV: {e}");
-                    } else {
-                        // Emit EXPORT event
-                        if let Some(ctrl) = &data.event_ctrl {
-                            let mut evt =
-                                crate::events::PlotEvent::new(crate::events::EventKind::EXPORT);
-                            evt.export = Some(crate::events::ExportMeta {
-                                format: "csv".to_string(),
-                                path: Some(path.to_string_lossy().to_string()),
-                            });
-                            ctrl.emit_filtered(evt);
-                        }
-                    }
+                    data.pending_requests.screenshot = Some(ScreenshotRequest {
+                        target: ScreenshotTarget::CenterPanel,
+                        path: None,
+                    });
+                    ui.close();
                 }
-                ui.close();
-            }
-            // Move Save/Load state into Export menu
-            ui.separator();
-            if ui.button(Self::SAVE_STATE_LABEL).clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("JSON", &["json"])
-                    .set_file_name("liveplot_state.json")
-                    .save_file()
-                {
-                    data.pending_requests.save_state = Some(path);
-                }
-                ui.close();
-            }
-            if ui.button(Self::LOAD_STATE_LABEL).clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("JSON", &["json"])
-                    .pick_file()
-                {
-                    data.pending_requests.load_state = Some(path);
-                }
-                ui.close();
-            }
-            #[cfg(feature = "parquet")]
-            {
-                if ui.button("Snapshot as Parquet").clicked() {
+                if ui.button("Snapshot as CSV").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
-                        .set_file_name("snapshot.parquet")
-                        .add_filter("Parquet", &["parquet"])
+                        .set_file_name("snapshot.csv")
+                        .add_filter("CSV", &["csv"])
                         .save_file()
                     {
-                        // Build series map like for CSV (convert TraceRef to String)
+                        // Build series map based on paused/snapshot state (convert TraceRef to String)
                         let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
-                        let names = data.traces.all_trace_names();
-                        for name in names.iter() {
-                            if let Some(tr) = data.traces.get_trace(name) {
-                                let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
-                                    if data.are_all_paused() {
-                                        if let Some(snap) = &tr.snap {
-                                            Box::new(snap.iter())
-                                        } else {
-                                            Box::new(tr.live.iter())
-                                        }
+                        for (name, tr) in data.traces.traces_iter() {
+                            let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
+                                if data.are_all_paused() {
+                                    if let Some(snap) = &tr.snap {
+                                        Box::new(snap.iter())
                                     } else {
                                         Box::new(tr.live.iter())
-                                    };
-                                let vec: Vec<[f64; 2]> = iter.cloned().collect();
-                                series.insert(name.clone(), vec);
-                            }
+                                    }
+                                } else {
+                                    Box::new(tr.live.iter())
+                                };
+                            let vec: Vec<[f64; 2]> = iter.cloned().collect();
+                            series.insert(name.clone(), vec);
                         }
-                        if let Err(e) =
-                            export::write_parquet_aligned_path(&path, &names, &series, 1e-9)
-                        {
-                            eprintln!("Failed to export snapshot Parquet: {e}");
+                        if let Err(e) = export::write_csv_aligned_path(
+                            &path,
+                            &data.traces.all_trace_names(),
+                            &series,
+                            1e-9,
+                        ) {
+                            eprintln!("Failed to export snapshot CSV: {e}");
+                        } else {
+                            // Emit EXPORT event
+                            if let Some(ctrl) = &data.event_ctrl {
+                                let mut evt =
+                                    crate::events::PlotEvent::new(crate::events::EventKind::EXPORT);
+                                evt.export = Some(crate::events::ExportMeta {
+                                    format: "csv".to_string(),
+                                    path: Some(path.to_string_lossy().to_string()),
+                                });
+                                ctrl.emit_filtered(evt);
+                            }
                         }
                     }
                     ui.close();
                 }
-            }
-        });
+                // Move Save/Load state into Export menu
+                ui.separator();
+                if ui.button(Self::SAVE_STATE_LABEL).clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("JSON", &["json"])
+                        .set_file_name("liveplot_state.json")
+                        .save_file()
+                    {
+                        data.pending_requests.save_state = Some(path);
+                    }
+                    ui.close();
+                }
+                if ui.button(Self::LOAD_STATE_LABEL).clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("JSON", &["json"])
+                        .pick_file()
+                    {
+                        data.pending_requests.load_state = Some(path);
+                    }
+                    ui.close();
+                }
+                #[cfg(feature = "parquet")]
+                {
+                    if ui.button("Snapshot as Parquet").clicked() {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .set_file_name("snapshot.parquet")
+                            .add_filter("Parquet", &["parquet"])
+                            .save_file()
+                        {
+                            // Build series map like for CSV (convert TraceRef to String)
+                            let mut series: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
+                            let names = data.traces.all_trace_names();
+                            for name in names.iter() {
+                                if let Some(tr) = data.traces.get_trace(name) {
+                                    let iter: Box<dyn Iterator<Item = &[f64; 2]> + '_> =
+                                        if data.are_all_paused() {
+                                            if let Some(snap) = &tr.snap {
+                                                Box::new(snap.iter())
+                                            } else {
+                                                Box::new(tr.live.iter())
+                                            }
+                                        } else {
+                                            Box::new(tr.live.iter())
+                                        };
+                                    let vec: Vec<[f64; 2]> = iter.cloned().collect();
+                                    series.insert(name.clone(), vec);
+                                }
+                            }
+                            if let Err(e) =
+                                export::write_parquet_aligned_path(&path, &names, &series, 1e-9)
+                            {
+                                eprintln!("Failed to export snapshot Parquet: {e}");
+                            }
+                        }
+                        ui.close();
+                    }
+                }
+            });
         if !tooltip.is_empty() {
-            mr.response.on_hover_text(tooltip);
+            mr.0.on_hover_text(tooltip);
         }
     }
 }

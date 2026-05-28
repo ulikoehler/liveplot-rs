@@ -63,57 +63,61 @@ impl Panel for MathPanel {
         } else {
             self.title_and_icon()
         };
-        let mr = ui.menu_button(label, |ui| {
-            if ui.button("Show Math").clicked() {
-                let st = self.state_mut();
-                st.visible = true;
-                st.request_focus = true;
-                ui.close();
-            }
-
-            ui.separator();
-
-            if ui.button("New").clicked() {
-                self.builder =
-                    MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() });
-                self.editing = None;
-                self.creating = true;
-                self.error = None;
-                let st = self.state_mut();
-                st.visible = true;
-                st.request_focus = true;
-                ui.close();
-            }
-            if ui.button("Reset storage").clicked() {
-                for def in self.math_traces.iter() {
-                    data.traces.clear_trace(&def.name);
+        let menu_cfg = egui::containers::menu::MenuConfig::new()
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        let mr = egui::containers::menu::MenuButton::new(label)
+            .config(menu_cfg)
+            .ui(ui, |ui| {
+                if ui.button("Show Math").clicked() {
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.request_focus = true;
+                    ui.close();
                 }
-                ui.close();
-            }
-            if ui.button("X Clear All math traces").clicked() {
-                // Remove math traces & their underlying live data
-                for def in self.math_traces.iter() {
-                    // Emit MATH_TRACE_REMOVED for each
-                    if let Some(ctrl) = &data.event_ctrl {
-                        let mut evt = crate::events::PlotEvent::new(
-                            crate::events::EventKind::MATH_TRACE_REMOVED,
-                        );
-                        evt.math_trace = Some(crate::events::MathTraceMeta {
-                            name: def.name.0.clone(),
-                            formula: None,
-                        });
-                        ctrl.emit_filtered(evt);
+
+                ui.separator();
+
+                if ui.button("New").clicked() {
+                    self.builder =
+                        MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() });
+                    self.editing = None;
+                    self.creating = true;
+                    self.error = None;
+                    let st = self.state_mut();
+                    st.visible = true;
+                    st.request_focus = true;
+                    ui.close();
+                }
+                if ui.button("Reset storage").clicked() {
+                    for def in self.math_traces.iter() {
+                        data.traces.clear_trace(&def.name);
                     }
-                    data.traces.remove_trace(&def.name);
+                    ui.close();
                 }
-                self.math_traces.clear();
-                self.editing = None;
-                self.creating = false;
-                ui.close();
-            }
-        });
+                if ui.button("X Clear All math traces").clicked() {
+                    // Remove math traces & their underlying live data
+                    for def in self.math_traces.iter() {
+                        // Emit MATH_TRACE_REMOVED for each
+                        if let Some(ctrl) = &data.event_ctrl {
+                            let mut evt = crate::events::PlotEvent::new(
+                                crate::events::EventKind::MATH_TRACE_REMOVED,
+                            );
+                            evt.math_trace = Some(crate::events::MathTraceMeta {
+                                name: def.name.0.clone(),
+                                formula: None,
+                            });
+                            ctrl.emit_filtered(evt);
+                        }
+                        data.traces.remove_trace(&def.name);
+                    }
+                    self.math_traces.clear();
+                    self.editing = None;
+                    self.creating = false;
+                    ui.close();
+                }
+            });
         if !tooltip.is_empty() {
-            mr.response.on_hover_text(tooltip);
+            mr.0.on_hover_text(tooltip);
         }
     }
 

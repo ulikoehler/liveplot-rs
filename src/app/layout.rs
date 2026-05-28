@@ -475,6 +475,7 @@ impl LivePlotPanel {
             window_pos: win_pos,
             scope: None,
             scopes: scope_states,
+            scope_layout: self.liveplot_panel.scope_layout_state(),
             panels: panels_state,
             traces_style: trace_styles,
             thresholds: thresholds_ser,
@@ -509,8 +510,11 @@ impl LivePlotPanel {
         // Restore all scopes (or fall back to legacy single-scope).
         let scope_states = loaded.all_scopes();
         if !scope_states.is_empty() {
-            self.liveplot_panel
-                .restore_scopes(scope_states, loaded.next_scope_idx);
+            self.liveplot_panel.restore_scopes(
+                scope_states,
+                loaded.next_scope_idx,
+                loaded.scope_layout.as_ref(),
+            );
         }
 
         // Panels: match by title and set visible/detached/pos/size.
