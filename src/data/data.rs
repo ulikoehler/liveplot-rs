@@ -12,6 +12,13 @@ pub enum ScreenshotTarget {
     CurrentScope(usize),
     VisibleScopes,
     CenterPanel,
+    ScopeRect {
+        scope_id: usize,
+        scope_name: String,
+        rect: [f32; 4],
+        show_x_axis_label: bool,
+        show_y_axis_label: bool,
+    },
 }
 
 #[derive(Clone, Debug)]

@@ -1,6 +1,5 @@
 use super::panel_trait::{Panel, PanelState};
-use crate::data::data::LivePlotData;
-use crate::data::data::{ScreenshotRequest, ScreenshotTarget};
+use crate::data::data::{LivePlotData, ScreenshotRequest, ScreenshotTarget};
 use crate::data::fft::{FFTWindow, FftData};
 use crate::data::scope::ScopeType;
 use crate::data::traces::{TraceData, TracesCollection};
@@ -17,8 +16,19 @@ pub struct FftPanel {
 impl Default for FftPanel {
     fn default() -> Self {
         let mut scope_ui = ScopePanel::default();
-        scope_ui.get_data_mut().x_axis.auto_fit = true;
-        scope_ui.get_data_mut().y_axis.auto_fit = true;
+        scope_ui.set_zoom_mode(ZoomMode::Both);
+        let scope_data = scope_ui.get_data_mut();
+        scope_data.x_axis.axis_type = crate::data::scope::AxisType::Value(None); // plain numeric
+        scope_data.x_axis.auto_fit = true;
+        scope_data.x_axis.name = Some("Frequency".to_string());
+        scope_data.x_axis.set_unit(Some("Hz".to_string()));
+        scope_data.x_axis.show_label = true;
+        scope_data.x_axis.value_decimals = 0;
+        scope_data.y_axis.auto_fit = true;
+        scope_data.y_axis.name = Some("Magnitude".to_string());
+        scope_data.y_axis.set_unit(None);
+        scope_data.y_axis.show_label = true;
+        scope_data.scope_type = ScopeType::XYScope;
 
         Self {
             state: PanelState::new("FFT", "📊"),
@@ -76,6 +86,17 @@ impl Panel for FftPanel {
                     .clicked()
                 {
                     self.fft_db = !self.fft_db;
+                    if self.fft_db {
+                        self.scope_ui.get_data_mut().y_axis.name =
+                            Some("Magnitude (dB)".to_string());
+                        self.scope_ui
+                            .get_data_mut()
+                            .y_axis
+                            .set_unit(Some("dB".to_string()));
+                    } else {
+                        self.scope_ui.get_data_mut().y_axis.name = Some("Magnitude".to_string());
+                        self.scope_ui.get_data_mut().y_axis.set_unit(None);
+                    }
                 }
                 ui.menu_button("Window", |ui| {
                     // Select FFT window function
@@ -94,20 +115,6 @@ impl Panel for FftPanel {
                     }
                 });
                 if self.fft_db != prev {
-                    ui.close();
-                }
-
-                ui.separator();
-
-                if ui
-                    .button("🖼 Save Screenshot")
-                    .on_hover_text("Take one screenshot of the full center panel")
-                    .clicked()
-                {
-                    data.pending_requests.screenshot = Some(ScreenshotRequest {
-                        target: ScreenshotTarget::CenterPanel,
-                        path: None,
-                    });
                     ui.close();
                 }
 
@@ -177,22 +184,6 @@ impl Panel for FftPanel {
 
         // Configure scope for frequency domain
         let scope_data = self.scope_ui.get_data_mut();
-        scope_data.scope_type = ScopeType::XYScope;
-        scope_data.x_axis.name = Some("Frequency".to_string());
-        scope_data.x_axis.set_unit(Some("Hz".to_string()));
-        // plain numeric axis type: ensure value axis
-        scope_data.x_axis.axis_type = crate::data::scope::AxisType::Value(None); // plain numeric
-        scope_data.y_axis.name = Some(if self.fft_db {
-            "Magnitude (dB)".to_string()
-        } else {
-            "Magnitude".to_string()
-        });
-        scope_data.y_axis.set_unit(if self.fft_db {
-            Some("dB".to_string())
-        } else {
-            None
-        });
-        scope_data.y_axis.log_scale = false;
 
         // Sync the internal scope's trace_order with whatever FFT traces are present.
         // `scope_data.update()` only *retains* existing entries – it never adds new ones –
@@ -240,27 +231,6 @@ impl Panel for FftPanel {
             {
                 self.fft_db = !self.fft_db;
             }
-
-            ui.separator();
-            if ui
-                .button("🖼 Screenshot")
-                .on_hover_text("Take one screenshot of the full center panel")
-                .clicked()
-            {
-                data.pending_requests.screenshot = Some(ScreenshotRequest {
-                    target: ScreenshotTarget::CenterPanel,
-                    path: None,
-                });
-            }
-            ui.separator();
-            ui.label("Zoom:");
-
-            let mut zoom_mode = self.scope_ui.zoom_mode();
-            ui.selectable_value(&mut zoom_mode, ZoomMode::Off, "Off");
-            ui.selectable_value(&mut zoom_mode, ZoomMode::X, "X");
-            ui.selectable_value(&mut zoom_mode, ZoomMode::Y, "Y");
-            ui.selectable_value(&mut zoom_mode, ZoomMode::Both, "Both");
-            self.scope_ui.set_zoom_mode(zoom_mode);
         });
 
         ui.separator();
@@ -271,5 +241,21 @@ impl Panel for FftPanel {
             |_plot_ui, _scope_unused, _traces_unused| {},
             &mut tmp_traces,
         );
+
+        if self.scope_ui.take_screenshot_request() {
+            let scope = self.scope_ui.get_data();
+            if let Some(rect) = scope.last_plot_screen_rect {
+                data.pending_requests.screenshot = Some(ScreenshotRequest {
+                    target: ScreenshotTarget::ScopeRect {
+                        scope_id: scope.id,
+                        scope_name: scope.name.clone(),
+                        rect,
+                        show_x_axis_label: scope.x_axis.show_label,
+                        show_y_axis_label: scope.y_axis.show_label,
+                    },
+                    path: None,
+                });
+            }
+        }
     }
 }

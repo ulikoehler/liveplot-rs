@@ -651,8 +651,8 @@ where
 impl LiveplotPanel {
     fn expand_scope_screenshot_rect(data: &ScopeData, rect: [f32; 4]) -> [f32; 4] {
         let mut out = rect;
-        let x_pad = if data.show_y_axis_label { 56.0 } else { 28.0 };
-        let y_pad = if data.show_x_axis_label { 44.0 } else { 20.0 };
+        let x_pad = if data.y_axis.show_label { 56.0 } else { 28.0 };
+        let y_pad = if data.x_axis.show_label { 44.0 } else { 20.0 };
         out[0] -= x_pad;
         out[1] -= 10.0;
         out[2] += 16.0;
@@ -702,6 +702,7 @@ impl LiveplotPanel {
                 ScreenshotTarget::CurrentScope(scope_id) => data.id == *scope_id,
                 ScreenshotTarget::VisibleScopes => true,
                 ScreenshotTarget::CenterPanel => false,
+                ScreenshotTarget::ScopeRect { .. } => false,
             };
             if include {
                 targets.push(ScreenshotCropTarget {

@@ -27,8 +27,6 @@ pub struct ScopeSettingsUiPanel {
     renaming_scope_id: Option<usize>,
     rename_buffer: String,
     rename_focus_scope: Option<usize>,
-    // Used to keep the scope settings panel width stable when switching to XY mode.
-    last_time_scope_width: HashMap<usize, f32>,
 }
 
 fn trace_tooltip(traces_collection: &TracesCollection, trace: &TraceRef) -> String {
@@ -140,8 +138,8 @@ impl ScopeSettingsUiPanel {
                 scope.x_axis.axis_type = AxisType::Time(XDateFormat::default());
                 scope.x_axis.name = None;
                 scope.y_axis.name = None;
-                scope.show_x_axis_label = false;
-                scope.show_y_axis_label = false;
+                scope.x_axis.show_label = false;
+                scope.y_axis.show_label = false;
                 // Ensure X formatter follows the axis type so hover/readouts/traces
                 // render the X value sensibly for time scopes.
                 scope.x_axis.x_formatter = crate::data::x_formatter::XFormatter::Auto;
@@ -157,8 +155,8 @@ impl ScopeSettingsUiPanel {
                 scope.x_axis.axis_type = AxisType::Value(None);
                 scope.x_axis.name = None;
                 scope.y_axis.name = None;
-                scope.show_x_axis_label = true;
-                scope.show_y_axis_label = true;
+                scope.x_axis.show_label = true;
+                scope.y_axis.show_label = true;
                 // Make sure X formatter auto-selects a decimal formatter for XY scopes
                 scope.x_axis.x_formatter = crate::data::x_formatter::XFormatter::Auto;
             }
@@ -514,8 +512,6 @@ impl ScopeSettingsUiPanel {
 
         match scope.scope_type {
             ScopeType::TimeScope => {
-                self.last_time_scope_width
-                    .insert(scope.id, ui.available_width());
                 let mut tmp: Vec<Option<TraceRef>> =
                     scope.trace_order.iter().cloned().map(Some).collect();
 
@@ -620,7 +616,7 @@ impl ScopeSettingsUiPanel {
                 ui.allocate_ui(egui::vec2(target_w, 0.0), |ui| {
                     ui.set_width(target_w);
                     // Two fixed-width columns to avoid the panel expanding in XY mode.
-                    let col_w = ((target_w - 8.0) / 2.0).max(120.0);
+                    let col_w = ((target_w - 30.0) / 2.0).max(150.0);
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
                         ui.allocate_ui(egui::vec2(col_w, 0.0), |ui| {
                             let mut colors: Vec<Color32> =

@@ -168,12 +168,37 @@ impl LivePlotPanel {
             return;
         }
 
+        let expand_scope_rect =
+            |rect: [f32; 4], show_x_axis_label: bool, show_y_axis_label: bool| {
+                let mut out = rect;
+                let x_pad = if show_y_axis_label { 56.0 } else { 28.0 };
+                let y_pad = if show_x_axis_label { 44.0 } else { 20.0 };
+                out[0] -= x_pad;
+                out[1] -= 10.0;
+                out[2] += 16.0;
+                out[3] += y_pad;
+                out
+            };
+
         let targets = match request.target {
             crate::data::data::ScreenshotTarget::CenterPanel => {
                 vec![super::ScreenshotCropTarget {
                     scope_id: usize::MAX,
                     scope_name: "center_panel".to_string(),
                     rect: self.last_widget_rect,
+                }]
+            }
+            crate::data::data::ScreenshotTarget::ScopeRect {
+                scope_id,
+                scope_name,
+                rect,
+                show_x_axis_label,
+                show_y_axis_label,
+            } => {
+                vec![super::ScreenshotCropTarget {
+                    scope_id,
+                    scope_name,
+                    rect: expand_scope_rect(rect, show_x_axis_label, show_y_axis_label),
                 }]
             }
             _ => self.liveplot_panel.screenshot_targets(&request.target),

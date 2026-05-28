@@ -16,39 +16,68 @@ pub enum XDateFormat {
     Iso8601WithDateMillis,
     /// Local time, time-of-day with milliseconds: HH:MM:SS.mmm
     Iso8601TimeMillis,
+    /// Local time minute and second with fractional part: MM:SS.mmm
+    MinuteSecondMillis,
+    /// Local time second with fractional part: SS.mmm
+    SecondMillis,
+    /// Milliseconds/fractional second only: mmm
+    MillisOnly,
 }
 
 impl Default for XDateFormat {
     fn default() -> Self {
-        XDateFormat::Iso8601Time
+        XDateFormat::Iso8601TimeMillis
     }
 }
 
 impl XDateFormat {
+    fn format_fraction(nsecs: u32, digits: usize) -> String {
+        let digits = digits.min(9);
+        if digits == 0 {
+            return String::new();
+        }
+        let scale = 10_u32.pow((9 - digits) as u32);
+        let frac = nsecs / scale;
+        format!(".{:0width$}", frac, width = digits)
+    }
+
     /// Format an `x` value (seconds since UNIX epoch as f64) according to the selected format.
-    pub fn format_value(&self, x_seconds: f64) -> String {
+    ///
+    /// `decimals` controls the number of fractional digits used by formats that
+    /// include a `.mmm` component.
+    pub fn format_value_with_decimals(&self, x_seconds: f64, decimals: usize) -> String {
         let secs = x_seconds as i64;
         let nsecs = ((x_seconds - secs as f64) * 1e9) as u32;
         let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
             .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+        let local = dt_utc.with_timezone(&chrono::Local);
+        let frac = Self::format_fraction(nsecs, decimals);
+
         match self {
-            XDateFormat::Iso8601WithDate => dt_utc
-                .with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string(),
-            XDateFormat::Iso8601Time => dt_utc
-                .with_timezone(&chrono::Local)
-                .format("%H:%M:%S")
-                .to_string(),
-            XDateFormat::Iso8601WithDateMillis => dt_utc
-                .with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M:%S%.3f")
-                .to_string(),
-            XDateFormat::Iso8601TimeMillis => dt_utc
-                .with_timezone(&chrono::Local)
-                .format("%H:%M:%S%.3f")
-                .to_string(),
+            XDateFormat::Iso8601WithDate => local.format("%Y-%m-%d %H:%M:%S").to_string(),
+            XDateFormat::Iso8601Time => local.format("%H:%M:%S").to_string(),
+            XDateFormat::Iso8601WithDateMillis => {
+                format!("{}{}", local.format("%Y-%m-%d %H:%M:%S"), frac)
+            }
+            XDateFormat::Iso8601TimeMillis => format!("{}{}", local.format("%H:%M:%S"), frac),
+            XDateFormat::MinuteSecondMillis => format!("{}{}", local.format("%M:%S"), frac),
+            XDateFormat::SecondMillis => format!("{}{}", local.format("%S"), frac),
+            XDateFormat::MillisOnly => {
+                let digits = decimals.min(9);
+                if digits == 0 {
+                    "0".to_string()
+                } else {
+                    let scale = 10_u32.pow((9 - digits) as u32);
+                    let frac_only = nsecs / scale;
+                    format!("{:0width$}", frac_only, width = digits)
+                }
+            }
         }
+    }
+
+    /// Backward-compatible wrapper using millisecond precision.
+    pub fn format_value(&self, x_seconds: f64) -> String {
+        self.format_value_with_decimals(x_seconds, 3)
     }
 }
 
@@ -79,6 +108,8 @@ pub struct AxisSettings {
     pub scientific_max_exp: i32,
     /// Force scientific notation regardless of value magnitude.
     pub always_scientific: bool,
+    /// When `true`, the axis label (name and unit) is shown on the plot. This is independent of
+    pub show_label: bool,
 }
 
 impl Default for AxisSettings {
@@ -94,6 +125,7 @@ impl Default for AxisSettings {
             scientific_min_exp: -4,
             scientific_max_exp: 6,
             always_scientific: false,
+            show_label: false,
         }
     }
 }
@@ -124,8 +156,8 @@ impl AxisSettings {
     }
 
     /// Format a numeric value with unit, using scientific notation when appropriate.
-    fn format_value_numeric(&self, v: f64, dec_pl: usize, _step: f64) -> String {
-        let decimals = self.value_decimals.max(dec_pl);
+    fn format_value_numeric(&self, v: f64) -> String {
+        let decimals = self.value_decimals;
         let sci = if self.always_scientific {
             true
         } else if !v.is_finite() || v == 0.0 {
@@ -201,6 +233,9 @@ impl AxisSettings {
                     local.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
                 }
                 XDateFormat::Iso8601TimeMillis => local.format("%H:%M:%S%.3f").to_string(),
+                XDateFormat::MinuteSecondMillis => local.format("%M:%S%.3f").to_string(),
+                XDateFormat::SecondMillis => local.format("%S%.3f").to_string(),
+                XDateFormat::MillisOnly => format!("{:03}", nsecs / 1_000_000),
             }
         };
 
@@ -227,8 +262,8 @@ impl AxisSettings {
     pub fn format_value(&self, v: f64, dec_pl: usize, step: f64) -> String {
         match &self.x_formatter {
             XFormatter::Auto => match self.axis_type {
-                AxisType::Time(fmt) => fmt.format_value(v),
-                AxisType::Value(_) => self.format_value_numeric(v, dec_pl, step),
+                AxisType::Time(fmt) => fmt.format_value_with_decimals(v, self.value_decimals),
+                AxisType::Value(_) => self.format_value_numeric(v),
             },
             XFormatter::Decimal(df) => df.format(v, dec_pl),
             XFormatter::Scientific(sf) => sf.format(v, dec_pl),
@@ -268,8 +303,6 @@ pub struct ScopeData {
     pub show_info_in_legend: bool,
     /// When `true`, the plot background grid is visible.
     pub show_grid: bool,
-    pub show_x_axis_label: bool,
-    pub show_y_axis_label: bool,
 
     /// When `true`, Y-axis bounds are automatically fitted to the visible data
     /// each frame. Manual pan/zoom disables this; clicking "Fit to View" or
@@ -314,8 +347,6 @@ impl Default for ScopeData {
             force_hide_legend: false,
             show_info_in_legend: false,
             show_grid: true,
-            show_x_axis_label: false,
-            show_y_axis_label: false,
             auto_fit_to_view: true,
             keep_max_fit: false,
             trace_order: Vec::new(),

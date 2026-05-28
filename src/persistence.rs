@@ -56,6 +56,8 @@ pub struct AxisSettingsSerde {
     pub scientific_max_exp: i32,
     #[serde(default)]
     pub always_scientific: bool,
+    #[serde(default)]
+    pub show_label: bool,
 }
 
 impl From<&AxisSettings> for AxisSettingsSerde {
@@ -70,6 +72,9 @@ impl From<&AxisSettings> for AxisSettingsSerde {
                     XDateFormat::Iso8601Time => "%H:%M:%S".to_string(),
                     XDateFormat::Iso8601WithDateMillis => "%Y-%m-%d %H:%M:%S%.3f".to_string(),
                     XDateFormat::Iso8601TimeMillis => "%H:%M:%S%.3f".to_string(),
+                    XDateFormat::MinuteSecondMillis => "%M:%S%.3f".to_string(),
+                    XDateFormat::SecondMillis => "%S%.3f".to_string(),
+                    XDateFormat::MillisOnly => "%f".to_string(),
                 }),
             ),
         };
@@ -85,6 +90,7 @@ impl From<&AxisSettings> for AxisSettingsSerde {
             scientific_min_exp: a.scientific_min_exp,
             scientific_max_exp: a.scientific_max_exp,
             always_scientific: a.always_scientific,
+            show_label: a.show_label,
         }
     }
 }
@@ -100,7 +106,13 @@ impl AxisSettingsSerde {
         match self.axis_type.as_str() {
             "time" => {
                 let fmt = if let Some(tf) = &self.time_format {
-                    if tf.contains("%.3f") && tf.contains("%Y") {
+                    if tf == "%M:%S%.3f" {
+                        XDateFormat::MinuteSecondMillis
+                    } else if tf == "%S%.3f" {
+                        XDateFormat::SecondMillis
+                    } else if tf == "%f" {
+                        XDateFormat::MillisOnly
+                    } else if tf.contains("%.3f") && tf.contains("%Y") {
                         XDateFormat::Iso8601WithDateMillis
                     } else if tf.contains("%.3f") {
                         XDateFormat::Iso8601TimeMillis
@@ -124,6 +136,7 @@ impl AxisSettingsSerde {
         a.scientific_min_exp = self.scientific_min_exp;
         a.scientific_max_exp = self.scientific_max_exp;
         a.always_scientific = self.always_scientific;
+        a.show_label = self.show_label;
     }
 }
 
@@ -406,10 +419,6 @@ pub struct ScopeStateSerde {
     pub scope_is_xy: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
-    #[serde(default)]
-    pub show_x_axis_label: bool,
-    #[serde(default)]
-    pub show_y_axis_label: bool,
     /// Whether automatic Y-axis fit-to-view is enabled.
     #[serde(default = "default_true")]
     pub auto_fit_to_view: bool,
@@ -449,8 +458,6 @@ impl From<&ScopeData> for ScopeStateSerde {
             scope_is_xy: matches!(s.scope_type, ScopeType::XYScope),
             show_legend: s.show_legend,
             show_info_in_legend: s.show_info_in_legend,
-            show_x_axis_label: s.show_x_axis_label,
-            show_y_axis_label: s.show_y_axis_label,
             auto_fit_to_view: s.auto_fit_to_view,
             keep_max_fit: s.keep_max_fit,
             id: Some(s.id),
@@ -494,8 +501,6 @@ impl ScopeStateSerde {
         };
         scope.show_legend = self.show_legend;
         scope.show_info_in_legend = self.show_info_in_legend;
-        scope.show_x_axis_label = self.show_x_axis_label;
-        scope.show_y_axis_label = self.show_y_axis_label;
         scope.auto_fit_to_view = self.auto_fit_to_view;
         scope.keep_max_fit = self.keep_max_fit;
         if let Some(name) = self.name {
@@ -651,6 +656,7 @@ impl Default for AppStateSerde {
                     scientific_min_exp: default_axis_scientific_min_exp(),
                     scientific_max_exp: default_axis_scientific_max_exp(),
                     always_scientific: false,
+                    show_label: false,
                 },
                 y_axis: AxisSettingsSerde {
                     unit: None,
@@ -664,13 +670,12 @@ impl Default for AppStateSerde {
                     scientific_min_exp: default_axis_scientific_min_exp(),
                     scientific_max_exp: default_axis_scientific_max_exp(),
                     always_scientific: false,
+                    show_label: false,
                 },
                 time_window: 10.0,
                 scope_is_xy: false,
                 show_legend: true,
                 show_info_in_legend: false,
-                show_x_axis_label: false,
-                show_y_axis_label: false,
                 auto_fit_to_view: true,
                 keep_max_fit: false,
                 pause_on_click: false,

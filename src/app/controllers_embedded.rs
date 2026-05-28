@@ -362,8 +362,6 @@ impl LivePlotPanel {
                         scope.paused = scope_req.paused;
                         scope.show_legend = scope_req.show_legend;
                         scope.show_info_in_legend = scope_req.show_info_in_legend;
-                        scope.show_x_axis_label = scope_req.show_x_axis_label;
-                        scope.show_y_axis_label = scope_req.show_y_axis_label;
                         scope.scope_type = scope_req.scope_type;
                         scope.trace_order = scope_req.trace_order.clone();
                         scope.trace_order.retain(|t| traces.contains_key(t));
@@ -384,8 +382,6 @@ impl LivePlotPanel {
                         paused: scope.paused,
                         show_legend: scope.show_legend,
                         show_info_in_legend: scope.show_info_in_legend,
-                        show_x_axis_label: scope.show_x_axis_label,
-                        show_y_axis_label: scope.show_y_axis_label,
                         trace_order: scope.trace_order.clone(),
                         scope_type: scope.scope_type,
                     });
@@ -545,8 +541,6 @@ impl LivePlotPanel {
                         paused: scope.paused,
                         show_legend: scope.show_legend,
                         show_info_in_legend: scope.show_info_in_legend,
-                        show_x_axis_label: scope.show_x_axis_label,
-                        show_y_axis_label: scope.show_y_axis_label,
                         trace_order: scope.trace_order.clone(),
                         scope_type: scope.scope_type,
                     });

@@ -119,27 +119,6 @@ impl ScopePanel {
         self.data.rendered_this_frame = true;
     }
 
-    fn default_axis_name(&self, is_x: bool) -> &'static str {
-        match (self.data.scope_type, is_x) {
-            (ScopeType::TimeScope, true) => "Time",
-            (ScopeType::TimeScope, false) => "Y",
-            (ScopeType::XYScope, true) => "X",
-            (ScopeType::XYScope, false) => "Y",
-        }
-    }
-
-    fn axis_uses_custom_label(&self, is_x: bool) -> bool {
-        let axis = if is_x {
-            &self.data.x_axis
-        } else {
-            &self.data.y_axis
-        };
-        axis.name
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|name| !name.is_empty() && name != self.default_axis_name(is_x))
-    }
-
     fn generated_axis_trace_names(&self, traces: &TracesCollection, is_x: bool) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
         let mut push_name = |trace: &TraceRef| {
@@ -209,9 +188,9 @@ impl ScopePanel {
 
     fn axis_label_text(&self, traces: &TracesCollection, is_x: bool) -> Option<String> {
         let show_label = if is_x {
-            self.data.show_x_axis_label
+            self.data.x_axis.show_label
         } else {
-            self.data.show_y_axis_label
+            self.data.y_axis.show_label
         };
         if !show_label {
             return None;
@@ -222,16 +201,20 @@ impl ScopePanel {
         } else {
             &self.data.y_axis
         };
-        let default_name = self.default_axis_name(is_x);
-        if let Some(custom) = axis.name.as_deref().map(str::trim) {
-            if !custom.is_empty() && custom != default_name {
-                return Some(custom.to_string());
-            }
+        if axis.name.is_some() {
+            return axis.name.clone();
         }
 
         let names = self.generated_axis_trace_names(traces, is_x);
         if names.is_empty() {
-            Some(default_name.to_string())
+            if is_x {
+                return Some(match self.data.scope_type {
+                    ScopeType::TimeScope => "Time".to_string(),
+                    ScopeType::XYScope => "X".to_string(),
+                });
+            } else {
+                return Some("Y".to_string());
+            }
         } else {
             Some(names.join(", "))
         }
@@ -294,7 +277,12 @@ impl ScopePanel {
     }
 
     pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
-        ui.checkbox(&mut self.controlls_in_toolbar, "Controls in Toolbar");
+        if ui
+            .checkbox(&mut self.controlls_in_toolbar, "Controls in Toolbar")
+            .changed()
+        {
+            ui.close();
+        };
 
         ui.separator();
 
@@ -302,16 +290,31 @@ impl ScopePanel {
 
         ui.separator();
 
-        ui.checkbox(&mut self.data.show_grid, "Show Grid")
-            .on_hover_text("Show or hide the plot background grid");
-        ui.checkbox(&mut self.data.show_legend, "Show Legend")
-            .on_hover_text("Show or hide the plot legend");
+        if ui
+            .checkbox(&mut self.data.show_grid, "Show Grid")
+            .on_hover_text("Show or hide the plot background grid")
+            .changed()
+        {
+            ui.close();
+        };
+        if ui
+            .checkbox(&mut self.data.show_legend, "Show Legend")
+            .on_hover_text("Show or hide the plot legend")
+            .changed()
+        {
+            ui.close();
+        };
         if !self.data.show_legend {
             self.data.show_info_in_legend = false;
         }
         ui.add_enabled_ui(self.data.show_legend, |ui| {
-            ui.checkbox(&mut self.data.show_info_in_legend, "Show Info")
-                .on_hover_text("Append each trace's info text to its legend label");
+            if ui
+                .checkbox(&mut self.data.show_info_in_legend, "Show Info")
+                .on_hover_text("Append each trace's info text to its legend label")
+                .changed()
+            {
+                ui.close();
+            };
         });
     }
 
@@ -412,20 +415,67 @@ impl ScopePanel {
                 .clicked()
             {
                 self.data.fit_x_bounds(traces);
+                ui.close();
             }
 
-            ui.checkbox(&mut self.data.x_axis.auto_fit, "Auto Fit X");
+            if ui
+                .checkbox(&mut self.data.x_axis.auto_fit, "Auto Fit X")
+                .changed()
+            {
+                ui.close();
+            }
         });
 
         if show_menu_only_options {
-            ui.horizontal_wrapped(|ui| {
-                ui.checkbox(&mut self.data.show_x_axis_label, "Show X Label");
-                let mut use_custom = self.axis_uses_custom_label(true);
-                if ui.checkbox(&mut use_custom, "Use custom label").changed() && !use_custom {
+            if self.data.scope_type == ScopeType::XYScope {
+                if ui
+                    .checkbox(&mut self.data.x_axis.log_scale, "Log scale")
+                    .on_hover_text(
+                        "Use base-10 log of (value + offset). Non-positive values are omitted.",
+                    )
+                    .changed()
+                {
+                    ui.close();
+                };
+
+                ui.horizontal(|ui| {
+                    ui.label("Unit:");
+                    let mut unit = self.data.x_axis.get_unit().unwrap_or_default();
+                    if ui
+                        .add(egui::TextEdit::singleline(&mut unit).desired_width(80.0))
+                        .changed()
+                    {
+                        self.data.x_axis.set_unit(if unit.trim().is_empty() {
+                            None
+                        } else {
+                            Some(unit)
+                        });
+                    }
+                });
+            }
+
+            ui.menu_button("Label", |ui| {
+                ui.checkbox(&mut self.data.x_axis.show_label, "Show Label");
+                let mut use_custom = self.data.x_axis.name.is_some();
+                ui.add_enabled_ui(self.data.x_axis.show_label, |ui| {
+                    if ui.checkbox(&mut use_custom, "Use custom label").changed() {
+                        if use_custom {
+                            if self.data.x_axis.name.is_none() {
+                                self.data.x_axis.name =
+                                    if self.data.scope_type == ScopeType::TimeScope {
+                                        Some("Time".to_string())
+                                    } else {
+                                        Some("X".to_string())
+                                    };
+                            }
+                        }
+                    }
+                });
+                if !use_custom {
                     self.data.x_axis.name = None;
                 }
                 let mut label = self.data.x_axis.name.clone().unwrap_or_default();
-                ui.add_enabled_ui(use_custom, |ui| {
+                ui.add_enabled_ui(use_custom && self.data.x_axis.show_label, |ui| {
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut label)
@@ -447,58 +497,71 @@ impl ScopePanel {
                 });
             });
 
-            ui.horizontal_wrapped(|ui| match &mut self.data.x_axis.axis_type {
+            ui.menu_button("Format", |ui| match &mut self.data.x_axis.axis_type {
                 crate::data::scope::AxisType::Time(fmt) => {
-                    ui.label("X Time Format:");
-                    egui::ComboBox::from_id_salt(("x_time_format", self.data.id))
-                        .selected_text(match fmt {
-                            crate::data::scope::XDateFormat::Iso8601Time => "HH:MM:SS",
-                            crate::data::scope::XDateFormat::Iso8601WithDate => {
-                                "YYYY-MM-DD HH:MM:SS"
-                            }
-                            crate::data::scope::XDateFormat::Iso8601TimeMillis => "HH:MM:SS.mmm",
-                            crate::data::scope::XDateFormat::Iso8601WithDateMillis => {
-                                "YYYY-MM-DD HH:MM:SS.mmm"
-                            }
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                fmt,
-                                crate::data::scope::XDateFormat::Iso8601Time,
-                                "HH:MM:SS",
-                            );
-                            ui.selectable_value(
-                                fmt,
-                                crate::data::scope::XDateFormat::Iso8601WithDate,
-                                "YYYY-MM-DD HH:MM:SS",
-                            );
-                            ui.selectable_value(
-                                fmt,
-                                crate::data::scope::XDateFormat::Iso8601TimeMillis,
-                                "HH:MM:SS.mmm",
-                            );
-                            ui.selectable_value(
-                                fmt,
-                                crate::data::scope::XDateFormat::Iso8601WithDateMillis,
-                                "YYYY-MM-DD HH:MM:SS.mmm",
-                            );
-                        });
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::Iso8601Time,
+                        "HH:MM:SS",
+                    );
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::Iso8601WithDate,
+                        "YYYY-MM-DD HH:MM:SS",
+                    );
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::Iso8601TimeMillis,
+                        "HH:MM:SS.mmm",
+                    );
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::Iso8601WithDateMillis,
+                        "YYYY-MM-DD HH:MM:SS.mmm",
+                    );
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::MinuteSecondMillis,
+                        "MM:SS.mmm",
+                    );
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::SecondMillis,
+                        "SS.mmm",
+                    );
+                    ui.selectable_value(fmt, crate::data::scope::XDateFormat::MillisOnly, "mmm");
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label("Decimals:");
+                        ui.add(
+                            egui::DragValue::new(&mut self.data.x_axis.value_decimals)
+                                .range(0..=12),
+                        );
+                    });
                 }
                 crate::data::scope::AxisType::Value(_) => {
-                    ui.label("X Value Format:");
-                    ui.label("Decimals:");
-                    ui.add(
-                        egui::DragValue::new(&mut self.data.x_axis.value_decimals).range(0..=12),
-                    );
-                    ui.label("Sci min exp:");
-                    ui.add(egui::DragValue::new(
-                        &mut self.data.x_axis.scientific_min_exp,
-                    ));
-                    ui.label("max exp:");
-                    ui.add(egui::DragValue::new(
-                        &mut self.data.x_axis.scientific_max_exp,
-                    ));
+                    ui.horizontal(|ui| {
+                        ui.label("Decimals:");
+                        ui.add(
+                            egui::DragValue::new(&mut self.data.x_axis.value_decimals)
+                                .range(0..=12),
+                        );
+                    });
                     ui.checkbox(&mut self.data.x_axis.always_scientific, "Always scientific");
+                    ui.add_enabled_ui(!self.data.x_axis.always_scientific, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Sci min exp:");
+                            ui.add(egui::DragValue::new(
+                                &mut self.data.x_axis.scientific_min_exp,
+                            ));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("max exp:");
+                            ui.add(egui::DragValue::new(
+                                &mut self.data.x_axis.scientific_max_exp,
+                            ));
+                        });
+                    });
                 }
             });
         }
@@ -536,44 +599,60 @@ impl ScopePanel {
                 .clicked()
             {
                 self.data.fit_y_bounds(traces);
+                ui.close();
             }
 
-            let mut auto_fit_y = self.data.y_axis.auto_fit || self.data.auto_fit_to_view;
-            if ui.checkbox(&mut auto_fit_y, "Auto Fit Y").changed() {
-                self.data.y_axis.auto_fit = auto_fit_y;
-                if !auto_fit_y {
-                    self.data.auto_fit_to_view = false;
-                }
-            }
-        });
-
-        ui.checkbox(&mut self.data.y_axis.log_scale, "Log scale")
-            .on_hover_text("Use base-10 log of (value + offset). Non-positive values are omitted.");
-
-        ui.horizontal(|ui| {
-            ui.label("Unit:");
-            let mut unit = self.data.y_axis.get_unit().unwrap_or_default();
             if ui
-                .add(egui::TextEdit::singleline(&mut unit).desired_width(80.0))
+                .checkbox(&mut self.data.y_axis.auto_fit, "Auto Fit Y")
                 .changed()
             {
-                self.data.y_axis.set_unit(if unit.trim().is_empty() {
-                    None
-                } else {
-                    Some(unit)
-                });
+                ui.close();
             }
         });
 
         if show_menu_only_options {
-            ui.horizontal_wrapped(|ui| {
-                ui.checkbox(&mut self.data.show_y_axis_label, "Show Y Label");
-                let mut use_custom = self.axis_uses_custom_label(false);
-                if ui.checkbox(&mut use_custom, "Use custom label").changed() && !use_custom {
+            if ui
+                .checkbox(&mut self.data.y_axis.log_scale, "Log scale")
+                .on_hover_text(
+                    "Use base-10 log of (value + offset). Non-positive values are omitted.",
+                )
+                .changed()
+            {
+                ui.close();
+            };
+
+            ui.horizontal(|ui| {
+                ui.label("Unit:");
+                let mut unit = self.data.y_axis.get_unit().unwrap_or_default();
+                if ui
+                    .add(egui::TextEdit::singleline(&mut unit).desired_width(80.0))
+                    .changed()
+                {
+                    self.data.y_axis.set_unit(if unit.trim().is_empty() {
+                        None
+                    } else {
+                        Some(unit)
+                    });
+                }
+            });
+
+            ui.menu_button("Label", |ui| {
+                ui.checkbox(&mut self.data.y_axis.show_label, "Show Label");
+                let mut use_custom = self.data.y_axis.name.is_some();
+                ui.add_enabled_ui(self.data.y_axis.show_label, |ui| {
+                    if ui.checkbox(&mut use_custom, "Use custom label").changed() {
+                        if use_custom {
+                            self.data.y_axis.name = Some("Y".to_string())
+                        } else {
+                            self.data.y_axis.name = None;
+                        }
+                    }
+                });
+                if !use_custom {
                     self.data.y_axis.name = None;
                 }
                 let mut label = self.data.y_axis.name.clone().unwrap_or_default();
-                ui.add_enabled_ui(use_custom, |ui| {
+                ui.add_enabled_ui(self.data.y_axis.show_label && use_custom, |ui| {
                     if ui
                         .add(
                             egui::TextEdit::singleline(&mut label)
@@ -595,58 +674,71 @@ impl ScopePanel {
                 });
             });
 
-            ui.horizontal_wrapped(|ui| match &mut self.data.y_axis.axis_type {
+            ui.menu_button("Format", |ui| match &mut self.data.y_axis.axis_type {
                 crate::data::scope::AxisType::Time(fmt) => {
-                    ui.label("Y Time Format:");
-                    egui::ComboBox::from_id_salt(("y_time_format", self.data.id))
-                        .selected_text(match fmt {
-                            crate::data::scope::XDateFormat::Iso8601Time => "HH:MM:SS",
-                            crate::data::scope::XDateFormat::Iso8601WithDate => {
-                                "YYYY-MM-DD HH:MM:SS"
-                            }
-                            crate::data::scope::XDateFormat::Iso8601TimeMillis => "HH:MM:SS.mmm",
-                            crate::data::scope::XDateFormat::Iso8601WithDateMillis => {
-                                "YYYY-MM-DD HH:MM:SS.mmm"
-                            }
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                fmt,
-                                crate::data::scope::XDateFormat::Iso8601Time,
-                                "HH:MM:SS",
-                            );
-                            ui.selectable_value(
-                                fmt,
-                                crate::data::scope::XDateFormat::Iso8601WithDate,
-                                "YYYY-MM-DD HH:MM:SS",
-                            );
-                            ui.selectable_value(
-                                fmt,
-                                crate::data::scope::XDateFormat::Iso8601TimeMillis,
-                                "HH:MM:SS.mmm",
-                            );
-                            ui.selectable_value(
-                                fmt,
-                                crate::data::scope::XDateFormat::Iso8601WithDateMillis,
-                                "YYYY-MM-DD HH:MM:SS.mmm",
-                            );
-                        });
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::Iso8601Time,
+                        "HH:MM:SS",
+                    );
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::Iso8601WithDate,
+                        "YYYY-MM-DD HH:MM:SS",
+                    );
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::Iso8601TimeMillis,
+                        "HH:MM:SS.mmm",
+                    );
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::Iso8601WithDateMillis,
+                        "YYYY-MM-DD HH:MM:SS.mmm",
+                    );
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::MinuteSecondMillis,
+                        "MM:SS.mmm",
+                    );
+                    ui.selectable_value(
+                        fmt,
+                        crate::data::scope::XDateFormat::SecondMillis,
+                        "SS.mmm",
+                    );
+                    ui.selectable_value(fmt, crate::data::scope::XDateFormat::MillisOnly, "mmm");
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label("Decimals:");
+                        ui.add(
+                            egui::DragValue::new(&mut self.data.y_axis.value_decimals)
+                                .range(0..=12),
+                        );
+                    });
                 }
                 crate::data::scope::AxisType::Value(_) => {
-                    ui.label("Y Value Format:");
-                    ui.label("Decimals:");
-                    ui.add(
-                        egui::DragValue::new(&mut self.data.y_axis.value_decimals).range(0..=12),
-                    );
-                    ui.label("Sci min exp:");
-                    ui.add(egui::DragValue::new(
-                        &mut self.data.y_axis.scientific_min_exp,
-                    ));
-                    ui.label("max exp:");
-                    ui.add(egui::DragValue::new(
-                        &mut self.data.y_axis.scientific_max_exp,
-                    ));
+                    ui.horizontal(|ui| {
+                        ui.label("Decimals:");
+                        ui.add(
+                            egui::DragValue::new(&mut self.data.y_axis.value_decimals)
+                                .range(0..=12),
+                        );
+                    });
                     ui.checkbox(&mut self.data.y_axis.always_scientific, "Always scientific");
+                    ui.add_enabled_ui(!self.data.y_axis.always_scientific, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Sci min exp:");
+                            ui.add(egui::DragValue::new(
+                                &mut self.data.y_axis.scientific_min_exp,
+                            ));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("max exp:");
+                            ui.add(egui::DragValue::new(
+                                &mut self.data.y_axis.scientific_max_exp,
+                            ));
+                        });
+                    });
                 }
             });
         }
@@ -797,9 +889,7 @@ impl ScopePanel {
             }
 
             // Apply bounds: X follows latest time using time_window; Y respects manual limits if valid
-            let force_time_follow =
-                self.data.scope_type == ScopeType::TimeScope && !self.data.paused;
-            if !bounds_changed || force_time_follow {
+            if !bounds_changed {
                 let (x_min, x_max) = self.data.x_axis.bounds;
                 let x_space = (x_max - x_min) * 0.05;
                 plot_ui.set_plot_bounds_x(x_min - x_space..=x_max + x_space);
@@ -1024,30 +1114,11 @@ impl ScopePanel {
 
         self.record_plot_geometry(&plot_resp);
 
+        let old_x_bounds = self.data.x_axis.bounds;
+        let old_y_bounds = self.data.y_axis.bounds;
+
         // After plot: if bounds changed, sync time_window and Y limits from actual plot bounds
         if plot_resp.inner {
-            if self.data.scope_type == ScopeType::TimeScope && !self.data.paused {
-                // Keep streaming scopes following live time even if the plot was interacted with.
-                // We still allow Y interaction state to be updated below.
-                let b = plot_resp.transform.bounds();
-                let yr = b.range_y();
-                let (y_min, y_max) = (yr.start(), yr.end());
-                let space_y = (0.05 / 1.1) * (y_max - y_min);
-                if y_min.is_finite() && y_max.is_finite() && y_max > y_min {
-                    self.data.y_axis.auto_fit = false;
-                    self.data.auto_fit_to_view = false;
-                    self.data.y_axis.bounds = (y_min + space_y, y_max - space_y);
-                }
-                self.handle_plot_click(&plot_resp, traces);
-                self.handle_trace_drop(ui, &plot_resp.response);
-                return;
-            }
-
-            // Manual interaction disables all active auto-fit modes for this scope.
-            self.data.x_axis.auto_fit = false;
-            self.data.y_axis.auto_fit = false;
-            self.data.auto_fit_to_view = false;
-
             let b = plot_resp.transform.bounds();
             let xr = b.range_x();
             let (x_min, x_max) = (xr.start(), xr.end());
@@ -1061,6 +1132,22 @@ impl ScopePanel {
             let space_y = (0.05 / 1.1) * (y_max - y_min);
             if y_min.is_finite() && y_max.is_finite() && y_max > y_min {
                 self.data.y_axis.bounds = (y_min + space_y, y_max - space_y);
+            }
+
+            let new_x_bounds = self.data.x_axis.bounds;
+            let new_y_bounds = self.data.y_axis.bounds;
+
+            let x_changed = (new_x_bounds.0 - old_x_bounds.0).abs() > 1e-12
+                || (new_x_bounds.1 - old_x_bounds.1).abs() > 1e-12;
+            let y_changed = (new_y_bounds.0 - old_y_bounds.0).abs() > 1e-12
+                || (new_y_bounds.1 - old_y_bounds.1).abs() > 1e-12;
+
+            if x_changed {
+                self.data.x_axis.auto_fit = false;
+            }
+            if y_changed {
+                self.data.y_axis.auto_fit = false;
+                self.data.auto_fit_to_view = false;
             }
 
             // Emit zoom/pan event
