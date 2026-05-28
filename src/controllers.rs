@@ -530,6 +530,8 @@ pub struct ScopeControlState {
     pub paused: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
+    pub show_x_axis_label: bool,
+    pub show_y_axis_label: bool,
     pub trace_order: Vec<TraceRef>,
     pub scope_type: ScopeType,
 }

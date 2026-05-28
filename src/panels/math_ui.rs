@@ -240,7 +240,9 @@ impl Panel for MathPanel {
                 // Right-aligned per-trace actions: Reset and Remove
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Remove button with hover highlight
-                    let remove_resp = ui.button(egui_phosphor::regular::TRASH).on_hover_text("Remove");
+                    let remove_resp = ui
+                        .button(egui_phosphor::regular::TRASH)
+                        .on_hover_text("Remove");
                     if remove_resp.hovered() {
                         hover_trace_intern = Some(def.name.clone());
                     }

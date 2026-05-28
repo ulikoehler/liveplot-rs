@@ -149,6 +149,8 @@ impl LivePlotPanel {
             required_width += calc_width(&format!("{BROOM} Clear All"));
         }
 
+        required_width += calc_width("🖼 Screenshot");
+
         // Remove trailing spacing
         required_width -= item_spacing;
 
@@ -283,6 +285,23 @@ impl LivePlotPanel {
                         if ui.button(clear_all_label).on_hover_text(clear_tt).clicked() {
                             data.request_clear_all();
                         }
+                    }
+
+                    let screenshot_label = if topbar_collapsed {
+                        "🖼"
+                    } else {
+                        "🖼 Screenshot"
+                    };
+                    if ui
+                        .button(screenshot_label)
+                        .on_hover_text("Take screenshots of all visible scopes")
+                        .clicked()
+                    {
+                        data.pending_requests.screenshot =
+                            Some(crate::data::data::ScreenshotRequest {
+                                target: crate::data::data::ScreenshotTarget::VisibleScopes,
+                                path: None,
+                            });
                     }
                 }
 

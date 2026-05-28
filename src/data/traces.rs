@@ -134,7 +134,7 @@ impl Default for TracesCollection {
         Self {
             traces: HashMap::new(),
             max_points: 10_000,
-            points_bounds: (500, 200000),
+            points_bounds: (100, 200000),
             hover_trace: None,
             rx: None,
             id_to_name: HashMap::new(),

@@ -85,19 +85,28 @@ impl Panel for TriggersPanel {
                 st.request_docket = true;
                 ui.close();
             }
-            if ui.button(egui_phosphor::regular::PLAY.to_string() + " Start all").clicked() {
+            if ui
+                .button(egui_phosphor::regular::PLAY.to_string() + " Start all")
+                .clicked()
+            {
                 for (_n, trig) in self.triggers.iter_mut() {
                     trig.start();
                 }
                 ui.close();
             }
-            if ui.button(egui_phosphor::regular::STOP.to_string() + " Stop all").clicked() {
+            if ui
+                .button(egui_phosphor::regular::STOP.to_string() + " Stop all")
+                .clicked()
+            {
                 for (_n, trig) in self.triggers.iter_mut() {
                     trig.stop();
                 }
                 ui.close();
             }
-            if ui.button(egui_phosphor::regular::ARROW_CLOCKWISE.to_string() + " Reset all").clicked() {
+            if ui
+                .button(egui_phosphor::regular::ARROW_CLOCKWISE.to_string() + " Reset all")
+                .clicked()
+            {
                 for (_n, trig) in self.triggers.iter_mut() {
                     trig.reset_runtime_state();
                 }
@@ -336,7 +345,11 @@ impl Panel for TriggersPanel {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(egui_phosphor::regular::TRASH).on_hover_text("Remove").clicked() {
+                    if ui
+                        .button(egui_phosphor::regular::TRASH)
+                        .on_hover_text("Remove")
+                        .clicked()
+                    {
                         to_remove = true;
                     }
                 });
@@ -375,21 +388,30 @@ impl Panel for TriggersPanel {
                 ui.label(last_text);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .add_enabled(last_exists, egui::Button::new(egui_phosphor::regular::ARROW_CLOCKWISE))
+                        .add_enabled(
+                            last_exists,
+                            egui::Button::new(egui_phosphor::regular::ARROW_CLOCKWISE),
+                        )
                         .clicked()
                     {
                         do_reset = true;
                     }
                     if is_active {
                         if ui
-                            .add_enabled(enabled_flag, egui::Button::new(egui_phosphor::regular::STOP))
+                            .add_enabled(
+                                enabled_flag,
+                                egui::Button::new(egui_phosphor::regular::STOP),
+                            )
                             .clicked()
                         {
                             toggle_start = Some(false);
                         }
                     } else {
                         if ui
-                            .add_enabled(enabled_flag, egui::Button::new(egui_phosphor::regular::PLAY))
+                            .add_enabled(
+                                enabled_flag,
+                                egui::Button::new(egui_phosphor::regular::PLAY),
+                            )
                             .clicked()
                         {
                             toggle_start = Some(true);

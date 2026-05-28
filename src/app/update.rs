@@ -16,10 +16,173 @@
 use eframe::egui;
 
 use crate::data::data::LivePlotData;
+use crate::data::data::ScreenshotRequest;
 
 use super::LivePlotPanel;
 
 impl LivePlotPanel {
+    fn screenshot_default_name(&self, multi_scope: bool) -> String {
+        let prefix = if multi_scope { "scopes" } else { "scope" };
+        format!(
+            "{}_{:.0}.png",
+            prefix,
+            chrono::Local::now().timestamp_millis()
+        )
+    }
+
+    fn sanitize_screenshot_name(name: &str) -> String {
+        let sanitized: String = name
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        sanitized.trim_matches('_').to_string()
+    }
+
+    fn build_image_from_screenshot(image: &egui::ColorImage) -> image::RgbaImage {
+        let [w, h] = image.size;
+        let mut out = image::RgbaImage::new(w as u32, h as u32);
+        for y in 0..h {
+            for x in 0..w {
+                let p = image.pixels[y * w + x];
+                out.put_pixel(
+                    x as u32,
+                    y as u32,
+                    image::Rgba([p.r(), p.g(), p.b(), p.a()]),
+                );
+            }
+        }
+        out
+    }
+
+    fn handle_completed_screenshot(&mut self, ctx: &egui::Context) {
+        let Some(pending) = self.pending_screenshot_capture.clone() else {
+            return;
+        };
+        let Some(image_arc) = ctx.input(|i| {
+            i.events.iter().rev().find_map(|event| {
+                if let egui::Event::Screenshot { image, .. } = event {
+                    Some(image.clone())
+                } else {
+                    None
+                }
+            })
+        }) else {
+            return;
+        };
+        self.pending_screenshot_capture = None;
+
+        if pending.targets.is_empty() {
+            return;
+        }
+
+        let viewport_image = Self::build_image_from_screenshot(&image_arc);
+        let base_path = match pending.path.clone() {
+            Some(path) => Some(path),
+            None => rfd::FileDialog::new()
+                .set_file_name(&self.screenshot_default_name(pending.targets.len() > 1))
+                .add_filter("PNG", &["png"])
+                .save_file(),
+        };
+        let Some(base_path) = base_path else {
+            return;
+        };
+
+        let ext = base_path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .filter(|ext| !ext.is_empty())
+            .unwrap_or("png")
+            .to_string();
+        let stem = base_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .filter(|stem| !stem.is_empty())
+            .unwrap_or("screenshot")
+            .to_string();
+        let parent = base_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+        for (idx, target) in pending.targets.iter().enumerate() {
+            let left = ((target.rect[0] - pending.content_origin[0]) * pending.pixels_per_point)
+                .floor()
+                .max(0.0) as u32;
+            let top = ((target.rect[1] - pending.content_origin[1]) * pending.pixels_per_point)
+                .floor()
+                .max(0.0) as u32;
+            let right = ((target.rect[2] - pending.content_origin[0]) * pending.pixels_per_point)
+                .ceil()
+                .min(viewport_image.width() as f32) as u32;
+            let bottom = ((target.rect[3] - pending.content_origin[1]) * pending.pixels_per_point)
+                .ceil()
+                .min(viewport_image.height() as f32) as u32;
+            if right <= left || bottom <= top {
+                continue;
+            }
+
+            let cropped =
+                image::imageops::crop_imm(&viewport_image, left, top, right - left, bottom - top)
+                    .to_image();
+
+            let output_path = if pending.targets.len() == 1 {
+                base_path.clone()
+            } else {
+                let scope_name = Self::sanitize_screenshot_name(&target.scope_name);
+                let suffix = if scope_name.is_empty() {
+                    format!("scope_{}", target.scope_id + 1)
+                } else {
+                    scope_name
+                };
+                parent.join(format!("{stem}__{suffix}_{idx}.{ext}"))
+            };
+
+            match cropped.save(&output_path) {
+                Ok(()) => {
+                    if let Some(ctrl) = &self.event_ctrl {
+                        let mut event =
+                            crate::events::PlotEvent::new(crate::events::EventKind::SCREENSHOT);
+                        event.export = Some(crate::events::ExportMeta {
+                            format: "png".to_string(),
+                            path: Some(output_path.to_string_lossy().to_string()),
+                        });
+                        ctrl.emit_filtered(event);
+                    }
+                }
+                Err(err) => {
+                    eprintln!("Failed to save scope screenshot: {err}");
+                }
+            }
+        }
+    }
+
+    fn queue_screenshot_capture(&mut self, ctx: &egui::Context, request: ScreenshotRequest) {
+        if self.pending_screenshot_capture.is_some() {
+            self.pending_requests.screenshot = Some(request);
+            return;
+        }
+
+        let targets = self.liveplot_panel.screenshot_targets(&request.target);
+        if targets.is_empty() {
+            return;
+        }
+
+        let content_rect = ctx.input(|i| i.content_rect());
+        self.pending_screenshot_capture = Some(super::PendingScreenshotCapture {
+            targets,
+            path: request.path,
+            pixels_per_point: ctx.pixels_per_point(),
+            content_origin: [content_rect.left(), content_rect.top()],
+        });
+        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+    }
+
     /// Main per-frame update: ingest data, render menu / side panels, then draw the plot.
     ///
     /// Call this from an egui `Ui` context each frame.  In standalone mode it is
@@ -35,6 +198,7 @@ impl LivePlotPanel {
             self.last_plot_size = ui.max_rect().size();
 
             self.update_data();
+            self.handle_completed_screenshot(ui.ctx());
 
             // Propagate the event controller to scope panels (handles new scopes too).
             self.liveplot_panel
@@ -150,6 +314,7 @@ impl LivePlotPanel {
                     };
 
                 // Render the liveplot panel; `draw_overlays` supplies per-panel overlays.
+                self.liveplot_panel.clear_rendered_flags();
                 self.liveplot_panel
                     .render_panel(ui, &mut draw_overlays, &mut self.traces_data);
 
@@ -162,6 +327,14 @@ impl LivePlotPanel {
 
                 self.traces_data.hover_trace = None;
             });
+
+            let screenshot_request = self
+                .liveplot_panel
+                .take_scope_screenshot_request()
+                .or_else(|| self.pending_requests.screenshot.take());
+            if let Some(request) = screenshot_request {
+                self.queue_screenshot_capture(ui.ctx(), request);
+            }
         });
     }
 

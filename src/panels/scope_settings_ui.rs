@@ -31,6 +31,18 @@ pub struct ScopeSettingsUiPanel {
     last_time_scope_width: HashMap<usize, f32>,
 }
 
+fn trace_tooltip(traces_collection: &TracesCollection, trace: &TraceRef) -> String {
+    let info = traces_collection
+        .get_trace(trace)
+        .map(|tr| tr.info.as_str())
+        .unwrap_or("");
+    if info.trim().is_empty() {
+        trace.0.clone()
+    } else {
+        format!("{}\n{}", trace.0, info)
+    }
+}
+
 impl ScopeSettingsUiPanel {
     fn render_scope_settings(
         &mut self,
@@ -353,11 +365,13 @@ impl ScopeSettingsUiPanel {
                                             }
                                         }
 
-                                        let resp = ui.add(
-                                            egui::Label::new(t.0.clone())
-                                                .truncate()
-                                                .show_tooltip_when_elided(true),
-                                        );
+                                        let resp = ui
+                                            .add(
+                                                egui::Label::new(t.0.clone())
+                                                    .truncate()
+                                                    .show_tooltip_when_elided(true),
+                                            )
+                                            .on_hover_text(trace_tooltip(traces_collection, t));
                                         if resp.hovered() {
                                             traces_collection.hover_trace = Some(t.clone());
                                         }
@@ -585,12 +599,7 @@ impl ScopeSettingsUiPanel {
                 }
             }
             ScopeType::XYScope => {
-                let target_w = self
-                    .last_time_scope_width
-                    .get(&scope.id)
-                    .copied()
-                    .unwrap_or_else(|| ui.available_width())
-                    .min(ui.available_width());
+                let target_w = ui.available_width();
 
                 // Keep your per-column lists, but make them actually apply changes back.
                 // Note: empty TraceRef ("") is treated as None.

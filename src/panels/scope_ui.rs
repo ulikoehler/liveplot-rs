@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::scope::ScopeData;
 use crate::data::scope::ScopeType;
+use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
 use crate::events::EventController;
 
@@ -24,6 +25,7 @@ pub struct ScopePanel {
     controlls_in_toolbar: bool,
     zoom_mode: ZoomMode,
     time_slider_dragging: bool,
+    request_screenshot: bool,
     time_window_bounds: (f64, f64),
 
     // Event controller reference for emitting events
@@ -51,6 +53,7 @@ impl Default for ScopePanel {
             controlls_in_toolbar: false,
             zoom_mode: ZoomMode::X,
             time_slider_dragging: false,
+            request_screenshot: false,
             time_window_bounds: (0.1, 100.0),
             event_ctrl: None,
             min_width_for_y_ticklabels: 250.0,
@@ -113,6 +116,113 @@ impl ScopePanel {
         let rect = plot_response.response.rect;
         self.data.last_plot_screen_rect =
             Some([rect.left(), rect.top(), rect.right(), rect.bottom()]);
+        self.data.rendered_this_frame = true;
+    }
+
+    fn default_axis_name(&self, is_x: bool) -> &'static str {
+        match (self.data.scope_type, is_x) {
+            (ScopeType::TimeScope, true) => "Time",
+            (ScopeType::TimeScope, false) => "Y",
+            (ScopeType::XYScope, true) => "X",
+            (ScopeType::XYScope, false) => "Y",
+        }
+    }
+
+    fn generated_axis_trace_names(&self, traces: &TracesCollection, is_x: bool) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        let mut push_name = |trace: &TraceRef| {
+            if let Some(tr) = traces.get_trace(trace) {
+                if tr.look.visible && !names.iter().any(|name| name == &trace.0) {
+                    names.push(trace.0.clone());
+                }
+            }
+        };
+
+        match (self.data.scope_type, is_x) {
+            (ScopeType::TimeScope, true) => return vec!["Time".to_string()],
+            (ScopeType::TimeScope, false) => {
+                for trace in &self.data.trace_order {
+                    push_name(trace);
+                }
+            }
+            (ScopeType::XYScope, true) => {
+                for (x, _, _) in &self.data.xy_pairs {
+                    if let Some(trace) = x {
+                        push_name(trace);
+                    }
+                }
+            }
+            (ScopeType::XYScope, false) => {
+                for (_, y, _) in &self.data.xy_pairs {
+                    if let Some(trace) = y {
+                        push_name(trace);
+                    }
+                }
+            }
+        }
+
+        if names.is_empty() {
+            match (self.data.scope_type, is_x) {
+                (ScopeType::TimeScope, false) => {
+                    for trace in &self.data.trace_order {
+                        if !names.iter().any(|name| name == &trace.0) {
+                            names.push(trace.0.clone());
+                        }
+                    }
+                }
+                (ScopeType::XYScope, true) => {
+                    for (x, _, _) in &self.data.xy_pairs {
+                        if let Some(trace) = x {
+                            if !names.iter().any(|name| name == &trace.0) {
+                                names.push(trace.0.clone());
+                            }
+                        }
+                    }
+                }
+                (ScopeType::XYScope, false) => {
+                    for (_, y, _) in &self.data.xy_pairs {
+                        if let Some(trace) = y {
+                            if !names.iter().any(|name| name == &trace.0) {
+                                names.push(trace.0.clone());
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        names
+    }
+
+    fn axis_label_text(&self, traces: &TracesCollection, is_x: bool) -> Option<String> {
+        let show_label = if is_x {
+            self.data.show_x_axis_label
+        } else {
+            self.data.show_y_axis_label
+        };
+        if !show_label {
+            return None;
+        }
+
+        let axis = if is_x {
+            &self.data.x_axis
+        } else {
+            &self.data.y_axis
+        };
+        let default_name = self.default_axis_name(is_x);
+        if let Some(custom) = axis.name.as_deref().map(str::trim) {
+            if !custom.is_empty() && custom != default_name {
+                return Some(custom.to_string());
+            }
+        }
+
+        let names = self.generated_axis_trace_names(traces, is_x);
+        if names.is_empty() {
+            Some(default_name.to_string())
+        } else {
+            Some(names.join(", "))
+        }
     }
 
     fn capture_clicked_plot_point(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
@@ -165,6 +275,10 @@ impl ScopePanel {
     /// Enable or disable the left-click pause/resume behaviour for this scope.
     pub fn set_pause_on_click(&mut self, enabled: bool) {
         self.data.pause_on_click = enabled;
+    }
+
+    pub fn take_screenshot_request(&mut self) -> bool {
+        std::mem::take(&mut self.request_screenshot)
     }
 
     pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
@@ -286,6 +400,28 @@ impl ScopePanel {
             ui.checkbox(&mut self.data.x_axis.auto_fit, "Auto Fit X");
         });
 
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut self.data.show_x_axis_label, "Show X Label");
+            ui.label("Custom:");
+            let mut label = self.data.x_axis.name.clone().unwrap_or_default();
+            if ui
+                .add(
+                    egui::TextEdit::singleline(&mut label)
+                        .desired_width(140.0)
+                        .hint_text("auto"),
+                )
+                .on_hover_text("Leave empty to derive the X-axis label from the scope traces")
+                .changed()
+            {
+                let trimmed = label.trim();
+                self.data.x_axis.name = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                };
+            }
+        });
+
         ui.separator();
 
         // Y controls
@@ -348,6 +484,28 @@ impl ScopePanel {
             }
         });
 
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut self.data.show_y_axis_label, "Show Y Label");
+            ui.label("Custom:");
+            let mut label = self.data.y_axis.name.clone().unwrap_or_default();
+            if ui
+                .add(
+                    egui::TextEdit::singleline(&mut label)
+                        .desired_width(140.0)
+                        .hint_text("auto"),
+                )
+                .on_hover_text("Leave empty to derive the Y-axis label from the scope traces")
+                .changed()
+            {
+                let trimmed = label.trim();
+                self.data.y_axis.name = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                };
+            }
+        });
+
         ui.separator();
 
         ui.horizontal(|ui| {
@@ -386,68 +544,10 @@ impl ScopePanel {
         // Screenshot button kept in core controls
         if ui
             .button("🖼 Save Screenshot")
-            .on_hover_text("Take a screenshot of the entire window")
+            .on_hover_text("Take a screenshot of this scope")
             .clicked()
         {
-            ui.ctx()
-                .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
-        }
-    }
-
-    // Handle a completed screenshot event and write the PNG to disk.
-    // If an environment variable LIVEPLOT_SAVE_SCREENSHOT_TO is set, save there.
-    // Otherwise, prompt the user for a path.
-    fn handle_screenshot_result(&mut self, ui: &mut Ui) {
-        if let Some(image_arc) = ui.ctx().input(|i| {
-            i.events.iter().rev().find_map(|e| {
-                if let egui::Event::Screenshot { image, .. } = e {
-                    Some(image.clone())
-                } else {
-                    None
-                }
-            })
-        }) {
-            // Convert ColorImage to an image::RgbaImage
-            let img = &*image_arc;
-            let [w, h] = img.size;
-            let mut out = image::RgbaImage::new(w as u32, h as u32);
-            for y in 0..h {
-                for x in 0..w {
-                    let p = img.pixels[y * w + x];
-                    out.put_pixel(
-                        x as u32,
-                        y as u32,
-                        image::Rgba([p.r(), p.g(), p.b(), p.a()]),
-                    );
-                }
-            }
-
-            // Determine path: env var or file dialog
-            if let Ok(path_str) = std::env::var("LIVEPLOT_SAVE_SCREENSHOT_TO") {
-                std::env::remove_var("LIVEPLOT_SAVE_SCREENSHOT_TO");
-                let path = std::path::PathBuf::from(path_str);
-                if let Err(e) = out.save(&path) {
-                    eprintln!("Failed to save viewport screenshot: {e}");
-                } else {
-                    eprintln!("Saved viewport screenshot to {:?}", path);
-                }
-            } else {
-                let default_name = format!(
-                    "viewport_{:.0}.png",
-                    chrono::Local::now().timestamp_millis()
-                );
-                if let Some(path) = rfd::FileDialog::new()
-                    .set_file_name(&default_name)
-                    .add_filter("PNG", &["png"])
-                    .save_file()
-                {
-                    if let Err(e) = out.save(&path) {
-                        eprintln!("Failed to save viewport screenshot: {e}");
-                    } else {
-                        eprintln!("Saved viewport screenshot to {:?}", path);
-                    }
-                }
-            }
+            self.request_screenshot = true;
         }
     }
 
@@ -455,9 +555,6 @@ impl ScopePanel {
     where
         F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
     {
-        // First, handle any completed screenshot events from the OS/windowing backend.
-        self.handle_screenshot_result(ui);
-
         // Determine whether tick labels should be suppressed based on the TOTAL
         // widget size (including top bar, sidebars, etc.) so the decision is
         // stable and doesn't jump as sub-panels are toggled.
@@ -481,6 +578,16 @@ impl ScopePanel {
             // suppress the egui_plot axis space reservation so the plot fills the full
             // widget width without a black gutter on the left (Y axis) or bottom (X axis).
             .show_axes(egui::Vec2b::new(!hide_x_labels, !hide_y_labels));
+        if !hide_x_labels {
+            if let Some(label) = self.axis_label_text(traces, true) {
+                plot = plot.x_axis_label(label);
+            }
+        }
+        if !hide_y_labels {
+            if let Some(label) = self.axis_label_text(traces, false) {
+                plot = plot.y_axis_label(label);
+            }
+        }
         if self.data.show_legend && !hide_legend {
             plot = plot.legend(Legend::default());
         }

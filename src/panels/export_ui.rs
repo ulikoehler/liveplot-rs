@@ -1,5 +1,6 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::LivePlotData;
+use crate::data::data::{ScreenshotRequest, ScreenshotTarget};
 use crate::data::export; // main crate's export module
 use crate::data::traces::TraceRef;
 use egui::Ui;
@@ -51,32 +52,13 @@ impl Panel for ExportPanel {
         let mr = ui.menu_button(label, |ui| {
             if ui
                 .button("🖼 Save Screenshot")
-                .on_hover_text("Take a screenshot of the entire window")
+                .on_hover_text("Take screenshots of all visible scopes")
                 .clicked()
             {
-                // Choose a path and request a screenshot; Scope panel will handle saving.
-                if let Some(path) = rfd::FileDialog::new()
-                    .set_file_name("screenshot.png")
-                    .add_filter("PNG", &["png"])
-                    .save_file()
-                {
-                    std::env::set_var(
-                        "LIVEPLOT_SAVE_SCREENSHOT_TO",
-                        path.to_string_lossy().to_string(),
-                    );
-                    // Emit SCREENSHOT event
-                    if let Some(ctrl) = &data.event_ctrl {
-                        let mut evt =
-                            crate::events::PlotEvent::new(crate::events::EventKind::SCREENSHOT);
-                        evt.export = Some(crate::events::ExportMeta {
-                            format: "png".to_string(),
-                            path: Some(path.to_string_lossy().to_string()),
-                        });
-                        ctrl.emit_filtered(evt);
-                    }
-                }
-                ui.ctx()
-                    .send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                data.pending_requests.screenshot = Some(ScreenshotRequest {
+                    target: ScreenshotTarget::VisibleScopes,
+                    path: None,
+                });
                 ui.close();
             }
             if ui.button("Snapshot as CSV").clicked() {

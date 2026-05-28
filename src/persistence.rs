@@ -348,6 +348,10 @@ pub struct ScopeStateSerde {
     pub scope_is_xy: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
+    #[serde(default)]
+    pub show_x_axis_label: bool,
+    #[serde(default)]
+    pub show_y_axis_label: bool,
     /// Whether automatic Y-axis fit-to-view is enabled.
     #[serde(default = "default_true")]
     pub auto_fit_to_view: bool,
@@ -387,6 +391,8 @@ impl From<&ScopeData> for ScopeStateSerde {
             scope_is_xy: matches!(s.scope_type, ScopeType::XYScope),
             show_legend: s.show_legend,
             show_info_in_legend: s.show_info_in_legend,
+            show_x_axis_label: s.show_x_axis_label,
+            show_y_axis_label: s.show_y_axis_label,
             auto_fit_to_view: s.auto_fit_to_view,
             keep_max_fit: s.keep_max_fit,
             id: Some(s.id),
@@ -430,6 +436,8 @@ impl ScopeStateSerde {
         };
         scope.show_legend = self.show_legend;
         scope.show_info_in_legend = self.show_info_in_legend;
+        scope.show_x_axis_label = self.show_x_axis_label;
+        scope.show_y_axis_label = self.show_y_axis_label;
         scope.auto_fit_to_view = self.auto_fit_to_view;
         scope.keep_max_fit = self.keep_max_fit;
         if let Some(name) = self.name {
@@ -592,6 +600,8 @@ impl Default for AppStateSerde {
                 scope_is_xy: false,
                 show_legend: true,
                 show_info_in_legend: false,
+                show_x_axis_label: false,
+                show_y_axis_label: false,
                 auto_fit_to_view: true,
                 keep_max_fit: false,
                 pause_on_click: false,

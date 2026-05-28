@@ -1,13 +1,28 @@
 //! LivePlotData: a view struct combining scope data and traces.
 
+use std::path::PathBuf;
+
 use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 use crate::events::EventController;
 use std::collections::{HashMap, VecDeque};
 
+#[derive(Clone, Debug)]
+pub enum ScreenshotTarget {
+    CurrentScope(usize),
+    VisibleScopes,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScreenshotRequest {
+    pub target: ScreenshotTarget,
+    pub path: Option<PathBuf>,
+}
+
 pub struct LivePlotRequests {
     pub save_state: Option<std::path::PathBuf>,
     pub load_state: Option<std::path::PathBuf>,
+    pub screenshot: Option<ScreenshotRequest>,
     pub add_scope: bool,
     pub remove_scope: Option<usize>,
     pub clear_math: bool,
@@ -21,6 +36,7 @@ impl Default for LivePlotRequests {
         Self {
             save_state: None,
             load_state: None,
+            screenshot: None,
             add_scope: false,
             remove_scope: None,
             clear_math: false,

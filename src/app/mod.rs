@@ -33,6 +33,7 @@ pub use run::run_liveplot;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -80,6 +81,21 @@ pub(crate) struct EffectiveLayout {
     pub show_top_bar: bool,
     /// Whether sidebar panel content (attached panel widgets) is visible.
     pub show_sidebar_panels: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ScreenshotCropTarget {
+    pub scope_id: usize,
+    pub scope_name: String,
+    pub rect: [f32; 4],
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingScreenshotCapture {
+    pub targets: Vec<ScreenshotCropTarget>,
+    pub path: Option<PathBuf>,
+    pub pixels_per_point: f32,
+    pub content_origin: [f32; 2],
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,6 +189,9 @@ pub struct LivePlotPanel {
     /// Pending requests (save/load state, add/remove scope) accumulated during one frame.
     pub pending_requests: LivePlotRequests,
 
+    /// In-flight screenshot capture waiting for the next viewport screenshot event.
+    pub(crate) pending_screenshot_capture: Option<PendingScreenshotCapture>,
+
     // ── Responsive button-layout configuration ───────────────────────────────
     /// Buttons placed in the top menu bar.  `None` = the full default set.
     pub top_bar_buttons: Option<Vec<ScopeButton>>,
@@ -240,6 +259,7 @@ impl LivePlotPanel {
             event_ctrl: None,
             threshold_event_cursors: HashMap::new(),
             pending_requests: LivePlotRequests::default(),
+            pending_screenshot_capture: None,
             top_bar_buttons: None,
             sidebar_buttons: None,
             min_height_for_top_bar: 200.0,

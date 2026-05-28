@@ -1,4 +1,6 @@
 use super::scope_ui::ScopePanel;
+use crate::app::ScreenshotCropTarget;
+use crate::data::data::{ScreenshotRequest, ScreenshotTarget};
 use crate::data::scope::ScopeData;
 use crate::data::traces::TracesCollection;
 use egui::{Stroke, Ui, Visuals, WidgetText};
@@ -496,6 +498,62 @@ where
         {
             self.controls_toggle_pressed = true;
         }
+    }
+}
+
+impl LiveplotPanel {
+    pub(crate) fn clear_rendered_flags(&mut self) {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                pane.get_data_mut().rendered_this_frame = false;
+            }
+        }
+    }
+
+    pub(crate) fn take_scope_screenshot_request(&mut self) -> Option<ScreenshotRequest> {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                if pane.take_screenshot_request() {
+                    return Some(ScreenshotRequest {
+                        target: ScreenshotTarget::CurrentScope(pane.id()),
+                        path: None,
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn screenshot_targets(
+        &self,
+        target: &ScreenshotTarget,
+    ) -> Vec<ScreenshotCropTarget> {
+        let mut targets = Vec::new();
+        for tile in self.tree.tiles.tiles() {
+            let Tile::Pane(pane) = tile else {
+                continue;
+            };
+            let data = pane.get_data();
+            if !data.rendered_this_frame {
+                continue;
+            }
+            let Some(rect) = data.last_plot_screen_rect else {
+                continue;
+            };
+            let include = match target {
+                ScreenshotTarget::CurrentScope(scope_id) => data.id == *scope_id,
+                ScreenshotTarget::VisibleScopes => true,
+            };
+            if include {
+                targets.push(ScreenshotCropTarget {
+                    scope_id: data.id,
+                    scope_name: data.name.clone(),
+                    rect,
+                });
+            }
+        }
+        targets.sort_by_key(|target| target.scope_id);
+        targets
     }
 }
 

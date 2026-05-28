@@ -588,7 +588,7 @@ impl Panel for MeasurementPanel {
             // Use a scope so mutable borrows do not conflict
             ui.separator();
             let mut remove_this = false;
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let selected = self.selected_measurement == Some(i);
                 let label = ui.selectable_label(selected, format!("#{}", i + 1));
                 if label.clicked() {
@@ -596,7 +596,10 @@ impl Panel for MeasurementPanel {
                 }
 
                 let m = &mut self.measurements[i];
-                let name_edit = ui.text_edit_singleline(&mut m.name);
+                let name_edit = ui.add_sized(
+                    egui::vec2(120.0, 0.0),
+                    egui::TextEdit::singleline(&mut m.name).desired_width(120.0),
+                );
                 if name_edit.clicked() {
                     self.selected_measurement = Some(i);
                 }
@@ -627,12 +630,16 @@ impl Panel for MeasurementPanel {
                     m.catch_trace = selected_trace_name.clone();
                 }
 
-                let clear_btn = ui.button(egui_phosphor::regular::BROOM).on_hover_text("Clear");
+                let clear_btn = ui
+                    .button(egui_phosphor::regular::BROOM)
+                    .on_hover_text("Clear");
                 if clear_btn.clicked() {
                     m.clear();
                 }
 
-                let rm_btn = ui.button(egui_phosphor::regular::TRASH).on_hover_text("Remove");
+                let rm_btn = ui
+                    .button(egui_phosphor::regular::TRASH)
+                    .on_hover_text("Remove");
                 if rm_btn.clicked() {
                     remove_this = true;
                 }

@@ -9,6 +9,14 @@ use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 use super::scope_settings_ui::{DragPayload, ScopeSettingsUiPanel};
 use super::trace_look_ui::render_trace_look_editor;
 
+fn trace_tooltip(name: &TraceRef, info: &str) -> String {
+    if info.trim().is_empty() {
+        name.0.clone()
+    } else {
+        format!("{}\n{}", name.0, info)
+    }
+}
+
 pub struct TracesPanel {
     pub state: PanelState,
     pub look_editor_trace: Option<TraceRef>,
@@ -318,12 +326,19 @@ impl Panel for TracesPanel {
                             }
                             2 => {
                                 ui.add_space(4.0);
-                                let resp = ui.add(
-                                    egui::Label::new(r.name.0.clone())
-                                        .truncate()
-                                        .show_tooltip_when_elided(true)
-                                        .sense(egui::Sense::click_and_drag()),
-                                );
+                                let tooltip = self
+                                    .traces
+                                    .get_trace(&r.name)
+                                    .map(|tr| trace_tooltip(&r.name, &tr.info))
+                                    .unwrap_or_else(|| r.name.0.clone());
+                                let resp = ui
+                                    .add(
+                                        egui::Label::new(r.name.0.clone())
+                                            .truncate()
+                                            .show_tooltip_when_elided(true)
+                                            .sense(egui::Sense::click_and_drag()),
+                                    )
+                                    .on_hover_text(tooltip);
                                 if resp.hovered() {
                                     *self.hover_out = Some(r.name.clone());
                                 }
@@ -386,12 +401,15 @@ impl Panel for TracesPanel {
                                 ui.add_space(4.0);
                                 if let Some(tr) = self.traces.get_trace(&r.name) {
                                     let text = tr.info.clone();
-                                    let resp = ui.add(
-                                        egui::Label::new(text.clone())
-                                            .truncate()
-                                            .show_tooltip_when_elided(true)
-                                            .sense(egui::Sense::click()),
-                                    );
+                                    let tooltip = trace_tooltip(&r.name, &text);
+                                    let resp = ui
+                                        .add(
+                                            egui::Label::new(text.clone())
+                                                .truncate()
+                                                .show_tooltip_when_elided(true)
+                                                .sense(egui::Sense::click()),
+                                        )
+                                        .on_hover_text(tooltip);
                                     if resp.hovered() {
                                         *self.hover_out = Some(r.name.clone());
                                     }

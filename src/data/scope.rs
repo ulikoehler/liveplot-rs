@@ -253,6 +253,8 @@ pub struct ScopeData {
     pub show_info_in_legend: bool,
     /// When `true`, the plot background grid is visible.
     pub show_grid: bool,
+    pub show_x_axis_label: bool,
+    pub show_y_axis_label: bool,
 
     /// When `true`, Y-axis bounds are automatically fitted to the visible data
     /// each frame. Manual pan/zoom disables this; clicking "Fit to View" or
@@ -279,6 +281,7 @@ pub struct ScopeData {
     pub measurement_x_range: Option<(f64, f64)>,
     pub last_plot_bounds: Option<([f64; 2], [f64; 2])>,
     pub last_plot_screen_rect: Option<[f32; 4]>,
+    pub rendered_this_frame: bool,
 }
 
 impl Default for ScopeData {
@@ -296,6 +299,8 @@ impl Default for ScopeData {
             force_hide_legend: false,
             show_info_in_legend: false,
             show_grid: true,
+            show_x_axis_label: false,
+            show_y_axis_label: false,
             auto_fit_to_view: true,
             keep_max_fit: false,
             trace_order: Vec::new(),
@@ -306,6 +311,7 @@ impl Default for ScopeData {
             measurement_x_range: None,
             last_plot_bounds: None,
             last_plot_screen_rect: None,
+            rendered_this_frame: false,
         }
     }
 }

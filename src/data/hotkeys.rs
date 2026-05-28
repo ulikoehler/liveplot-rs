@@ -570,7 +570,10 @@ pub fn handle_hotkeys(main_panel: &mut LivePlotPanel, ctx: &egui::Context) {
                 }
             }
             HotkeyName::SavePng => {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+                data.pending_requests.screenshot = Some(crate::data::data::ScreenshotRequest {
+                    target: crate::data::data::ScreenshotTarget::VisibleScopes,
+                    path: None,
+                });
             }
             HotkeyName::ClearAll => {
                 data.request_clear_all();
