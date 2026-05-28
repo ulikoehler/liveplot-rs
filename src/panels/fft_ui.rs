@@ -1,5 +1,6 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::LivePlotData;
+use crate::data::data::{ScreenshotRequest, ScreenshotTarget};
 use crate::data::fft::{FFTWindow, FftData};
 use crate::data::scope::ScopeType;
 use crate::data::traces::{TraceData, TracesCollection};
@@ -89,6 +90,20 @@ impl Panel for FftPanel {
                 }
             });
             if self.fft_db != prev {
+                ui.close();
+            }
+
+            ui.separator();
+
+            if ui
+                .button("🖼 Save Screenshot")
+                .on_hover_text("Take one screenshot of the full center panel")
+                .clicked()
+            {
+                data.pending_requests.screenshot = Some(ScreenshotRequest {
+                    target: ScreenshotTarget::CenterPanel,
+                    path: None,
+                });
                 ui.close();
             }
 

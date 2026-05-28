@@ -168,7 +168,16 @@ impl LivePlotPanel {
             return;
         }
 
-        let targets = self.liveplot_panel.screenshot_targets(&request.target);
+        let targets = match request.target {
+            crate::data::data::ScreenshotTarget::CenterPanel => {
+                vec![super::ScreenshotCropTarget {
+                    scope_id: usize::MAX,
+                    scope_name: "center_panel".to_string(),
+                    rect: self.last_widget_rect,
+                }]
+            }
+            _ => self.liveplot_panel.screenshot_targets(&request.target),
+        };
         if targets.is_empty() {
             return;
         }
@@ -192,10 +201,18 @@ impl LivePlotPanel {
         // Use `push_id` to ensure that all widgets created by this panel instance
         // stay isolated from other panels (critical for embedded tile dashboards).
         ui.push_id(self.panel_id, |ui| {
+            let widget_rect = ui.max_rect();
+            self.last_widget_rect = [
+                widget_rect.left(),
+                widget_rect.top(),
+                widget_rect.right(),
+                widget_rect.bottom(),
+            ];
+
             // Capture the full widget size BEFORE any layout (top bar, sidebars, etc.)
             // is applied.  This is the total area available to the entire plot widget
             // and is used for responsive min-width / min-height decisions.
-            self.last_plot_size = ui.max_rect().size();
+            self.last_plot_size = widget_rect.size();
 
             self.update_data();
             self.handle_completed_screenshot(ui.ctx());

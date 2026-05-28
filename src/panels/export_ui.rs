@@ -52,11 +52,11 @@ impl Panel for ExportPanel {
         let mr = ui.menu_button(label, |ui| {
             if ui
                 .button("🖼 Save Screenshot")
-                .on_hover_text("Take screenshots of all visible scopes")
+                .on_hover_text("Take one screenshot of the full center panel")
                 .clicked()
             {
                 data.pending_requests.screenshot = Some(ScreenshotRequest {
-                    target: ScreenshotTarget::VisibleScopes,
+                    target: ScreenshotTarget::CenterPanel,
                     path: None,
                 });
                 ui.close();

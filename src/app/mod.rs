@@ -211,6 +211,10 @@ pub struct LivePlotPanel {
     /// Central-panel size captured at the end of the previous frame (for responsive decisions).
     pub(crate) last_plot_size: egui::Vec2,
 
+    /// Last allocated rectangle of this liveplot widget in screen coordinates.
+    /// Used for whole-widget screenshot captures.
+    pub(crate) last_widget_rect: [f32; 4],
+
     /// Unique ID for this panel instance, used to namespace egui panel IDs.
     pub(crate) panel_id: u64,
 
@@ -266,6 +270,7 @@ impl LivePlotPanel {
             min_width_for_sidebar: 150.0,
             min_height_for_sidebar: 200.0,
             // Initialise to a large number so that no suppression happens on the first frame.
+            last_widget_rect: [0.0, 0.0, 0.0, 0.0],
             last_plot_size: egui::Vec2::new(10_000.0, 10_000.0),
             panel_id: PANEL_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
             compact: false,

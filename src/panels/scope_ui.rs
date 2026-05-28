@@ -286,7 +286,7 @@ impl ScopePanel {
 
         ui.separator();
 
-        self.render_controls(ui, traces);
+        self.render_controls(ui, traces, true);
 
         ui.separator();
 
@@ -313,7 +313,7 @@ impl ScopePanel {
     {
         if self.controlls_in_toolbar {
             ui.horizontal_wrapped(|ui| {
-                self.render_controls(ui, traces);
+                self.render_controls(ui, traces, false);
             });
             ui.separator();
         }
@@ -321,7 +321,12 @@ impl ScopePanel {
     }
 
     // Extended controls with injectable prefix/suffix sections
-    fn render_controls(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
+    fn render_controls(
+        &mut self,
+        ui: &mut Ui,
+        traces: &mut TracesCollection,
+        show_menu_only_options: bool,
+    ) {
         if !self.data.paused {
             if ui.button("⏸ Pause").clicked() {
                 self.data.paused = true;
@@ -400,27 +405,91 @@ impl ScopePanel {
             ui.checkbox(&mut self.data.x_axis.auto_fit, "Auto Fit X");
         });
 
-        ui.horizontal_wrapped(|ui| {
-            ui.checkbox(&mut self.data.show_x_axis_label, "Show X Label");
-            ui.label("Custom:");
-            let mut label = self.data.x_axis.name.clone().unwrap_or_default();
-            if ui
-                .add(
-                    egui::TextEdit::singleline(&mut label)
-                        .desired_width(140.0)
-                        .hint_text("auto"),
-                )
-                .on_hover_text("Leave empty to derive the X-axis label from the scope traces")
-                .changed()
-            {
-                let trimmed = label.trim();
-                self.data.x_axis.name = if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                };
-            }
-        });
+        if show_menu_only_options {
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.data.show_x_axis_label, "Show X Label");
+                let mut use_custom = self.data.x_axis.name.is_some();
+                if ui.checkbox(&mut use_custom, "Use custom label").changed() && !use_custom {
+                    self.data.x_axis.name = None;
+                }
+                let mut label = self.data.x_axis.name.clone().unwrap_or_default();
+                ui.add_enabled_ui(use_custom, |ui| {
+                    if ui
+                        .add(
+                            egui::TextEdit::singleline(&mut label)
+                                .desired_width(160.0)
+                                .hint_text("auto"),
+                        )
+                        .on_hover_text(
+                            "Disable custom label to auto-generate from visible scope traces",
+                        )
+                        .changed()
+                    {
+                        let trimmed = label.trim();
+                        self.data.x_axis.name = if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.to_string())
+                        };
+                    }
+                });
+            });
+
+            ui.horizontal_wrapped(|ui| match &mut self.data.x_axis.axis_type {
+                crate::data::scope::AxisType::Time(fmt) => {
+                    ui.label("X Time Format:");
+                    egui::ComboBox::from_id_salt(("x_time_format", self.data.id))
+                        .selected_text(match fmt {
+                            crate::data::scope::XDateFormat::Iso8601Time => "HH:MM:SS",
+                            crate::data::scope::XDateFormat::Iso8601WithDate => {
+                                "YYYY-MM-DD HH:MM:SS"
+                            }
+                            crate::data::scope::XDateFormat::Iso8601TimeMillis => "HH:MM:SS.mmm",
+                            crate::data::scope::XDateFormat::Iso8601WithDateMillis => {
+                                "YYYY-MM-DD HH:MM:SS.mmm"
+                            }
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                fmt,
+                                crate::data::scope::XDateFormat::Iso8601Time,
+                                "HH:MM:SS",
+                            );
+                            ui.selectable_value(
+                                fmt,
+                                crate::data::scope::XDateFormat::Iso8601WithDate,
+                                "YYYY-MM-DD HH:MM:SS",
+                            );
+                            ui.selectable_value(
+                                fmt,
+                                crate::data::scope::XDateFormat::Iso8601TimeMillis,
+                                "HH:MM:SS.mmm",
+                            );
+                            ui.selectable_value(
+                                fmt,
+                                crate::data::scope::XDateFormat::Iso8601WithDateMillis,
+                                "YYYY-MM-DD HH:MM:SS.mmm",
+                            );
+                        });
+                }
+                crate::data::scope::AxisType::Value(_) => {
+                    ui.label("X Value Format:");
+                    ui.label("Decimals:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.data.x_axis.value_decimals).range(0..=12),
+                    );
+                    ui.label("Sci min exp:");
+                    ui.add(egui::DragValue::new(
+                        &mut self.data.x_axis.scientific_min_exp,
+                    ));
+                    ui.label("max exp:");
+                    ui.add(egui::DragValue::new(
+                        &mut self.data.x_axis.scientific_max_exp,
+                    ));
+                    ui.checkbox(&mut self.data.x_axis.always_scientific, "Always scientific");
+                }
+            });
+        }
 
         ui.separator();
 
@@ -484,27 +553,91 @@ impl ScopePanel {
             }
         });
 
-        ui.horizontal_wrapped(|ui| {
-            ui.checkbox(&mut self.data.show_y_axis_label, "Show Y Label");
-            ui.label("Custom:");
-            let mut label = self.data.y_axis.name.clone().unwrap_or_default();
-            if ui
-                .add(
-                    egui::TextEdit::singleline(&mut label)
-                        .desired_width(140.0)
-                        .hint_text("auto"),
-                )
-                .on_hover_text("Leave empty to derive the Y-axis label from the scope traces")
-                .changed()
-            {
-                let trimmed = label.trim();
-                self.data.y_axis.name = if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                };
-            }
-        });
+        if show_menu_only_options {
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.data.show_y_axis_label, "Show Y Label");
+                let mut use_custom = self.data.y_axis.name.is_some();
+                if ui.checkbox(&mut use_custom, "Use custom label").changed() && !use_custom {
+                    self.data.y_axis.name = None;
+                }
+                let mut label = self.data.y_axis.name.clone().unwrap_or_default();
+                ui.add_enabled_ui(use_custom, |ui| {
+                    if ui
+                        .add(
+                            egui::TextEdit::singleline(&mut label)
+                                .desired_width(160.0)
+                                .hint_text("auto"),
+                        )
+                        .on_hover_text(
+                            "Disable custom label to auto-generate from visible scope traces",
+                        )
+                        .changed()
+                    {
+                        let trimmed = label.trim();
+                        self.data.y_axis.name = if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.to_string())
+                        };
+                    }
+                });
+            });
+
+            ui.horizontal_wrapped(|ui| match &mut self.data.y_axis.axis_type {
+                crate::data::scope::AxisType::Time(fmt) => {
+                    ui.label("Y Time Format:");
+                    egui::ComboBox::from_id_salt(("y_time_format", self.data.id))
+                        .selected_text(match fmt {
+                            crate::data::scope::XDateFormat::Iso8601Time => "HH:MM:SS",
+                            crate::data::scope::XDateFormat::Iso8601WithDate => {
+                                "YYYY-MM-DD HH:MM:SS"
+                            }
+                            crate::data::scope::XDateFormat::Iso8601TimeMillis => "HH:MM:SS.mmm",
+                            crate::data::scope::XDateFormat::Iso8601WithDateMillis => {
+                                "YYYY-MM-DD HH:MM:SS.mmm"
+                            }
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                fmt,
+                                crate::data::scope::XDateFormat::Iso8601Time,
+                                "HH:MM:SS",
+                            );
+                            ui.selectable_value(
+                                fmt,
+                                crate::data::scope::XDateFormat::Iso8601WithDate,
+                                "YYYY-MM-DD HH:MM:SS",
+                            );
+                            ui.selectable_value(
+                                fmt,
+                                crate::data::scope::XDateFormat::Iso8601TimeMillis,
+                                "HH:MM:SS.mmm",
+                            );
+                            ui.selectable_value(
+                                fmt,
+                                crate::data::scope::XDateFormat::Iso8601WithDateMillis,
+                                "YYYY-MM-DD HH:MM:SS.mmm",
+                            );
+                        });
+                }
+                crate::data::scope::AxisType::Value(_) => {
+                    ui.label("Y Value Format:");
+                    ui.label("Decimals:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.data.y_axis.value_decimals).range(0..=12),
+                    );
+                    ui.label("Sci min exp:");
+                    ui.add(egui::DragValue::new(
+                        &mut self.data.y_axis.scientific_min_exp,
+                    ));
+                    ui.label("max exp:");
+                    ui.add(egui::DragValue::new(
+                        &mut self.data.y_axis.scientific_max_exp,
+                    ));
+                    ui.checkbox(&mut self.data.y_axis.always_scientific, "Always scientific");
+                }
+            });
+        }
 
         ui.separator();
 

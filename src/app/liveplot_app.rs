@@ -253,14 +253,14 @@ impl LivePlotApp {
                 if take_actions.1 {
                     self.main_panel.pending_requests.screenshot =
                         Some(crate::data::data::ScreenshotRequest {
-                            target: crate::data::data::ScreenshotTarget::VisibleScopes,
+                            target: crate::data::data::ScreenshotTarget::CenterPanel,
                             path: None,
                         });
                 }
                 if let Some(path) = take_actions.2.take() {
                     self.main_panel.pending_requests.screenshot =
                         Some(crate::data::data::ScreenshotRequest {
-                            target: crate::data::data::ScreenshotTarget::VisibleScopes,
+                            target: crate::data::data::ScreenshotTarget::CenterPanel,
                             path: Some(path),
                         });
                 }
@@ -452,7 +452,7 @@ impl LivePlotApp {
             if requests.save_screenshot {
                 self.main_panel.pending_requests.screenshot =
                     Some(crate::data::data::ScreenshotRequest {
-                        target: crate::data::data::ScreenshotTarget::VisibleScopes,
+                        target: crate::data::data::ScreenshotTarget::CenterPanel,
                         path: None,
                     });
             }

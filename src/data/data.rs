@@ -11,6 +11,7 @@ use std::collections::{HashMap, VecDeque};
 pub enum ScreenshotTarget {
     CurrentScope(usize),
     VisibleScopes,
+    CenterPanel,
 }
 
 #[derive(Clone, Debug)]

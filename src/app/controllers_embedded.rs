@@ -102,13 +102,13 @@ impl LivePlotPanel {
             }
             if take_actions.1 {
                 data.pending_requests.screenshot = Some(crate::data::data::ScreenshotRequest {
-                    target: crate::data::data::ScreenshotTarget::VisibleScopes,
+                    target: crate::data::data::ScreenshotTarget::CenterPanel,
                     path: None,
                 });
             }
             if let Some(path) = take_actions.2.take() {
                 data.pending_requests.screenshot = Some(crate::data::data::ScreenshotRequest {
-                    target: crate::data::data::ScreenshotTarget::VisibleScopes,
+                    target: crate::data::data::ScreenshotTarget::CenterPanel,
                     path: Some(path),
                 });
             }
@@ -346,7 +346,7 @@ impl LivePlotPanel {
             }
             if requests.save_screenshot {
                 self.pending_requests.screenshot = Some(crate::data::data::ScreenshotRequest {
-                    target: crate::data::data::ScreenshotTarget::VisibleScopes,
+                    target: crate::data::data::ScreenshotTarget::CenterPanel,
                     path: None,
                 });
             }
@@ -509,7 +509,7 @@ impl LivePlotPanel {
             }
             if requests.save_screenshot {
                 self.pending_requests.screenshot = Some(crate::data::data::ScreenshotRequest {
-                    target: crate::data::data::ScreenshotTarget::VisibleScopes,
+                    target: crate::data::data::ScreenshotTarget::CenterPanel,
                     path: None,
                 });
             }

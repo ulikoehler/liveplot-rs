@@ -571,7 +571,7 @@ pub fn handle_hotkeys(main_panel: &mut LivePlotPanel, ctx: &egui::Context) {
             }
             HotkeyName::SavePng => {
                 data.pending_requests.screenshot = Some(crate::data::data::ScreenshotRequest {
-                    target: crate::data::data::ScreenshotTarget::VisibleScopes,
+                    target: crate::data::data::ScreenshotTarget::CenterPanel,
                     path: None,
                 });
             }

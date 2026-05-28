@@ -596,9 +596,10 @@ impl Panel for MeasurementPanel {
                 }
 
                 let m = &mut self.measurements[i];
+                let name_width = (ui.available_width() * 0.28).clamp(120.0, 320.0);
                 let name_edit = ui.add_sized(
-                    egui::vec2(120.0, 0.0),
-                    egui::TextEdit::singleline(&mut m.name).desired_width(120.0),
+                    egui::vec2(name_width, 0.0),
+                    egui::TextEdit::singleline(&mut m.name).desired_width(name_width),
                 );
                 if name_edit.clicked() {
                     self.selected_measurement = Some(i);

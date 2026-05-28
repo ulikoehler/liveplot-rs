@@ -126,6 +126,9 @@ impl Panel for TracesPanel {
         let has_editor = self.look_editor_trace.is_some() || self.look_editor_xy_pair.is_some();
         if has_editor {
             egui::Panel::bottom("traces_look_editor_panel")
+                .default_size(180.0)
+                .min_size(120.0)
+                .max_size(ui.available_height() * 0.45)
                 .resizable(true)
                 .show_inside(ui, |ui| {
                     if let Some(tn) = self.look_editor_trace.clone() {

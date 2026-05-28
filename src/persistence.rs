@@ -22,6 +22,18 @@ fn default_true() -> bool {
     true
 }
 
+fn default_axis_value_decimals() -> usize {
+    4
+}
+
+fn default_axis_scientific_min_exp() -> i32 {
+    -4
+}
+
+fn default_axis_scientific_max_exp() -> i32 {
+    6
+}
+
 // ---------- Serializable mirror types ----------
 
 /// Serializable version of AxisSettings.
@@ -36,6 +48,14 @@ pub struct AxisSettingsSerde {
     pub name: Option<String>,
     pub bounds: [f64; 2],
     pub auto_fit: bool,
+    #[serde(default = "default_axis_value_decimals")]
+    pub value_decimals: usize,
+    #[serde(default = "default_axis_scientific_min_exp")]
+    pub scientific_min_exp: i32,
+    #[serde(default = "default_axis_scientific_max_exp")]
+    pub scientific_max_exp: i32,
+    #[serde(default)]
+    pub always_scientific: bool,
 }
 
 impl From<&AxisSettings> for AxisSettingsSerde {
@@ -48,6 +68,8 @@ impl From<&AxisSettings> for AxisSettingsSerde {
                 Some(match fmt {
                     XDateFormat::Iso8601WithDate => "%Y-%m-%d %H:%M:%S".to_string(),
                     XDateFormat::Iso8601Time => "%H:%M:%S".to_string(),
+                    XDateFormat::Iso8601WithDateMillis => "%Y-%m-%d %H:%M:%S%.3f".to_string(),
+                    XDateFormat::Iso8601TimeMillis => "%H:%M:%S%.3f".to_string(),
                 }),
             ),
         };
@@ -59,6 +81,10 @@ impl From<&AxisSettings> for AxisSettingsSerde {
             name: a.name.clone(),
             bounds: [a.bounds.0, a.bounds.1],
             auto_fit: a.auto_fit,
+            value_decimals: a.value_decimals,
+            scientific_min_exp: a.scientific_min_exp,
+            scientific_max_exp: a.scientific_max_exp,
+            always_scientific: a.always_scientific,
         }
     }
 }
@@ -74,7 +100,11 @@ impl AxisSettingsSerde {
         match self.axis_type.as_str() {
             "time" => {
                 let fmt = if let Some(tf) = &self.time_format {
-                    if tf.contains("%Y") {
+                    if tf.contains("%.3f") && tf.contains("%Y") {
+                        XDateFormat::Iso8601WithDateMillis
+                    } else if tf.contains("%.3f") {
+                        XDateFormat::Iso8601TimeMillis
+                    } else if tf.contains("%Y") {
                         XDateFormat::Iso8601WithDate
                     } else {
                         XDateFormat::Iso8601Time
@@ -90,6 +120,10 @@ impl AxisSettingsSerde {
                 a.axis_type = AxisType::Value(self.unit.clone());
             }
         }
+        a.value_decimals = self.value_decimals;
+        a.scientific_min_exp = self.scientific_min_exp;
+        a.scientific_max_exp = self.scientific_max_exp;
+        a.always_scientific = self.always_scientific;
     }
 }
 
@@ -586,6 +620,10 @@ impl Default for AppStateSerde {
                     name: None,
                     bounds: [0.0, 1.0],
                     auto_fit: true,
+                    value_decimals: default_axis_value_decimals(),
+                    scientific_min_exp: default_axis_scientific_min_exp(),
+                    scientific_max_exp: default_axis_scientific_max_exp(),
+                    always_scientific: false,
                 },
                 y_axis: AxisSettingsSerde {
                     unit: None,
@@ -595,6 +633,10 @@ impl Default for AppStateSerde {
                     name: None,
                     bounds: [0.0, 1.0],
                     auto_fit: true,
+                    value_decimals: default_axis_value_decimals(),
+                    scientific_min_exp: default_axis_scientific_min_exp(),
+                    scientific_max_exp: default_axis_scientific_max_exp(),
+                    always_scientific: false,
                 },
                 time_window: 10.0,
                 scope_is_xy: false,

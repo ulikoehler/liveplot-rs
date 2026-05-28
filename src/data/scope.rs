@@ -2,7 +2,7 @@
 
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
-use crate::data::x_formatter::{TimeFormatter, XFormatter};
+use crate::data::x_formatter::XFormatter;
 use std::collections::{HashMap, VecDeque};
 
 /// Formatting options for the x-value (time) shown in point labels.
@@ -12,6 +12,10 @@ pub enum XDateFormat {
     Iso8601WithDate,
     /// Local time, time-of-day only: HH:MM:SS
     Iso8601Time,
+    /// Local time with date and milliseconds: YYYY-MM-DD HH:MM:SS.mmm
+    Iso8601WithDateMillis,
+    /// Local time, time-of-day with milliseconds: HH:MM:SS.mmm
+    Iso8601TimeMillis,
 }
 
 impl Default for XDateFormat {
@@ -36,6 +40,14 @@ impl XDateFormat {
                 .with_timezone(&chrono::Local)
                 .format("%H:%M:%S")
                 .to_string(),
+            XDateFormat::Iso8601WithDateMillis => dt_utc
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M:%S%.3f")
+                .to_string(),
+            XDateFormat::Iso8601TimeMillis => dt_utc
+                .with_timezone(&chrono::Local)
+                .format("%H:%M:%S%.3f")
+                .to_string(),
         }
     }
 }
@@ -59,6 +71,14 @@ pub struct AxisSettings {
     /// and cursor readouts. Defaults to [`XFormatter::Auto`] which picks the
     /// appropriate formatter based on [`axis_type`](Self::axis_type).
     pub x_formatter: XFormatter,
+    /// Decimal places used for value-axis formatting in scope menus.
+    pub value_decimals: usize,
+    /// Lower exponent threshold (base-10) for scientific notation switching.
+    pub scientific_min_exp: i32,
+    /// Upper exponent threshold (base-10) for scientific notation switching.
+    pub scientific_max_exp: i32,
+    /// Force scientific notation regardless of value magnitude.
+    pub always_scientific: bool,
 }
 
 impl Default for AxisSettings {
@@ -70,6 +90,10 @@ impl Default for AxisSettings {
             auto_fit: false,
             axis_type: AxisType::Value(None),
             x_formatter: XFormatter::Auto,
+            value_decimals: 4,
+            scientific_min_exp: -4,
+            scientific_max_exp: 6,
+            always_scientific: false,
         }
     }
 }
@@ -100,21 +124,21 @@ impl AxisSettings {
     }
 
     /// Format a numeric value with unit, using scientific notation when appropriate.
-    fn format_value_numeric(&self, v: f64, dec_pl: usize, step: f64) -> String {
-        // Decide scientific formatting based on step magnitude vs precision:
-        // - Use scientific if step < 10^-dec_pl (too fine to show with dec_pl)
-        // - Or if step >= 10^dec_pl (too large; many digits before decimal)
-        let sci = if step.is_finite() && step != 0.0 {
-            let exp = step.abs().log10().floor() as i32;
-            exp < -(dec_pl as i32) || exp >= dec_pl as i32
-        } else {
+    fn format_value_numeric(&self, v: f64, dec_pl: usize, _step: f64) -> String {
+        let decimals = self.value_decimals.max(dec_pl);
+        let sci = if self.always_scientific {
+            true
+        } else if !v.is_finite() || v == 0.0 {
             false
+        } else {
+            let exp = v.abs().log10().floor() as i32;
+            exp <= self.scientific_min_exp || exp >= self.scientific_max_exp
         };
 
         let formatted = if sci {
             if v == 0.0 || !v.is_finite() {
                 // Just show the value as-is with requested precision if zero/NaN/inf
-                format!("{:.*}", dec_pl, v)
+                format!("{:.*}", decimals, v)
             } else {
                 // Create a compact scientific representation like 1.23e5 (no +00 padding)
                 let sign = if v.is_sign_negative() { -1.0 } else { 1.0 };
@@ -123,13 +147,13 @@ impl AxisSettings {
                 let pow = 10f64.powi(exp);
                 let mant = sign * (av / pow);
                 if exp == 0 {
-                    format!("{:.*}", dec_pl, mant)
+                    format!("{:.*}", decimals, mant)
                 } else {
-                    format!("{:.*}e{}", dec_pl, mant, exp)
+                    format!("{:.*}e{}", decimals, mant, exp)
                 }
             }
         } else {
-            format!("{:.*}", dec_pl, v)
+            format!("{:.*}", decimals, v)
         };
 
         if let Some(unit) = self.get_unit() {
@@ -173,6 +197,10 @@ impl AxisSettings {
             match fmt {
                 XDateFormat::Iso8601WithDate => local.format("%Y-%m-%d %H:%M:%S").to_string(),
                 XDateFormat::Iso8601Time => local.format("%H:%M:%S").to_string(),
+                XDateFormat::Iso8601WithDateMillis => {
+                    local.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+                }
+                XDateFormat::Iso8601TimeMillis => local.format("%H:%M:%S%.3f").to_string(),
             }
         };
 
@@ -199,20 +227,7 @@ impl AxisSettings {
     pub fn format_value(&self, v: f64, dec_pl: usize, step: f64) -> String {
         match &self.x_formatter {
             XFormatter::Auto => match self.axis_type {
-                AxisType::Time(_fmt) => {
-                    // Use the stored visible bounds for date-change detection;
-                    // fall back to step-based precision for tick granularity.
-                    let tf = TimeFormatter::default();
-                    // Prefer self.bounds for the visible range, but if bounds
-                    // are degenerate (zero-width), fall back to step.
-                    let range = if (self.bounds.1 - self.bounds.0).abs() > 1e-15 {
-                        self.bounds
-                    } else {
-                        // Construct a symmetric window around v using step
-                        (v - step * 0.5, v + step * 0.5)
-                    };
-                    tf.format(v, range)
-                }
+                AxisType::Time(fmt) => fmt.format_value(v),
                 AxisType::Value(_) => self.format_value_numeric(v, dec_pl, step),
             },
             XFormatter::Decimal(df) => df.format(v, dec_pl),
