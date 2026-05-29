@@ -17,11 +17,6 @@ use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceRef;
 use crate::data::triggers::{Trigger, TriggerSlope};
 
-/// Helper for `#[serde(default = "default_true")]` attributes.
-fn default_true() -> bool {
-    true
-}
-
 fn default_axis_value_decimals() -> usize {
     4
 }
@@ -48,6 +43,7 @@ pub struct AxisSettingsSerde {
     pub name: Option<String>,
     pub bounds: [f64; 2],
     pub auto_fit: bool,
+    pub keep_max_fit: bool,
     #[serde(default = "default_axis_value_decimals")]
     pub value_decimals: usize,
     #[serde(default = "default_axis_scientific_min_exp")]
@@ -86,6 +82,7 @@ impl From<&AxisSettings> for AxisSettingsSerde {
             name: a.name.clone(),
             bounds: [a.bounds.0, a.bounds.1],
             auto_fit: a.auto_fit,
+            keep_max_fit: a.keep_max_fit,
             value_decimals: a.value_decimals,
             scientific_min_exp: a.scientific_min_exp,
             scientific_max_exp: a.scientific_max_exp,
@@ -103,6 +100,7 @@ impl AxisSettingsSerde {
         a.name = self.name;
         a.bounds = (self.bounds[0], self.bounds[1]);
         a.auto_fit = self.auto_fit;
+        a.keep_max_fit = self.keep_max_fit;
         match self.axis_type.as_str() {
             "time" => {
                 let fmt = if let Some(tf) = &self.time_format {
@@ -419,12 +417,6 @@ pub struct ScopeStateSerde {
     pub scope_is_xy: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
-    /// Whether automatic Y-axis fit-to-view is enabled.
-    #[serde(default = "default_true")]
-    pub auto_fit_to_view: bool,
-    /// Whether auto-fit only expands (never shrinks).
-    #[serde(default)]
-    pub keep_max_fit: bool,
     /// Scope id (for multi-scope layouts).
     #[serde(default)]
     pub id: Option<usize>,
@@ -458,8 +450,6 @@ impl From<&ScopeData> for ScopeStateSerde {
             scope_is_xy: matches!(s.scope_type, ScopeType::XYScope),
             show_legend: s.show_legend,
             show_info_in_legend: s.show_info_in_legend,
-            auto_fit_to_view: s.auto_fit_to_view,
-            keep_max_fit: s.keep_max_fit,
             id: Some(s.id),
             name: Some(s.name.clone()),
             trace_order: s.trace_order.iter().map(|t| t.0.clone()).collect(),
@@ -501,8 +491,6 @@ impl ScopeStateSerde {
         };
         scope.show_legend = self.show_legend;
         scope.show_info_in_legend = self.show_info_in_legend;
-        scope.auto_fit_to_view = self.auto_fit_to_view;
-        scope.keep_max_fit = self.keep_max_fit;
         if let Some(name) = self.name {
             scope.name = name;
         }
@@ -652,6 +640,7 @@ impl Default for AppStateSerde {
                     name: None,
                     bounds: [0.0, 1.0],
                     auto_fit: true,
+                    keep_max_fit: false,
                     value_decimals: default_axis_value_decimals(),
                     scientific_min_exp: default_axis_scientific_min_exp(),
                     scientific_max_exp: default_axis_scientific_max_exp(),
@@ -666,6 +655,7 @@ impl Default for AppStateSerde {
                     name: None,
                     bounds: [0.0, 1.0],
                     auto_fit: true,
+                    keep_max_fit: false,
                     value_decimals: default_axis_value_decimals(),
                     scientific_min_exp: default_axis_scientific_min_exp(),
                     scientific_max_exp: default_axis_scientific_max_exp(),
@@ -676,8 +666,6 @@ impl Default for AppStateSerde {
                 scope_is_xy: false,
                 show_legend: true,
                 show_info_in_legend: false,
-                auto_fit_to_view: true,
-                keep_max_fit: false,
                 pause_on_click: false,
                 controls_in_toolbar: true,
                 zoom_mode: crate::panels::scope_ui::ZoomMode::default(),

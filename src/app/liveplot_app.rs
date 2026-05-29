@@ -140,8 +140,8 @@ impl LivePlotApp {
                 s.x_axis.x_formatter = cfg.x_formatter.clone();
                 s.show_legend = cfg.features.legend;
                 s.show_grid = cfg.features.grid;
-                s.auto_fit_to_view = cfg.auto_fit.auto_fit_to_view;
-                s.keep_max_fit = cfg.auto_fit.keep_max_fit;
+                s.y_axis.keep_max_fit = cfg.auto_fit.keep_max_fit;
+                s.y_axis.auto_fit = cfg.auto_fit.auto_fit_to_view;
             }
         }
 

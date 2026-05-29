@@ -95,6 +95,7 @@ pub struct AxisSettings {
     pub name: Option<String>,
     pub bounds: (f64, f64),
     pub auto_fit: bool,
+    pub keep_max_fit: bool,
     pub axis_type: AxisType,
     /// Controls how X (and incidentally Y) values are formatted for tick labels
     /// and cursor readouts. Defaults to [`XFormatter::Auto`] which picks the
@@ -119,6 +120,7 @@ impl Default for AxisSettings {
             name: None,
             bounds: (0.0, 1.0),
             auto_fit: false,
+            keep_max_fit: false,
             axis_type: AxisType::Value(None),
             x_formatter: XFormatter::Auto,
             value_decimals: 4,
@@ -304,14 +306,6 @@ pub struct ScopeData {
     /// When `true`, the plot background grid is visible.
     pub show_grid: bool,
 
-    /// When `true`, Y-axis bounds are automatically fitted to the visible data
-    /// each frame. Manual pan/zoom disables this; clicking "Fit to View" or
-    /// double-clicking re-enables it. Default: `true`.
-    pub auto_fit_to_view: bool,
-    /// When `true`, auto-fit only *expands* the view — it never shrinks.
-    /// Historical peaks remain visible. Default: `false`.
-    pub keep_max_fit: bool,
-
     pub trace_order: Vec<TraceRef>,
     pub clicked_point: Option<[f64; 2]>,
     pub clicked_screen_pos: Option<[f32; 2]>,
@@ -347,8 +341,6 @@ impl Default for ScopeData {
             force_hide_legend: false,
             show_info_in_legend: false,
             show_grid: true,
-            auto_fit_to_view: true,
-            keep_max_fit: false,
             trace_order: Vec::new(),
             clicked_point: None,
             clicked_screen_pos: None,
@@ -394,7 +386,7 @@ impl ScopeData {
 
         self.live_update(traces);
 
-        if self.y_axis.auto_fit || self.auto_fit_to_view {
+        if self.y_axis.auto_fit {
             self.fit_y_bounds(traces);
         }
     }
@@ -479,8 +471,13 @@ impl ScopeData {
             }
 
             if min_x < max_x {
-                self.x_axis.bounds = (min_x, max_x);
-                self.time_window = max_x - min_x;
+                if self.x_axis.keep_max_fit {
+                    let cur = self.x_axis.bounds;
+                    self.x_axis.bounds = (min_x.min(cur.0), max_x.max(cur.1));
+                } else {
+                    self.x_axis.bounds = (min_x, max_x);
+                }
+                self.time_window = self.x_axis.bounds.1 - self.x_axis.bounds.0;
             }
             return;
         }
@@ -513,8 +510,13 @@ impl ScopeData {
             }
         }
         if min_x < max_x {
-            self.x_axis.bounds = (min_x, max_x);
-            self.time_window = max_x - min_x;
+            if self.x_axis.keep_max_fit {
+                let cur = self.x_axis.bounds;
+                self.x_axis.bounds = (min_x.min(cur.0), max_x.max(cur.1));
+            } else {
+                self.x_axis.bounds = (min_x, max_x);
+            }
+            self.time_window = self.x_axis.bounds.1 - self.x_axis.bounds.0;
         } else if min_x == min_x {
             if min_x < 0.0 {
                 self.y_axis.bounds = (min_x, 0.0);
@@ -580,7 +582,7 @@ impl ScopeData {
             }
 
             if min_y < max_y {
-                if self.keep_max_fit {
+                if self.y_axis.keep_max_fit {
                     let cur = self.y_axis.bounds;
                     self.y_axis.bounds = (min_y.min(cur.0), max_y.max(cur.1));
                 } else {
@@ -625,7 +627,7 @@ impl ScopeData {
             }
         }
         if min_y < max_y {
-            if self.keep_max_fit {
+            if self.y_axis.keep_max_fit {
                 let cur = self.y_axis.bounds;
                 self.y_axis.bounds = (min_y.min(cur.0), max_y.max(cur.1));
             } else {

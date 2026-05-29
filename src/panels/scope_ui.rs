@@ -424,6 +424,14 @@ impl ScopePanel {
             {
                 ui.close();
             }
+            if show_menu_only_options {
+                if ui
+                    .checkbox(&mut self.data.x_axis.keep_max_fit, "Only expand")
+                    .changed()
+                {
+                    ui.close();
+                }
+            }
         });
 
         if show_menu_only_options {
@@ -608,6 +616,15 @@ impl ScopePanel {
             {
                 ui.close();
             }
+
+            if show_menu_only_options {
+                if ui
+                    .checkbox(&mut self.data.y_axis.keep_max_fit, "Only expand")
+                    .changed()
+                {
+                    ui.close();
+                }
+            }
         });
 
         if show_menu_only_options {
@@ -761,7 +778,6 @@ impl ScopePanel {
             .clicked()
         {
             self.data.fit_bounds(traces);
-            self.data.auto_fit_to_view = true;
             // Emit fit-to-view event
             if let Some(ctrl) = &self.event_ctrl {
                 let mut evt = crate::events::PlotEvent::new(
@@ -1147,7 +1163,6 @@ impl ScopePanel {
             }
             if y_changed {
                 self.data.y_axis.auto_fit = false;
-                self.data.auto_fit_to_view = false;
             }
 
             // Emit zoom/pan event
@@ -1229,7 +1244,6 @@ impl ScopePanel {
         self.data.clicked_screen_pos = None;
         if plot_response.response.double_clicked() {
             self.data.fit_bounds(traces);
-            self.data.auto_fit_to_view = true;
             // Emit double-click + fit-to-view events
             if let Some(ctrl) = &self.event_ctrl {
                 let kinds =
