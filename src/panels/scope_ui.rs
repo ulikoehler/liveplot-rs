@@ -414,7 +414,7 @@ impl ScopePanel {
                 .on_hover_text("Fit X to visible data")
                 .clicked()
             {
-                self.data.fit_x_bounds(traces);
+                self.data.fit_x_bounds(traces, false);
                 ui.close();
             }
 
@@ -425,12 +425,14 @@ impl ScopePanel {
                 ui.close();
             }
             if show_menu_only_options {
-                if ui
-                    .checkbox(&mut self.data.x_axis.keep_max_fit, "Only expand")
-                    .changed()
-                {
-                    ui.close();
-                }
+                ui.add_enabled_ui(self.data.x_axis.auto_fit, |ui| {
+                    if ui
+                        .checkbox(&mut self.data.x_axis.keep_max_fit, "Only expand")
+                        .changed()
+                    {
+                        ui.close();
+                    }
+                });
             }
         });
 
@@ -606,7 +608,7 @@ impl ScopePanel {
                 .on_hover_text("Fit Y to visible data")
                 .clicked()
             {
-                self.data.fit_y_bounds(traces);
+                self.data.fit_y_bounds(traces, false);
                 ui.close();
             }
 
@@ -618,12 +620,14 @@ impl ScopePanel {
             }
 
             if show_menu_only_options {
-                if ui
-                    .checkbox(&mut self.data.y_axis.keep_max_fit, "Only expand")
-                    .changed()
-                {
-                    ui.close();
-                }
+                ui.add_enabled_ui(self.data.y_axis.auto_fit, |ui| {
+                    if ui
+                        .checkbox(&mut self.data.y_axis.keep_max_fit, "Only expand")
+                        .changed()
+                    {
+                        ui.close();
+                    }
+                });
             }
         });
 
@@ -777,7 +781,7 @@ impl ScopePanel {
             .on_hover_text("Fit both axes to visible data")
             .clicked()
         {
-            self.data.fit_bounds(traces);
+            self.data.fit_bounds(traces, false);
             // Emit fit-to-view event
             if let Some(ctrl) = &self.event_ctrl {
                 let mut evt = crate::events::PlotEvent::new(
@@ -1243,7 +1247,7 @@ impl ScopePanel {
         self.data.clicked_point = None;
         self.data.clicked_screen_pos = None;
         if plot_response.response.double_clicked() {
-            self.data.fit_bounds(traces);
+            self.data.fit_bounds(traces, false);
             // Emit double-click + fit-to-view events
             if let Some(ctrl) = &self.event_ctrl {
                 let kinds =
@@ -1395,6 +1399,6 @@ impl ScopePanel {
     }
 
     pub fn fit_all(&mut self, traces: &TracesCollection) {
-        self.data.fit_bounds(traces);
+        self.data.fit_bounds(traces, false);
     }
 }

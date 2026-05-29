@@ -233,7 +233,10 @@ impl Panel for FftPanel {
             }
             ui.separator();
             let controlls_in_toolbar = self.scope_ui.controls_in_toolbar();
-            if ui.selectable_label( controlls_in_toolbar, "Controls in Toolbar").clicked() {
+            if ui
+                .selectable_label(controlls_in_toolbar, "Controls in Toolbar")
+                .clicked()
+            {
                 self.scope_ui.set_controls_in_toolbar(!controlls_in_toolbar);
             }
         });

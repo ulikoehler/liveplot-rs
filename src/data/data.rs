@@ -1,11 +1,10 @@
 //! LivePlotData: a view struct combining scope data and traces.
 
-use std::path::PathBuf;
-
 use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 use crate::events::EventController;
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 pub enum ScreenshotTarget {
@@ -262,14 +261,14 @@ impl<'a> LivePlotData<'a> {
     pub fn fit_all_bounds(&mut self) {
         for scope in self.scope_data.iter_mut() {
             let scope = &mut **scope;
-            scope.fit_bounds(&*self.traces);
+            scope.fit_bounds(&*self.traces, false);
         }
     }
 
     pub fn fit_all_y_bounds(&mut self) {
         for scope in self.scope_data.iter_mut() {
             let scope = &mut **scope;
-            scope.fit_y_bounds(&*self.traces);
+            scope.fit_y_bounds(&*self.traces, false);
         }
     }
 

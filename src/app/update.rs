@@ -395,7 +395,7 @@ impl LivePlotPanel {
     /// Call this e.g. after a window resize to ensure all plots fill their bounds.
     pub fn fit_all_bounds(&mut self) {
         for scope in self.liveplot_panel.get_data_mut() {
-            scope.fit_bounds(&self.traces_data);
+            scope.fit_bounds(&self.traces_data, false);
         }
     }
 

@@ -583,8 +583,8 @@ impl TracesPanel {
 
             if settings_resp.type_changed {
                 match scope.scope_type {
-                    ScopeType::TimeScope => scope.fit_y_bounds(&*data.traces),
-                    ScopeType::XYScope => scope.fit_bounds(&*data.traces),
+                    ScopeType::TimeScope => scope.fit_y_bounds(&*data.traces, false),
+                    ScopeType::XYScope => scope.fit_bounds(&*data.traces, false),
                 }
             }
 

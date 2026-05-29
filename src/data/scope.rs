@@ -381,13 +381,13 @@ impl ScopeData {
         });
 
         if self.x_axis.auto_fit {
-            self.fit_x_bounds(traces);
+            self.fit_x_bounds(traces, self.x_axis.keep_max_fit);
         }
 
         self.live_update(traces);
 
         if self.y_axis.auto_fit {
-            self.fit_y_bounds(traces);
+            self.fit_y_bounds(traces, self.y_axis.keep_max_fit);
         }
     }
 
@@ -421,7 +421,7 @@ impl ScopeData {
         }
     }
 
-    pub fn fit_x_bounds(&mut self, traces: &TracesCollection) {
+    pub fn fit_x_bounds(&mut self, traces: &TracesCollection, not_shrink: bool) {
         if self.scope_type == ScopeType::XYScope && !self.xy_pairs.is_empty() {
             let mut min_x = f64::MAX;
             let mut max_x = f64::MIN;
@@ -471,7 +471,7 @@ impl ScopeData {
             }
 
             if min_x < max_x {
-                if self.x_axis.keep_max_fit {
+                if not_shrink {
                     let cur = self.x_axis.bounds;
                     self.x_axis.bounds = (min_x.min(cur.0), max_x.max(cur.1));
                 } else {
@@ -510,7 +510,7 @@ impl ScopeData {
             }
         }
         if min_x < max_x {
-            if self.x_axis.keep_max_fit {
+            if not_shrink {
                 let cur = self.x_axis.bounds;
                 self.x_axis.bounds = (min_x.min(cur.0), max_x.max(cur.1));
             } else {
@@ -532,7 +532,7 @@ impl ScopeData {
         }
     }
 
-    pub fn fit_y_bounds(&mut self, traces: &TracesCollection) {
+    pub fn fit_y_bounds(&mut self, traces: &TracesCollection, not_shrink: bool) {
         if self.scope_type == ScopeType::XYScope && !self.xy_pairs.is_empty() {
             let mut min_y = f64::MAX;
             let mut max_y = f64::MIN;
@@ -582,7 +582,7 @@ impl ScopeData {
             }
 
             if min_y < max_y {
-                if self.y_axis.keep_max_fit {
+                if not_shrink {
                     let cur = self.y_axis.bounds;
                     self.y_axis.bounds = (min_y.min(cur.0), max_y.max(cur.1));
                 } else {
@@ -627,7 +627,7 @@ impl ScopeData {
             }
         }
         if min_y < max_y {
-            if self.y_axis.keep_max_fit {
+            if not_shrink {
                 let cur = self.y_axis.bounds;
                 self.y_axis.bounds = (min_y.min(cur.0), max_y.max(cur.1));
             } else {
@@ -645,9 +645,9 @@ impl ScopeData {
         }
     }
 
-    pub fn fit_bounds(&mut self, traces: &TracesCollection) {
-        self.fit_x_bounds(traces);
-        self.fit_y_bounds(traces);
+    pub fn fit_bounds(&mut self, traces: &TracesCollection, not_shrink: bool) {
+        self.fit_x_bounds(traces, not_shrink);
+        self.fit_y_bounds(traces, not_shrink);
     }
 
     pub fn get_drawn_points(
