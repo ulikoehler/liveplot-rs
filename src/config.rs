@@ -4,7 +4,6 @@ use crate::controllers::ThresholdController;
 use crate::controllers::TracesController;
 use crate::controllers::{FFTController, UiActionController, WindowController};
 use crate::data::hotkeys::Hotkeys;
-use crate::data::x_formatter::XFormatter;
 use crate::events::EventController;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -288,10 +287,6 @@ pub struct LivePlotConfig {
     /// Automatic axis fitting configuration.
     pub auto_fit: AutoFitConfig,
 
-    // ── Formatting ───────────────────────────────────────────────────────────
-    /// X-axis formatter.
-    pub x_formatter: XFormatter,
-
     // ── Hotkeys ──────────────────────────────────────────────────────────────
     /// Optional hotkeys configuration.
     pub hotkeys: Option<Hotkeys>,
@@ -317,7 +312,6 @@ impl Clone for LivePlotConfig {
             color_scheme: self.color_scheme.clone(),
             overlays: None, // cannot clone closure
             auto_fit: self.auto_fit.clone(),
-            x_formatter: self.x_formatter.clone(),
             hotkeys: self.hotkeys.clone(),
             controllers: self.controllers.clone(),
         }
@@ -343,7 +337,6 @@ impl Default for LivePlotConfig {
             overlays: None,
             auto_fit: AutoFitConfig::default(),
 
-            x_formatter: XFormatter::Auto,
             hotkeys: None,
             controllers: Controllers::default(),
         }

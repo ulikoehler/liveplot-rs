@@ -376,7 +376,7 @@ impl ScopePanel {
                 .smart_aim(true)
                 .show_value(true)
                 .clamping(egui::SliderClamping::Edits)
-                .custom_formatter(|n, _| self.data.x_axis.format_value(n, 4, n));
+                .custom_formatter(|n, _| self.data.x_axis.format_value(n, None));
 
                 let sresp = ui.add(slider);
                 if sresp.changed() {
@@ -392,13 +392,13 @@ impl ScopePanel {
                 let r1 = ui.add(
                     egui::DragValue::new(&mut x_min_tmp)
                         .speed(0.1)
-                        .custom_formatter(|n, _| self.data.x_axis.format_value(n, 4, x_range)),
+                        .custom_formatter(|n, _| self.data.x_axis.format_value(n, Some(x_range))),
                 );
                 ui.label("Max:");
                 let r2 = ui.add(
                     egui::DragValue::new(&mut x_max_tmp)
                         .speed(0.1)
-                        .custom_formatter(|n, _| self.data.x_axis.format_value(n, 4, x_range)),
+                        .custom_formatter(|n, _| self.data.x_axis.format_value(n, Some(x_range))),
                 );
                 if (r1.changed() || r2.changed()) && x_min_tmp < x_max_tmp {
                     self.data.x_axis.bounds.0 = x_min_tmp;
@@ -511,35 +511,25 @@ impl ScopePanel {
                 crate::data::scope::AxisType::Time(fmt) => {
                     ui.selectable_value(
                         fmt,
-                        crate::data::scope::XDateFormat::Iso8601Time,
-                        "HH:MM:SS",
-                    );
-                    ui.selectable_value(
-                        fmt,
-                        crate::data::scope::XDateFormat::Iso8601WithDate,
-                        "YYYY-MM-DD HH:MM:SS",
-                    );
-                    ui.selectable_value(
-                        fmt,
-                        crate::data::scope::XDateFormat::Iso8601TimeMillis,
+                        crate::data::scope::TimeFormat::Iso8601Time,
                         "HH:MM:SS.mmm",
                     );
                     ui.selectable_value(
                         fmt,
-                        crate::data::scope::XDateFormat::Iso8601WithDateMillis,
+                        crate::data::scope::TimeFormat::Iso8601WithDate,
                         "YYYY-MM-DD HH:MM:SS.mmm",
                     );
                     ui.selectable_value(
                         fmt,
-                        crate::data::scope::XDateFormat::MinuteSecondMillis,
+                        crate::data::scope::TimeFormat::MinuteSecondMillis,
                         "MM:SS.mmm",
                     );
                     ui.selectable_value(
                         fmt,
-                        crate::data::scope::XDateFormat::SecondMillis,
+                        crate::data::scope::TimeFormat::SecondMillis,
                         "SS.mmm",
                     );
-                    ui.selectable_value(fmt, crate::data::scope::XDateFormat::MillisOnly, "mmm");
+                    ui.selectable_value(fmt, crate::data::scope::TimeFormat::MillisOnly, "mmm");
                     ui.separator();
                     ui.horizontal(|ui| {
                         ui.label("Decimals:");
@@ -549,7 +539,7 @@ impl ScopePanel {
                         );
                     });
                 }
-                crate::data::scope::AxisType::Value(_) => {
+                crate::data::scope::AxisType::Value(fmt) => {
                     ui.horizontal(|ui| {
                         ui.label("Decimals:");
                         ui.add(
@@ -557,19 +547,15 @@ impl ScopePanel {
                                 .range(0..=12),
                         );
                     });
-                    ui.checkbox(&mut self.data.x_axis.always_scientific, "Always scientific");
-                    ui.add_enabled_ui(!self.data.x_axis.always_scientific, |ui| {
+                    ui.checkbox(&mut fmt.always_scientific, "Always scientific");
+                    ui.add_enabled_ui(!fmt.always_scientific, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Sci min exp:");
-                            ui.add(egui::DragValue::new(
-                                &mut self.data.x_axis.scientific_min_exp,
-                            ));
+                            ui.add(egui::DragValue::new(&mut fmt.scientific_min_exp));
                         });
                         ui.horizontal(|ui| {
                             ui.label("max exp:");
-                            ui.add(egui::DragValue::new(
-                                &mut self.data.x_axis.scientific_max_exp,
-                            ));
+                            ui.add(egui::DragValue::new(&mut fmt.scientific_max_exp));
                         });
                     });
                 }
@@ -588,13 +574,13 @@ impl ScopePanel {
             let r1 = ui.add(
                 egui::DragValue::new(&mut y_min_tmp)
                     .speed(0.1)
-                    .custom_formatter(|n, _| self.data.y_axis.format_value(n, 4, y_range)),
+                    .custom_formatter(|n, _| self.data.y_axis.format_value(n, Some(y_range))),
             );
             ui.label("Max:");
             let r2 = ui.add(
                 egui::DragValue::new(&mut y_max_tmp)
                     .speed(0.1)
-                    .custom_formatter(|n, _| self.data.y_axis.format_value(n, 4, y_range)),
+                    .custom_formatter(|n, _| self.data.y_axis.format_value(n, Some(y_range))),
             );
             if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
                 self.data.y_axis.bounds.0 = y_min_tmp;
@@ -699,35 +685,25 @@ impl ScopePanel {
                 crate::data::scope::AxisType::Time(fmt) => {
                     ui.selectable_value(
                         fmt,
-                        crate::data::scope::XDateFormat::Iso8601Time,
-                        "HH:MM:SS",
-                    );
-                    ui.selectable_value(
-                        fmt,
-                        crate::data::scope::XDateFormat::Iso8601WithDate,
-                        "YYYY-MM-DD HH:MM:SS",
-                    );
-                    ui.selectable_value(
-                        fmt,
-                        crate::data::scope::XDateFormat::Iso8601TimeMillis,
+                        crate::data::scope::TimeFormat::Iso8601Time,
                         "HH:MM:SS.mmm",
                     );
                     ui.selectable_value(
                         fmt,
-                        crate::data::scope::XDateFormat::Iso8601WithDateMillis,
+                        crate::data::scope::TimeFormat::Iso8601WithDate,
                         "YYYY-MM-DD HH:MM:SS.mmm",
                     );
                     ui.selectable_value(
                         fmt,
-                        crate::data::scope::XDateFormat::MinuteSecondMillis,
+                        crate::data::scope::TimeFormat::MinuteSecondMillis,
                         "MM:SS.mmm",
                     );
                     ui.selectable_value(
                         fmt,
-                        crate::data::scope::XDateFormat::SecondMillis,
+                        crate::data::scope::TimeFormat::SecondMillis,
                         "SS.mmm",
                     );
-                    ui.selectable_value(fmt, crate::data::scope::XDateFormat::MillisOnly, "mmm");
+                    ui.selectable_value(fmt, crate::data::scope::TimeFormat::MillisOnly, "mmm");
                     ui.separator();
                     ui.horizontal(|ui| {
                         ui.label("Decimals:");
@@ -737,7 +713,7 @@ impl ScopePanel {
                         );
                     });
                 }
-                crate::data::scope::AxisType::Value(_) => {
+                crate::data::scope::AxisType::Value(fmt) => {
                     ui.horizontal(|ui| {
                         ui.label("Decimals:");
                         ui.add(
@@ -745,19 +721,15 @@ impl ScopePanel {
                                 .range(0..=12),
                         );
                     });
-                    ui.checkbox(&mut self.data.y_axis.always_scientific, "Always scientific");
-                    ui.add_enabled_ui(!self.data.y_axis.always_scientific, |ui| {
+                    ui.checkbox(&mut fmt.always_scientific, "Always scientific");
+                    ui.add_enabled_ui(!fmt.always_scientific, |ui| {
                         ui.horizontal(|ui| {
                             ui.label("Sci min exp:");
-                            ui.add(egui::DragValue::new(
-                                &mut self.data.y_axis.scientific_min_exp,
-                            ));
+                            ui.add(egui::DragValue::new(&mut fmt.scientific_min_exp));
                         });
                         ui.horizontal(|ui| {
                             ui.label("max exp:");
-                            ui.add(egui::DragValue::new(
-                                &mut self.data.y_axis.scientific_max_exp,
-                            ));
+                            ui.add(egui::DragValue::new(&mut fmt.scientific_max_exp));
                         });
                     });
                 }
@@ -854,7 +826,7 @@ impl ScopePanel {
                     return String::new();
                 }
                 let x_value = if x_log { 10f64.powf(x.value) } else { x.value };
-                self.data.x_axis.format_value(x_value, 4, x.step_size.abs())
+                self.data.x_axis.format_value(x_value, Some(x.step_size.abs()))
             })
             .y_axis_formatter(|y, _range| {
                 if hide_y_labels {
@@ -862,15 +834,15 @@ impl ScopePanel {
                 }
                 // Scientific ticks with optional unit, apply inverse log mapping for display
                 let y_value = if y_log { 10f64.powf(y.value) } else { y.value };
-                self.data.y_axis.format_value(y_value, 4, y.step_size.abs())
+                self.data.y_axis.format_value(y_value, Some(y.step_size.abs()))
             })
             .label_formatter(|name, value| {
                 let x = if x_log { 10f64.powf(value.x) } else { value.x };
                 let y = if y_log { 10f64.powf(value.y) } else { value.y };
                 // For time axes this routes through TimeFormatter; for value axes numeric.
                 // For XY scopes both axes are value-typed, so both format numerically.
-                let x_str = self.data.x_axis.format_value(x, 6, 0.0);
-                let y_str = self.data.y_axis.format_value(y, 6, 0.0);
+                let x_str = self.data.x_axis.format_value(x, None);
+                let y_str = self.data.y_axis.format_value(y, None);
                 if name.is_empty() {
                     format!("x = {}\ny = {}", x_str, y_str)
                 } else {

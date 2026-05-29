@@ -136,8 +136,7 @@ impl LivePlotApp {
                 s.y_axis.set_unit(cfg.y_unit.clone());
                 s.y_axis.log_scale = cfg.y_log;
                 s.x_axis.axis_type =
-                    crate::data::scope::AxisType::Time(crate::data::scope::XDateFormat::default());
-                s.x_axis.x_formatter = cfg.x_formatter.clone();
+                    crate::data::scope::AxisType::Time(crate::data::scope::TimeFormat::default());
                 s.show_legend = cfg.features.legend;
                 s.show_grid = cfg.features.grid;
                 s.y_axis.keep_max_fit = cfg.auto_fit.keep_max_fit;

@@ -141,20 +141,19 @@ impl ThresholdRuntimeState {
 impl ThresholdDef {
     /// Get a human-readable description of the threshold for UI/legend.
     pub fn get_info(&self, axis_setting: &AxisSettings) -> String {
-        let dec_pl = 4usize;
         match &self.kind {
             ThresholdKind::GreaterThan { value } => {
-                let v_fmt = axis_setting.format_value(*value, dec_pl, value.abs());
+                let v_fmt = axis_setting.format_value(*value, None);
                 format!("{} > {}", self.target.0, v_fmt)
             }
             ThresholdKind::LessThan { value } => {
-                let v_fmt = axis_setting.format_value(*value, dec_pl, value.abs());
+                let v_fmt = axis_setting.format_value(*value, None);
                 format!("{} < {}", self.target.0, v_fmt)
             }
             ThresholdKind::InRange { low, high } => {
                 let diff = (*high - *low).abs();
-                let lo = axis_setting.format_value(*low, dec_pl, diff);
-                let hi = axis_setting.format_value(*high, dec_pl, diff);
+                let lo = axis_setting.format_value(*low, Some(diff));
+                let hi = axis_setting.format_value(*high, Some(diff));
                 format!("{} in [{}, {}]", self.target.0, lo, hi)
             }
         }

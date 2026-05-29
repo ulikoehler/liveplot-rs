@@ -138,7 +138,7 @@ traces.request_set_y_log(true);
 
 #### Flexible time axis formatting
 
-Format X-axis values (timestamps) using `XDateFormat` to suit your display needs.
+Format X-axis values (timestamps) using `TimeFormat` to suit your display needs.
 
 #### Marker trace selection and free mode
 

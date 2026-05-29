@@ -1,7 +1,7 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::{LivePlotData, ScreenshotRequest, ScreenshotTarget};
 use crate::data::fft::{FFTWindow, FftData};
-use crate::data::scope::ScopeType;
+use crate::data::scope::{ScopeType, ValueFormat, AxisType};
 use crate::data::traces::{TraceData, TracesCollection};
 use crate::panels::scope_ui::{ScopePanel, ZoomMode};
 use egui::Ui;
@@ -18,7 +18,7 @@ impl Default for FftPanel {
         let mut scope_ui = ScopePanel::default();
         scope_ui.set_zoom_mode(ZoomMode::Both);
         let scope_data = scope_ui.get_data_mut();
-        scope_data.x_axis.axis_type = crate::data::scope::AxisType::Value(None); // plain numeric
+        scope_data.x_axis.axis_type = AxisType::Value(ValueFormat::default());
         scope_data.x_axis.auto_fit = true;
         scope_data.x_axis.name = Some("Frequency".to_string());
         scope_data.x_axis.set_unit(Some("Hz".to_string()));

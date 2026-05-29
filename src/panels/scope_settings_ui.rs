@@ -1,5 +1,5 @@
 use crate::data::data::LivePlotRequests;
-use crate::data::scope::{AxisType, ScopeData, ScopeType, XDateFormat};
+use crate::data::scope::{AxisType, ScopeData, ScopeType, TimeFormat, ValueFormat};
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
@@ -135,14 +135,11 @@ impl ScopeSettingsUiPanel {
                 .clicked()
             {
                 scope.scope_type = ScopeType::TimeScope;
-                scope.x_axis.axis_type = AxisType::Time(XDateFormat::default());
+                scope.x_axis.axis_type = AxisType::Time(TimeFormat::default());
                 scope.x_axis.name = None;
                 scope.y_axis.name = None;
                 scope.x_axis.show_label = false;
                 scope.y_axis.show_label = false;
-                // Ensure X formatter follows the axis type so hover/readouts/traces
-                // render the X value sensibly for time scopes.
-                scope.x_axis.x_formatter = crate::data::x_formatter::XFormatter::Auto;
             }
 
             let xy_sel = scope.scope_type == ScopeType::XYScope;
@@ -152,13 +149,11 @@ impl ScopeSettingsUiPanel {
                 .clicked()
             {
                 scope.scope_type = ScopeType::XYScope;
-                scope.x_axis.axis_type = AxisType::Value(None);
+                scope.x_axis.axis_type = AxisType::Value(ValueFormat::default());
                 scope.x_axis.name = None;
                 scope.y_axis.name = None;
                 scope.x_axis.show_label = true;
                 scope.y_axis.show_label = true;
-                // Make sure X formatter auto-selects a decimal formatter for XY scopes
-                scope.x_axis.x_formatter = crate::data::x_formatter::XFormatter::Auto;
             }
         });
 

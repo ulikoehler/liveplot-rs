@@ -377,7 +377,7 @@ impl Panel for TriggersPanel {
             let (last_text, last_exists) = if let Some(t) = tr.last_trigger_time() {
                 // Use x-axis formatter for time display
                 let start_fmt = if let Some((x_axis, _)) = scope_axes.as_ref() {
-                    x_axis.format_value(t, 4, 1.0)
+                    x_axis.format_value(t, None)
                 } else {
                     format!("{:.4}", t)
                 };

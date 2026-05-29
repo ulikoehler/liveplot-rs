@@ -112,13 +112,13 @@ impl Trigger {
             TriggerSlope::Falling => "falling",
             TriggerSlope::Any => "any",
         };
-        let dec_pl = 4usize;
+
         let step = if self.level.abs() > 0.0 {
             self.level.abs()
         } else {
             1.0
         };
-        let lvl_fmt = axis.format_value(self.level, dec_pl, step);
+        let lvl_fmt = axis.format_value(self.level, Some(step));
         let mut s = format!("{}: {} @ {}", self.target.0, slope_txt, lvl_fmt);
         if self.single_shot {
             s.push_str(" • Single");

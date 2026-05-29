@@ -58,24 +58,40 @@ pub struct AxisSettingsSerde {
 
 impl From<&AxisSettings> for AxisSettingsSerde {
     fn from(a: &AxisSettings) -> Self {
-        use crate::data::scope::{AxisType, XDateFormat};
-        let (axis_type, time_format) = match &a.axis_type {
-            AxisType::Value(_) => ("value".to_string(), None),
+        use crate::data::scope::{AxisType, TimeFormat};
+        let (
+            axis_type,
+            time_format,
+            unit,
+            scientific_min_exp,
+            scientific_max_exp,
+            always_scientific,
+        ) = match &a.axis_type {
+            AxisType::Value(vf) => (
+                "value".to_string(),
+                None,
+                vf.unit.clone(),
+                vf.scientific_min_exp,
+                vf.scientific_max_exp,
+                vf.always_scientific,
+            ),
             AxisType::Time(fmt) => (
                 "time".to_string(),
                 Some(match fmt {
-                    XDateFormat::Iso8601WithDate => "%Y-%m-%d %H:%M:%S".to_string(),
-                    XDateFormat::Iso8601Time => "%H:%M:%S".to_string(),
-                    XDateFormat::Iso8601WithDateMillis => "%Y-%m-%d %H:%M:%S%.3f".to_string(),
-                    XDateFormat::Iso8601TimeMillis => "%H:%M:%S%.3f".to_string(),
-                    XDateFormat::MinuteSecondMillis => "%M:%S%.3f".to_string(),
-                    XDateFormat::SecondMillis => "%S%.3f".to_string(),
-                    XDateFormat::MillisOnly => "%f".to_string(),
+                    TimeFormat::Iso8601WithDate => "%Y-%m-%d %H:%M:%S".to_string(),
+                    TimeFormat::Iso8601Time => "%H:%M:%S".to_string(),
+                    TimeFormat::MinuteSecondMillis => "%M:%S".to_string(),
+                    TimeFormat::SecondMillis => "%S".to_string(),
+                    TimeFormat::MillisOnly => "%f".to_string(),
                 }),
+                None,
+                default_axis_scientific_min_exp(),
+                default_axis_scientific_max_exp(),
+                false,
             ),
         };
         Self {
-            unit: a.get_unit(),
+            unit,
             axis_type,
             time_format,
             log_scale: a.log_scale,
@@ -84,9 +100,9 @@ impl From<&AxisSettings> for AxisSettingsSerde {
             auto_fit: a.auto_fit,
             keep_max_fit: a.keep_max_fit,
             value_decimals: a.value_decimals,
-            scientific_min_exp: a.scientific_min_exp,
-            scientific_max_exp: a.scientific_max_exp,
-            always_scientific: a.always_scientific,
+            scientific_min_exp,
+            scientific_max_exp,
+            always_scientific,
             show_label: a.show_label,
         }
     }
@@ -95,7 +111,7 @@ impl From<&AxisSettings> for AxisSettingsSerde {
 impl AxisSettingsSerde {
     /// Apply stored settings to an AxisSettings instance.
     pub fn apply_to(self, a: &mut AxisSettings) {
-        use crate::data::scope::{AxisType, XDateFormat};
+        use crate::data::scope::{AxisType, TimeFormat, ValueFormat};
         a.log_scale = self.log_scale;
         a.name = self.name;
         a.bounds = (self.bounds[0], self.bounds[1]);
@@ -105,35 +121,31 @@ impl AxisSettingsSerde {
             "time" => {
                 let fmt = if let Some(tf) = &self.time_format {
                     if tf == "%M:%S%.3f" {
-                        XDateFormat::MinuteSecondMillis
+                        TimeFormat::MinuteSecondMillis
                     } else if tf == "%S%.3f" {
-                        XDateFormat::SecondMillis
+                        TimeFormat::SecondMillis
                     } else if tf == "%f" {
-                        XDateFormat::MillisOnly
-                    } else if tf.contains("%.3f") && tf.contains("%Y") {
-                        XDateFormat::Iso8601WithDateMillis
-                    } else if tf.contains("%.3f") {
-                        XDateFormat::Iso8601TimeMillis
+                        TimeFormat::MillisOnly
                     } else if tf.contains("%Y") {
-                        XDateFormat::Iso8601WithDate
+                        TimeFormat::Iso8601WithDate
                     } else {
-                        XDateFormat::Iso8601Time
+                        TimeFormat::Iso8601Time
                     }
                 } else {
-                    XDateFormat::default()
+                    TimeFormat::default()
                 };
                 a.axis_type = AxisType::Time(fmt);
-                // Ensure unit applied after axis type (time axes ignore unit)
-                a.set_unit(self.unit.clone());
             }
             _ => {
-                a.axis_type = AxisType::Value(self.unit.clone());
+                a.axis_type = AxisType::Value(ValueFormat {
+                    scientific_min_exp: self.scientific_min_exp,
+                    scientific_max_exp: self.scientific_max_exp,
+                    always_scientific: self.always_scientific,
+                    unit: self.unit.clone(),
+                });
             }
         }
         a.value_decimals = self.value_decimals;
-        a.scientific_min_exp = self.scientific_min_exp;
-        a.scientific_max_exp = self.scientific_max_exp;
-        a.always_scientific = self.always_scientific;
         a.show_label = self.show_label;
     }
 }

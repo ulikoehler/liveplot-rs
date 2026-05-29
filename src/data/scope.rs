@@ -2,20 +2,15 @@
 
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
-use crate::data::x_formatter::XFormatter;
 use std::collections::{HashMap, VecDeque};
 
 /// Formatting options for the x-value (time) shown in point labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum XDateFormat {
-    /// Local time with date, ISO8601-like: YYYY-MM-DD HH:MM:SS
-    Iso8601WithDate,
-    /// Local time, time-of-day only: HH:MM:SS
-    Iso8601Time,
+pub enum TimeFormat {
     /// Local time with date and milliseconds: YYYY-MM-DD HH:MM:SS.mmm
-    Iso8601WithDateMillis,
+    Iso8601WithDate,
     /// Local time, time-of-day with milliseconds: HH:MM:SS.mmm
-    Iso8601TimeMillis,
+    Iso8601Time,
     /// Local time minute and second with fractional part: MM:SS.mmm
     MinuteSecondMillis,
     /// Local time second with fractional part: SS.mmm
@@ -24,13 +19,13 @@ pub enum XDateFormat {
     MillisOnly,
 }
 
-impl Default for XDateFormat {
+impl Default for TimeFormat {
     fn default() -> Self {
-        XDateFormat::Iso8601TimeMillis
+        TimeFormat::Iso8601Time
     }
 }
 
-impl XDateFormat {
+impl TimeFormat {
     fn format_fraction(nsecs: u32, digits: usize) -> String {
         let digits = digits.min(9);
         if digits == 0 {
@@ -45,7 +40,7 @@ impl XDateFormat {
     ///
     /// `decimals` controls the number of fractional digits used by formats that
     /// include a `.mmm` component.
-    pub fn format_value_with_decimals(&self, x_seconds: f64, decimals: usize) -> String {
+    pub fn format_value(&self, x_seconds: f64, decimals: usize) -> String {
         let secs = x_seconds as i64;
         let nsecs = ((x_seconds - secs as f64) * 1e9) as u32;
         let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
@@ -54,15 +49,13 @@ impl XDateFormat {
         let frac = Self::format_fraction(nsecs, decimals);
 
         match self {
-            XDateFormat::Iso8601WithDate => local.format("%Y-%m-%d %H:%M:%S").to_string(),
-            XDateFormat::Iso8601Time => local.format("%H:%M:%S").to_string(),
-            XDateFormat::Iso8601WithDateMillis => {
+            TimeFormat::Iso8601WithDate => {
                 format!("{}{}", local.format("%Y-%m-%d %H:%M:%S"), frac)
             }
-            XDateFormat::Iso8601TimeMillis => format!("{}{}", local.format("%H:%M:%S"), frac),
-            XDateFormat::MinuteSecondMillis => format!("{}{}", local.format("%M:%S"), frac),
-            XDateFormat::SecondMillis => format!("{}{}", local.format("%S"), frac),
-            XDateFormat::MillisOnly => {
+            TimeFormat::Iso8601Time => format!("{}{}", local.format("%H:%M:%S"), frac),
+            TimeFormat::MinuteSecondMillis => format!("{}{}", local.format("%M:%S"), frac),
+            TimeFormat::SecondMillis => format!("{}{}", local.format("%S"), frac),
+            TimeFormat::MillisOnly => {
                 let digits = decimals.min(9);
                 if digits == 0 {
                     "0".to_string()
@@ -74,99 +67,49 @@ impl XDateFormat {
             }
         }
     }
-
-    /// Backward-compatible wrapper using millisecond precision.
-    pub fn format_value(&self, x_seconds: f64) -> String {
-        self.format_value_with_decimals(x_seconds, 3)
-    }
 }
 
-/// Axis type enum: Time or Value (Value holds optional unit).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AxisType {
-    Time(XDateFormat),
-    Value(Option<String>),
-}
-
-/// Settings for a single axis (X or Y).
-#[derive(Clone, Debug)]
-pub struct AxisSettings {
-    pub log_scale: bool,
-    pub name: Option<String>,
-    pub bounds: (f64, f64),
-    pub auto_fit: bool,
-    pub keep_max_fit: bool,
-    pub axis_type: AxisType,
-    /// Controls how X (and incidentally Y) values are formatted for tick labels
-    /// and cursor readouts. Defaults to [`XFormatter::Auto`] which picks the
-    /// appropriate formatter based on [`axis_type`](Self::axis_type).
-    pub x_formatter: XFormatter,
-    /// Decimal places used for value-axis formatting in scope menus.
-    pub value_decimals: usize,
-    /// Lower exponent threshold (base-10) for scientific notation switching.
+pub struct ValueFormat {
     pub scientific_min_exp: i32,
-    /// Upper exponent threshold (base-10) for scientific notation switching.
     pub scientific_max_exp: i32,
-    /// Force scientific notation regardless of value magnitude.
     pub always_scientific: bool,
-    /// When `true`, the axis label (name and unit) is shown on the plot. This is independent of
-    pub show_label: bool,
+    pub unit: Option<String>,
 }
 
-impl Default for AxisSettings {
+impl Default for ValueFormat {
     fn default() -> Self {
         Self {
-            log_scale: false,
-            name: None,
-            bounds: (0.0, 1.0),
-            auto_fit: false,
-            keep_max_fit: false,
-            axis_type: AxisType::Value(None),
-            x_formatter: XFormatter::Auto,
-            value_decimals: 4,
             scientific_min_exp: -4,
             scientific_max_exp: 6,
             always_scientific: false,
-            show_label: false,
+            unit: None,
         }
     }
 }
 
-impl AxisSettings {
-    pub fn new_time_axis() -> Self {
-        Self {
-            name: Some("Time".to_string()),
-            axis_type: AxisType::Time(XDateFormat::default()),
-            ..Default::default()
-        }
-    }
-
-    /// Get the unit for this axis. Returns "s" for time axes and the configured unit for value axes.
-    pub fn get_unit(&self) -> Option<String> {
-        match &self.axis_type {
-            AxisType::Time(_) => Some("s".to_string()),
-            AxisType::Value(unit) => unit.clone(),
-        }
-    }
-
-    /// Set the unit for value axes. For time axes this is a no-op.
-    pub fn set_unit(&mut self, unit: Option<String>) {
-        match &mut self.axis_type {
-            AxisType::Time(_) => {}
-            AxisType::Value(existing) => *existing = unit,
-        }
-    }
-
+impl ValueFormat {
     /// Format a numeric value with unit, using scientific notation when appropriate.
-    fn format_value_numeric(&self, v: f64) -> String {
-        let decimals = self.value_decimals;
+    pub fn format_value(&self, v: f64, decimals: usize, step: Option<f64>) -> String {
         let sci = if self.always_scientific {
             true
         } else if !v.is_finite() || v == 0.0 {
             false
         } else {
-            let exp = v.abs().log10().floor() as i32;
-            exp <= self.scientific_min_exp || exp >= self.scientific_max_exp
+            let exp_value = v.abs().log10().floor() as i32;
+            let exp_step = if let Some(step) = step {
+                if step <= 0.0 || !step.is_finite() {
+                    0
+                } else {
+                    step.abs().log10().floor() as i32
+                }
+            } else {
+                0
+            };
+            exp_value <= self.scientific_min_exp
+                || exp_value >= self.scientific_max_exp
+                || exp_step <= self.scientific_min_exp
+                || exp_step >= self.scientific_max_exp
         };
 
         let formatted = if sci {
@@ -190,93 +133,86 @@ impl AxisSettings {
             format!("{:.*}", decimals, v)
         };
 
-        if let Some(unit) = self.get_unit() {
+        if let Some(unit) = &self.unit {
             format!("{} {}", formatted, unit)
         } else {
             formatted
         }
     }
+}
 
-    #[allow(dead_code)]
-    fn format_time_with_precision(fmt: XDateFormat, v: f64, step: f64) -> String {
-        // Choose base format (date vs time-of-day) using the same threshold as before
-        let use_date = step.is_finite() && step >= 86400.0;
+/// Axis type enum: Time or Value (Value holds optional unit).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AxisType {
+    Time(TimeFormat),
+    Value(ValueFormat),
+}
 
-        // Compute total nanoseconds rounded to nearest ns to handle fractional seconds correctly
-        let total_ns = (v * 1e9).round() as i128;
-        let secs = (total_ns / 1_000_000_000) as i64;
-        let nsecs = (total_ns % 1_000_000_000) as u32;
+/// Settings for a single axis (X or Y).
+#[derive(Clone, Debug)]
+pub struct AxisSettings {
+    pub log_scale: bool,
+    pub name: Option<String>,
+    pub bounds: (f64, f64),
+    pub auto_fit: bool,
+    pub keep_max_fit: bool,
+    pub axis_type: AxisType,
 
-        let dt_utc = chrono::DateTime::from_timestamp(secs, nsecs)
-            .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
-        let local = dt_utc.with_timezone(&chrono::Local);
+    /// Decimal places used for value-axis formatting in scope menus.
+    pub value_decimals: usize,
+    /// When `true`, the axis label (name and unit) is shown on the plot. This is independent of
+    pub show_label: bool,
+}
 
-        // Decide fractional precision based on sampling step (bounds). Show more precision for
-        // smaller steps: seconds, ms, us, ns.
-        let frac_digits = if !step.is_finite() || step >= 1.0 {
-            0
-        } else if step >= 1e-3 {
-            3
-        } else if step >= 1e-6 {
-            6
-        } else {
-            9
-        };
+impl Default for AxisSettings {
+    fn default() -> Self {
+        Self {
+            log_scale: false,
+            name: None,
+            bounds: (0.0, 1.0),
+            auto_fit: false,
+            keep_max_fit: false,
+            axis_type: AxisType::Value(ValueFormat::default()),
+            value_decimals: 4,
+            show_label: false,
+        }
+    }
+}
 
-        // Base formatting
-        let base = if use_date {
-            // include date portion
-            local.format("%Y-%m-%d %H:%M:%S").to_string()
-        } else {
-            match fmt {
-                XDateFormat::Iso8601WithDate => local.format("%Y-%m-%d %H:%M:%S").to_string(),
-                XDateFormat::Iso8601Time => local.format("%H:%M:%S").to_string(),
-                XDateFormat::Iso8601WithDateMillis => {
-                    local.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
-                }
-                XDateFormat::Iso8601TimeMillis => local.format("%H:%M:%S%.3f").to_string(),
-                XDateFormat::MinuteSecondMillis => local.format("%M:%S%.3f").to_string(),
-                XDateFormat::SecondMillis => local.format("%S%.3f").to_string(),
-                XDateFormat::MillisOnly => format!("{:03}", nsecs / 1_000_000),
-            }
-        };
+impl AxisSettings {
+    pub fn new_time_axis() -> Self {
+        Self {
+            name: Some("Time".to_string()),
+            axis_type: AxisType::Time(TimeFormat::default()),
+            ..Default::default()
+        }
+    }
 
-        if frac_digits == 0 {
-            base
-        } else {
-            // Extract fractional digits from nsecs rounded above
-            let frac_value = match frac_digits {
-                3 => (nsecs / 1_000_000) as u32,
-                6 => (nsecs / 1_000) as u32,
-                9 => nsecs,
-                _ => 0,
-            };
-            format!("{}.{:0width$}", base, frac_value, width = frac_digits)
+    /// Get the unit for this axis. Returns "s" for time axes and the configured unit for value axes.
+    pub fn get_unit(&self) -> Option<String> {
+        match &self.axis_type {
+            AxisType::Time(_) => Some("s".to_string()),
+            AxisType::Value(format) => format.unit.clone(),
+        }
+    }
+
+    /// Set the unit for value axes. For time axes this is a no-op.
+    pub fn set_unit(&mut self, unit: Option<String>) {
+        match &mut self.axis_type {
+            AxisType::Time(_) => {}
+            AxisType::Value(format) => format.unit = unit,
         }
     }
 
     /// Format a value, with special handling for time axes.
     ///
     /// The `x_formatter` field controls the exact rendering mode. When set to
-    /// `XFormatter::Auto` the behaviour matches the legacy logic:
     /// * time axes → [`TimeFormatter`] driven by [`bounds`](Self::bounds) (the visible X range).
     /// * value axes → adaptive decimal / scientific notation.
-    pub fn format_value(&self, v: f64, dec_pl: usize, step: f64) -> String {
-        match &self.x_formatter {
-            XFormatter::Auto => match self.axis_type {
-                AxisType::Time(fmt) => fmt.format_value_with_decimals(v, self.value_decimals),
-                AxisType::Value(_) => self.format_value_numeric(v),
-            },
-            XFormatter::Decimal(df) => df.format(v, dec_pl),
-            XFormatter::Scientific(sf) => sf.format(v, dec_pl),
-            XFormatter::Time(tf) => {
-                let range = if (self.bounds.1 - self.bounds.0).abs() > 1e-15 {
-                    self.bounds
-                } else {
-                    (v - step * 0.5, v + step * 0.5)
-                };
-                tf.format(v, range)
-            }
+    pub fn format_value(&self, v: f64, step: Option<f64>) -> String {
+        match &self.axis_type {
+            AxisType::Time(fmt) => fmt.format_value(v, self.value_decimals),
+            AxisType::Value(fmt) => fmt.format_value(v, self.value_decimals, step),
         }
     }
 }

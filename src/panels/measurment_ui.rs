@@ -455,8 +455,8 @@ impl Panel for MeasurementPanel {
                 };
                 let x_range = (x_max_lin - x_min_lin).abs();
                 let y_range = (y_max_lin - y_min_lin).abs();
-                let x_txt = scope.x_axis.format_value(x_lin, 6, x_range);
-                let y_txt = scope.y_axis.format_value(y_lin, 6, y_range);
+                let x_txt = scope.x_axis.format_value(x_lin, Some(x_range));
+                let y_txt = scope.y_axis.format_value(y_lin, Some(y_range));
                 let txt = format!("P1\nx = {}\ny = {}", x_txt, y_txt);
                 let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
@@ -481,8 +481,8 @@ impl Panel for MeasurementPanel {
                 };
                 let x_range = (x_max_lin - x_min_lin).abs();
                 let y_range = (y_max_lin - y_min_lin).abs();
-                let x_txt = scope.x_axis.format_value(x_lin, 6, x_range);
-                let y_txt = scope.y_axis.format_value(y_lin, 6, y_range);
+                let x_txt = scope.x_axis.format_value(x_lin, Some(x_range));
+                let y_txt = scope.y_axis.format_value(y_lin, Some(y_range));
                 let txt = format!("P2\nx = {}\ny = {}", x_txt, y_txt);
                 let style = egui::Style::default();
                 let mut job = egui::text::LayoutJob::default();
@@ -689,8 +689,8 @@ impl Panel for MeasurementPanel {
                     let y_lin = to_axis_value(&scope.y_axis, p[1]);
                     let p1_text = format!(
                         "P1: x={}  y={}",
-                        scope.x_axis.format_value(x_lin, 6, x_range),
-                        scope.y_axis.format_value(y_lin, 6, y_range)
+                        scope.x_axis.format_value(x_lin, Some(x_range)),
+                        scope.y_axis.format_value(y_lin, Some(y_range))
                     );
                     let resp = ui.colored_label(Color32::YELLOW, p1_text.clone());
                     if resp.double_clicked() {
@@ -712,8 +712,8 @@ impl Panel for MeasurementPanel {
                     let y_lin = to_axis_value(&scope.y_axis, p[1]);
                     let p2_text = format!(
                         "P2: x={}  y={}",
-                        scope.x_axis.format_value(x_lin, 6, x_range),
-                        scope.y_axis.format_value(y_lin, 6, y_range)
+                        scope.x_axis.format_value(x_lin, Some(x_range)),
+                        scope.y_axis.format_value(y_lin, Some(y_range))
                     );
                     let resp = ui.colored_label(Color32::LIGHT_BLUE, p2_text.clone());
                     if resp.double_clicked() {
@@ -841,7 +841,7 @@ impl MeasurementPanel {
                 (s + " " + u, Some(u.to_string()), scale)
             }
             _ => (
-                scope.x_axis.format_value(dx_lin, 6, x_range),
+                scope.x_axis.format_value(dx_lin, Some(x_range)),
                 scope.x_axis.get_unit(),
                 1.0,
             ),
@@ -860,7 +860,7 @@ impl MeasurementPanel {
                 (s + " " + u, Some(u.to_string()), scale)
             }
             _ => (
-                scope.y_axis.format_value(dy_lin, 6, y_range),
+                scope.y_axis.format_value(dy_lin, Some(y_range)),
                 scope.y_axis.get_unit(),
                 1.0,
             ),
@@ -869,18 +869,12 @@ impl MeasurementPanel {
         if slope.is_finite() {
             // Compute displayed slope adjusting for unit scales: slope_display = slope * (y_scale / x_scale)
             let slope_disp = slope * (y_scale / x_scale);
-            let num = if slope_disp == 0.0 {
-                "0".to_string()
-            } else if slope_disp.abs() < 1e-4 || slope_disp.abs() >= 1e6 {
-                format!("{:.4e}", slope_disp)
-            } else {
-                format!("{:.4}", slope_disp)
-            };
+            let num = scope.y_axis.format_value(slope_disp, None);
 
             // Build unit string from chosen units
             let unit_str = match (dy_unit_opt.as_deref(), dx_unit_opt.as_deref()) {
-                (Some(y), Some(x)) => format!(" {}/{}", y, x),
-                (Some(y), None) => format!(" {}", y),
+                (Some(_), Some(x)) => format!("/{}", x),
+                (Some(_), None) => String::new(),
                 (None, Some(x)) => format!(" 1/{}", x),
                 (None, None) => String::new(),
             };
