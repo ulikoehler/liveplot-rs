@@ -182,6 +182,13 @@ pub struct LivePlotPanel {
     /// Event controller for dispatching UI/data events to subscribers.
     pub(crate) event_ctrl: Option<EventController>,
 
+    /// Tracks the pause state from the previous frame to detect changes.
+    pub(crate) last_frame_paused: bool,
+
+    /// When true, suppresses the next `pause_state_changed()` emission to
+    /// avoid loops when the app synchronises pause across tabs externally.
+    pub(crate) suppress_next_pause_emit: bool,
+
     /// Per-threshold event cursor: tracks how many events we have already forwarded
     /// to controller listeners so that only *new* events are published.
     pub(crate) threshold_event_cursors: HashMap<String, usize>,
@@ -261,14 +268,16 @@ impl LivePlotPanel {
             fft_ctrl: None,
             threshold_ctrl: None,
             event_ctrl: None,
+            last_frame_paused: false,
+            suppress_next_pause_emit: false,
             threshold_event_cursors: HashMap::new(),
             pending_requests: LivePlotRequests::default(),
             pending_screenshot_capture: None,
             top_bar_buttons: None,
             sidebar_buttons: None,
             min_height_for_top_bar: 200.0,
-            min_width_for_sidebar: 150.0,
-            min_height_for_sidebar: 200.0,
+            min_width_for_sidebar: 550.0,
+            min_height_for_sidebar: 280.0,
             // Initialise to a large number so that no suppression happens on the first frame.
             last_widget_rect: [0.0, 0.0, 0.0, 0.0],
             last_plot_size: egui::Vec2::new(10_000.0, 10_000.0),
@@ -303,5 +312,43 @@ impl LivePlotPanel {
     /// Attach an event controller for event dispatch.
     pub fn set_event_controller(&mut self, event_ctrl: Option<EventController>) {
         self.event_ctrl = event_ctrl;
+    }
+
+    /// Pause all scopes and take a trace snapshot.
+    pub fn pause_all(&mut self) {
+        self.suppress_next_pause_emit = true;
+        for scope in self.liveplot_panel.get_data_mut() {
+            scope.paused = true;
+        }
+        self.traces_data.take_snapshot();
+    }
+
+    /// Resume all scopes and clear the trace snapshot.
+    pub fn resume_all(&mut self) {
+        self.suppress_next_pause_emit = true;
+        for scope in self.liveplot_panel.get_data_mut() {
+            scope.paused = false;
+        }
+        self.traces_data.clear_snapshot();
+    }
+
+    /// Detect whether the global pause state changed since the last call.
+    ///
+    /// Returns `Some(paused)` when the state flipped, `None` otherwise.
+    /// Calling this updates the internal tracking field.
+    pub fn pause_state_changed(&mut self) -> Option<bool> {
+        let currently_paused = self.liveplot_panel.get_data_mut().iter().all(|s| s.paused)
+            && self.traces_data.has_snapshot();
+        if self.suppress_next_pause_emit {
+            self.suppress_next_pause_emit = false;
+            self.last_frame_paused = currently_paused;
+            return None;
+        }
+        if currently_paused != self.last_frame_paused {
+            self.last_frame_paused = currently_paused;
+            Some(currently_paused)
+        } else {
+            None
+        }
     }
 }

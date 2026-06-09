@@ -786,11 +786,16 @@ impl LivePlotPanel {
                 .any(|p| p.state().visible && !p.state().detached);
 
         if show_left {
+            let total_w = self.last_plot_size.x;
+            let sidebar_min = (total_w * 0.20).min(160.0).max(50.0);
+            let sidebar_default = (total_w * 0.30).min(280.0).max(80.0);
+            let sidebar_max = (total_w * 0.25).min(200.0).max(60.0);
             let mut list = std::mem::take(&mut self.left_side_panels);
             egui::Panel::left(format!("left_sidebar_{}", self.panel_id))
                 .resizable(true)
-                .default_size(280.0)
-                .min_size(160.0)
+                .default_size(sidebar_default)
+                .min_size(sidebar_min)
+                .max_size(sidebar_max)
                 .show_inside(ui, |ui| {
                     egui::ScrollArea::vertical()
                         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
@@ -856,11 +861,16 @@ impl LivePlotPanel {
                 .any(|p| p.state().visible && !p.state().detached);
 
         if show_right {
+            let total_w = self.last_plot_size.x;
+            let sidebar_min = (total_w * 0.25).min(200.0).max(60.0);
+            let sidebar_default = (total_w * 0.35).min(320.0).max(100.0);
+            let sidebar_max = (total_w * 0.30).min(240.0).max(80.0);
             let mut list = std::mem::take(&mut self.right_side_panels);
             egui::Panel::right(format!("right_sidebar_{}", self.panel_id))
                 .resizable(true)
-                .default_size(320.0)
-                .min_size(200.0)
+                .default_size(sidebar_default)
+                .min_size(sidebar_min)
+                .max_size(sidebar_max)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list);
                 });
@@ -918,11 +928,16 @@ impl LivePlotPanel {
                 .any(|p| p.state().visible && !p.state().detached);
 
         if show_bottom {
+            let total_h = self.last_plot_size.y;
+            let bar_min = (total_h * 0.20).min(120.0).max(40.0);
+            let bar_default = (total_h * 0.30).min(220.0).max(80.0);
+            let bar_max = (total_h * 0.30).min(160.0).max(60.0);
             let mut list = std::mem::take(&mut self.bottom_panels);
             egui::Panel::bottom(format!("bottom_bar_{}", self.panel_id))
                 .resizable(true)
-                .default_size(220.0)
-                .min_size(120.0)
+                .default_size(bar_default)
+                .min_size(bar_min)
+                .max_size(bar_max)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list);
                 });
