@@ -1,7 +1,7 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::{LivePlotData, ScreenshotRequest, ScreenshotTarget};
 use crate::data::fft::{FFTWindow, FftData};
-use crate::data::scope::{ScopeType, ValueFormat, AxisType};
+use crate::data::scope::{AxisType, ScopeType, ValueFormat};
 use crate::data::traces::{TraceData, TracesCollection};
 use crate::panels::scope_ui::{ScopePanel, ZoomMode};
 use egui::Ui;

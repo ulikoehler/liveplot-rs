@@ -839,7 +839,10 @@ impl Panel for ThresholdsPanel {
                             ui.label(self.axis.format_value(e.end_t, Some(e.duration)));
                         }
                         3 => {
-                            ui.label(self.axis.format_value(e.duration * 1000.0, Some(e.duration)));
+                            ui.label(
+                                self.axis
+                                    .format_value(e.duration * 1000.0, Some(e.duration)),
+                            );
                         }
                         4 => {
                             ui.label(&e.trace.0);
