@@ -166,7 +166,8 @@ impl LivePlotPanel {
                     .render_menu(ui, &mut self.traces_data, topbar_collapsed);
             }
 
-            let (save_req, load_req, add_scope_req, remove_scope_req) = {
+            let (save_req, load_req, add_scope_req, remove_scope_req,
+                 should_trigger_pause, should_trigger_resume) = {
                 let scope_data = self.liveplot_panel.get_data_mut();
                 let mut data = LivePlotData {
                     scope_data,
@@ -174,6 +175,8 @@ impl LivePlotPanel {
                     pending_requests: &mut self.pending_requests,
                     event_ctrl: self.event_ctrl.clone(),
                 };
+                let mut should_trigger_pause = false;
+                let mut should_trigger_resume = false;
 
                 {
                     let hk = hk_rc.borrow();
@@ -261,7 +264,7 @@ impl LivePlotPanel {
                         if !data.are_all_paused() {
                             let pause_label = if topbar_collapsed { "⏸" } else { "⏸ Pause" };
                             if ui.button(pause_label).on_hover_text(&pause_tt).clicked() {
-                                data.pause_all();
+                                should_trigger_pause = true;
                             }
                         } else {
                             let resume_label = if topbar_collapsed {
@@ -270,7 +273,7 @@ impl LivePlotPanel {
                                 "▶ Resume"
                             };
                             if ui.button(resume_label).on_hover_text(&pause_tt).clicked() {
-                                data.resume_all();
+                                should_trigger_resume = true;
                             }
                         }
                     }
@@ -310,8 +313,17 @@ impl LivePlotPanel {
                     data.pending_requests.load_state.take(),
                     std::mem::take(&mut data.pending_requests.add_scope),
                     data.pending_requests.remove_scope.take(),
+                    should_trigger_pause,
+                    should_trigger_resume,
                 )
             };
+
+            if should_trigger_pause {
+                self.trigger_pause_all();
+            }
+            if should_trigger_resume {
+                self.trigger_resume_all();
+            }
 
             // Apply scope add/remove requests produced by the menu.
             if add_scope_req {
@@ -724,14 +736,9 @@ impl LivePlotPanel {
                 match btn {
                     ScopeButton::PauseResume => {
                         if all_paused {
-                            for s in self.liveplot_panel.get_data_mut() {
-                                s.paused = false;
-                            }
+                            self.trigger_resume_all();
                         } else {
-                            for s in self.liveplot_panel.get_data_mut() {
-                                s.paused = true;
-                            }
-                            self.traces_data.take_snapshot();
+                            self.trigger_pause_all();
                         }
                     }
                     ScopeButton::ClearAll => {

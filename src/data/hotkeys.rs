@@ -513,7 +513,7 @@ pub fn handle_hotkeys(main_panel: &mut LivePlotPanel, ctx: &egui::Context) {
         };
         match act {
             HotkeyName::Pause => {
-                data.toggle_pause();
+                main_panel.trigger_toggle_pause();
             }
             HotkeyName::FitView => {
                 data.fit_all_bounds();

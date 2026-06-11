@@ -85,21 +85,21 @@ impl LivePlotPanel {
                 )
             };
 
-            let mut data = LivePlotData {
+            if let Some(p) = take_actions.0 {
+                if p {
+                    self.trigger_pause_all();
+                } else {
+                    self.trigger_resume_all();
+                }
+            }
+
+            let data = LivePlotData {
                 scope_data: self.liveplot_panel.get_data_mut(),
                 traces: &mut self.traces_data,
                 pending_requests: &mut self.pending_requests,
                 event_ctrl: self.event_ctrl.clone(),
             };
             let primary_scope_id = data.primary_scope().map(|s| s.id);
-
-            if let Some(p) = take_actions.0 {
-                if p {
-                    data.pause_all();
-                } else {
-                    data.resume_all();
-                }
-            }
             if take_actions.1 {
                 data.pending_requests.screenshot = Some(crate::data::data::ScreenshotRequest {
                     target: crate::data::data::ScreenshotTarget::CenterPanel,
@@ -407,19 +407,19 @@ impl LivePlotPanel {
             };
 
             {
+                if let Some(pause) = requests.pause_all {
+                    if pause {
+                        self.trigger_pause_all();
+                    } else {
+                        self.trigger_resume_all();
+                    }
+                }
                 let mut data = LivePlotData {
                     scope_data: self.liveplot_panel.get_data_mut(),
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
                     event_ctrl: self.event_ctrl.clone(),
                 };
-                if let Some(pause) = requests.pause_all {
-                    if pause {
-                        data.pause_all();
-                    } else {
-                        data.resume_all();
-                    }
-                }
                 if requests.clear_all {
                     data.request_clear_all();
                 }
@@ -565,19 +565,19 @@ impl LivePlotPanel {
             };
 
             {
+                if let Some(pause) = requests.pause_all {
+                    if pause {
+                        self.trigger_pause_all();
+                    } else {
+                        self.trigger_resume_all();
+                    }
+                }
                 let mut data = LivePlotData {
                     scope_data: self.liveplot_panel.get_data_mut(),
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
                     event_ctrl: self.event_ctrl.clone(),
                 };
-                if let Some(pause) = requests.pause_all {
-                    if pause {
-                        data.pause_all();
-                    } else {
-                        data.resume_all();
-                    }
-                }
                 if requests.clear_all {
                     data.request_clear_all();
                 }

@@ -189,6 +189,11 @@ pub struct LivePlotPanel {
     /// avoid loops when the app synchronises pause across tabs externally.
     pub(crate) suppress_next_pause_emit: bool,
 
+    /// When `Some(paused)`, signals that an explicit pause/resume action was
+    /// triggered (menu bar, sidebar, hotkey or controller) and the caller
+    /// should sync the state across tabs.
+    pub(crate) pending_explicit_pause: Option<bool>,
+
     /// Per-threshold event cursor: tracks how many events we have already forwarded
     /// to controller listeners so that only *new* events are published.
     pub(crate) threshold_event_cursors: HashMap<String, usize>,
@@ -270,6 +275,7 @@ impl LivePlotPanel {
             event_ctrl: None,
             last_frame_paused: false,
             suppress_next_pause_emit: false,
+            pending_explicit_pause: None,
             threshold_event_cursors: HashMap::new(),
             pending_requests: LivePlotRequests::default(),
             pending_screenshot_capture: None,
@@ -350,5 +356,37 @@ impl LivePlotPanel {
         } else {
             None
         }
+    }
+
+    /// Pause all scopes and mark the action as explicit for cross-tab sync.
+    pub fn trigger_pause_all(&mut self) {
+        self.pending_explicit_pause = Some(true);
+        self.pause_all();
+    }
+
+    /// Resume all scopes and mark the action as explicit for cross-tab sync.
+    pub fn trigger_resume_all(&mut self) {
+        self.pending_explicit_pause = Some(false);
+        self.resume_all();
+    }
+
+    /// Toggle pause/resume on all scopes and mark the action as explicit.
+    pub fn trigger_toggle_pause(&mut self) {
+        let currently_paused = self.liveplot_panel.get_data().iter().all(|s| s.paused)
+            && self.traces_data.has_snapshot();
+        if currently_paused {
+            self.trigger_resume_all();
+        } else {
+            self.trigger_pause_all();
+        }
+    }
+
+    /// Consume any pending explicit pause action.
+    ///
+    /// Returns `Some(paused)` when a menu-bar / sidebar / hotkey / controller
+    /// action occurred this frame, `None` otherwise.  The flag is cleared on
+    /// read so each action is reported only once.
+    pub fn take_explicit_pause(&mut self) -> Option<bool> {
+        self.pending_explicit_pause.take()
     }
 }
