@@ -135,7 +135,23 @@ impl Panel for FftPanel {
             .retain(|name, _| data.traces.contains_key(name));
 
         for (name, tr) in data.traces.traces_iter() {
-            if let Some(spec) = FftData::compute_fft(
+            // Determine which buffer we'd use, to compute cache key.
+            let buf = if paused {
+                match &tr.snap {
+                    Some(s) => s,
+                    None => continue,
+                }
+            } else {
+                &tr.live
+            };
+            let buf_len = buf.len();
+            let last_ts = buf.back().map(|p| p[0]);
+
+            if !self.fft_data.needs_recompute(name, buf_len, last_ts, paused) {
+                continue;
+            }
+
+            if let Some(spec) = self.fft_data.compute_fft(
                 &tr.live,
                 paused,
                 &tr.snap,
