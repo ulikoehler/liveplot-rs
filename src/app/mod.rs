@@ -194,6 +194,15 @@ pub struct LivePlotPanel {
     /// should sync the state across tabs.
     pub(crate) pending_explicit_pause: Option<bool>,
 
+    /// Pending view change (zoom/pan/slider/fit) collected from scope panels
+    /// during the last frame.  The caller can consume this via
+    /// [`take_view_change`](Self::take_view_change) to sync across tabs.
+    pub(crate) pending_view_change: Option<crate::events::ViewChangeMeta>,
+
+    /// When `true`, suppresses the next `take_view_change()` result to avoid
+    /// loops when the app synchronises the time window across tabs externally.
+    pub(crate) suppress_next_view_change_emit: bool,
+
     /// Per-threshold event cursor: tracks how many events we have already forwarded
     /// to controller listeners so that only *new* events are published.
     pub(crate) threshold_event_cursors: HashMap<String, usize>,
@@ -276,6 +285,8 @@ impl LivePlotPanel {
             last_frame_paused: false,
             suppress_next_pause_emit: false,
             pending_explicit_pause: None,
+            pending_view_change: None,
+            suppress_next_view_change_emit: false,
             threshold_event_cursors: HashMap::new(),
             pending_requests: LivePlotRequests::default(),
             pending_screenshot_capture: None,
@@ -388,5 +399,35 @@ impl LivePlotPanel {
     /// read so each action is reported only once.
     pub fn take_explicit_pause(&mut self) -> Option<bool> {
         self.pending_explicit_pause.take()
+    }
+
+    /// Consume any pending view change (zoom/pan/slider/fit) collected from
+    /// scope panels during the last frame.
+    ///
+    /// Returns `Some(ViewChangeMeta)` when a user interaction changed the view,
+    /// `None` otherwise.  The change is cleared on read so it is reported only
+    /// once.  When `suppress_next_view_change_emit` is `true` (set by
+    /// [`set_time_window`](Self::set_time_window)), the change is discarded
+    /// to avoid feedback loops during cross-tab synchronisation.
+    pub fn take_view_change(&mut self) -> Option<crate::events::ViewChangeMeta> {
+        if self.suppress_next_view_change_emit {
+            self.suppress_next_view_change_emit = false;
+            self.pending_view_change.take();
+            return None;
+        }
+        self.pending_view_change.take()
+    }
+
+    /// Set the time window on all TimeScope scopes and suppress the next
+    /// view-change emission to avoid feedback loops when syncing across tabs.
+    ///
+    /// XY-mode scopes are not affected.
+    pub fn set_time_window(&mut self, time_window: f64) {
+        self.suppress_next_view_change_emit = true;
+        for scope in self.liveplot_panel.get_data_mut() {
+            if scope.scope_type == crate::data::scope::ScopeType::TimeScope {
+                scope.time_window = time_window;
+            }
+        }
     }
 }

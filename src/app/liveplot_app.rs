@@ -467,6 +467,7 @@ impl LivePlotApp {
                         scope.paused = scope_req.paused;
                         scope.show_legend = scope_req.show_legend;
                         scope.show_info_in_legend = scope_req.show_info_in_legend;
+                        scope.legend_position = scope_req.legend_position;
                         scope.scope_type = scope_req.scope_type;
                         scope.trace_order = scope_req.trace_order.clone();
                         scope.trace_order.retain(|t| traces.contains_key(t));
@@ -487,6 +488,7 @@ impl LivePlotApp {
                         paused: scope.paused,
                         show_legend: scope.show_legend,
                         show_info_in_legend: scope.show_info_in_legend,
+                        legend_position: scope.legend_position,
                         trace_order: scope.trace_order.clone(),
                         scope_type: scope.scope_type,
                     });

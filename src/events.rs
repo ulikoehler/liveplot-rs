@@ -317,6 +317,8 @@ pub struct ViewChangeMeta {
     pub y_range: Option<(f64, f64)>,
     /// Scope id that was zoomed/panned.
     pub scope_id: Option<usize>,
+    /// The scope type (TimeScope or XYScope) at the time of the change.
+    pub scope_type: Option<crate::data::scope::ScopeType>,
 }
 
 /// Metadata for trace visibility / colour events.

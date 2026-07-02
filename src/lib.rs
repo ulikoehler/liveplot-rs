@@ -23,6 +23,7 @@ pub use controllers::{
     UiActionController, WindowController, WindowInfo,
 };
 pub use data::traces::TraceRef;
+pub use data::scope::ScopeType;
 pub use events::{
     ClickMeta, DataUpdateMeta, EventController, EventFilter, EventKind, ExportMeta, KeyModifiers,
     KeyPressMeta, MathTraceMeta, MeasurementMeta, PauseMeta, PlotEvent, PlotPos, ResizeMeta,

@@ -43,6 +43,7 @@ pub struct AxisSettingsSerde {
     pub name: Option<String>,
     pub bounds: [f64; 2],
     pub auto_fit: bool,
+    #[serde(default)]
     pub keep_max_fit: bool,
     #[serde(default = "default_axis_value_decimals")]
     pub value_decimals: usize,
@@ -429,6 +430,9 @@ pub struct ScopeStateSerde {
     pub scope_is_xy: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
+    /// Position of the legend within the plot area.
+    #[serde(default)]
+    pub legend_position: crate::data::scope::LegendPosition,
     /// Scope id (for multi-scope layouts).
     #[serde(default)]
     pub id: Option<usize>,
@@ -462,6 +466,7 @@ impl From<&ScopeData> for ScopeStateSerde {
             scope_is_xy: matches!(s.scope_type, ScopeType::XYScope),
             show_legend: s.show_legend,
             show_info_in_legend: s.show_info_in_legend,
+            legend_position: s.legend_position,
             id: Some(s.id),
             name: Some(s.name.clone()),
             trace_order: s.trace_order.iter().map(|t| t.0.clone()).collect(),
@@ -503,6 +508,7 @@ impl ScopeStateSerde {
         };
         scope.show_legend = self.show_legend;
         scope.show_info_in_legend = self.show_info_in_legend;
+        scope.legend_position = self.legend_position;
         if let Some(name) = self.name {
             scope.name = name;
         }
@@ -530,11 +536,25 @@ impl ScopeStateSerde {
 }
 
 #[cfg(feature = "fft")]
+fn default_zero_pad_factor() -> usize {
+    1
+}
+
+#[cfg(feature = "fft")]
+fn default_recompute_interval_ms() -> u64 {
+    100
+}
+
+#[cfg(feature = "fft")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FftPanelStateSerde {
     pub fft_size: usize,
     pub fft_window: String,
     pub fft_db: bool,
+    #[serde(default = "default_zero_pad_factor")]
+    pub zero_pad_factor: usize,
+    #[serde(default = "default_recompute_interval_ms")]
+    pub recompute_interval_ms: u64,
     pub scope: ScopeStateSerde,
 }
 
@@ -545,6 +565,8 @@ impl FftPanelStateSerde {
             fft_size: panel.fft_data.fft_size,
             fft_window: panel.fft_data.fft_window.label().to_string(),
             fft_db: panel.fft_db,
+            zero_pad_factor: panel.fft_data.zero_pad_factor,
+            recompute_interval_ms: panel.fft_data.recompute_interval_ms,
             scope: ScopeStateSerde::from(&panel.scope_ui),
         }
     }
@@ -558,6 +580,8 @@ impl FftPanelStateSerde {
             _ => FFTWindow::Hann,
         };
         panel.fft_db = self.fft_db;
+        panel.fft_data.zero_pad_factor = self.zero_pad_factor;
+        panel.fft_data.recompute_interval_ms = self.recompute_interval_ms;
         self.scope.clone().apply_to_panel(&mut panel.scope_ui);
     }
 }
@@ -678,6 +702,7 @@ impl Default for AppStateSerde {
                 scope_is_xy: false,
                 show_legend: true,
                 show_info_in_legend: false,
+                legend_position: crate::data::scope::LegendPosition::default(),
                 pause_on_click: false,
                 controls_in_toolbar: true,
                 zoom_mode: crate::panels::scope_ui::ZoomMode::default(),

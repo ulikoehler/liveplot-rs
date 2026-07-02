@@ -9,6 +9,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 use crate::data::scope::AxisSettings;
+use crate::data::scope::LegendPosition;
 use crate::data::scope::ScopeType;
 use crate::data::traces::TraceRef;
 use egui_plot::LineStyle;
@@ -530,6 +531,7 @@ pub struct ScopeControlState {
     pub paused: bool,
     pub show_legend: bool,
     pub show_info_in_legend: bool,
+    pub legend_position: LegendPosition,
     pub trace_order: Vec<TraceRef>,
     pub scope_type: ScopeType,
 }

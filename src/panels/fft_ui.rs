@@ -134,6 +134,18 @@ impl Panel for FftPanel {
             .fft_traces
             .retain(|name, _| data.traces.contains_key(name));
 
+        // Poll for completed FFT results from the background worker
+        let results = self.fft_data.poll_fft_results();
+        for (trace_ref, spectrum, info) in results {
+            if let Some(entry) = self.fft_data.fft_traces.get_mut(&trace_ref) {
+                entry.live.clear();
+                entry.live.extend(spectrum.into_iter());
+                entry.snap = None;
+                entry.info = info;
+            }
+        }
+
+        // Dispatch new FFT jobs for traces that need recomputation
         for (name, tr) in data.traces.traces_iter() {
             // Determine which buffer we'd use, to compute cache key.
             let buf = if paused {
@@ -151,29 +163,21 @@ impl Panel for FftPanel {
                 continue;
             }
 
-            if let Some(spec) = self.fft_data.compute_fft(
-                &tr.live,
-                paused,
-                &tr.snap,
-                self.fft_data.fft_size,
-                self.fft_data.fft_window,
-            ) {
-                let entry = self
-                    .fft_data
-                    .fft_traces
-                    .entry(name.clone())
-                    .or_insert_with(TraceData::default);
-                entry.look = tr.look.clone();
-                entry.offset = 0.0;
-                entry.live.clear();
-                entry.live.extend(spec.into_iter());
-                entry.snap = None;
-                entry.info = format!(
-                    "FFT N={} {}",
-                    self.fft_data.fft_size,
-                    self.fft_data.fft_window.label()
-                );
+            // Create/update placeholder entry with current trace look so the
+            // result handler can just update the spectrum when it arrives.
+            let entry = self
+                .fft_data
+                .fft_traces
+                .entry(name.clone())
+                .or_insert_with(TraceData::default);
+            entry.look = tr.look.clone();
+            entry.offset = 0.0;
+            if entry.info.is_empty() {
+                entry.info = "Computing...".to_string();
             }
+
+            self.fft_data
+                .dispatch_fft(name, &tr.live, paused, &tr.snap);
         }
     }
 
@@ -221,10 +225,29 @@ impl Panel for FftPanel {
         ui.horizontal(|ui| {
             ui.label("FFT size:");
             let mut size_log2 = (self.fft_data.fft_size as f32).log2() as u32;
-            let slider = egui::Slider::new(&mut size_log2, 8..=15).text("2^N");
+            let slider = egui::Slider::new(&mut size_log2, 8..=20).text("2^N");
             if ui.add(slider).changed() {
                 self.fft_data.fft_size = 1usize << size_log2;
             }
+            ui.separator();
+            ui.label("Pad:");
+            let pad_options: [(usize, &str); 5] = [(1, "1×"), (2, "2×"), (4, "4×"), (8, "8×"), (16, "16×")];
+            let pad_label = pad_options
+                .iter()
+                .find(|(v, _)| *v == self.fft_data.zero_pad_factor)
+                .map(|(_, l)| *l)
+                .unwrap_or("1×");
+            let _ = egui::ComboBox::from_id_salt("fft_zero_pad")
+                .selected_text(pad_label)
+                .show_ui(ui, |ui| {
+                    for (v, label) in pad_options.iter() {
+                        ui.selectable_value(
+                            &mut self.fft_data.zero_pad_factor,
+                            *v,
+                            *label,
+                        );
+                    }
+                });
             ui.separator();
             ui.label("Window:");
             let mut w_idx = FFTWindow::ALL
@@ -239,6 +262,31 @@ impl Panel for FftPanel {
                     }
                 });
             self.fft_data.fft_window = FFTWindow::ALL[w_idx];
+            ui.separator();
+            ui.label("Update:");
+            let throttle_options: [(u64, &str); 5] = [
+                (50, "50ms"),
+                (100, "100ms"),
+                (200, "200ms"),
+                (500, "500ms"),
+                (1000, "1s"),
+            ];
+            let throttle_label = throttle_options
+                .iter()
+                .find(|(v, _)| *v == self.fft_data.recompute_interval_ms)
+                .map(|(_, l)| *l)
+                .unwrap_or("100ms");
+            let _ = egui::ComboBox::from_id_salt("fft_throttle")
+                .selected_text(throttle_label)
+                .show_ui(ui, |ui| {
+                    for (v, label) in throttle_options.iter() {
+                        ui.selectable_value(
+                            &mut self.fft_data.recompute_interval_ms,
+                            *v,
+                            *label,
+                        );
+                    }
+                });
             ui.separator();
             if ui
                 .button(if self.fft_db { "Linear" } else { "dB" })

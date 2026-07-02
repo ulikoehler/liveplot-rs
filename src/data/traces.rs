@@ -176,7 +176,7 @@ impl TracesCollection {
                     PlotCommand::RegisterTrace { id, name, info } => {
                         self.id_to_name.insert(id, name.clone());
                         let tref = TraceRef(name.clone());
-                        let new_index = self.traces.len();
+                        let new_index = self.next_color_index();
                         let pending = self.pending_styles.remove(name.as_str());
                         let entry = match self.traces.entry(tref.clone()) {
                             Entry::Occupied(entry) => entry.into_mut(),
@@ -211,7 +211,7 @@ impl TracesCollection {
                     PlotCommand::Point { trace_id, point } => {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                             let tref = TraceRef(name.clone());
-                            let new_index = self.traces.len();
+                            let new_index = self.next_color_index();
                             let pending = self.pending_styles.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
@@ -240,7 +240,7 @@ impl TracesCollection {
                             let name = format!("trace-{}", trace_id);
                             self.id_to_name.insert(trace_id, name.clone());
                             let tref = TraceRef(name.clone());
-                            let new_index = self.traces.len();
+                            let new_index = self.next_color_index();
                             let pending = self.pending_styles.remove(name.as_str());
                             let entry = self.traces.entry(tref.clone()).or_insert_with(|| {
                                 new_traces.push(tref.clone());
@@ -263,7 +263,7 @@ impl TracesCollection {
                     PlotCommand::Points { trace_id, points } => {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                             let tref = TraceRef(name.clone());
-                            let new_index = self.traces.len();
+                            let new_index = self.next_color_index();
                             let pending = self.pending_styles.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
@@ -294,7 +294,7 @@ impl TracesCollection {
                     PlotCommand::SetData { trace_id, points } => {
                         if let Some(name) = self.id_to_name.get(&trace_id).cloned() {
                             let tref = TraceRef(name.clone());
-                            let new_index = self.traces.len();
+                            let new_index = self.next_color_index();
                             let pending = self.pending_styles.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
@@ -442,7 +442,7 @@ impl TracesCollection {
 
     pub fn get_trace_or_new(&mut self, name: &TraceRef) -> &mut TraceData {
         if !self.traces.contains_key(name) {
-            let new_index = self.traces.len();
+            let new_index = self.next_color_index();
             let pending = self.pending_styles.remove(name.as_ref());
             let (look, offset) = pending.unwrap_or((TraceLook::new(new_index), 0.0));
             // note: later when the TraceData is created the `creation_index` is set
@@ -530,6 +530,47 @@ impl TracesCollection {
         for (_name, tr) in self.traces.iter_mut() {
             let idx = tr.creation_index;
             tr.look.color = palette[idx % palette.len()];
+        }
+    }
+
+    /// Find the first palette slot not currently used by any existing trace.
+    ///
+    /// Returns the index to use for `TraceLook::new(index)` so that a newly
+    /// created trace gets a colour that doesn't collide with any existing
+    /// trace.  If all palette slots are in use, wraps around to 0.
+    pub fn next_color_index(&self) -> usize {
+        let palette = crate::color_scheme::global_palette();
+        if palette.is_empty() {
+            return 0;
+        }
+        let pal_len = palette.len();
+        let used: std::collections::HashSet<usize> = self
+            .traces
+            .values()
+            .map(|tr| tr.creation_index % pal_len)
+            .collect();
+        for slot in 0..pal_len {
+            if !used.contains(&slot) {
+                return slot;
+            }
+        }
+        0
+    }
+
+    /// Recolour traces to match their position in `order`.
+    ///
+    /// The Nth trace in `order` gets `palette[N % palette.len()]`.  Traces
+    /// not present in `order` are left unchanged.
+    pub fn recolor_by_order(&mut self, order: &[TraceRef]) {
+        let palette = crate::color_scheme::global_palette();
+        if palette.is_empty() {
+            return;
+        }
+        for (i, name) in order.iter().enumerate() {
+            if let Some(tr) = self.traces.get_mut(name) {
+                tr.look.color = palette[i % palette.len()];
+                tr.creation_index = i;
+            }
         }
     }
 
@@ -645,5 +686,52 @@ mod tests {
             col.traces.get(&TraceRef("b".into())).unwrap().look.color,
             Color32::from_rgb(8, 8, 8)
         );
+    }
+
+    #[test]
+    fn next_color_index_avoids_collision_after_removal() {
+        color_scheme::set_global_palette(vec![
+            Color32::from_rgb(1, 1, 1),
+            Color32::from_rgb(2, 2, 2),
+            Color32::from_rgb(3, 3, 3),
+        ]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut col = TracesCollection::new(rx);
+        // Register 3 traces → indices 0, 1, 2
+        let _ = tx.send(PlotCommand::RegisterTrace { id: 1, name: "a".into(), info: None });
+        let _ = tx.send(PlotCommand::RegisterTrace { id: 2, name: "b".into(), info: None });
+        let _ = tx.send(PlotCommand::RegisterTrace { id: 3, name: "c".into(), info: None });
+        let _ = col.update();
+        // Remove "b" (index 1) → used slots are {0, 2}
+        col.remove_trace(&TraceRef("b".into()));
+        // Next index should be 1 (first unused slot)
+        assert_eq!(col.next_color_index(), 1);
+    }
+
+    #[test]
+    fn recolor_by_order_assigns_palette_in_order() {
+        let palette = vec![
+            Color32::from_rgb(10, 10, 10),
+            Color32::from_rgb(20, 20, 20),
+            Color32::from_rgb(30, 30, 30),
+        ];
+        color_scheme::set_global_palette(palette.clone());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut col = TracesCollection::new(rx);
+        let _ = tx.send(PlotCommand::RegisterTrace { id: 1, name: "a".into(), info: None });
+        let _ = tx.send(PlotCommand::RegisterTrace { id: 2, name: "b".into(), info: None });
+        let _ = tx.send(PlotCommand::RegisterTrace { id: 3, name: "c".into(), info: None });
+        let _ = col.update();
+
+        // Recolor in reverse order: c, b, a
+        let order = vec![
+            TraceRef("c".into()),
+            TraceRef("b".into()),
+            TraceRef("a".into()),
+        ];
+        col.recolor_by_order(&order);
+        assert_eq!(col.get_trace(&TraceRef("c".into())).unwrap().look.color, palette[0]);
+        assert_eq!(col.get_trace(&TraceRef("b".into())).unwrap().look.color, palette[1]);
+        assert_eq!(col.get_trace(&TraceRef("a".into())).unwrap().look.color, palette[2]);
     }
 }

@@ -668,6 +668,22 @@ impl LiveplotPanel {
         }
     }
 
+    /// Collect and return the first pending view change from any scope panel.
+    ///
+    /// Each `ScopePanel` may store a `pending_view_change` when the user zooms,
+    /// pans, uses the time-window slider, or double-clicks to fit.  This method
+    /// drains all panels and returns the first change found (if any).
+    pub fn collect_view_changes(&mut self) -> Option<crate::events::ViewChangeMeta> {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                if let Some(vc) = pane.take_view_change() {
+                    return Some(vc);
+                }
+            }
+        }
+        None
+    }
+
     pub(crate) fn take_scope_screenshot_request(&mut self) -> Option<ScreenshotRequest> {
         for tile in self.tree.tiles.tiles_mut() {
             if let Tile::Pane(pane) = tile {

@@ -1,12 +1,12 @@
 use crate::data::data::LivePlotRequests;
-use crate::data::scope::{AxisType, ScopeData, ScopeType, TimeFormat, ValueFormat};
+use crate::data::scope::{AxisType, LegendPosition, ScopeData, ScopeType, TimeFormat, ValueFormat};
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
 use eframe::egui;
 use egui::{Color32, Id, Ui};
 use egui_dnd::dnd;
-use egui_phosphor::regular::DOTS_SIX_VERTICAL;
+use egui_phosphor::regular::{CARET_DOWN, CARET_UP, DOTS_SIX_VERTICAL};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -20,6 +20,9 @@ pub struct ScopeSettingsResponse {
     pub type_changed: bool,
     pub scope_changed: bool,
     pub moved_from_scope: Option<(usize, TraceRef)>,
+    pub recolor_requested: bool,
+    pub sort_requested: bool,
+    pub sort_ascending: bool,
 }
 
 #[derive(Default)]
@@ -27,6 +30,7 @@ pub struct ScopeSettingsUiPanel {
     renaming_scope_id: Option<usize>,
     rename_buffer: String,
     rename_focus_scope: Option<usize>,
+    sort_ascending: bool,
 }
 
 fn trace_tooltip(traces_collection: &TracesCollection, trace: &TraceRef) -> String {
@@ -51,6 +55,14 @@ impl ScopeSettingsUiPanel {
     ) -> ScopeSettingsResponse {
         let scope_id = scope.id;
         let prev_type = scope.scope_type;
+        let mut resp = ScopeSettingsResponse {
+            type_changed: false,
+            scope_changed: false,
+            moved_from_scope: None,
+            recolor_requested: false,
+            sort_requested: false,
+            sort_ascending: self.sort_ascending,
+        };
 
         let is_renaming = self.renaming_scope_id == Some(scope_id);
 
@@ -124,10 +136,51 @@ impl ScopeSettingsUiPanel {
             ui.add_enabled_ui(scope.show_legend, |ui| {
                 ui.checkbox(&mut scope.show_info_in_legend, "Info")
                     .on_hover_text("Append each trace's info text to its legend label");
+
+                ui.menu_button("Position", |ui| {
+                    let positions = [
+                        (LegendPosition::LeftTop, "Left Top"),
+                        (LegendPosition::RightTop, "Right Top"),
+                        (LegendPosition::LeftBottom, "Left Bottom"),
+                        (LegendPosition::RightBottom, "Right Bottom"),
+                    ];
+                    for (pos, label) in positions {
+                        if ui
+                            .selectable_label(scope.legend_position == pos, label)
+                            .clicked()
+                        {
+                            scope.legend_position = pos;
+                            ui.close();
+                        }
+                    }
+                });
             });
         });
 
         ui.horizontal(|ui| {
+            if ui
+                .small_button("🎨")
+                .on_hover_text("Recolor traces to match legend order")
+                .clicked()
+            {
+                resp.recolor_requested = true;
+            }
+
+            let sort_icon = if self.sort_ascending { CARET_UP } else { CARET_DOWN };
+            if ui
+                .small_button(sort_icon)
+                .on_hover_text(if self.sort_ascending {
+                    "Sort traces alphabetically (ascending)"
+                } else {
+                    "Sort traces alphabetically (descending)"
+                })
+                .clicked()
+            {
+                resp.sort_requested = true;
+                resp.sort_ascending = self.sort_ascending;
+                self.sort_ascending = !self.sort_ascending;
+            }
+
             let time_sel = scope.scope_type == ScopeType::TimeScope;
             if ui
                 .selectable_label(time_sel, "Time-Scope")
@@ -157,11 +210,8 @@ impl ScopeSettingsUiPanel {
             }
         });
 
-        ScopeSettingsResponse {
-            type_changed: prev_type != scope.scope_type,
-            scope_changed: false,
-            moved_from_scope: None,
-        }
+        resp.type_changed = prev_type != scope.scope_type;
+        resp
     }
 
     fn reorder_trace_order_pairs_first(scope: &mut ScopeData) {
@@ -492,6 +542,22 @@ impl ScopeSettingsUiPanel {
     ) -> ScopeSettingsResponse {
         let mut resp = self.render_scope_settings(ui, scope, can_remove_scope, pending);
         let mut scope_changed = false;
+
+        if resp.recolor_requested {
+            traces_collection.recolor_by_order(&scope.trace_order);
+        }
+
+        if resp.sort_requested {
+            if resp.sort_ascending {
+                scope.trace_order.sort_by(|a, b| a.0.cmp(&b.0));
+            } else {
+                scope.trace_order.sort_by(|a, b| b.0.cmp(&a.0));
+            }
+            if scope.scope_type == ScopeType::XYScope {
+                Self::rebuild_xy_pairs_from_trace_order(scope, traces_collection);
+            }
+            scope_changed = true;
+        }
 
         if resp.type_changed {
             match scope.scope_type {

@@ -1,7 +1,8 @@
 use egui::{Color32, Ui};
-use egui_plot::{Legend, Line, Plot, Points};
+use egui_plot::{Legend, Line, Plot, PlotMemory, Points};
 use serde::{Deserialize, Serialize};
 
+use crate::data::scope::LegendPosition;
 use crate::data::scope::ScopeData;
 use crate::data::scope::ScopeType;
 use crate::data::traces::TraceRef;
@@ -51,6 +52,12 @@ pub struct ScopePanel {
     last_y_axis_width: f32,
     last_y_fit_width: f32,
     last_zoom_width: f32,
+
+    /// Pending view change (zoom/pan/slider/fit) to be collected by the parent.
+    pub(crate) pending_view_change: Option<crate::events::ViewChangeMeta>,
+
+    /// Screen-space start position for custom box zoom (right-click drag).
+    box_zoom_start: Option<egui::Pos2>,
 }
 
 impl Default for ScopePanel {
@@ -73,6 +80,8 @@ impl Default for ScopePanel {
             last_y_axis_width: 218.4,
             last_y_fit_width: 132.1,
             last_zoom_width: 164.0,
+            pending_view_change: None,
+            box_zoom_start: None,
         }
     }
 }
@@ -274,6 +283,11 @@ impl ScopePanel {
         &self.data
     }
 
+    /// Consume and return any pending view change (zoom/pan/slider/fit).
+    pub fn take_view_change(&mut self) -> Option<crate::events::ViewChangeMeta> {
+        self.pending_view_change.take()
+    }
+
     /// Returns current value of the `pause_on_click` flag.
     pub fn pause_on_click(&self) -> bool {
         self.data.pause_on_click
@@ -327,6 +341,24 @@ impl ScopePanel {
             {
                 ui.close();
             };
+
+            ui.menu_button("Legend Position", |ui| {
+                let positions = [
+                    (LegendPosition::LeftTop, "Left Top"),
+                    (LegendPosition::RightTop, "Right Top"),
+                    (LegendPosition::LeftBottom, "Left Bottom"),
+                    (LegendPosition::RightBottom, "Right Bottom"),
+                ];
+                for (pos, label) in positions {
+                    if ui
+                        .selectable_label(self.data.legend_position == pos, label)
+                        .clicked()
+                    {
+                        self.data.legend_position = pos;
+                        ui.close();
+                    }
+                }
+            });
         });
     }
 
@@ -408,6 +440,12 @@ impl ScopePanel {
                     let sresp = ui.add(slider);
                     if sresp.changed() {
                         self.data.time_window = tw;
+                        self.pending_view_change = Some(crate::events::ViewChangeMeta {
+                            x_range: Some(self.data.x_axis.bounds),
+                            y_range: None,
+                            scope_id: Some(self.data.id),
+                            scope_type: Some(ScopeType::TimeScope),
+                        });
                     }
 
                     self.time_slider_dragging = sresp.is_pointer_button_down_on();
@@ -435,6 +473,12 @@ impl ScopePanel {
                         self.data.x_axis.bounds.0 = x_min_tmp;
                         self.data.x_axis.bounds.1 = x_max_tmp;
                         self.data.time_window = x_max_tmp - x_min_tmp;
+                        self.pending_view_change = Some(crate::events::ViewChangeMeta {
+                            x_range: Some(self.data.x_axis.bounds),
+                            y_range: None,
+                            scope_id: Some(self.data.id),
+                            scope_type: Some(self.data.scope_type),
+                        });
                     }
                 }
             });
@@ -626,6 +670,12 @@ impl ScopePanel {
                 if (r1.changed() || r2.changed()) && y_min_tmp < y_max_tmp {
                     self.data.y_axis.bounds.0 = y_min_tmp;
                     self.data.y_axis.bounds.1 = y_max_tmp;
+                    self.pending_view_change = Some(crate::events::ViewChangeMeta {
+                        x_range: None,
+                        y_range: Some(self.data.y_axis.bounds),
+                        scope_id: Some(self.data.id),
+                        scope_type: Some(self.data.scope_type),
+                    });
                 }
             });
             self.last_y_axis_width = response.response.rect.width();
@@ -816,9 +866,16 @@ impl ScopePanel {
                     x_range: Some(self.data.x_axis.bounds),
                     y_range: Some(self.data.y_axis.bounds),
                     scope_id: Some(self.data.id),
+                    scope_type: Some(self.data.scope_type),
                 });
                 ctrl.emit_filtered(evt);
             }
+            self.pending_view_change = Some(crate::events::ViewChangeMeta {
+                x_range: Some(self.data.x_axis.bounds),
+                y_range: Some(self.data.y_axis.bounds),
+                scope_id: Some(self.data.id),
+                scope_type: Some(self.data.scope_type),
+            });
         }
 
         ui.separator();
@@ -854,7 +911,7 @@ impl ScopePanel {
         let mut plot = Plot::new(format!("scope_plot_{}", self.data.name))
             .allow_scroll(false)
             .allow_zoom(false)
-            .allow_boxed_zoom(true)
+            .allow_boxed_zoom(false)
             .show_grid(egui::Vec2b::new(show_grid, show_grid))
             // When tick labels are hidden (thresholds set above available size), also
             // suppress the egui_plot axis space reservation so the plot fills the full
@@ -871,7 +928,7 @@ impl ScopePanel {
             }
         }
         if self.data.show_legend && !hide_legend {
-            plot = plot.legend(Legend::default());
+            plot = plot.legend(Legend::default().position(self.data.legend_position.into()));
         }
         let plot = plot
             .x_axis_formatter(|x, _range| {
@@ -911,7 +968,9 @@ impl ScopePanel {
             // Handle wheel zoom around hovered point
             let resp = plot_ui.response();
 
-            let is_zooming_rect = resp.drag_stopped_by(egui::PointerButton::Secondary);
+            let is_box_zoom_dragging =
+                resp.dragged_by(egui::PointerButton::Secondary) && resp.is_pointer_button_down_on();
+            let is_box_zoom_finished = resp.drag_stopped_by(egui::PointerButton::Secondary);
             let is_panning =
                 resp.dragged_by(egui::PointerButton::Primary) && resp.is_pointer_button_down_on();
 
@@ -919,7 +978,11 @@ impl ScopePanel {
             let is_zooming_with_wheel =
                 (scroll_data.x != 0.0 || scroll_data.y != 0.0) && resp.hovered();
 
-            let bounds_changed = is_zooming_rect || is_panning || is_zooming_with_wheel;
+            // Capture hover_pos before mutable plot_ui calls to avoid borrow conflict
+            let hover_pos = resp.hover_pos();
+
+            let bounds_changed =
+                is_box_zoom_dragging || is_box_zoom_finished || is_panning || is_zooming_with_wheel;
 
             if is_zooming_with_wheel {
                 let mut zoom_factor = egui::Vec2::new(1.0, 1.0);
@@ -935,6 +998,43 @@ impl ScopePanel {
                 }
 
                 plot_ui.zoom_bounds_around_hovered(zoom_factor);
+            }
+
+            // Custom box zoom that respects ZoomMode
+            if self.zoom_mode != ZoomMode::Off {
+                if is_box_zoom_dragging && self.box_zoom_start.is_none() {
+                    self.box_zoom_start = hover_pos;
+                }
+                if is_box_zoom_finished {
+                    if let (Some(start), Some(end)) = (self.box_zoom_start, hover_pos) {
+                        let p0 = plot_ui.plot_from_screen(start);
+                        let p1 = plot_ui.plot_from_screen(end);
+                        let (x_min, x_max) = (p0.x.min(p1.x), p0.x.max(p1.x));
+                        let (y_min, y_max) = (p0.y.min(p1.y), p0.y.max(p1.y));
+                        match self.zoom_mode {
+                            ZoomMode::X => {
+                                if x_max > x_min {
+                                    plot_ui.set_plot_bounds_x(x_min..=x_max);
+                                }
+                            }
+                            ZoomMode::Y => {
+                                if y_max > y_min {
+                                    plot_ui.set_plot_bounds_y(y_min..=y_max);
+                                }
+                            }
+                            ZoomMode::Both => {
+                                if x_max > x_min && y_max > y_min {
+                                    plot_ui.set_plot_bounds_x(x_min..=x_max);
+                                    plot_ui.set_plot_bounds_y(y_min..=y_max);
+                                }
+                            }
+                            ZoomMode::Off => {}
+                        }
+                    }
+                    self.box_zoom_start = None;
+                }
+            } else {
+                self.box_zoom_start = None;
             }
 
             // Apply bounds: X follows latest time using time_window; Y respects manual limits if valid
@@ -1163,6 +1263,117 @@ impl ScopePanel {
 
         self.record_plot_geometry(&plot_resp);
 
+        // Handle right-click on legend items: isolate one trace or re-enable all
+        if self.data.show_legend && !hide_legend {
+            let plot_id =
+                ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.data.name)));
+            if let Some(mut mem) = PlotMemory::load(ui.ctx(), plot_id) {
+                if let Some(hovered_id) = mem.hovered_legend_item {
+                    if ui.input(|i| i.pointer.secondary_clicked())
+                        && plot_resp.response.contains_pointer()
+                    {
+                        // Collect all current legend item IDs
+                        let all_ids: Vec<egui::Id> = if self.data.scope_type
+                            == ScopeType::XYScope
+                            && !self.data.xy_pairs.is_empty()
+                        {
+                            let mut ids = Vec::new();
+                            for (x_name, y_name, pair_look) in self.data.xy_pairs.clone() {
+                                let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
+                                    continue;
+                                };
+                                let (Some(x_tr), Some(y_tr)) =
+                                    (traces.get_trace(&x_name), traces.get_trace(&y_name))
+                                else {
+                                    continue;
+                                };
+                                if !pair_look.visible || !x_tr.look.visible || !y_tr.look.visible {
+                                    continue;
+                                }
+                                let label = if self.data.show_info_in_legend
+                                    && !y_tr.info.is_empty()
+                                {
+                                    format!("{} vs {} — {}", y_name, x_name, y_tr.info)
+                                } else {
+                                    format!("{} vs {}", y_name, x_name)
+                                };
+                                ids.push(egui::Id::new(label));
+                            }
+                            ids
+                        } else {
+                            self.data
+                                .trace_order
+                                .iter()
+                                .filter_map(|name| {
+                                    let tr = traces.get_trace(name)?;
+                                    if tr.look.visible {
+                                        Some(egui::Id::new(name.0.clone()))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect()
+                        };
+
+                        // If all others are already hidden, show all; otherwise isolate
+                        let is_isolated = all_ids
+                            .iter()
+                            .all(|id| *id == hovered_id || mem.hidden_items.contains(id));
+
+                        mem.hidden_items.clear();
+                        if !is_isolated {
+                            for id in &all_ids {
+                                if *id != hovered_id {
+                                    mem.hidden_items.insert(*id);
+                                }
+                            }
+                        }
+                        mem.store(ui.ctx(), plot_id);
+                    }
+                }
+            }
+        }
+
+        // Draw box zoom selection rectangle if active
+        if let Some(start) = self.box_zoom_start {
+            if let Some(hover_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                let frame = *plot_resp.transform.frame();
+                let rect = match self.zoom_mode {
+                    ZoomMode::X => {
+                        // Full-height band: X range from drag, full Y of plot frame
+                        egui::Rect::from_x_y_ranges(
+                            start.x.min(hover_pos.x)..=start.x.max(hover_pos.x),
+                            frame.y_range(),
+                        )
+                    }
+                    ZoomMode::Y => {
+                        // Full-width band: Y range from drag, full X of plot frame
+                        egui::Rect::from_x_y_ranges(
+                            frame.x_range(),
+                            start.y.min(hover_pos.y)..=start.y.max(hover_pos.y),
+                        )
+                    }
+                    ZoomMode::Both => {
+                        egui::Rect::from_two_pos(start, hover_pos)
+                    }
+                    ZoomMode::Off => unreachable!(),
+                };
+                let painter = ui.painter().with_clip_rect(frame);
+                painter.add(egui::epaint::RectShape::stroke(
+                    rect,
+                    0.0,
+                    egui::Stroke::new(4., egui::Color32::DARK_BLUE),
+                    egui::StrokeKind::Middle,
+                ));
+                painter.add(egui::epaint::RectShape::stroke(
+                    rect,
+                    0.0,
+                    egui::Stroke::new(2., egui::Color32::WHITE),
+                    egui::StrokeKind::Middle,
+                ));
+            }
+        }
+
         let old_x_bounds = self.data.x_axis.bounds;
         let old_y_bounds = self.data.y_axis.bounds;
 
@@ -1207,9 +1418,16 @@ impl ScopePanel {
                     x_range: Some(self.data.x_axis.bounds),
                     y_range: Some(self.data.y_axis.bounds),
                     scope_id: Some(self.data.id),
+                    scope_type: Some(self.data.scope_type),
                 });
                 ctrl.emit_filtered(evt);
             }
+            self.pending_view_change = Some(crate::events::ViewChangeMeta {
+                x_range: Some(self.data.x_axis.bounds),
+                y_range: Some(self.data.y_axis.bounds),
+                scope_id: Some(self.data.id),
+                scope_type: Some(self.data.scope_type),
+            });
         }
 
         self.handle_plot_click(&plot_resp, traces);
@@ -1277,6 +1495,8 @@ impl ScopePanel {
         self.data.clicked_screen_pos = None;
         if plot_response.response.double_clicked() {
             self.data.fit_bounds(traces, false);
+            let (xmin, xmax) = self.data.x_axis.bounds;
+            let (ymin, ymax) = self.data.y_axis.bounds;
             // Emit double-click + fit-to-view events
             if let Some(ctrl) = &self.event_ctrl {
                 let kinds =
@@ -1299,15 +1519,20 @@ impl ScopePanel {
                         scope_id: Some(self.data.id),
                     });
                 }
-                let (xmin, xmax) = self.data.x_axis.bounds;
-                let (ymin, ymax) = self.data.y_axis.bounds;
                 evt.view_change = Some(crate::events::ViewChangeMeta {
                     x_range: Some((xmin, xmax)),
                     y_range: Some((ymin, ymax)),
                     scope_id: Some(self.data.id),
+                    scope_type: Some(self.data.scope_type),
                 });
                 ctrl.emit_filtered(evt);
             }
+            self.pending_view_change = Some(crate::events::ViewChangeMeta {
+                x_range: Some(self.data.x_axis.bounds),
+                y_range: Some(self.data.y_axis.bounds),
+                scope_id: Some(self.data.id),
+                scope_type: Some(self.data.scope_type),
+            });
         } else if plot_response.response.clicked() {
             // optional feature flag – allow callers to turn off pause/resume-on-click
             if !self.data.pause_on_click {

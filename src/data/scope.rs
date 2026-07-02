@@ -2,6 +2,7 @@
 
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
 /// Formatting options for the x-value (time) shown in point labels.
@@ -224,6 +225,28 @@ pub enum ScopeType {
     XYScope,
 }
 
+/// Position of the plot legend within the plot area.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LegendPosition {
+    #[default]
+    LeftTop,
+    RightTop,
+    LeftBottom,
+    RightBottom,
+}
+
+impl From<LegendPosition> for egui_plot::Corner {
+    fn from(pos: LegendPosition) -> Self {
+        match pos {
+            LegendPosition::LeftTop => egui_plot::Corner::LeftTop,
+            LegendPosition::RightTop => egui_plot::Corner::RightTop,
+            LegendPosition::LeftBottom => egui_plot::Corner::LeftBottom,
+            LegendPosition::RightBottom => egui_plot::Corner::RightBottom,
+        }
+    }
+}
+
 /// Central state for the scope display.
 pub struct ScopeData {
     pub id: usize,
@@ -239,6 +262,8 @@ pub struct ScopeData {
     /// Useful for compact/embedded layouts where an overlay legend wastes space.
     pub force_hide_legend: bool,
     pub show_info_in_legend: bool,
+    /// Position of the legend within the plot area.
+    pub legend_position: LegendPosition,
     /// When `true`, the plot background grid is visible.
     pub show_grid: bool,
 
@@ -276,6 +301,7 @@ impl Default for ScopeData {
             show_legend: true,
             force_hide_legend: false,
             show_info_in_legend: false,
+            legend_position: LegendPosition::default(),
             show_grid: true,
             trace_order: Vec::new(),
             clicked_point: None,

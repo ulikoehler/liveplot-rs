@@ -370,6 +370,11 @@ impl LivePlotPanel {
                 self.traces_data.hover_trace = None;
             });
 
+            // Collect any pending view changes from scope panels (zoom/pan/slider/fit).
+            if let Some(vc) = self.liveplot_panel.collect_view_changes() {
+                self.pending_view_change = Some(vc);
+            }
+
             let screenshot_request = self
                 .liveplot_panel
                 .take_scope_screenshot_request()
@@ -441,20 +446,31 @@ impl LivePlotPanel {
         }
 
         // Propagate data to every registered sub-panel.
+        // Skip invisible panels to avoid unnecessary work (e.g. FFT computation).
         for p in &mut self.left_side_panels {
-            p.update_data(data);
+            if p.state().visible {
+                p.update_data(data);
+            }
         }
         for p in &mut self.right_side_panels {
-            p.update_data(data);
+            if p.state().visible {
+                p.update_data(data);
+            }
         }
         for p in &mut self.bottom_panels {
-            p.update_data(data);
+            if p.state().visible {
+                p.update_data(data);
+            }
         }
         for p in &mut self.detached_panels {
-            p.update_data(data);
+            if p.state().visible {
+                p.update_data(data);
+            }
         }
         for p in &mut self.empty_panels {
-            p.update_data(data);
+            if p.state().visible {
+                p.update_data(data);
+            }
         }
 
         // After threshold processing, forward freshly generated events to controller listeners.
