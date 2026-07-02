@@ -243,6 +243,8 @@ pub struct LivePlotConfig {
     pub time_window_secs: f64,
     /// Maximum number of points retained per trace.
     pub max_points: usize,
+    /// Maximum age in seconds for retained points.  0.0 disables time-based pruning.
+    pub max_age_secs: f64,
     /// Optional unit label for the Y axis (e.g. "V", "°C").
     pub y_unit: Option<String>,
     /// Show Y axis in log10 scale.
@@ -301,6 +303,7 @@ impl Clone for LivePlotConfig {
         Self {
             time_window_secs: self.time_window_secs,
             max_points: self.max_points,
+            max_age_secs: self.max_age_secs,
             y_unit: self.y_unit.clone(),
             y_log: self.y_log,
             title: self.title.clone(),
@@ -323,6 +326,7 @@ impl Default for LivePlotConfig {
         Self {
             time_window_secs: 10.0,
             max_points: 10_000,
+            max_age_secs: 0.0,
             y_unit: None,
             y_log: false,
 

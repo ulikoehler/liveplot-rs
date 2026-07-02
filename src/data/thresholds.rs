@@ -185,7 +185,7 @@ impl ThresholdDef {
     }
 
     /// Process new data points for this threshold, updating its runtime state and recording events.
-    pub fn process_threshold(&mut self, sources: HashMap<TraceRef, VecDeque<[f64; 2]>>) {
+    pub fn process_threshold(&mut self, sources: HashMap<TraceRef, Vec<[f64; 2]>>) {
         let data = match sources.get(&self.target) {
             Some(d) => d,
             None => return,

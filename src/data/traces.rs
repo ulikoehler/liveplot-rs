@@ -119,6 +119,10 @@ pub struct TracesCollection {
     traces: HashMap<TraceRef, TraceData>,
     pub max_points: usize,
     pub points_bounds: (usize, usize),
+    /// Maximum age in seconds for retained points.  0.0 disables time-based pruning.
+    pub max_age_secs: f64,
+    /// Slider bounds for `max_age_secs`.
+    pub max_age_bounds: (f64, f64),
     pub hover_trace: Option<TraceRef>,
     rx: Option<std::sync::mpsc::Receiver<PlotCommand>>,
     /// Mapping from numeric trace ID to trace name (for PlotCommand API)
@@ -135,6 +139,8 @@ impl Default for TracesCollection {
             traces: HashMap::new(),
             max_points: 10_000,
             points_bounds: (100, 200000),
+            max_age_secs: 0.0,
+            max_age_bounds: (0.0, 3600.0),
             hover_trace: None,
             rx: None,
             id_to_name: HashMap::new(),
@@ -399,6 +405,7 @@ impl TracesCollection {
     fn drain(&mut self) {
         for (_name, trace) in self.traces.iter_mut() {
             trace.prune_by_points(self.max_points);
+            trace.prune_by_age(self.max_age_secs);
         }
     }
 
@@ -613,6 +620,25 @@ impl TraceData {
         }
     }
 
+    /// Remove points whose X value is older than `max_age_secs` behind the
+    /// newest point.  A value of `0.0` or negative disables this pruning.
+    pub fn prune_by_age(&mut self, max_age_secs: f64) {
+        if max_age_secs <= 0.0 {
+            return;
+        }
+        let Some(newest_x) = self.live.back().map(|p| p[0]) else {
+            return;
+        };
+        let cutoff = newest_x - max_age_secs;
+        while let Some(&front) = self.live.front() {
+            if front[0] < cutoff {
+                self.live.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
     pub fn clear_all(&mut self) {
         self.live.clear();
         self.snap = None;
@@ -640,6 +666,45 @@ impl TraceData {
             .cloned()
             .collect()
     }
+
+    /// Filter by x-bounds and decimate to at most `max_pts` points.
+    /// Returns a Vec suitable for passing directly to egui_plot.
+    /// When the input has fewer points than `max_pts`, all points within
+    /// bounds are returned.  When more, every Nth point is kept (stride
+    /// = ceil(len / max_pts)) so the overall shape is preserved.
+    pub fn cap_and_decimate(
+        pts: &[[f64; 2]],
+        bounds: (f64, f64),
+        max_pts: usize,
+    ) -> Vec<[f64; 2]> {
+        let len = pts.len();
+        if len <= max_pts {
+            return pts
+                .iter()
+                .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
+                .copied()
+                .collect();
+        }
+        let stride = (len + max_pts - 1) / max_pts;
+        let mut out = Vec::with_capacity(max_pts.min(len));
+        let mut i = 0;
+        while i < len {
+            let p = pts[i];
+            if p[0] >= bounds.0 && p[0] <= bounds.1 {
+                out.push(p);
+            }
+            i += stride;
+        }
+        // Always include the last point so the line doesn't appear truncated
+        if let Some(last) = pts.last() {
+            if last[0] >= bounds.0 && last[0] <= bounds.1 {
+                if out.last() != Some(last) {
+                    out.push(*last);
+                }
+            }
+        }
+        out
+    }
 }
 
 // --- tests -----------------------------------------------------------------
@@ -650,6 +715,32 @@ mod tests {
     use crate::color_scheme;
     use crate::sink::PlotCommand;
     use egui::Color32;
+
+    #[test]
+    fn cap_and_decimate_reduces_points() {
+        let pts: Vec<[f64; 2]> = (0..10_000).map(|i| [i as f64, i as f64]).collect();
+        let result = TraceData::cap_and_decimate(&pts, (0.0, 9999.0), 2000);
+        assert!(result.len() <= 2001, "result should have at most 2001 points (2000 + last), got {}", result.len());
+        assert!(result.len() > 1000, "result should have significant decimation, got {}", result.len());
+        // First and last points should be preserved
+        assert_eq!(result[0], [0.0, 0.0]);
+        assert_eq!(*result.last().unwrap(), [9999.0, 9999.0]);
+    }
+
+    #[test]
+    fn cap_and_decimate_respects_bounds() {
+        let pts: Vec<[f64; 2]> = (0..100).map(|i| [i as f64, i as f64]).collect();
+        let result = TraceData::cap_and_decimate(&pts, (10.0, 20.0), 2000);
+        assert!(result.iter().all(|p| p[0] >= 10.0 && p[0] <= 20.0));
+        assert_eq!(result.len(), 11); // 10..=20 inclusive
+    }
+
+    #[test]
+    fn cap_and_decimate_no_decimation_when_under_limit() {
+        let pts: Vec<[f64; 2]> = (0..100).map(|i| [i as f64, i as f64]).collect();
+        let result = TraceData::cap_and_decimate(&pts, (0.0, 99.0), 2000);
+        assert_eq!(result.len(), 100);
+    }
 
     #[test]
     fn recolor_changes_existing_traces() {

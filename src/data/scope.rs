@@ -3,7 +3,7 @@
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 /// Formatting options for the x-value (time) shown in point labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -616,22 +616,24 @@ impl ScopeData {
         &self,
         name: &TraceRef,
         traces: &TracesCollection,
-    ) -> Option<VecDeque<[f64; 2]>> {
-        if let Some(trace) = traces.get_points(name, self.paused) {
-            if self.scope_type == ScopeType::XYScope {
-                Some(trace)
-            } else {
-                Some(TraceData::cap_by_x_bounds(&trace, self.x_axis.bounds))
-            }
+    ) -> Option<Vec<[f64; 2]>> {
+        if self.scope_type == ScopeType::XYScope {
+            // XY scope still needs the full VecDeque for cross-trace pairing
+            traces.get_points(name, self.paused).map(|v| v.into_iter().collect())
         } else {
-            None
+            // Clone the points (VecDeque → Vec) then cap + decimate.
+            // Decimation to at most 2000 points saves significant tessellation
+            // cost when the trace has 10K+ points but the screen is only ~1K px wide.
+            let pts = traces.get_points(name, self.paused)?;
+            let pts_vec: Vec<[f64; 2]> = pts.into_iter().collect();
+            Some(TraceData::cap_and_decimate(&pts_vec, self.x_axis.bounds, 2000))
         }
     }
 
     pub fn get_all_drawn_points(
         &self,
         traces: &TracesCollection,
-    ) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
+    ) -> HashMap<TraceRef, Vec<[f64; 2]>> {
         let mut result = HashMap::new();
         for name in self.trace_order.iter() {
             if let Some(pts) = self.get_drawn_points(name, traces) {

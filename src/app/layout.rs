@@ -938,7 +938,7 @@ impl LivePlotPanel {
             let total_h = self.last_plot_size.y;
             let bar_min = (total_h * 0.20).min(120.0).max(40.0);
             let bar_default = (total_h * 0.30).min(220.0).max(80.0);
-            let bar_max = (total_h * 0.30).min(160.0).max(60.0);
+            let bar_max = (total_h * 0.80).min(600.0).max(60.0);
             let mut list = std::mem::take(&mut self.bottom_panels);
             egui::Panel::bottom(format!("bottom_bar_{}", self.panel_id))
                 .resizable(true)

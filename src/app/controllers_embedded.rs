@@ -318,6 +318,7 @@ impl LivePlotPanel {
             };
             let panel_state = crate::controllers::TracesPanelState {
                 max_points: self.traces_data.max_points,
+                max_age_secs: self.traces_data.max_age_secs,
                 points_bounds: self.traces_data.points_bounds,
                 hover_trace: self.traces_data.hover_trace.clone(),
                 traces: trace_states,

@@ -146,6 +146,7 @@ impl LivePlotApp {
 
         // Trace storage limits.
         self.main_panel.traces_data.max_points = cfg.max_points;
+        self.main_panel.traces_data.max_age_secs = cfg.max_age_secs;
 
         // Hotkeys: configured or fallback to default path, then defaults.
         {
@@ -422,6 +423,7 @@ impl LivePlotApp {
             };
             let panel_state = crate::controllers::TracesPanelState {
                 max_points: self.main_panel.traces_data.max_points,
+                max_age_secs: self.main_panel.traces_data.max_age_secs,
                 points_bounds: self.main_panel.traces_data.points_bounds,
                 hover_trace: self.main_panel.traces_data.hover_trace.clone(),
                 traces: trace_states,

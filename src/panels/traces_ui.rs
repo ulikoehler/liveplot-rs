@@ -91,6 +91,18 @@ impl Panel for TracesPanel {
                     ));
                 });
 
+                // Max Age slider (time-based pruning)
+                ui.horizontal(|ui| {
+                    ui.label("Max Age (s):");
+                    ui.add(
+                        egui::Slider::new(
+                            &mut data.traces.max_age_secs,
+                            data.traces.max_age_bounds.0..=data.traces.max_age_bounds.1,
+                        )
+                        .text("0 = disabled"),
+                    );
+                });
+
                 ui.separator();
 
                 // Visibility control: All Visible / All Hidden
@@ -199,6 +211,15 @@ impl Panel for TracesPanel {
                     &mut data.traces.max_points,
                     data.traces.points_bounds.0..=data.traces.points_bounds.1,
                 ));
+
+                ui.label("Max Age (s):");
+                ui.add(
+                    egui::Slider::new(
+                        &mut data.traces.max_age_secs,
+                        data.traces.max_age_bounds.0..=data.traces.max_age_bounds.1,
+                    )
+                    .text("0 = disabled"),
+                );
 
                 ui.separator();
 

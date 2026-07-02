@@ -3,7 +3,7 @@
 use crate::data::scope::ScopeData;
 use crate::data::traces::{TraceData, TraceRef, TracesCollection};
 use crate::events::EventController;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
@@ -157,7 +157,7 @@ impl<'a> LivePlotData<'a> {
         }
     }
 
-    pub fn get_drawn_points(&self, name: &TraceRef, scope_id: usize) -> Option<VecDeque<[f64; 2]>> {
+    pub fn get_drawn_points(&self, name: &TraceRef, scope_id: usize) -> Option<Vec<[f64; 2]>> {
         self.scope_data.iter().find_map(|scope| {
             let scope = &**scope;
             if scope.id == scope_id {
@@ -168,8 +168,8 @@ impl<'a> LivePlotData<'a> {
         })
     }
 
-    pub fn get_all_drawn_points(&self) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
-        let mut result: HashMap<TraceRef, VecDeque<[f64; 2]>> = HashMap::new();
+    pub fn get_all_drawn_points(&self) -> HashMap<TraceRef, Vec<[f64; 2]>> {
+        let mut result: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
         for scope in self.scope_data.iter() {
             let scope = &**scope;
             for (name, pts) in scope.get_all_drawn_points(&*self.traces) {
@@ -181,23 +181,23 @@ impl<'a> LivePlotData<'a> {
                     // Merge existing and pts into a new sorted, deduped vector
                     let mut merged: Vec<[f64; 2]> = existing
                         .iter()
-                        .cloned()
-                        .chain(pts.iter().cloned())
+                        .copied()
+                        .chain(pts.iter().copied())
                         .collect();
                     merged.sort_by(|a, b| {
                         a[0].partial_cmp(&b[0]).unwrap_or(std::cmp::Ordering::Equal)
                     });
                     // Deduplicate by timestamp (x) with a small tolerance
-                    let mut deduped: VecDeque<[f64; 2]> = VecDeque::new();
+                    let mut deduped: Vec<[f64; 2]> = Vec::new();
                     let eps = 1e-12_f64;
                     for pt in merged.into_iter() {
-                        if let Some(last) = deduped.back() {
+                        if let Some(last) = deduped.last() {
                             if (last[0] - pt[0]).abs() <= eps {
                                 // same timestamp: keep the existing `last` (do nothing)
                                 continue;
                             }
                         }
-                        deduped.push_back(pt);
+                        deduped.push(pt);
                     }
                     *existing = deduped;
                 } else {
@@ -211,7 +211,7 @@ impl<'a> LivePlotData<'a> {
     pub fn get_all_drawn_points_from_scope(
         &self,
         scope_id: usize,
-    ) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
+    ) -> HashMap<TraceRef, Vec<[f64; 2]>> {
         self.scope_data
             .iter()
             .find_map(|scope| {

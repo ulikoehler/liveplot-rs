@@ -317,6 +317,7 @@ pub struct TracesInfo {
 #[derive(Clone, Debug)]
 pub struct TracesPanelState {
     pub max_points: usize,
+    pub max_age_secs: f64,
     pub points_bounds: (usize, usize),
     pub hover_trace: Option<TraceRef>,
     pub traces: Vec<TraceControlState>,
