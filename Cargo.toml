@@ -125,3 +125,8 @@ path = "examples/embedded_window.rs"
 [[example]]
 name = "features"
 path = "examples/features.rs"
+
+[[example]]
+name = "fft_demo"
+path = "examples/fft_demo.rs"
+required-features = ["fft"]

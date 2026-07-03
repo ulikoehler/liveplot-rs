@@ -23,6 +23,10 @@ pub struct FftPanel {
     last_window_width: f32,
     last_throttle_width: f32,
     last_db_width: f32,
+    /// Whether any visible trace had fewer points than fft_size in the last
+    /// `update_data` pass.  Used to show a warning in the toolbar without
+    /// re-iterating all traces in `render_panel`.
+    insufficient_data: bool,
 }
 
 impl Default for FftPanel {
@@ -55,6 +59,7 @@ impl Default for FftPanel {
             last_window_width: 120.0,
             last_throttle_width: 120.0,
             last_db_width: 60.0,
+            insufficient_data: false,
         }
     }
 }
@@ -150,7 +155,23 @@ impl Panel for FftPanel {
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
         let paused = data.are_all_paused();
 
-        // Detect window/pause changes and invalidate cache if needed
+        // Clamp fft_size to the current max_points so we never request an
+        // FFT larger than the buffer can hold.
+        let max_pts = data.traces.max_points;
+        if self.fft_data.fft_size > max_pts {
+            // Round down to the nearest power of two <= max_pts
+            let mut p = 1usize;
+            while p * 2 <= max_pts {
+                p *= 2;
+            }
+            self.fft_data.fft_size = p.max(256);
+        }
+
+        // Reset the insufficient-data flag; it will be set if any trace
+        // has fewer points than fft_size during the dispatch loop below.
+        self.insufficient_data = false;
+
+        // Detect window/pause/size changes and invalidate cache if needed
         self.fft_data.check_window_pause_changed(paused);
 
         // Retain only FFT traces that still exist in source data
@@ -204,12 +225,30 @@ impl Panel for FftPanel {
             let buf_len = buf.len();
             let last_ts = buf.back().map(|p| p[0]);
 
+            // Check for insufficient data before the throttle gate so the
+            // warning doesn't flicker on/off at the recompute interval.
+            if buf_len < self.fft_data.fft_size {
+                self.insufficient_data = true;
+            }
+
             if !self.fft_data.needs_recompute(name, buf_len, last_ts, paused) {
                 continue;
             }
 
-            // Dispatch to background worker; only mark as computed on success
+            // Dispatch to background worker; mark as computed regardless of
+            // success to prevent retrying every frame (throttle handles retry).
             if self.fft_data.dispatch_fft(name, &tr.live, paused, &tr.snap) {
+                self.fft_data.mark_computed(name, buf_len, last_ts);
+            } else if buf_len < self.fft_data.fft_size {
+                // Not enough data for the requested FFT size — update info
+                // and mark computed so we don't spin every frame.
+                self.insufficient_data = true;
+                if let Some(entry) = self.fft_data.fft_traces.get_mut(name) {
+                    entry.info = format!(
+                        "Need {} samples (have {})",
+                        self.fft_data.fft_size, buf_len
+                    );
+                }
                 self.fft_data.mark_computed(name, buf_len, last_ts);
             }
         }
@@ -263,14 +302,25 @@ impl Panel for FftPanel {
             ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
                 let resp = ui.horizontal(|ui| {
                     ui.label("FFT size:");
+                    let max_log2 = (data.traces.max_points as f32).log2().floor() as u32;
+                    let max_log2 = max_log2.max(8).min(20);
                     let mut size_log2 = (self.fft_data.fft_size as f32).log2() as u32;
-                    let slider = egui::Slider::new(&mut size_log2, 8..=20).text("2^N");
+                    size_log2 = size_log2.min(max_log2);
+                    let slider = egui::Slider::new(&mut size_log2, 8..=max_log2).text("2^N");
                     if ui.add(slider).changed() {
                         self.fft_data.fft_size = 1usize << size_log2;
                     }
                 });
                 self.last_fft_size_width = resp.response.rect.width();
             });
+
+            // Warning when not enough datapoints for the current FFT size
+            if self.insufficient_data {
+                ui.label(
+                    egui::RichText::new("⚠ Not enough data for FFT size")
+                        .color(egui::Color32::from_rgb(220, 160, 40)),
+                );
+            }
 
             ui.separator();
 

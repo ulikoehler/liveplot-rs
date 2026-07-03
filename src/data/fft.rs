@@ -111,6 +111,9 @@ pub struct FftData {
     /// Last window type used, to invalidate cache when window changes.
     #[cfg(feature = "fft")]
     cached_window: FFTWindow,
+    /// Last FFT size used, to invalidate cache when size changes.
+    #[cfg(feature = "fft")]
+    cached_fft_size: usize,
     /// Last paused state, to invalidate cache when pause state changes.
     #[cfg(feature = "fft")]
     cached_paused: bool,
@@ -138,6 +141,8 @@ impl Default for FftData {
             cached_trace_keys: HashMap::default(),
             #[cfg(feature = "fft")]
             cached_window: FFTWindow::Hann,
+            #[cfg(feature = "fft")]
+            cached_fft_size: 1024,
             #[cfg(feature = "fft")]
             cached_paused: false,
             #[cfg(feature = "fft")]
@@ -307,13 +312,17 @@ impl FftData {
     pub fn check_window_pause_changed(&mut self, paused: bool) {
         let window_changed = self.cached_window != self.fft_window;
         let paused_changed = self.cached_paused != paused;
+        let fft_size_changed = self.cached_fft_size != self.fft_size;
         if window_changed {
             self.cached_window = self.fft_window;
+        }
+        if fft_size_changed {
+            self.cached_fft_size = self.fft_size;
         }
         if paused_changed {
             self.cached_paused = paused;
         }
-        if window_changed || paused_changed {
+        if window_changed || paused_changed || fft_size_changed {
             self.invalidate_cache();
         }
     }
