@@ -487,6 +487,60 @@ impl TracesCollection {
         }
     }
 
+    /// Return decimated points for a trace, filtering by x-bounds and
+    /// reducing to at most `max_pts` points.  This avoids cloning the
+    /// full VecDeque — it iterates in-place and collects only the kept
+    /// points into a Vec.
+    pub fn get_drawn_points_decimated(
+        &self,
+        name: &TraceRef,
+        snapshot: bool,
+        bounds: (f64, f64),
+        max_pts: usize,
+    ) -> Option<Vec<[f64; 2]>> {
+        let trace = self.traces.get(name)?;
+        let source: &VecDeque<[f64; 2]> = if snapshot {
+            trace.snap.as_ref().unwrap_or(&trace.live)
+        } else {
+            &trace.live
+        };
+        let len = source.len();
+        if len == 0 {
+            return Some(Vec::new());
+        }
+        if len <= max_pts {
+            // No decimation needed — just filter by bounds
+            return Some(
+                source
+                    .iter()
+                    .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
+                    .copied()
+                    .collect(),
+            );
+        }
+        // Stride decimation: pick every Nth point within bounds
+        let stride = (len + max_pts - 1) / max_pts;
+        let mut out = Vec::with_capacity(max_pts.min(len));
+        let mut i = 0usize;
+        for (idx, &p) in source.iter().enumerate() {
+            if idx == i {
+                if p[0] >= bounds.0 && p[0] <= bounds.1 {
+                    out.push(p);
+                }
+                i += stride;
+            }
+        }
+        // Always include the last point so the line doesn't appear truncated
+        if let Some(&last) = source.back() {
+            if last[0] >= bounds.0 && last[0] <= bounds.1 {
+                if out.last() != Some(&last) {
+                    out.push(last);
+                }
+            }
+        }
+        Some(out)
+    }
+
     pub fn get_all_points(&self, snapshot: bool) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
         let mut result = HashMap::new();
         for (name, _) in self.traces.iter() {

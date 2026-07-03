@@ -114,9 +114,9 @@ pub struct FftData {
     /// Last paused state, to invalidate cache when pause state changes.
     #[cfg(feature = "fft")]
     cached_paused: bool,
-    /// Timestamp of the last FFT recompute, for throttling.
+    /// Per-trace timestamp of the last FFT recompute, for throttling.
     #[cfg(feature = "fft")]
-    last_compute_time: Option<std::time::Instant>,
+    last_compute_time: HashMap<TraceRef, std::time::Instant>,
     /// Background FFT worker thread handle.
     #[cfg(feature = "fft")]
     worker: Option<FftWorker>,
@@ -141,7 +141,7 @@ impl Default for FftData {
             #[cfg(feature = "fft")]
             cached_paused: false,
             #[cfg(feature = "fft")]
-            last_compute_time: None,
+            last_compute_time: HashMap::default(),
             #[cfg(feature = "fft")]
             worker: None,
         }
@@ -246,16 +246,65 @@ impl FftData {
     /// Returns `true` if the data has changed (or this is the first call).
     ///
     /// Applies a time-based throttle when not paused: even if data has changed,
-    /// recomputation is skipped if the last compute was less than
-       /// `recompute_interval_ms` ago.
+    /// recomputation is skipped if the last *successful* compute was less than
+    /// `recompute_interval_ms` ago.
+    ///
+    /// This is a pure check — it does NOT update any cache state.
+    /// Call `mark_computed` after a successful dispatch.
     #[cfg(feature = "fft")]
     pub fn needs_recompute(
-        &mut self,
+        &self,
         name: &TraceRef,
         buf_len: usize,
         last_ts: Option<f64>,
         paused: bool,
     ) -> bool {
+        // Check if data changed
+        let key = (buf_len, last_ts);
+        let data_changed = self.cached_trace_keys.get(name) != Some(&key);
+        if !data_changed {
+            return false;
+        }
+
+        // Throttle: when not paused, limit recompute rate per-trace
+        if !paused {
+            if let Some(last) = self.last_compute_time.get(name) {
+                let elapsed = last.elapsed();
+                let throttle = std::time::Duration::from_millis(self.recompute_interval_ms);
+                if elapsed < throttle {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
+    /// Mark a trace as having been successfully dispatched for FFT computation.
+    /// Updates the cache key and throttle timestamp.
+    #[cfg(feature = "fft")]
+    pub fn mark_computed(
+        &mut self,
+        name: &TraceRef,
+        buf_len: usize,
+        last_ts: Option<f64>,
+    ) {
+        self.cached_trace_keys.insert(name.clone(), (buf_len, last_ts));
+        self.last_compute_time.insert(name.clone(), std::time::Instant::now());
+    }
+
+    /// Invalidate all cached FFT state (e.g. when window or pause changes).
+    #[cfg(feature = "fft")]
+    pub fn invalidate_cache(&mut self) {
+        self.cached_trace_keys.clear();
+        self.last_compute_time.clear();
+    }
+
+    /// Check if the FFT window or pause state has changed since the last call,
+    /// and if so, invalidate all cached state.  Should be called once per
+    /// `update_data` frame before dispatching jobs.
+    #[cfg(feature = "fft")]
+    pub fn check_window_pause_changed(&mut self, paused: bool) {
         let window_changed = self.cached_window != self.fft_window;
         let paused_changed = self.cached_paused != paused;
         if window_changed {
@@ -264,38 +313,13 @@ impl FftData {
         if paused_changed {
             self.cached_paused = paused;
         }
-
-        // Always recompute immediately on window/pause change
         if window_changed || paused_changed {
-            let key = (buf_len, last_ts);
-            self.cached_trace_keys.insert(name.clone(), key);
-            self.last_compute_time = Some(std::time::Instant::now());
-            return true;
+            self.invalidate_cache();
         }
-
-        // Check if data changed
-        let key = (buf_len, last_ts);
-        let data_changed = self.cached_trace_keys.get(name) != Some(&key);
-        if !data_changed {
-            return false;
-        }
-
-        // Throttle: when not paused, limit recompute rate
-        if !paused {
-            if let Some(last) = self.last_compute_time {
-                let elapsed = last.elapsed();
-                let throttle = std::time::Duration::from_millis(self.recompute_interval_ms);
-                if elapsed < throttle {
-                    // Don't update cache key — we'll recompute when throttle expires
-                    return false;
-                }
-            }
-        }
-
-        self.cached_trace_keys.insert(name.clone(), key);
-        self.last_compute_time = Some(std::time::Instant::now());
-        true
     }
+
+    #[cfg(not(feature = "fft"))]
+    pub fn check_window_pause_changed(&mut self, _paused: bool) {}
 
     /// Ensure the background FFT worker thread is running.
     #[cfg(feature = "fft")]
@@ -407,7 +431,7 @@ impl FftData {
 
     #[cfg(not(feature = "fft"))]
     pub fn needs_recompute(
-        &mut self,
+        &self,
         _name: &TraceRef,
         _buf_len: usize,
         _last_ts: Option<f64>,
@@ -415,6 +439,22 @@ impl FftData {
     ) -> bool {
         true
     }
+
+    #[cfg(not(feature = "fft"))]
+    pub fn mark_computed(
+        &mut self,
+        _name: &TraceRef,
+        _buf_len: usize,
+        _last_ts: Option<f64>,
+    ) {
+    }
+
+    #[cfg(not(feature = "fft"))]
+    pub fn invalidate_cache(&mut self) {
+    }
+
+    #[cfg(not(feature = "fft"))]
+    pub fn check_window_pause_changed(&mut self, _paused: bool) {}
 
     #[cfg(not(feature = "fft"))]
     pub fn dispatch_fft(

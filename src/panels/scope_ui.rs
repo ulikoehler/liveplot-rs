@@ -1171,7 +1171,9 @@ impl ScopePanel {
                     }
                 }
             } else {
-                for name in self.data.trace_order.clone().into_iter() {
+                let trace_count = self.data.trace_order.len();
+                for idx in 0..trace_count {
+                    let name = self.data.trace_order[idx].clone();
                     if let Some(tr) = traces.get_trace(&name) {
                         if !tr.look.visible {
                             continue;

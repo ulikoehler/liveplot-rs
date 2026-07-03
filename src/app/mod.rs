@@ -242,6 +242,10 @@ pub struct LivePlotPanel {
     /// When `true`, the inner CentralPanel is rendered with no frame/margin so the plot
     /// fills every pixel of the allocated space.  Useful for dense embedded grid layouts.
     pub compact: bool,
+
+    /// Set when `update_background` (external) registers new traces that
+    /// haven't been synced to any scope's `trace_order` yet.
+    pub traces_dirty: bool,
 }
 
 impl LivePlotPanel {
@@ -300,6 +304,7 @@ impl LivePlotPanel {
             last_plot_size: egui::Vec2::new(10_000.0, 10_000.0),
             panel_id: PANEL_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
             compact: false,
+            traces_dirty: false,
         }
     }
 

@@ -1,16 +1,22 @@
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::{LivePlotData, ScreenshotRequest, ScreenshotTarget};
 use crate::data::fft::{FFTWindow, FftData};
-use crate::data::scope::{AxisType, ScopeType, ValueFormat};
+use crate::data::scope::{AxisType, LegendPosition, ScopeType, ValueFormat};
 use crate::data::traces::{TraceData, TracesCollection};
+use crate::data::traces::TraceRef;
 use crate::panels::scope_ui::{ScopePanel, ZoomMode};
 use egui::Ui;
+use egui_plot::PlotMemory;
+use std::collections::HashSet;
 
 pub struct FftPanel {
     pub state: PanelState,
     pub fft_data: FftData,
     pub scope_ui: ScopePanel,
     pub fft_db: bool,
+    /// Trace names hidden via the plot legend (clicked to hide).
+    /// These traces are neither computed nor rendered.
+    hidden_in_legend: HashSet<TraceRef>,
 }
 
 impl Default for FftPanel {
@@ -29,12 +35,15 @@ impl Default for FftPanel {
         scope_data.y_axis.set_unit(None);
         scope_data.y_axis.show_label = true;
         scope_data.scope_type = ScopeType::XYScope;
+        scope_data.show_legend = true;
+        scope_data.legend_position = LegendPosition::RightTop;
 
         Self {
             state: PanelState::new("FFT", "📊"),
             fft_data: FftData::default(),
             scope_ui,
             fft_db: false,
+            hidden_in_legend: HashSet::default(),
         }
     }
 }
@@ -129,10 +138,17 @@ impl Panel for FftPanel {
 
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
         let paused = data.are_all_paused();
+
+        // Detect window/pause changes and invalidate cache if needed
+        self.fft_data.check_window_pause_changed(paused);
+
         // Retain only FFT traces that still exist in source data
         self.fft_data
             .fft_traces
             .retain(|name, _| data.traces.contains_key(name));
+        // Clean up hidden set for traces that no longer exist
+        self.hidden_in_legend
+            .retain(|name| data.traces.contains_key(name));
 
         // Poll for completed FFT results from the background worker
         let results = self.fft_data.poll_fft_results();
@@ -147,6 +163,24 @@ impl Panel for FftPanel {
 
         // Dispatch new FFT jobs for traces that need recomputation
         for (name, tr) in data.traces.traces_iter() {
+            // Skip traces hidden in the legend — no computation needed
+            if self.hidden_in_legend.contains(name) {
+                continue;
+            }
+
+            // Ensure a placeholder entry exists so the trace shows up in the
+            // legend immediately, even before the first result arrives.
+            let entry = self
+                .fft_data
+                .fft_traces
+                .entry(name.clone())
+                .or_insert_with(TraceData::default);
+            entry.look = tr.look.clone();
+            entry.offset = 0.0;
+            if entry.info.is_empty() {
+                entry.info = "Computing...".to_string();
+            }
+
             // Determine which buffer we'd use, to compute cache key.
             let buf = if paused {
                 match &tr.snap {
@@ -163,21 +197,10 @@ impl Panel for FftPanel {
                 continue;
             }
 
-            // Create/update placeholder entry with current trace look so the
-            // result handler can just update the spectrum when it arrives.
-            let entry = self
-                .fft_data
-                .fft_traces
-                .entry(name.clone())
-                .or_insert_with(TraceData::default);
-            entry.look = tr.look.clone();
-            entry.offset = 0.0;
-            if entry.info.is_empty() {
-                entry.info = "Computing...".to_string();
+            // Dispatch to background worker; only mark as computed on success
+            if self.fft_data.dispatch_fft(name, &tr.live, paused, &tr.snap) {
+                self.fft_data.mark_computed(name, buf_len, last_ts);
             }
-
-            self.fft_data
-                .dispatch_fft(name, &tr.live, paused, &tr.snap);
         }
     }
 
@@ -307,12 +330,25 @@ impl Panel for FftPanel {
 
         ui.separator();
 
-        // Render using scope panel
+        // Render using scope panel (legend is enabled via scope_data settings)
         self.scope_ui.render_panel(
             ui,
             |_plot_ui, _scope_unused, _traces_unused| {},
             &mut tmp_traces,
         );
+
+        // Read back which traces the user toggled in the legend
+        let plot_id =
+            ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.scope_ui.get_data().name)));
+        if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
+            self.hidden_in_legend.clear();
+            for name in self.fft_data.fft_traces.keys() {
+                let item_id = egui::Id::new(&name.0);
+                if mem.hidden_items.contains(&item_id) {
+                    self.hidden_in_legend.insert(name.clone());
+                }
+            }
+        }
 
         if self.scope_ui.take_screenshot_request() {
             let scope = self.scope_ui.get_data();

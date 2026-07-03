@@ -1,7 +1,7 @@
 //! Scope data: axis settings, display state, and coordinate management.
 
 use crate::data::trace_look::TraceLook;
-use crate::data::traces::{TraceData, TraceRef, TracesCollection};
+use crate::data::traces::{TraceRef, TracesCollection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -621,12 +621,9 @@ impl ScopeData {
             // XY scope still needs the full VecDeque for cross-trace pairing
             traces.get_points(name, self.paused).map(|v| v.into_iter().collect())
         } else {
-            // Clone the points (VecDeque → Vec) then cap + decimate.
-            // Decimation to at most 2000 points saves significant tessellation
-            // cost when the trace has 10K+ points but the screen is only ~1K px wide.
-            let pts = traces.get_points(name, self.paused)?;
-            let pts_vec: Vec<[f64; 2]> = pts.into_iter().collect();
-            Some(TraceData::cap_and_decimate(&pts_vec, self.x_axis.bounds, 2000))
+            // Decimate directly from the VecDeque without cloning all points first.
+            // This avoids a 10K-point clone per trace per frame.
+            traces.get_drawn_points_decimated(name, self.paused, self.x_axis.bounds, 2000)
         }
     }
 

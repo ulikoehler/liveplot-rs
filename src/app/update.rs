@@ -17,6 +17,7 @@ use eframe::egui;
 
 use crate::data::data::LivePlotData;
 use crate::data::data::ScreenshotRequest;
+use crate::TraceRef;
 
 use super::LivePlotPanel;
 
@@ -428,6 +429,15 @@ impl LivePlotPanel {
         // participate in this frame's evaluation.
         self.apply_threshold_controller_requests();
 
+        // Collect existing trace names only when traces were registered
+        // externally (via update_background) since the last update_data call.
+        // This avoids O(traces × trace_order) work every frame.
+        let all_trace_names: Vec<TraceRef> = if self.traces_dirty {
+            self.traces_data.keys().cloned().collect()
+        } else {
+            Vec::new()
+        };
+
         self.liveplot_panel.update_data(&self.traces_data);
         let data = &mut LivePlotData {
             scope_data: self.liveplot_panel.get_data_mut(),
@@ -438,12 +448,13 @@ impl LivePlotPanel {
 
         // Attach newly created traces to the primary (first) scope only.
         if let Some(scope) = data.primary_scope_mut() {
-            for name in new_traces {
+            for name in new_traces.into_iter().chain(all_trace_names) {
                 if !scope.trace_order.iter().any(|n| n == &name) {
                     scope.trace_order.push(name);
                 }
             }
         }
+        self.traces_dirty = false;
 
         // Propagate data to every registered sub-panel.
         // Skip invisible panels to avoid unnecessary work (e.g. FFT computation).
