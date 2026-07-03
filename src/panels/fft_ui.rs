@@ -17,6 +17,12 @@ pub struct FftPanel {
     /// Trace names hidden via the plot legend (clicked to hide).
     /// These traces are neither computed nor rendered.
     hidden_in_legend: HashSet<TraceRef>,
+    // Tracked widths for toolbar control groups so they wrap as units
+    last_fft_size_width: f32,
+    last_pad_width: f32,
+    last_window_width: f32,
+    last_throttle_width: f32,
+    last_db_width: f32,
 }
 
 impl Default for FftPanel {
@@ -44,6 +50,11 @@ impl Default for FftPanel {
             scope_ui,
             fft_db: false,
             hidden_in_legend: HashSet::default(),
+            last_fft_size_width: 200.0,
+            last_pad_width: 100.0,
+            last_window_width: 120.0,
+            last_throttle_width: 120.0,
+            last_db_width: 60.0,
         }
     }
 }
@@ -244,81 +255,131 @@ impl Panel for FftPanel {
         // Update scope ordering and auto-fit bounds
         self.scope_ui.update_data(&tmp_traces);
 
-        // FFT-specific controls above the plot
-        ui.horizontal(|ui| {
-            ui.label("FFT size:");
-            let mut size_log2 = (self.fft_data.fft_size as f32).log2() as u32;
-            let slider = egui::Slider::new(&mut size_log2, 8..=20).text("2^N");
-            if ui.add(slider).changed() {
-                self.fft_data.fft_size = 1usize << size_log2;
-            }
-            ui.separator();
-            ui.label("Pad:");
-            let pad_options: [(usize, &str); 5] = [(1, "1×"), (2, "2×"), (4, "4×"), (8, "8×"), (16, "16×")];
-            let pad_label = pad_options
-                .iter()
-                .find(|(v, _)| *v == self.fft_data.zero_pad_factor)
-                .map(|(_, l)| *l)
-                .unwrap_or("1×");
-            let _ = egui::ComboBox::from_id_salt("fft_zero_pad")
-                .selected_text(pad_label)
-                .show_ui(ui, |ui| {
-                    for (v, label) in pad_options.iter() {
-                        ui.selectable_value(
-                            &mut self.fft_data.zero_pad_factor,
-                            *v,
-                            *label,
-                        );
+        // FFT-specific controls above the plot (wraps to multiple lines like scope toolbar)
+        ui.horizontal_wrapped(|ui| {
+            // FFT size group
+            let desired = egui::vec2(self.last_fft_size_width, ui.spacing().interact_size.y);
+            let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
+            ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                let resp = ui.horizontal(|ui| {
+                    ui.label("FFT size:");
+                    let mut size_log2 = (self.fft_data.fft_size as f32).log2() as u32;
+                    let slider = egui::Slider::new(&mut size_log2, 8..=20).text("2^N");
+                    if ui.add(slider).changed() {
+                        self.fft_data.fft_size = 1usize << size_log2;
                     }
                 });
+                self.last_fft_size_width = resp.response.rect.width();
+            });
+
             ui.separator();
-            ui.label("Window:");
-            let mut w_idx = FFTWindow::ALL
-                .iter()
-                .position(|w| *w == self.fft_data.fft_window)
-                .unwrap_or(1);
-            let _ = egui::ComboBox::from_id_salt("fft_window_multi")
-                .selected_text(self.fft_data.fft_window.label())
-                .show_ui(ui, |ui| {
-                    for (i, w) in FFTWindow::ALL.iter().enumerate() {
-                        ui.selectable_value(&mut w_idx, i, w.label());
+
+            // Pad group
+            let desired = egui::vec2(self.last_pad_width, ui.spacing().interact_size.y);
+            let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
+            ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                let resp = ui.horizontal(|ui| {
+                    ui.label("Pad:");
+                    let pad_options: [(usize, &str); 5] = [(1, "1×"), (2, "2×"), (4, "4×"), (8, "8×"), (16, "16×")];
+                    let pad_label = pad_options
+                        .iter()
+                        .find(|(v, _)| *v == self.fft_data.zero_pad_factor)
+                        .map(|(_, l)| *l)
+                        .unwrap_or("1×");
+                    let _ = egui::ComboBox::from_id_salt("fft_zero_pad")
+                        .selected_text(pad_label)
+                        .show_ui(ui, |ui| {
+                            for (v, label) in pad_options.iter() {
+                                ui.selectable_value(
+                                    &mut self.fft_data.zero_pad_factor,
+                                    *v,
+                                    *label,
+                                );
+                            }
+                        });
+                });
+                self.last_pad_width = resp.response.rect.width();
+            });
+
+            ui.separator();
+
+            // Window group
+            let desired = egui::vec2(self.last_window_width, ui.spacing().interact_size.y);
+            let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
+            ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                let resp = ui.horizontal(|ui| {
+                    ui.label("Window:");
+                    let mut w_idx = FFTWindow::ALL
+                        .iter()
+                        .position(|w| *w == self.fft_data.fft_window)
+                        .unwrap_or(1);
+                    let _ = egui::ComboBox::from_id_salt("fft_window_multi")
+                        .selected_text(self.fft_data.fft_window.label())
+                        .show_ui(ui, |ui| {
+                            for (i, w) in FFTWindow::ALL.iter().enumerate() {
+                                ui.selectable_value(&mut w_idx, i, w.label());
+                            }
+                        });
+                    self.fft_data.fft_window = FFTWindow::ALL[w_idx];
+                });
+                self.last_window_width = resp.response.rect.width();
+            });
+
+            ui.separator();
+
+            // Update throttle group
+            let desired = egui::vec2(self.last_throttle_width, ui.spacing().interact_size.y);
+            let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
+            ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                let resp = ui.horizontal(|ui| {
+                    ui.label("Update:");
+                    let throttle_options: [(u64, &str); 5] = [
+                        (50, "50ms"),
+                        (100, "100ms"),
+                        (200, "200ms"),
+                        (500, "500ms"),
+                        (1000, "1s"),
+                    ];
+                    let throttle_label = throttle_options
+                        .iter()
+                        .find(|(v, _)| *v == self.fft_data.recompute_interval_ms)
+                        .map(|(_, l)| *l)
+                        .unwrap_or("100ms");
+                    let _ = egui::ComboBox::from_id_salt("fft_throttle")
+                        .selected_text(throttle_label)
+                        .show_ui(ui, |ui| {
+                            for (v, label) in throttle_options.iter() {
+                                ui.selectable_value(
+                                    &mut self.fft_data.recompute_interval_ms,
+                                    *v,
+                                    *label,
+                                );
+                            }
+                        });
+                });
+                self.last_throttle_width = resp.response.rect.width();
+            });
+
+            ui.separator();
+
+            // dB toggle group
+            let desired = egui::vec2(self.last_db_width, ui.spacing().interact_size.y);
+            let (rect, _) = ui.allocate_exact_size(desired, egui::Sense::hover());
+            ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                let resp = ui.horizontal(|ui| {
+                    if ui
+                        .button(if self.fft_db { "Linear" } else { "dB" })
+                        .on_hover_text("Toggle FFT magnitude scale")
+                        .clicked()
+                    {
+                        self.fft_db = !self.fft_db;
                     }
                 });
-            self.fft_data.fft_window = FFTWindow::ALL[w_idx];
+                self.last_db_width = resp.response.rect.width();
+            });
+
             ui.separator();
-            ui.label("Update:");
-            let throttle_options: [(u64, &str); 5] = [
-                (50, "50ms"),
-                (100, "100ms"),
-                (200, "200ms"),
-                (500, "500ms"),
-                (1000, "1s"),
-            ];
-            let throttle_label = throttle_options
-                .iter()
-                .find(|(v, _)| *v == self.fft_data.recompute_interval_ms)
-                .map(|(_, l)| *l)
-                .unwrap_or("100ms");
-            let _ = egui::ComboBox::from_id_salt("fft_throttle")
-                .selected_text(throttle_label)
-                .show_ui(ui, |ui| {
-                    for (v, label) in throttle_options.iter() {
-                        ui.selectable_value(
-                            &mut self.fft_data.recompute_interval_ms,
-                            *v,
-                            *label,
-                        );
-                    }
-                });
-            ui.separator();
-            if ui
-                .button(if self.fft_db { "Linear" } else { "dB" })
-                .on_hover_text("Toggle FFT magnitude scale")
-                .clicked()
-            {
-                self.fft_db = !self.fft_db;
-            }
-            ui.separator();
+
             let controlls_in_toolbar = self.scope_ui.controls_in_toolbar();
             if ui
                 .selectable_label(controlls_in_toolbar, "Controls in Toolbar")
