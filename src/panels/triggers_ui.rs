@@ -21,7 +21,7 @@ pub struct TriggersPanel {
 impl Default for TriggersPanel {
     fn default() -> Self {
         let mut panel = Self {
-            state: PanelState::new("Triggers", "🔔"),
+            state: PanelState::new("Triggers", "⇅"),
             triggers: HashMap::new(),
             builder: None,
             editing: None,
@@ -45,6 +45,10 @@ impl Panel for TriggersPanel {
         &mut self.state
     }
 
+    fn icon_image(&self, ctx: &egui::Context) -> Option<egui::Image<'static>> {
+        super::edge_icons::edge_icon_image(ctx, super::edge_icons::EdgeIcon::Both, 14.0)
+    }
+
     fn hotkey_name(&self) -> Option<crate::data::hotkeys::HotkeyName> {
         Some(crate::data::hotkeys::HotkeyName::Triggers)
     }
@@ -56,16 +60,27 @@ impl Panel for TriggersPanel {
         collapsed: bool,
         tooltip: &str,
     ) {
-        let label = if collapsed {
-            self.icon_only()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| self.title().to_string())
-        } else {
-            self.title_and_icon()
-        };
+        let ctx = ui.ctx().clone();
         let menu_cfg = egui::containers::menu::MenuConfig::new()
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
-        let mr = egui::containers::menu::MenuButton::new(label)
+        let img = self.icon_image(&ctx);
+        let mr = if collapsed {
+            if let Some(img) = img {
+                egui::containers::menu::MenuButton::new(img)
+            } else {
+                egui::containers::menu::MenuButton::new(
+                    self.icon_only()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| self.title().to_string()),
+                )
+            }
+        } else {
+            if let Some(img) = img {
+                egui::containers::menu::MenuButton::new((img, self.title()))
+            } else {
+                egui::containers::menu::MenuButton::new(self.title_and_icon())
+            }
+        }
             .config(menu_cfg)
             .ui(ui, |ui| {
                 if ui.button("Show Triggers").clicked() {
@@ -319,9 +334,14 @@ impl Panel for TriggersPanel {
 
                 let info = scope_axes
                     .as_ref()
-                    .map(|(_, y_axis)| tr.get_info(y_axis))
+                    .map(|(_, y_axis)| tr.get_info_without_slope(y_axis))
                     .unwrap_or_default();
-                let info_resp = ui.add(egui::Label::new(info).sense(egui::Sense::click()));
+                let info_resp = ui.horizontal(|ui| {
+                    if let Some(img) = super::edge_icons::edge_icon_image(ui.ctx(), tr.slope_icon(), 12.0) {
+                        ui.add(img);
+                    }
+                    ui.add(egui::Label::new(info).sense(egui::Sense::click()))
+                }).response;
                 if name_resp.clicked() || info_resp.clicked() {
                     // Open editor with a copy of current settings
                     let mut t = Trigger::default();
@@ -543,38 +563,34 @@ impl Panel for TriggersPanel {
                         }
                     }
                 }
-                egui::ComboBox::from_label("Slope")
-                    .selected_text(match builder.slope {
-                        TriggerSlope::Rising => "Rising",
-                        TriggerSlope::Falling => "Falling",
-                        TriggerSlope::Any => "Any",
-                    })
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_label(
-                                matches!(builder.slope, TriggerSlope::Rising),
-                                "Rising",
-                            )
-                            .clicked()
-                        {
+            });
+            ui.horizontal(|ui| {
+                ui.label("Slope");
+                ui.horizontal(|ui| {
+                    let icon_size = 14.0;
+                    let ctx = ui.ctx().clone();
+                    // Rising
+                    let rising_selected = matches!(builder.slope, TriggerSlope::Rising);
+                    if let Some(img) = super::edge_icons::edge_icon_image(&ctx, super::edge_icons::EdgeIcon::Rising, icon_size) {
+                        if ui.add(egui::Button::selectable(rising_selected, (img, "Rising"))).clicked() {
                             builder.slope = TriggerSlope::Rising;
                         }
-                        if ui
-                            .selectable_label(
-                                matches!(builder.slope, TriggerSlope::Falling),
-                                "Falling",
-                            )
-                            .clicked()
-                        {
+                    }
+                    // Falling
+                    let falling_selected = matches!(builder.slope, TriggerSlope::Falling);
+                    if let Some(img) = super::edge_icons::edge_icon_image(&ctx, super::edge_icons::EdgeIcon::Falling, icon_size) {
+                        if ui.add(egui::Button::selectable(falling_selected, (img, "Falling"))).clicked() {
                             builder.slope = TriggerSlope::Falling;
                         }
-                        if ui
-                            .selectable_label(matches!(builder.slope, TriggerSlope::Any), "Any")
-                            .clicked()
-                        {
+                    }
+                    // Any (Both)
+                    let any_selected = matches!(builder.slope, TriggerSlope::Any);
+                    if let Some(img) = super::edge_icons::edge_icon_image(&ctx, super::edge_icons::EdgeIcon::Both, icon_size) {
+                        if ui.add(egui::Button::selectable(any_selected, (img, "Any"))).clicked() {
                             builder.slope = TriggerSlope::Any;
                         }
-                    });
+                    }
+                });
             });
 
             // Trigger behavior

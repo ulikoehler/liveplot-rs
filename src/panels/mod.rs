@@ -1,3 +1,4 @@
+pub mod edge_icons;
 pub mod export_ui;
 pub mod hotkeys_ui;
 pub mod liveplot_ui;
