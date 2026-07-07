@@ -796,13 +796,11 @@ impl LivePlotPanel {
             let total_w = self.last_plot_size.x;
             let sidebar_min = (total_w * 0.20).min(160.0).max(50.0);
             let sidebar_default = (total_w * 0.30).min(280.0).max(80.0);
-            let sidebar_max = (total_w * 0.25).min(200.0).max(60.0);
             let mut list = std::mem::take(&mut self.left_side_panels);
             egui::Panel::left(format!("left_sidebar_{}", self.panel_id))
                 .resizable(true)
                 .default_size(sidebar_default)
                 .min_size(sidebar_min)
-                .max_size(sidebar_max)
                 .show_inside(ui, |ui| {
                     egui::ScrollArea::vertical()
                         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
@@ -871,13 +869,11 @@ impl LivePlotPanel {
             let total_w = self.last_plot_size.x;
             let sidebar_min = (total_w * 0.25).min(200.0).max(60.0);
             let sidebar_default = (total_w * 0.35).min(320.0).max(100.0);
-            let sidebar_max = (total_w * 0.30).min(240.0).max(80.0);
             let mut list = std::mem::take(&mut self.right_side_panels);
             egui::Panel::right(format!("right_sidebar_{}", self.panel_id))
                 .resizable(true)
                 .default_size(sidebar_default)
                 .min_size(sidebar_min)
-                .max_size(sidebar_max)
                 .show_inside(ui, |ui| {
                     self.render_tabs(ui, &mut list);
                 });

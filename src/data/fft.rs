@@ -201,12 +201,9 @@ impl FftData {
             return None;
         }
         let len = buf.len();
-        let slice: Vec<[f64; 2]> = buf.iter().skip(len - fft_size).cloned().collect();
-        if slice.len() != fft_size {
-            return None;
-        }
-        let t0 = slice.first()?[0];
-        let t1 = slice.last()?[0];
+        let start = len - fft_size;
+        let t0 = buf.get(start)?[0];
+        let t1 = buf.back()?[0];
         if !(t1 > t0) {
             return None;
         }
@@ -220,8 +217,9 @@ impl FftData {
         let fft = self.get_fft_plan(padded_size);
 
         // Window the real input, then zero-pad to padded_size
-        let mut data: Vec<Complex<f64>> = slice
+        let mut data: Vec<Complex<f64>> = buf
             .iter()
+            .skip(start)
             .enumerate()
             .map(|(i, arr)| {
                 let w = fft_window.weight(i, fft_size);
@@ -377,13 +375,9 @@ impl FftData {
         }
 
         let len = src_buf.len();
-        let slice: Vec<[f64; 2]> = src_buf.iter().skip(len - fft_size).cloned().collect();
-        if slice.len() != fft_size {
-            return false;
-        }
-
-        let t0 = slice.first().map(|p| p[0]);
-        let t1 = slice.last().map(|p| p[0]);
+        let start = len - fft_size;
+        let t0 = src_buf.get(start).map(|p| p[0]);
+        let t1 = src_buf.back().map(|p| p[0]);
         match (t0, t1) {
             (Some(t0), Some(t1)) if t1 > t0 => {
                 let dt_est = (t1 - t0) / (fft_size as f64 - 1.0);
@@ -391,7 +385,7 @@ impl FftData {
                     return false;
                 }
                 let sample_rate = 1.0 / dt_est;
-                let samples: Vec<f64> = slice.iter().map(|p| p[1]).collect();
+                let samples: Vec<f64> = src_buf.iter().skip(start).map(|p| p[1]).collect();
                 let padded_size = self.padded_size();
 
                 worker

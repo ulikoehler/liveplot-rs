@@ -234,8 +234,8 @@ impl Panel for MeasurementPanel {
                 let sel_data_points: Option<Vec<[f64; 2]>> =
                     if let Some(name) = &measurement.catch_trace {
                         data.traces
-                            .get_points(name, scope.paused)
-                            .map(|v| v.into_iter().collect())
+                            .get_points_ref(name, scope.paused)
+                            .map(|v| v.iter().copied().collect())
                     } else {
                         None
                     };

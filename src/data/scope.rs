@@ -285,6 +285,11 @@ pub struct ScopeData {
     pub last_plot_bounds: Option<([f64; 2], [f64; 2])>,
     pub last_plot_screen_rect: Option<[f32; 4]>,
     pub rendered_this_frame: bool,
+    /// Cache key for y-bounds auto-fit: (total_visible_points, max_timestamp).
+    /// When this matches the previous value, `fit_y_bounds` is skipped.
+    cached_y_fit_key: Option<(usize, Option<f64>)>,
+    /// Cache key for x-bounds auto-fit: (total_visible_points, max_timestamp).
+    cached_x_fit_key: Option<(usize, Option<f64>)>,
 }
 
 impl Default for ScopeData {
@@ -312,6 +317,8 @@ impl Default for ScopeData {
             last_plot_bounds: None,
             last_plot_screen_rect: None,
             rendered_this_frame: false,
+            cached_y_fit_key: None,
+            cached_x_fit_key: None,
         }
     }
 }
@@ -342,14 +349,49 @@ impl ScopeData {
             x_ok && y_ok && !(x.is_none() && y.is_none())
         });
 
+        // Compute a cheap cache key: (total visible points, max timestamp).
+        // This is O(num_traces) — much cheaper than the O(total_points) fit functions.
+        let (total_pts, max_ts) = self
+            .trace_order
+            .iter()
+            .filter_map(|name| traces.get_trace(name))
+            .filter(|t| t.look.visible)
+            .fold((0usize, None::<f64>), |(len, max_ts), t| {
+                let ts = if self.paused {
+                    t.snap.as_ref().and_then(|s| s.back().map(|p| p[0]))
+                        .or_else(|| t.live.back().map(|p| p[0]))
+                } else {
+                    t.live.back().map(|p| p[0])
+                };
+                let buf_len = if self.paused {
+                    t.snap.as_ref().map(|s| s.len()).unwrap_or(t.live.len())
+                } else {
+                    t.live.len()
+                };
+                let new_max = match (max_ts, ts) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    (a, None) => a,
+                    (None, b) => b,
+                };
+                (len + buf_len, new_max.map(|t| (t * 10.0).round() / 10.0))
+            });
+
         if self.x_axis.auto_fit {
-            self.fit_x_bounds(traces, self.x_axis.keep_max_fit);
+            let key = (total_pts, max_ts);
+            if self.cached_x_fit_key != Some(key) {
+                self.fit_x_bounds(traces, self.x_axis.keep_max_fit);
+                self.cached_x_fit_key = Some(key);
+            }
         }
 
         self.live_update(traces);
 
         if self.y_axis.auto_fit {
-            self.fit_y_bounds(traces, self.y_axis.keep_max_fit);
+            let key = (total_pts, max_ts);
+            if self.cached_y_fit_key != Some(key) {
+                self.fit_y_bounds(traces, self.y_axis.keep_max_fit);
+                self.cached_y_fit_key = Some(key);
+            }
         }
     }
 
@@ -402,8 +444,8 @@ impl ScopeData {
                     continue;
                 }
 
-                let x_pts = traces.get_points(x_name, self.paused);
-                let y_pts = traces.get_points(y_name, self.paused);
+                let x_pts = traces.get_points_ref(x_name, self.paused);
+                let y_pts = traces.get_points_ref(y_name, self.paused);
                 let (Some(x_pts), Some(y_pts)) = (x_pts, y_pts) else {
                     continue;
                 };
@@ -513,8 +555,8 @@ impl ScopeData {
                     continue;
                 }
 
-                let x_pts = traces.get_points(x_name, self.paused);
-                let y_pts = traces.get_points(y_name, self.paused);
+                let x_pts = traces.get_points_ref(x_name, self.paused);
+                let y_pts = traces.get_points_ref(y_name, self.paused);
                 let (Some(x_pts), Some(y_pts)) = (x_pts, y_pts) else {
                     continue;
                 };
@@ -580,11 +622,12 @@ impl ScopeData {
                 if p[0] > x_bounds.1 {
                     break;
                 }
-                if p[1] + trace.offset < min_y {
-                    min_y = p[1] + trace.offset;
+                let y = p[1] + trace.offset;
+                if y < min_y {
+                    min_y = y;
                 }
-                if p[1] + trace.offset > max_y {
-                    max_y = p[1] + trace.offset;
+                if y > max_y {
+                    max_y = y;
                 }
             }
         }
@@ -618,8 +661,7 @@ impl ScopeData {
         traces: &TracesCollection,
     ) -> Option<Vec<[f64; 2]>> {
         if self.scope_type == ScopeType::XYScope {
-            // XY scope still needs the full VecDeque for cross-trace pairing
-            traces.get_points(name, self.paused).map(|v| v.into_iter().collect())
+            traces.get_points_ref(name, self.paused).map(|v| v.iter().copied().collect())
         } else {
             // Decimate directly from the VecDeque without cloning all points first.
             // This avoids a 10K-point clone per trace per frame.

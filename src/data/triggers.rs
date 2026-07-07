@@ -128,6 +128,34 @@ impl Trigger {
         s
     }
 
+    /// Like `get_info` but without the slope word, so the caller can
+    /// render an icon in its place.
+    /// Example: "trace1:  @ 1.23 V • Single"
+    pub fn get_info_without_slope(&self, axis: &AxisSettings) -> String {
+        let step = if self.level.abs() > 0.0 {
+            self.level.abs()
+        } else {
+            1.0
+        };
+        let lvl_fmt = axis.format_value(self.level, Some(step));
+        let mut s = format!("{}:  @ {}", self.target.0, lvl_fmt);
+        if self.single_shot {
+            s.push_str(" • Single");
+        } else {
+            s.push_str(" • Auto");
+        }
+        s
+    }
+
+    /// Returns the edge icon corresponding to the trigger slope.
+    pub fn slope_icon(&self) -> crate::panels::edge_icons::EdgeIcon {
+        match self.slope {
+            TriggerSlope::Rising => crate::panels::edge_icons::EdgeIcon::Rising,
+            TriggerSlope::Falling => crate::panels::edge_icons::EdgeIcon::Falling,
+            TriggerSlope::Any => crate::panels::edge_icons::EdgeIcon::Both,
+        }
+    }
+
     /// Last trigger timestamp (seconds) if a crossing was detected since reset.
     pub fn last_trigger_time(&self) -> Option<f64> {
         self.last_triggered
@@ -156,14 +184,16 @@ impl Trigger {
     ///
     /// Returns `true` if there's an active trigger pending or just fired.
     pub fn check_trigger(&mut self, data: &mut LivePlotData<'_>) -> bool {
-        let livedata = if let Some(data) = data.traces.get_points(&self.target, false) {
-            data
-        } else {
-            self.enabled = false;
-            if let Some(first) = data.traces.all_trace_names().first() {
-                self.target = first.clone();
+        let max_points = data.traces.max_points;
+        let livedata = match data.traces.get_points_ref(&self.target, false) {
+            Some(d) => d,
+            None => {
+                self.enabled = false;
+                if let Some(first) = data.traces.all_trace_names().first() {
+                    self.target = first.clone();
+                }
+                return false;
             }
-            return false;
         };
 
         if !self.enabled {
@@ -182,9 +212,9 @@ impl Trigger {
                     None
                 } else {
                     // Start detection at the index determined by trigger_position within the last max_points window
-                    let window_start = len.saturating_sub(data.traces.max_points);
+                    let window_start = len.saturating_sub(max_points);
                     let pos = self.trigger_position.clamp(0.0, 1.0);
-                    let offset = (pos * (data.traces.max_points as f64)).round() as usize;
+                    let offset = (pos * (max_points as f64)).round() as usize;
                     let mut i0 = window_start.saturating_add(offset);
                     if i0 >= len {
                         i0 = len - 1;
@@ -238,7 +268,7 @@ impl Trigger {
 
         if let Some(t_trig) = self.trigger_pending {
             let pos = self.trigger_position.clamp(0.0, 1.0);
-            let needed: usize = (data.traces.max_points as f64 * pos).round() as usize;
+            let needed: usize = (max_points as f64 * pos).round() as usize;
 
             if needed == 0 {
                 data.pause_all();

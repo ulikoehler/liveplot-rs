@@ -135,7 +135,6 @@ pub fn edge_icon_image(ctx: &egui::Context, icon: EdgeIcon, size: f32) -> Option
         egui::Image::from_texture(egui::load::SizedTexture {
             id: tex_id,
             size: egui::Vec2::splat(size),
-        })
-        .fit_to_exact_size(egui::Vec2::splat(size)),
+        }),
     )
 }

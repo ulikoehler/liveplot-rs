@@ -21,7 +21,7 @@ pub struct TriggersPanel {
 impl Default for TriggersPanel {
     fn default() -> Self {
         let mut panel = Self {
-            state: PanelState::new("Triggers", "⇅"),
+            state: PanelState::new("Triggers", "🔔"),
             triggers: HashMap::new(),
             builder: None,
             editing: None,
@@ -45,10 +45,6 @@ impl Panel for TriggersPanel {
         &mut self.state
     }
 
-    fn icon_image(&self, ctx: &egui::Context) -> Option<egui::Image<'static>> {
-        super::edge_icons::edge_icon_image(ctx, super::edge_icons::EdgeIcon::Both, 14.0)
-    }
-
     fn hotkey_name(&self) -> Option<crate::data::hotkeys::HotkeyName> {
         Some(crate::data::hotkeys::HotkeyName::Triggers)
     }
@@ -60,27 +56,16 @@ impl Panel for TriggersPanel {
         collapsed: bool,
         tooltip: &str,
     ) {
-        let ctx = ui.ctx().clone();
+        let label = if collapsed {
+            self.icon_only()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| self.title().to_string())
+        } else {
+            self.title_and_icon()
+        };
         let menu_cfg = egui::containers::menu::MenuConfig::new()
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
-        let img = self.icon_image(&ctx);
-        let mr = if collapsed {
-            if let Some(img) = img {
-                egui::containers::menu::MenuButton::new(img)
-            } else {
-                egui::containers::menu::MenuButton::new(
-                    self.icon_only()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| self.title().to_string()),
-                )
-            }
-        } else {
-            if let Some(img) = img {
-                egui::containers::menu::MenuButton::new((img, self.title()))
-            } else {
-                egui::containers::menu::MenuButton::new(self.title_and_icon())
-            }
-        }
+        let mr = egui::containers::menu::MenuButton::new(label)
             .config(menu_cfg)
             .ui(ui, |ui| {
                 if ui.button("Show Triggers").clicked() {

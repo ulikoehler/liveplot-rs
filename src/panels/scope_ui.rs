@@ -1064,8 +1064,8 @@ impl ScopePanel {
                         continue;
                     }
 
-                    let x_pts = traces.get_points(&x_name, self.data.paused);
-                    let y_pts = traces.get_points(&y_name, self.data.paused);
+                    let x_pts = traces.get_points_ref(&x_name, self.data.paused);
+                    let y_pts = traces.get_points_ref(&y_name, self.data.paused);
                     let (Some(x_pts), Some(y_pts)) = (x_pts, y_pts) else {
                         continue;
                     };

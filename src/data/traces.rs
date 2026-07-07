@@ -487,6 +487,18 @@ impl TracesCollection {
         }
     }
 
+    /// Return a reference to the point buffer without cloning.
+    /// When `snapshot` is true, returns the snapshot buffer if available,
+    /// otherwise falls back to the live buffer.
+    pub fn get_points_ref(&self, name: &TraceRef, snapshot: bool) -> Option<&VecDeque<[f64; 2]>> {
+        let trace = self.traces.get(name)?;
+        if snapshot {
+            Some(trace.snap.as_ref().unwrap_or(&trace.live))
+        } else {
+            Some(&trace.live)
+        }
+    }
+
     /// Return decimated points for a trace, filtering by x-bounds and
     /// reducing to at most `max_pts` points.  This avoids cloning the
     /// full VecDeque — it iterates in-place and collects only the kept
@@ -522,13 +534,12 @@ impl TracesCollection {
         let stride = (len + max_pts - 1) / max_pts;
         let mut out = Vec::with_capacity(max_pts.min(len));
         let mut i = 0usize;
-        for (idx, &p) in source.iter().enumerate() {
-            if idx == i {
-                if p[0] >= bounds.0 && p[0] <= bounds.1 {
-                    out.push(p);
-                }
-                i += stride;
+        while i < len {
+            let p = source[i];
+            if p[0] >= bounds.0 && p[0] <= bounds.1 {
+                out.push(p);
             }
+            i += stride;
         }
         // Always include the last point so the line doesn't appear truncated
         if let Some(&last) = source.back() {
