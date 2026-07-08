@@ -423,15 +423,16 @@ impl LivePlotPanel {
         self.pending_view_change.take()
     }
 
-    /// Set the time window on all TimeScope scopes and suppress the next
+    /// Set the X-axis range on all TimeScope scopes and suppress the next
     /// view-change emission to avoid feedback loops when syncing across tabs.
     ///
     /// XY-mode scopes are not affected.
-    pub fn set_time_window(&mut self, time_window: f64) {
+    pub fn set_x_range(&mut self, x_range: (f64, f64)) {
         self.suppress_next_view_change_emit = true;
         for scope in self.liveplot_panel.get_data_mut() {
             if scope.scope_type == crate::data::scope::ScopeType::TimeScope {
-                scope.time_window = time_window;
+                scope.x_axis.bounds = x_range;
+                scope.time_window = x_range.1 - x_range.0;
             }
         }
     }
