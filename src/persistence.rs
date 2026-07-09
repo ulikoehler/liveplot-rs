@@ -16,6 +16,7 @@ use crate::data::thresholds::{ThresholdDef, ThresholdKind};
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceRef;
 use crate::data::triggers::{Trigger, TriggerSlope};
+use crate::panels::color_scheme_ui::NamedCustomScheme;
 
 fn default_axis_value_decimals() -> usize {
     4
@@ -646,6 +647,12 @@ pub struct AppStateSerde {
     /// Next scope index counter for consistent naming.
     #[serde(default)]
     pub next_scope_idx: Option<usize>,
+    /// User-defined custom color schemes.
+    #[serde(default)]
+    pub custom_color_schemes: Vec<NamedCustomScheme>,
+    /// The currently active palette (colors being used/edited), even if not saved as a custom scheme.
+    #[serde(default)]
+    pub active_palette: Option<Vec<[u8; 3]>>,
     #[cfg(feature = "fft")]
     #[serde(default)]
     pub fft_panel: Option<FftPanelStateSerde>,
@@ -722,6 +729,8 @@ impl Default for AppStateSerde {
             math_traces: Vec::new(),
             measurements: None,
             next_scope_idx: None,
+            custom_color_schemes: Vec::new(),
+            active_palette: None,
             #[cfg(feature = "fft")]
             fft_panel: None,
         }

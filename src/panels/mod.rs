@@ -1,3 +1,4 @@
+pub mod color_scheme_ui;
 pub mod edge_icons;
 pub mod export_ui;
 pub mod hotkeys_ui;
@@ -15,6 +16,7 @@ pub mod triggers_ui;
 #[cfg(feature = "fft")]
 pub mod fft_ui;
 
+pub use color_scheme_ui::ColorSchemePanel;
 pub use export_ui::ExportPanel;
 pub use hotkeys_ui::HotkeysPanel;
 pub use liveplot_ui::LiveplotPanel;

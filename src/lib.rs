@@ -37,6 +37,7 @@ pub use panels::{
     ExportPanel, HotkeysPanel, LiveplotPanel, MathPanel, MeasurementPanel,
     ScopePanel as PanelScopePanel, ThresholdsPanel, TracesPanel, TriggersPanel,
 };
+pub use panels::color_scheme_ui::{ColorSchemePanel, NamedCustomScheme};
 
 // Re-exports from new modules
 pub use data::triggers::{Trigger, TriggerSlope};

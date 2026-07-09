@@ -181,6 +181,17 @@ impl LivePlotApp {
 
         // ── Color scheme ─────────────────────────────────────────────────────
         self.color_scheme = Some(cfg.color_scheme.clone());
+        // Pass the initial scheme to the ColorSchemePanel so it starts with the
+        // correct selection.  The panel will be the source of truth for scheme
+        // changes going forward.
+        for p in self.main_panel.right_side_panels.iter_mut() {
+            let any: &mut dyn crate::panels::Panel = &mut **p;
+            if let Some(csp) = any
+                .downcast_mut::<crate::panels::color_scheme_ui::ColorSchemePanel>()
+            {
+                csp.set_initial_scheme(&cfg.color_scheme);
+            }
+        }
         // take overlay callback out of config so ownership moves into panel
         self.main_panel.overlays = cfg.overlays.take();
         self.color_scheme_applied = false;

@@ -495,6 +495,32 @@ impl LivePlotPanel {
             math_traces: math_traces_ser,
             measurements,
             next_scope_idx: Some(self.liveplot_panel.next_scope_idx()),
+            custom_color_schemes: self
+                .left_side_panels
+                .iter()
+                .chain(self.right_side_panels.iter())
+                .chain(self.bottom_panels.iter())
+                .chain(self.detached_panels.iter())
+                .chain(self.empty_panels.iter())
+                .find_map(|panel| {
+                    let any: &dyn Panel = &**panel;
+                    any.downcast_ref::<crate::panels::color_scheme_ui::ColorSchemePanel>()
+                        .map(|csp| csp.get_custom_schemes().to_vec())
+                })
+                .unwrap_or_default(),
+            active_palette: self
+                .left_side_panels
+                .iter()
+                .chain(self.right_side_panels.iter())
+                .chain(self.bottom_panels.iter())
+                .chain(self.detached_panels.iter())
+                .chain(self.empty_panels.iter())
+                .find_map(|panel| {
+                    let any: &dyn Panel = &**panel;
+                    any.downcast_ref::<crate::panels::color_scheme_ui::ColorSchemePanel>()
+                        .map(|csp| Some(csp.get_active_palette()))
+                })
+                .flatten(),
             #[cfg(feature = "fft")]
             fft_panel,
         };
@@ -612,6 +638,29 @@ impl LivePlotPanel {
                 let any: &mut dyn Panel = &mut **p;
                 if let Some(fft_panel) = any.downcast_mut::<crate::panels::fft_ui::FftPanel>() {
                     fft_state.apply_to_panel(fft_panel);
+                    break;
+                }
+            }
+        }
+
+        // Apply custom color schemes to the ColorSchemePanel.
+        if !loaded.custom_color_schemes.is_empty() {
+            for p in self
+                .left_side_panels
+                .iter_mut()
+                .chain(self.right_side_panels.iter_mut())
+                .chain(self.bottom_panels.iter_mut())
+                .chain(self.detached_panels.iter_mut())
+                .chain(self.empty_panels.iter_mut())
+            {
+                let any: &mut dyn Panel = &mut **p;
+                if let Some(csp) =
+                    any.downcast_mut::<crate::panels::color_scheme_ui::ColorSchemePanel>()
+                {
+                    csp.set_custom_schemes(loaded.custom_color_schemes.clone());
+                    if let Some(ref palette) = loaded.active_palette {
+                        csp.restore_active_palette(palette);
+                    }
                     break;
                 }
             }
@@ -1214,12 +1263,14 @@ impl LivePlotPanel {
                                     } else {
                                         p.title_and_icon()
                                     };
+                                    let active = p.state().visible && !p.state().detached;
+                                    let mut resp = ui.selectable_label(active, label);
                                     if !tooltip.is_empty() {
-                                        ui.label(label).on_hover_text(tooltip);
-                                    } else {
-                                        ui.label(label);
+                                        resp = resp.on_hover_text(tooltip);
                                     }
-                                    *clicked = Some(0);
+                                    if resp.clicked() {
+                                        *clicked = Some(0);
+                                    }
                                 }
                             };
 
@@ -1249,17 +1300,27 @@ impl LivePlotPanel {
                     });
                 });
 
-                // Apply clicked selection when multiple tabs are present.
-                if count > 1 {
-                    if let Some(i) = clicked {
-                        for (j, p) in list.iter_mut().enumerate() {
-                            if j == i {
-                                p.state_mut().visible = true;
-                                p.state_mut().detached = false;
-                            } else if !p.state().detached {
-                                p.state_mut().visible = false;
+                // Apply clicked selection: toggle visibility for the clicked tab.
+                if let Some(i) = clicked {
+                    if count > 1 {
+                        let was_active = list[i].state().visible && !list[i].state().detached;
+                        if was_active {
+                            list[i].state_mut().visible = false;
+                        } else {
+                            for (j, p) in list.iter_mut().enumerate() {
+                                if j == i {
+                                    p.state_mut().visible = true;
+                                    p.state_mut().detached = false;
+                                } else if !p.state().detached {
+                                    p.state_mut().visible = false;
+                                }
                             }
                         }
+                    } else {
+                        let st = list[0].state_mut();
+                        let is_shown = st.visible && !st.detached;
+                        st.visible = !is_shown;
+                        st.detached = false;
                     }
                 }
             }

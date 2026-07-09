@@ -22,6 +22,7 @@ pub enum ScopeButton {
     Measurement,
     Fft,
     Export,
+    ColorScheme,
     PauseResume,
     ClearAll,
     /// Any panel with a custom title string.
@@ -40,6 +41,7 @@ impl ScopeButton {
             ScopeButton::Measurement => title == "Measurement",
             ScopeButton::Fft => title == "FFT",
             ScopeButton::Export => title == "Export",
+            ScopeButton::ColorScheme => title == "Color Scheme",
             ScopeButton::Custom(t) => t.as_str() == title,
             ScopeButton::Scopes | ScopeButton::PauseResume | ScopeButton::ClearAll => false,
         }
@@ -57,6 +59,7 @@ impl ScopeButton {
             ScopeButton::Measurement,
             ScopeButton::Fft,
             ScopeButton::Export,
+            ScopeButton::ColorScheme,
             ScopeButton::PauseResume,
             ScopeButton::ClearAll,
         ]

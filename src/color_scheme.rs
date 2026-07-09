@@ -263,7 +263,7 @@ impl ColorScheme {
                 Color32::from_rgb(148, 103, 189),
                 Color32::from_rgb(140, 86, 75),
                 Color32::from_rgb(227, 119, 194),
-                Color32::from_rgb(127, 127, 127),
+                Color32::from_rgb(188, 189, 34),
             ],
             ColorScheme::Light | ColorScheme::GgPlot => vec![
                 Color32::from_rgb(228, 26, 28),
@@ -273,7 +273,7 @@ impl ColorScheme {
                 Color32::from_rgb(255, 127, 0),
                 Color32::from_rgb(166, 86, 40),
                 Color32::from_rgb(247, 129, 191),
-                Color32::from_rgb(153, 153, 153),
+                Color32::from_rgb(102, 166, 30),
             ],
             ColorScheme::SolarizedDark | ColorScheme::SolarizedLight => vec![
                 Color32::from_rgb(181, 137, 0),
@@ -302,8 +302,8 @@ impl ColorScheme {
                 Color32::from_rgb(102, 217, 239),
                 Color32::from_rgb(174, 129, 255),
                 Color32::from_rgb(230, 219, 116),
-                Color32::from_rgb(248, 248, 242),
-                Color32::from_rgb(117, 113, 94),
+                Color32::from_rgb(254, 128, 25),
+                Color32::from_rgb(133, 153, 0),
             ],
             ColorScheme::Dracula => vec![
                 Color32::from_rgb(139, 233, 253),
@@ -313,7 +313,7 @@ impl ColorScheme {
                 Color32::from_rgb(189, 147, 249),
                 Color32::from_rgb(255, 85, 85),
                 Color32::from_rgb(241, 250, 140),
-                Color32::from_rgb(248, 248, 242),
+                Color32::from_rgb(98, 114, 164),
             ],
             ColorScheme::GruvboxDark => vec![
                 Color32::from_rgb(251, 73, 52),
@@ -323,7 +323,7 @@ impl ColorScheme {
                 Color32::from_rgb(211, 134, 155),
                 Color32::from_rgb(142, 192, 124),
                 Color32::from_rgb(254, 128, 25),
-                Color32::from_rgb(168, 153, 132),
+                Color32::from_rgb(204, 108, 92),
             ],
             ColorScheme::Custom(custom) => custom.palette.clone(),
         }

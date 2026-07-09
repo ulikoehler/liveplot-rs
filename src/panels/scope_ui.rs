@@ -1538,12 +1538,42 @@ impl ScopePanel {
         } else if plot_response.response.clicked() {
             // optional feature flag – allow callers to turn off pause/resume-on-click
             if !self.data.pause_on_click {
-                // Even with pausing disabled we still want measurement clicks when
-                // already paused, and we always emit a plain click event.
-                if self.data.paused && self.data.measurement_active {
+                if self.data.measurement_active {
+                    // Measurement is active – capture the clicked point and pause
+                    // the scope (if not already paused) so the measurement panel
+                    // can pick up the new point. This works even when
+                    // pause_on_click is disabled.
+                    if !self.data.paused {
+                        self.data.paused = true;
+                        traces.take_snapshot();
+                    }
                     self.capture_clicked_plot_point(plot_response);
-                }
-                if let Some(ctrl) = &self.event_ctrl {
+                    if let Some(ctrl) = &self.event_ctrl {
+                        let mut evt = crate::events::PlotEvent::new(
+                            crate::events::EventKind::CLICK
+                                | if !self.data.paused {
+                                    crate::events::EventKind::CLICK
+                                } else {
+                                    crate::events::EventKind::PAUSE
+                                },
+                        );
+                        if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                            evt.click = Some(crate::events::ClickMeta {
+                                screen_pos: Some(crate::events::ScreenPos {
+                                    x: screen_pos.x,
+                                    y: screen_pos.y,
+                                }),
+                                plot_pos: Some(crate::events::PlotPos {
+                                    x: self.data.clicked_point.map(|p| p[0]).unwrap_or_default(),
+                                    y: self.data.clicked_point.map(|p| p[1]).unwrap_or_default(),
+                                }),
+                                trace: None,
+                                scope_id: Some(self.data.id),
+                            });
+                        }
+                        ctrl.emit_filtered(evt);
+                    }
+                } else if let Some(ctrl) = &self.event_ctrl {
                     let mut evt = crate::events::PlotEvent::new(crate::events::EventKind::CLICK);
                     if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
                         let transform = plot_response.transform;

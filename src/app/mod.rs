@@ -55,9 +55,9 @@ use crate::PlotCommand;
 #[cfg(feature = "fft")]
 use crate::panels::fft_ui::FftPanel;
 use crate::panels::{
-    export_ui::ExportPanel, hotkeys_ui::HotkeysPanel, math_ui::MathPanel,
-    measurment_ui::MeasurementPanel, thresholds_ui::ThresholdsPanel, traces_ui::TracesPanel,
-    triggers_ui::TriggersPanel,
+    color_scheme_ui::ColorSchemePanel, export_ui::ExportPanel, hotkeys_ui::HotkeysPanel,
+    math_ui::MathPanel, measurment_ui::MeasurementPanel, thresholds_ui::ThresholdsPanel,
+    traces_ui::TracesPanel, triggers_ui::TriggersPanel,
 };
 
 /// Global monotonic counter that assigns unique IDs to [`LivePlotPanel`] instances.
@@ -270,6 +270,7 @@ impl LivePlotPanel {
                 Box::new(ThresholdsPanel::default()),
                 Box::new(TriggersPanel::default()),
                 Box::new(MeasurementPanel::default()),
+                Box::new(ColorSchemePanel::default()),
             ],
             left_side_panels: vec![],
             #[cfg(feature = "fft")]
