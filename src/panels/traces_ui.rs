@@ -93,12 +93,12 @@ impl Panel for TracesPanel {
 
                 // Max Age slider (time-based pruning)
                 ui.horizontal(|ui| {
-                    ui.label("Max Age (s):");
+                    ui.label("Max Age:");
                     ui.add(
                         egui::Slider::new(
                             &mut data.traces.max_age_secs,
                             data.traces.max_age_bounds.0..=data.traces.max_age_bounds.1,
-                        )
+                        ).suffix(" s")
                         .text("0 = disabled"),
                     );
                 });
@@ -212,12 +212,12 @@ impl Panel for TracesPanel {
                     data.traces.points_bounds.0..=data.traces.points_bounds.1,
                 ));
 
-                ui.label("Max Age (s):");
+                ui.label("Max Age:");
                 ui.add(
                     egui::Slider::new(
                         &mut data.traces.max_age_secs,
                         data.traces.max_age_bounds.0..=data.traces.max_age_bounds.1,
-                    )
+                    ).suffix(" s")
                     .text("0 = disabled"),
                 );
 
