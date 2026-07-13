@@ -441,7 +441,7 @@ impl Panel for MeasurementPanel {
             };
 
             if let Some(p) = p1_opt {
-                plot_ui.points(Points::new(&name, vec![p]).radius(5.0).color(c_p1));
+                plot_ui.points(Points::new(&name, vec![p]).radius(5.0_f32).color(c_p1));
                 let (halign_anchor, text_align, base) = label_pos(dx, dy, &p, ox, oy);
                 let x_lin = if scope.x_axis.log_scale {
                     10f64.powf(p[0])
@@ -467,7 +467,7 @@ impl Panel for MeasurementPanel {
                 plot_ui.text(Text::new(&name, base, job).anchor(halign_anchor));
             }
             if let Some(p) = p2_opt {
-                plot_ui.points(Points::new(&name, vec![p]).radius(5.0).color(c_p2));
+                plot_ui.points(Points::new(&name, vec![p]).radius(5.0_f32).color(c_p2));
                 let (halign_anchor, text_align, base) = label_pos(-dx, -dy, &p, ox, oy);
                 let x_lin = if scope.x_axis.log_scale {
                     10f64.powf(p[0])

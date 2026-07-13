@@ -1364,13 +1364,13 @@ impl ScopePanel {
                 painter.add(egui::epaint::RectShape::stroke(
                     rect,
                     0.0,
-                    egui::Stroke::new(4., egui::Color32::DARK_BLUE),
+                    egui::Stroke::new(4.0_f32, egui::Color32::DARK_BLUE),
                     egui::StrokeKind::Middle,
                 ));
                 painter.add(egui::epaint::RectShape::stroke(
                     rect,
                     0.0,
-                    egui::Stroke::new(2., egui::Color32::WHITE),
+                    egui::Stroke::new(2.0_f32, egui::Color32::WHITE),
                     egui::StrokeKind::Middle,
                 ));
             }
@@ -1480,7 +1480,7 @@ impl ScopePanel {
                 ui.painter().rect_stroke(
                     plot_response.rect,
                     4.0,
-                    egui::Stroke::new(2.0, egui::Color32::from_rgb(80, 160, 255)),
+                    egui::Stroke::new(2.0_f32, egui::Color32::from_rgb(80, 160, 255)),
                     egui::StrokeKind::Outside,
                 );
             }

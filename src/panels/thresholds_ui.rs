@@ -492,7 +492,7 @@ impl Panel for ThresholdsPanel {
                 ui.label("Name");
                 if duplicate_name {
                     egui::Frame::default()
-                        .stroke(egui::Stroke::new(1.5, egui::Color32::RED))
+                        .stroke(egui::Stroke::new(1.5_f32, egui::Color32::RED))
                         .show(ui, |ui| {
                             let resp = ui.add(egui::TextEdit::singleline(&mut self.builder.name));
                             let _resp = resp.on_hover_text(

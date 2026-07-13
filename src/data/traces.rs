@@ -609,7 +609,10 @@ impl TracesCollection {
     ///
     /// Returns the index to use for `TraceLook::new(index)` so that a newly
     /// created trace gets a colour that doesn't collide with any existing
-    /// trace.  If all palette slots are in use, wraps around to 0.
+    /// trace.  If all palette slots are in use, returns a sequential index
+    /// (based on the current trace count) so that consecutive new traces get
+    /// distinct colours that wrap around the palette, rather than all
+    /// collapsing to the same colour.
     pub fn next_color_index(&self) -> usize {
         let palette = crate::color_scheme::global_palette();
         if palette.is_empty() {
@@ -626,7 +629,7 @@ impl TracesCollection {
                 return slot;
             }
         }
-        0
+        self.traces.len()
     }
 
     /// Recolour traces to match their position in `order`.
@@ -889,5 +892,64 @@ mod tests {
         assert_eq!(col.get_trace(&TraceRef("c".into())).unwrap().look.color, palette[0]);
         assert_eq!(col.get_trace(&TraceRef("b".into())).unwrap().look.color, palette[1]);
         assert_eq!(col.get_trace(&TraceRef("a".into())).unwrap().look.color, palette[2]);
+    }
+
+    #[test]
+    fn next_color_index_sequential_when_palette_full() {
+        let palette = vec![
+            Color32::from_rgb(1, 1, 1),
+            Color32::from_rgb(2, 2, 2),
+            Color32::from_rgb(3, 3, 3),
+        ];
+        let pal_len = palette.len();
+        color_scheme::set_global_palette(palette.clone());
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut col = TracesCollection::new(rx);
+
+        // Fill all palette slots
+        for i in 0..pal_len {
+            let _ = tx.send(PlotCommand::RegisterTrace {
+                id: i as u32 + 1,
+                name: format!("t{}", i),
+                info: None,
+            });
+        }
+        let _ = col.update();
+
+        // Now add 5 more traces — they should get distinct creation_index values
+        // that wrap around the palette, not all 0.
+        for i in 0..5 {
+            let _ = tx.send(PlotCommand::RegisterTrace {
+                id: (pal_len + i) as u32 + 1,
+                name: format!("v{}", i),
+                info: None,
+            });
+        }
+        let _ = col.update();
+
+        // Collect creation_indices of the 5 new traces
+        let indices: Vec<usize> = (0..5)
+            .map(|i| {
+                col.get_trace(&TraceRef(format!("v{}", i).into()))
+                    .unwrap()
+                    .creation_index
+            })
+            .collect();
+
+        // All indices must be distinct (the bug was that they all became 0)
+        let unique: std::collections::HashSet<usize> = indices.iter().copied().collect();
+        assert_eq!(unique.len(), 5, "new traces should have distinct creation_index values, got {:?}", indices);
+
+        // Colors should cycle through the palette (3 distinct colors for 5 traces)
+        let colors: Vec<Color32> = indices
+            .iter()
+            .map(|&idx| palette[idx % pal_len])
+            .collect();
+        let unique_colors: std::collections::HashSet<Color32> = colors.iter().copied().collect();
+        assert_eq!(unique_colors.len(), 3, "new traces should cycle through palette colors, got {:?}", colors);
+        // No two consecutive new traces should share the same color
+        for w in colors.windows(2) {
+            assert_ne!(w[0], w[1], "consecutive traces should not share a color: {:?}", colors);
+        }
     }
 }

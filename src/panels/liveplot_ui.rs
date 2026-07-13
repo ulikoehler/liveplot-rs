@@ -245,6 +245,7 @@ impl LiveplotPanel {
         self.next_scope_idx += 1;
 
         let target = container_tile_id.or(self.tree.root);
+        eprintln!("[liveplot] add_scope_to_container: container_tile_id={:?}, root={:?}, target={:?}", container_tile_id, self.tree.root, target);
 
         match target {
             Some(target_id) => {
@@ -634,15 +635,15 @@ where
         state: &TabState,
     ) -> Stroke {
         if state.active {
-            Stroke::new(2.0, visuals.widgets.active.bg_fill)
+            Stroke::new(2.0_f32, visuals.widgets.active.bg_fill)
         } else {
-            Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color)
+            Stroke::new(1.0_f32, visuals.widgets.noninteractive.bg_stroke.color)
         }
     }
 
     /// Thicker separator line between tab bar and content.
     fn tab_bar_hline_stroke(&self, visuals: &Visuals) -> Stroke {
-        Stroke::new(2.0, visuals.widgets.noninteractive.bg_stroke.color)
+        Stroke::new(2.0_f32, visuals.widgets.noninteractive.bg_stroke.color)
     }
 
     /// Add a "+" button and a shared "Controls" toggle button on the right side of the tab bar.
@@ -655,6 +656,7 @@ where
         _scroll_offset: &mut f32,
     ) {
         if ui.small_button(format!("{PLUS}")).on_hover_text("Add a new scope to this tab bar").clicked() {
+            eprintln!("[liveplot] plus button clicked on tile_id={:?}", tile_id);
             self.add_scope_to = Some(tile_id);
         }
 
