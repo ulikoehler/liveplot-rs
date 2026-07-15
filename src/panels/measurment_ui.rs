@@ -773,6 +773,11 @@ impl Panel for MeasurementPanel {
             }
         }
     }
+
+    fn settings_snapshot(&self, _data: &LivePlotData<'_>) -> Option<String> {
+        let snap = crate::persistence::MeasurementPanelStateSerde::from_panel(self);
+        serde_json::to_string(&snap).ok()
+    }
 }
 
 impl MeasurementPanel {

@@ -96,6 +96,16 @@ pub trait Panel: Downcast {
     /// Default: no-op. Panels with internal collections override this.
     fn clear_all(&mut self) {}
 
+    /// Returns a lightweight serialized snapshot of this panel's settings
+    /// for undo change detection.  Returns `None` for panels with no
+    /// serializable settings (e.g. export panel, hotkeys panel).
+    ///
+    /// The snapshot should **exclude** visibility/detach state (that's not
+    /// part of undo) and only include user-configurable plot settings.
+    fn settings_snapshot(&self, _data: &LivePlotData<'_>) -> Option<String> {
+        None
+    }
+
     fn show_detached_dialog(&mut self, ctx: &Context, data: &mut LivePlotData<'_>) {
         // Read minimal window state in a short borrow scope to avoid conflicts
         let (title, vis, pos, size, vid_opt) = {
@@ -167,21 +177,22 @@ pub trait Panel: Downcast {
                     });
                 });
                 ui.separator();
-                let panel_rect = ui.min_rect();
+                let before = self.settings_snapshot(data);
                 self.render_panel(ui, data);
-                // Detect user interaction within the detached panel body.
-                let interacted = {
-                    let pos = ui.ctx().pointer_latest_pos();
-                    let pos_in_rect = pos.is_some_and(|pos| panel_rect.contains(pos));
-                    ui.ctx().input(|i| {
-                        (pos_in_rect && i.pointer.any_released())
-                            || i.events.iter().any(|e| {
-                                matches!(e, egui::Event::Key { pressed: true, .. })
-                            })
-                    })
-                };
-                if interacted {
-                    data.settings_changed = true;
+                // Detect setting changes via snapshot comparison, gated by
+                // pointer interaction to avoid serializing every frame.
+                let pointer_released = ui.ctx().input(|i| i.pointer.any_released())
+                    || ui.ctx().input(|i| {
+                        i.events
+                            .iter()
+                            .any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))
+                    });
+                if pointer_released {
+                    if let (Some(before), Some(after)) = (before, self.settings_snapshot(data)) {
+                        if before != after {
+                            data.settings_changed = true;
+                        }
+                    }
                 }
             };
 

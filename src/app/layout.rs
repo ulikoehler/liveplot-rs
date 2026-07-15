@@ -195,7 +195,15 @@ impl LivePlotPanel {
                             .and_then(|name| get_hotkey_for_name(&hk, name))
                             .map(|k| format_button_tooltip(p.title(), Some(k)))
                             .unwrap_or_else(|| p.title().to_string());
+                        let before = p.settings_snapshot(&data);
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
+                        if ui.ctx().input(|i| i.pointer.any_released()) {
+                            if let (Some(before), Some(after)) = (before, p.settings_snapshot(&data)) {
+                                if before != after {
+                                    data.settings_changed = true;
+                                }
+                            }
+                        }
                     }
                     for p in &mut self.right_side_panels {
                         if !top_bar_btns
@@ -209,7 +217,15 @@ impl LivePlotPanel {
                             .and_then(|name| get_hotkey_for_name(&hk, name))
                             .map(|k| format_button_tooltip(p.title(), Some(k)))
                             .unwrap_or_else(|| p.title().to_string());
+                        let before = p.settings_snapshot(&data);
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
+                        if ui.ctx().input(|i| i.pointer.any_released()) {
+                            if let (Some(before), Some(after)) = (before, p.settings_snapshot(&data)) {
+                                if before != after {
+                                    data.settings_changed = true;
+                                }
+                            }
+                        }
                     }
                     for p in &mut self.bottom_panels {
                         if !top_bar_btns
@@ -223,7 +239,15 @@ impl LivePlotPanel {
                             .and_then(|name| get_hotkey_for_name(&hk, name))
                             .map(|k| format_button_tooltip(p.title(), Some(k)))
                             .unwrap_or_else(|| p.title().to_string());
+                        let before = p.settings_snapshot(&data);
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
+                        if ui.ctx().input(|i| i.pointer.any_released()) {
+                            if let (Some(before), Some(after)) = (before, p.settings_snapshot(&data)) {
+                                if before != after {
+                                    data.settings_changed = true;
+                                }
+                            }
+                        }
                     }
                     for p in &mut self.detached_panels {
                         if !top_bar_btns
@@ -237,7 +261,15 @@ impl LivePlotPanel {
                             .and_then(|name| get_hotkey_for_name(&hk, name))
                             .map(|k| format_button_tooltip(p.title(), Some(k)))
                             .unwrap_or_else(|| p.title().to_string());
+                        let before = p.settings_snapshot(&data);
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
+                        if ui.ctx().input(|i| i.pointer.any_released()) {
+                            if let (Some(before), Some(after)) = (before, p.settings_snapshot(&data)) {
+                                if before != after {
+                                    data.settings_changed = true;
+                                }
+                            }
+                        }
                     }
                     for p in &mut self.empty_panels {
                         if !top_bar_btns
@@ -251,7 +283,15 @@ impl LivePlotPanel {
                             .and_then(|name| get_hotkey_for_name(&hk, name))
                             .map(|k| format_button_tooltip(p.title(), Some(k)))
                             .unwrap_or_else(|| p.title().to_string());
+                        let before = p.settings_snapshot(&data);
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
+                        if ui.ctx().input(|i| i.pointer.any_released()) {
+                            if let (Some(before), Some(after)) = (before, p.settings_snapshot(&data)) {
+                                if before != after {
+                                    data.settings_changed = true;
+                                }
+                            }
+                        }
                     }
 
                     // ── Pause / Resume / Clear All ───────────────────────────
@@ -552,7 +592,7 @@ impl LivePlotPanel {
             scope: None,
             scopes: scope_states,
             scope_layout: self.liveplot_panel.scope_layout_state(),
-            panels: panels_state,
+            panels: Vec::new(),
             traces_style: trace_styles,
             thresholds: thresholds_ser,
             triggers: triggers_ser,
@@ -587,7 +627,44 @@ impl LivePlotPanel {
                 .flatten(),
             #[cfg(feature = "fft")]
             fft_panel,
+            max_points: self.traces_data.max_points,
+            max_age_secs: self.traces_data.max_age_secs,
         }
+    }
+
+    /// Build a full state snapshot including panel visibility, for save/load.
+    /// Unlike [`build_state_snapshot`], this includes `panels` so that
+    /// panel visibility/detach state is persisted to file.
+    pub fn build_full_state_snapshot(&self) -> crate::persistence::AppStateSerde {
+        let mut state = self.build_state_snapshot();
+        let mut panels_state: Vec<crate::persistence::PanelVisSerde> = Vec::new();
+        let mut push_panel = |p: &Box<dyn Panel>| {
+            let st = p.state();
+            panels_state.push(crate::persistence::PanelVisSerde {
+                title: st.title.to_string(),
+                visible: st.visible,
+                detached: st.detached,
+                window_pos: st.window_pos,
+                window_size: st.window_size,
+            });
+        };
+        for p in &self.left_side_panels {
+            push_panel(p);
+        }
+        for p in &self.right_side_panels {
+            push_panel(p);
+        }
+        for p in &self.bottom_panels {
+            push_panel(p);
+        }
+        for p in &self.detached_panels {
+            push_panel(p);
+        }
+        for p in &self.empty_panels {
+            push_panel(p);
+        }
+        state.panels = panels_state;
+        state
     }
 
     /// Apply an [`AppStateSerde`] snapshot to the panel (without window
@@ -741,6 +818,10 @@ impl LivePlotPanel {
                 }
             }
         }
+
+        // Restore trace buffer settings.
+        self.traces_data.max_points = loaded.max_points;
+        self.traces_data.max_age_secs = loaded.max_age_secs;
     }
 
     /// Serialize the current application state and write it to `path`.
@@ -753,7 +834,7 @@ impl LivePlotPanel {
         let win_size = Some([rect.width(), rect.height()]);
         let win_pos = Some([rect.left(), rect.top()]);
 
-        let mut state = self.build_state_snapshot();
+        let mut state = self.build_full_state_snapshot();
         state.window_size = win_size;
         state.window_pos = win_pos;
 
@@ -1434,23 +1515,22 @@ impl LivePlotPanel {
                 .find(|(_i, p)| p.state().visible && !p.state().detached)
             {
                 let p = &mut list[idx];
-                let panel_rect = ui.min_rect();
+                let before = p.settings_snapshot(data);
                 p.render_panel(ui, data);
-                // Detect user interaction within the panel body (pointer release
-                // or key press).  Side panels don't have auto-scrolling axes, so
-                // any interaction here likely changed a setting.
-                let interacted = {
-                    let pos = ui.ctx().pointer_latest_pos();
-                    let pos_in_rect = pos.is_some_and(|pos| panel_rect.contains(pos));
-                    ui.ctx().input(|i| {
-                        (pos_in_rect && i.pointer.any_released())
-                            || i.events.iter().any(|e| {
-                                matches!(e, egui::Event::Key { pressed: true, .. })
-                            })
-                    })
-                };
-                if interacted {
-                    data.settings_changed = true;
+                // Detect setting changes via snapshot comparison, gated by
+                // pointer interaction to avoid serializing every frame.
+                let pointer_released = ui.ctx().input(|i| i.pointer.any_released())
+                    || ui.ctx().input(|i| {
+                        i.events
+                            .iter()
+                            .any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))
+                    });
+                if pointer_released {
+                    if let (Some(before), Some(after)) = (before, p.settings_snapshot(data)) {
+                        if before != after {
+                            data.settings_changed = true;
+                        }
+                    }
                 }
             } else {
                 ui.label("No panel active");

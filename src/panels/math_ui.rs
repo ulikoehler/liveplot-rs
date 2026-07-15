@@ -781,6 +781,10 @@ impl Panel for MathPanel {
             });
         }
     }
+
+    fn settings_snapshot(&self, _data: &LivePlotData<'_>) -> Option<String> {
+        serde_json::to_string(&self.math_traces).ok()
+    }
 }
 
 // Public helpers for persistence/state management

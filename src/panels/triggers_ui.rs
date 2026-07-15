@@ -671,6 +671,14 @@ impl Panel for TriggersPanel {
             }
         }
     }
+
+    fn settings_snapshot(&self, _data: &LivePlotData<'_>) -> Option<String> {
+        let mut sorted: Vec<_> = self.triggers.values().collect();
+        sorted.sort_by(|a, b| a.name.cmp(&b.name));
+        let ser: Vec<crate::persistence::TriggerSerde> =
+            sorted.iter().map(|t| crate::persistence::TriggerSerde::from_trigger(t)).collect();
+        serde_json::to_string(&ser).ok()
+    }
 }
 
 impl TriggersPanel {

@@ -477,4 +477,9 @@ impl Panel for FftPanel {
             }
         }
     }
+
+    fn settings_snapshot(&self, _data: &LivePlotData<'_>) -> Option<String> {
+        let snap = crate::persistence::FftPanelStateSerde::from_panel(self);
+        serde_json::to_string(&snap).ok()
+    }
 }

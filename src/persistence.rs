@@ -656,6 +656,20 @@ pub struct AppStateSerde {
     #[cfg(feature = "fft")]
     #[serde(default)]
     pub fft_panel: Option<FftPanelStateSerde>,
+    /// Maximum number of data points per trace.
+    #[serde(default = "default_max_points")]
+    pub max_points: usize,
+    /// Maximum age of data points in seconds (0 = disabled).
+    #[serde(default = "default_max_age_secs")]
+    pub max_age_secs: f64,
+}
+
+fn default_max_points() -> usize {
+    10000
+}
+
+fn default_max_age_secs() -> f64 {
+    0.0
 }
 
 impl AppStateSerde {
@@ -733,6 +747,8 @@ impl Default for AppStateSerde {
             active_palette: None,
             #[cfg(feature = "fft")]
             fft_panel: None,
+            max_points: default_max_points(),
+            max_age_secs: default_max_age_secs(),
         }
     }
 }

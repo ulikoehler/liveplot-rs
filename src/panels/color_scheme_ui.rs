@@ -373,6 +373,12 @@ impl Panel for ColorSchemePanel {
             });
         }
     }
+
+    fn settings_snapshot(&self, _data: &LivePlotData<'_>) -> Option<String> {
+        let snap: (Vec<NamedCustomScheme>, Vec<[u8; 3]>) =
+            (self.custom_schemes.clone(), self.get_active_palette());
+        serde_json::to_string(&snap).ok()
+    }
 }
 
 // --- tests -----------------------------------------------------------------

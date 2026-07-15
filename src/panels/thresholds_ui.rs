@@ -894,6 +894,14 @@ impl Panel for ThresholdsPanel {
             .headers(vec![EgHeaderRow::new(24.0)])
             .show(&mut table_ui, &mut delegate);
     }
+
+    fn settings_snapshot(&self, _data: &LivePlotData<'_>) -> Option<String> {
+        let mut sorted: Vec<_> = self.thresholds.values().collect();
+        sorted.sort_by(|a, b| a.name.cmp(&b.name));
+        let ser: Vec<crate::persistence::ThresholdSerde> =
+            sorted.iter().map(|d| crate::persistence::ThresholdSerde::from_threshold(d)).collect();
+        serde_json::to_string(&ser).ok()
+    }
 }
 
 impl ThresholdsPanel {

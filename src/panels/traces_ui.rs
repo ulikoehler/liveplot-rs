@@ -573,6 +573,59 @@ impl Panel for TracesPanel {
                 }
             }); // end ScrollArea
     }
+
+    fn settings_snapshot(&self, data: &LivePlotData<'_>) -> Option<String> {
+        let mut trace_styles: Vec<crate::persistence::TraceStyleSerde> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for scope in data.scope_data.iter() {
+            for name in scope.trace_order.iter() {
+                if seen.insert(name.0.clone()) {
+                    if let Some(tr) = data.traces.get_trace(name) {
+                        trace_styles.push(crate::persistence::TraceStyleSerde {
+                            name: name.0.clone(),
+                            look: crate::persistence::TraceLookSerde::from(&tr.look),
+                            offset: tr.offset,
+                        });
+                    }
+                }
+            }
+        }
+        let scope_orders: Vec<(usize, Vec<String>)> = data
+            .scope_data
+            .iter()
+            .map(|s| {
+                (
+                    s.id,
+                    s.trace_order.iter().map(|t| t.0.clone()).collect(),
+                )
+            })
+            .collect();
+        let xy_pairs: Vec<(usize, Vec<crate::persistence::XYPairSerde>)> = data
+            .scope_data
+            .iter()
+            .map(|s| {
+                (
+                    s.id,
+                    s.xy_pairs
+                        .iter()
+                        .map(|(x, y, look)| crate::persistence::XYPairSerde {
+                            x: x.as_ref().map(|t| t.0.clone()),
+                            y: y.as_ref().map(|t| t.0.clone()),
+                            look: crate::persistence::TraceLookSerde::from(look),
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
+        let snap = (
+            trace_styles,
+            scope_orders,
+            xy_pairs,
+            data.traces.max_points,
+            data.traces.max_age_secs,
+        );
+        serde_json::to_string(&snap).ok()
+    }
 }
 
 impl TracesPanel {
