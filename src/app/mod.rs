@@ -264,6 +264,10 @@ pub struct LivePlotPanel {
     /// Cached serialized settings JSON from the last undo checkpoint.
     /// Used to detect user-initiated changes without serializing every frame.
     pub(crate) last_settings_json: Option<String>,
+    /// Set by side panels (traces, thresholds, math, triggers, measurements, FFT,
+    /// color scheme) when a user-initiated setting change occurs.  Collected
+    /// during the frame and checked in the undo detection logic.
+    pub(crate) side_panels_changed: bool,
 }
 
 impl LivePlotPanel {
@@ -330,6 +334,7 @@ impl LivePlotPanel {
             pending_redo: false,
             show_undo_redo_buttons: true,
             last_settings_json: None,
+            side_panels_changed: false,
         }
     }
 
@@ -429,6 +434,13 @@ impl LivePlotPanel {
     /// read so each action is reported only once.
     pub fn take_explicit_pause(&mut self) -> Option<bool> {
         self.pending_explicit_pause.take()
+    }
+
+    /// Returns `true` if any side panel (traces, thresholds, math, triggers,
+    /// measurements, FFT, color scheme) reported a user-initiated setting
+    /// change during the last frame.  Resets the flag.
+    pub fn take_side_panels_changed(&mut self) -> bool {
+        std::mem::take(&mut self.side_panels_changed)
     }
 
     /// Consume any pending view change (zoom/pan/slider/fit) collected from

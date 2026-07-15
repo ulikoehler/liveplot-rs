@@ -167,7 +167,22 @@ pub trait Panel: Downcast {
                     });
                 });
                 ui.separator();
+                let panel_rect = ui.min_rect();
                 self.render_panel(ui, data);
+                // Detect user interaction within the detached panel body.
+                let interacted = {
+                    let pos = ui.ctx().pointer_latest_pos();
+                    let pos_in_rect = pos.is_some_and(|pos| panel_rect.contains(pos));
+                    ui.ctx().input(|i| {
+                        (pos_in_rect && i.pointer.any_released())
+                            || i.events.iter().any(|e| {
+                                matches!(e, egui::Event::Key { pressed: true, .. })
+                            })
+                    })
+                };
+                if interacted {
+                    data.settings_changed = true;
+                }
             };
 
             match class {

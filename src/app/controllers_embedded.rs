@@ -98,6 +98,7 @@ impl LivePlotPanel {
                 traces: &mut self.traces_data,
                 pending_requests: &mut self.pending_requests,
                 event_ctrl: self.event_ctrl.clone(),
+                settings_changed: false,
             };
             let primary_scope_id = data.primary_scope().map(|s| s.id);
             if take_actions.1 {
@@ -151,6 +152,7 @@ impl LivePlotPanel {
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
                     event_ctrl: self.event_ctrl.clone(),
+                    settings_changed: false,
                 };
 
                 // Apply trace property mutations.
@@ -422,6 +424,7 @@ impl LivePlotPanel {
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
                     event_ctrl: self.event_ctrl.clone(),
+                    settings_changed: false,
                 };
                 if requests.clear_all {
                     data.request_clear_all();
@@ -463,6 +466,7 @@ impl LivePlotPanel {
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
                     event_ctrl: self.event_ctrl.clone(),
+                    settings_changed: false,
                 };
                 data.are_all_paused()
             };
@@ -582,6 +586,7 @@ impl LivePlotPanel {
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
                     event_ctrl: self.event_ctrl.clone(),
+                    settings_changed: false,
                 };
                 if requests.clear_all {
                     data.request_clear_all();
@@ -622,6 +627,7 @@ impl LivePlotPanel {
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
                     event_ctrl: self.event_ctrl.clone(),
+                    settings_changed: false,
                 };
                 data.are_all_paused()
             };

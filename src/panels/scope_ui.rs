@@ -5,9 +5,94 @@ use serde::{Deserialize, Serialize};
 use crate::data::scope::LegendPosition;
 use crate::data::scope::ScopeData;
 use crate::data::scope::ScopeType;
+use crate::data::scope::AxisType;
 use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
 use crate::events::EventController;
+
+/// Lightweight snapshot of scope settings for change detection (undo tracking).
+/// Bounds are only included when auto-fit is OFF, so auto-fit axis changes
+/// don't trigger false undo entries.  For time scopes, x-axis bounds are
+/// excluded when the scope is running (not paused) since they scroll continuously.
+#[derive(Clone, PartialEq)]
+struct ScopeSettingsSnapshot {
+    show_grid: bool,
+    show_legend: bool,
+    show_info_in_legend: bool,
+    legend_position: LegendPosition,
+    x_auto_fit: bool,
+    x_keep_max_fit: bool,
+    x_log_scale: bool,
+    x_show_label: bool,
+    x_name: Option<String>,
+    x_value_decimals: usize,
+    x_axis_type: AxisType,
+    x_unit: Option<String>,
+    y_auto_fit: bool,
+    y_keep_max_fit: bool,
+    y_log_scale: bool,
+    y_show_label: bool,
+    y_name: Option<String>,
+    y_value_decimals: usize,
+    y_axis_type: AxisType,
+    y_unit: Option<String>,
+    zoom_mode: ZoomMode,
+    paused: bool,
+    time_window: f64,
+    scope_type: ScopeType,
+    /// Only set when x-axis auto-fit is OFF and (for time scopes) the scope is paused.
+    x_bounds: Option<(f64, f64)>,
+    /// Only set when y-axis auto-fit is OFF.
+    y_bounds: Option<(f64, f64)>,
+}
+
+impl ScopePanel {
+    fn snapshot_settings(&self) -> ScopeSettingsSnapshot {
+        // Exclude x-axis bounds from snapshot when auto-fit is on, or when
+        // a time scope is running (not paused) — the x-axis scrolls continuously.
+        let x_bounds = if !self.data.x_axis.auto_fit
+            && (self.data.scope_type != ScopeType::TimeScope || self.data.paused)
+        {
+            Some(self.data.x_axis.bounds)
+        } else {
+            None
+        };
+        // Exclude y-axis bounds when auto-fit is on.
+        let y_bounds = if !self.data.y_axis.auto_fit {
+            Some(self.data.y_axis.bounds)
+        } else {
+            None
+        };
+        ScopeSettingsSnapshot {
+            show_grid: self.data.show_grid,
+            show_legend: self.data.show_legend,
+            show_info_in_legend: self.data.show_info_in_legend,
+            legend_position: self.data.legend_position,
+            x_auto_fit: self.data.x_axis.auto_fit,
+            x_keep_max_fit: self.data.x_axis.keep_max_fit,
+            x_log_scale: self.data.x_axis.log_scale,
+            x_show_label: self.data.x_axis.show_label,
+            x_name: self.data.x_axis.name.clone(),
+            x_value_decimals: self.data.x_axis.value_decimals,
+            x_axis_type: self.data.x_axis.axis_type.clone(),
+            x_unit: self.data.x_axis.get_unit().map(|u| u.to_string()),
+            y_auto_fit: self.data.y_axis.auto_fit,
+            y_keep_max_fit: self.data.y_axis.keep_max_fit,
+            y_log_scale: self.data.y_axis.log_scale,
+            y_show_label: self.data.y_axis.show_label,
+            y_name: self.data.y_axis.name.clone(),
+            y_value_decimals: self.data.y_axis.value_decimals,
+            y_axis_type: self.data.y_axis.axis_type.clone(),
+            y_unit: self.data.y_axis.get_unit().map(|u| u.to_string()),
+            zoom_mode: self.zoom_mode,
+            paused: self.data.paused,
+            time_window: self.data.time_window,
+            scope_type: self.data.scope_type,
+            x_bounds,
+            y_bounds,
+        }
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -56,6 +141,10 @@ pub struct ScopePanel {
     /// Pending view change (zoom/pan/slider/fit) to be collected by the parent.
     pub(crate) pending_view_change: Option<crate::events::ViewChangeMeta>,
 
+    /// Set to true when a user-initiated setting change occurs during rendering.
+    /// Collected by the parent for undo tracking.
+    pub(crate) settings_changed: bool,
+
     /// Screen-space start position for custom box zoom (right-click drag).
     box_zoom_start: Option<egui::Pos2>,
 }
@@ -81,6 +170,7 @@ impl Default for ScopePanel {
             last_y_fit_width: 132.1,
             last_zoom_width: 164.0,
             pending_view_change: None,
+            settings_changed: false,
             box_zoom_start: None,
         }
     }
@@ -303,6 +393,8 @@ impl ScopePanel {
     }
 
     pub fn render_menu(&mut self, ui: &mut Ui, traces: &mut TracesCollection) {
+        let menu_snapshot = self.snapshot_settings();
+
         if ui
             .checkbox(&mut self.controlls_in_toolbar, "Controls in Toolbar")
             .changed()
@@ -360,6 +452,10 @@ impl ScopePanel {
                 }
             });
         });
+
+        if menu_snapshot != self.snapshot_settings() {
+            self.settings_changed = true;
+        }
     }
 
     pub fn render_panel<F>(
@@ -398,6 +494,10 @@ impl ScopePanel {
         if available_width < min_control_bar_width {
             return;
         }
+
+        // Snapshot key settings before rendering controls to detect user-initiated changes.
+        let settings_snapshot = self.snapshot_settings();
+
         if !self.data.paused {
             if ui.button("⏸ Pause").clicked() {
                 self.data.paused = true;
@@ -887,6 +987,11 @@ impl ScopePanel {
             .clicked()
         {
             self.request_screenshot = true;
+        }
+
+        // Detect user-initiated setting changes by comparing the snapshot.
+        if settings_snapshot != self.snapshot_settings() {
+            self.settings_changed = true;
         }
     }
 

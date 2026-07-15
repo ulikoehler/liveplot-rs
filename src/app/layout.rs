@@ -167,13 +167,14 @@ impl LivePlotPanel {
             }
 
             let (save_req, load_req, add_scope_req, remove_scope_req,
-                 should_trigger_pause, should_trigger_resume) = {
+                 should_trigger_pause, should_trigger_resume, side_changed) = {
                 let scope_data = self.liveplot_panel.get_data_mut();
                 let mut data = LivePlotData {
                     scope_data,
                     traces: &mut self.traces_data,
                     pending_requests: &mut self.pending_requests,
                     event_ctrl: self.event_ctrl.clone(),
+                    settings_changed: false,
                 };
                 let mut should_trigger_pause = false;
                 let mut should_trigger_resume = false;
@@ -344,8 +345,13 @@ impl LivePlotPanel {
                     data.pending_requests.remove_scope.take(),
                     should_trigger_pause,
                     should_trigger_resume,
+                    data.settings_changed,
                 )
             };
+
+            if side_changed {
+                self.side_panels_changed = true;
+            }
 
             if should_trigger_pause {
                 self.trigger_pause_all();
@@ -1117,60 +1123,72 @@ impl LivePlotPanel {
     ///
     /// Detached windows are always shown regardless of the responsive layout state.
     fn render_detached_windows(&mut self, ui: &mut egui::Ui) {
+        let mut changed = false;
         for p in &mut self.left_side_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(
-                    ui.ctx(),
-                    &mut LivePlotData {
-                        scope_data: self.liveplot_panel.get_data_mut(),
-                        traces: &mut self.traces_data,
-                        pending_requests: &mut self.pending_requests,
-                        event_ctrl: self.event_ctrl.clone(),
-                    },
-                );
+                let mut data = LivePlotData {
+                    scope_data: self.liveplot_panel.get_data_mut(),
+                    traces: &mut self.traces_data,
+                    pending_requests: &mut self.pending_requests,
+                    event_ctrl: self.event_ctrl.clone(),
+                    settings_changed: false,
+                };
+                p.show_detached_dialog(ui.ctx(), &mut data);
+                if data.settings_changed {
+                    changed = true;
+                }
             }
         }
 
         for p in &mut self.right_side_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(
-                    ui.ctx(),
-                    &mut LivePlotData {
-                        scope_data: self.liveplot_panel.get_data_mut(),
-                        traces: &mut self.traces_data,
-                        pending_requests: &mut self.pending_requests,
-                        event_ctrl: self.event_ctrl.clone(),
-                    },
-                );
+                let mut data = LivePlotData {
+                    scope_data: self.liveplot_panel.get_data_mut(),
+                    traces: &mut self.traces_data,
+                    pending_requests: &mut self.pending_requests,
+                    event_ctrl: self.event_ctrl.clone(),
+                    settings_changed: false,
+                };
+                p.show_detached_dialog(ui.ctx(), &mut data);
+                if data.settings_changed {
+                    changed = true;
+                }
             }
         }
 
         for p in &mut self.bottom_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(
-                    ui.ctx(),
-                    &mut LivePlotData {
-                        scope_data: self.liveplot_panel.get_data_mut(),
-                        traces: &mut self.traces_data,
-                        pending_requests: &mut self.pending_requests,
-                        event_ctrl: self.event_ctrl.clone(),
-                    },
-                );
+                let mut data = LivePlotData {
+                    scope_data: self.liveplot_panel.get_data_mut(),
+                    traces: &mut self.traces_data,
+                    pending_requests: &mut self.pending_requests,
+                    event_ctrl: self.event_ctrl.clone(),
+                    settings_changed: false,
+                };
+                p.show_detached_dialog(ui.ctx(), &mut data);
+                if data.settings_changed {
+                    changed = true;
+                }
             }
         }
 
         for p in &mut self.detached_panels {
             if p.state().visible && p.state().detached {
-                p.show_detached_dialog(
-                    ui.ctx(),
-                    &mut LivePlotData {
-                        scope_data: self.liveplot_panel.get_data_mut(),
-                        traces: &mut self.traces_data,
-                        pending_requests: &mut self.pending_requests,
-                        event_ctrl: self.event_ctrl.clone(),
-                    },
-                );
+                let mut data = LivePlotData {
+                    scope_data: self.liveplot_panel.get_data_mut(),
+                    traces: &mut self.traces_data,
+                    pending_requests: &mut self.pending_requests,
+                    event_ctrl: self.event_ctrl.clone(),
+                    settings_changed: false,
+                };
+                p.show_detached_dialog(ui.ctx(), &mut data);
+                if data.settings_changed {
+                    changed = true;
+                }
             }
+        }
+        if changed {
+            self.side_panels_changed = true;
         }
     }
 
@@ -1190,13 +1208,14 @@ impl LivePlotPanel {
 
         let hk_rc_tabs = self.hotkeys.clone();
 
-        let (add_scope_req, remove_scope_req) = {
+        let (add_scope_req, remove_scope_req, side_changed) = {
             let scope_data = self.liveplot_panel.get_data_mut();
             let data = &mut LivePlotData {
                 scope_data,
                 traces: &mut self.traces_data,
                 pending_requests: &mut self.pending_requests,
                 event_ctrl: self.event_ctrl.clone(),
+                settings_changed: false,
             };
 
             if count > 0 {
@@ -1415,13 +1434,31 @@ impl LivePlotPanel {
                 .find(|(_i, p)| p.state().visible && !p.state().detached)
             {
                 let p = &mut list[idx];
+                let panel_rect = ui.min_rect();
                 p.render_panel(ui, data);
+                // Detect user interaction within the panel body (pointer release
+                // or key press).  Side panels don't have auto-scrolling axes, so
+                // any interaction here likely changed a setting.
+                let interacted = {
+                    let pos = ui.ctx().pointer_latest_pos();
+                    let pos_in_rect = pos.is_some_and(|pos| panel_rect.contains(pos));
+                    ui.ctx().input(|i| {
+                        (pos_in_rect && i.pointer.any_released())
+                            || i.events.iter().any(|e| {
+                                matches!(e, egui::Event::Key { pressed: true, .. })
+                            })
+                    })
+                };
+                if interacted {
+                    data.settings_changed = true;
+                }
             } else {
                 ui.label("No panel active");
             }
             (
                 std::mem::take(&mut data.pending_requests.add_scope),
                 data.pending_requests.remove_scope.take(),
+                data.settings_changed,
             )
         };
 
@@ -1431,6 +1468,9 @@ impl LivePlotPanel {
         }
         if let Some(scope_id) = remove_scope_req {
             let _ = self.liveplot_panel.remove_scope_by_id(scope_id);
+        }
+        if side_changed {
+            self.side_panels_changed = true;
         }
     }
 }

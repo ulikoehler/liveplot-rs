@@ -257,9 +257,8 @@ impl LivePlotPanel {
             }
 
             // ── Capture whether we should check for undo changes ────────────
-            // We only serialize/compare when a user interaction occurred, to
-            // avoid the CPU cost of double-serialization every frame and to
-            // prevent false positives from auto-fit axis bound changes.
+            // We only push undo entries when a setting actually changed, detected
+            // via snapshot comparison in ScopePanel::render_controls.
             let check_undo = !self.suppress_undo;
 
             let widget_rect = ui.max_rect();
@@ -419,21 +418,20 @@ impl LivePlotPanel {
                 self.queue_screenshot_capture(ui.ctx(), request);
             }
 
-            // ── Undo detection: only check when user interacted this frame ───
-            // Axis bounds change every frame due to auto-fit, so we only
-            // serialize and compare when the user actually interacted.
-            if check_undo {
-                let had_interaction = ui.ctx().input(|i| {
-                    i.pointer.any_click()
-                        || i.pointer.any_released()
-                        || i.events.iter().any(|e| {
-                            matches!(
-                                e,
-                                egui::Event::Key { pressed: true, .. }
-                            )
-                        })
-                });
-                if had_interaction {
+            // ── Undo detection: only when a setting actually changed ────────
+            // ScopePanel sets settings_changed when its snapshot comparison
+            // detects a user-initiated change.  Side panels set the flag via
+            // LivePlotData.settings_changed, collected into self.side_panels_changed.
+            // This avoids false positives from auto-fit axis bound changes and
+            // avoids serialization every frame.
+            //
+            // In embedded mode (show_undo_redo_buttons == false), the host app
+            // (e.g. ASX) consumes these flags itself, so we skip the standalone
+            // undo logic here to avoid consuming the flags prematurely.
+            if check_undo && self.show_undo_redo_buttons {
+                let settings_changed = self.liveplot_panel.take_settings_changed()
+                    || std::mem::take(&mut self.side_panels_changed);
+                if settings_changed {
                     let after = self.build_state_snapshot();
                     let after_json = crate::persistence::state_to_json(&after);
                     if let Ok(after_json) = after_json {
@@ -518,6 +516,7 @@ impl LivePlotPanel {
             traces: &mut self.traces_data,
             pending_requests: &mut self.pending_requests,
             event_ctrl: self.event_ctrl.clone(),
+            settings_changed: false,
         };
 
         // Attach newly created traces to the primary (first) scope only.

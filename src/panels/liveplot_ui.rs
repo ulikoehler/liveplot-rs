@@ -14,6 +14,8 @@ pub struct LiveplotPanel {
     next_scope_idx: usize,
     /// Cached event controller to propagate to newly added scopes.
     event_ctrl_cache: Option<crate::events::EventController>,
+    /// Set to true when a structural change occurs (add/remove scope).
+    pub(crate) structure_changed: bool,
 }
 
 impl Default for LiveplotPanel {
@@ -46,6 +48,7 @@ impl LiveplotPanel {
             tree: Tree::new(egui::Id::new(("liveplot_scopes", tree_key)), root, tiles),
             next_scope_idx: 1,
             event_ctrl_cache: None,
+            structure_changed: false,
         }
     }
     /// Get immutable references to all scope data, sorted by id.
@@ -148,6 +151,7 @@ impl LiveplotPanel {
             .ui(ui, |ui| {
                 if ui.button(format!("{PLUS} Add scope")).clicked() {
                     self.add_scope();
+                    self.structure_changed = true;
                 }
 
                 if ui
@@ -189,6 +193,7 @@ impl LiveplotPanel {
 
         if let Some(id) = remove_target {
             self.remove_scope(id);
+            self.structure_changed = true;
         }
     }
 
@@ -682,6 +687,22 @@ impl LiveplotPanel {
             }
         }
         None
+    }
+
+    /// Returns true if any scope panel had a user-initiated setting change
+    /// or if the scope structure changed (add/remove). Resets the flags.
+    pub fn take_settings_changed(&mut self) -> bool {
+        let mut changed = self.structure_changed;
+        self.structure_changed = false;
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                if pane.settings_changed {
+                    changed = true;
+                    pane.settings_changed = false;
+                }
+            }
+        }
+        changed
     }
 
     pub(crate) fn take_scope_screenshot_request(&mut self) -> Option<ScreenshotRequest> {

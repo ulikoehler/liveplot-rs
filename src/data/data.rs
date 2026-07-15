@@ -62,6 +62,8 @@ pub struct LivePlotData<'a> {
     pub pending_requests: &'a mut LivePlotRequests,
     /// Optional event controller for emitting events from panels.
     pub event_ctrl: Option<EventController>,
+    /// Set by panels when a user-initiated setting change occurs (for undo tracking).
+    pub settings_changed: bool,
 }
 
 impl<'a> LivePlotData<'a> {

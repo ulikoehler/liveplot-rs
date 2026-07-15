@@ -510,6 +510,7 @@ pub fn handle_hotkeys(main_panel: &mut LivePlotPanel, ctx: &egui::Context) {
             traces: &mut main_panel.traces_data,
             pending_requests: &mut main_panel.pending_requests,
             event_ctrl: main_panel.event_ctrl.clone(),
+            settings_changed: false,
         };
         match act {
             HotkeyName::Pause => {

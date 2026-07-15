@@ -310,6 +310,7 @@ impl LivePlotApp {
                     traces: &mut self.main_panel.traces_data,
                     pending_requests: &mut self.main_panel.pending_requests,
                     event_ctrl: self.main_panel.event_ctrl.clone(),
+                    settings_changed: false,
                 };
 
                 // Apply trace property mutations.
@@ -532,6 +533,7 @@ impl LivePlotApp {
                     traces: &mut self.main_panel.traces_data,
                     pending_requests: &mut self.main_panel.pending_requests,
                     event_ctrl: self.main_panel.event_ctrl.clone(),
+                    settings_changed: false,
                 };
                 if let Some(pause) = requests.pause_all {
                     if pause {
@@ -580,6 +582,7 @@ impl LivePlotApp {
                     traces: &mut self.main_panel.traces_data,
                     pending_requests: &mut self.main_panel.pending_requests,
                     event_ctrl: self.main_panel.event_ctrl.clone(),
+                    settings_changed: false,
                 };
                 data.are_all_paused()
             };
