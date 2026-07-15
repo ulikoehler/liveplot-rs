@@ -306,6 +306,35 @@ impl LivePlotPanel {
                                 path: None,
                             });
                     }
+
+                    // ── Undo / Redo buttons (standalone mode only) ──────────
+                    if self.show_undo_redo_buttons {
+                        ui.separator();
+                        let undo_label = if topbar_collapsed { "↩" } else { "↩ Undo" };
+                        let undo_tt = self
+                            .undo_stack
+                            .undo_description()
+                            .unwrap_or("Nothing to undo");
+                        if ui
+                            .add_enabled(self.undo_stack.can_undo(), egui::Button::new(undo_label))
+                            .on_hover_text(undo_tt)
+                            .clicked()
+                        {
+                            self.pending_undo = true;
+                        }
+                        let redo_label = if topbar_collapsed { "↪" } else { "↪ Redo" };
+                        let redo_tt = self
+                            .undo_stack
+                            .redo_description()
+                            .unwrap_or("Nothing to redo");
+                        if ui
+                            .add_enabled(self.undo_stack.can_redo(), egui::Button::new(redo_label))
+                            .on_hover_text(redo_tt)
+                            .clicked()
+                        {
+                            self.pending_redo = true;
+                        }
+                    }
                 }
 
                 (
@@ -341,27 +370,55 @@ impl LivePlotPanel {
             if let Some(path) = load_req {
                 self.handle_load_state(ui, &path);
             }
+
+            // ── Keyboard shortcuts for undo/redo (standalone mode only) ─────
+            if self.show_undo_redo_buttons {
+                let ctx = ui.ctx();
+                let any_text_focus = ctx.input(|i| {
+                    i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::Text { .. }
+                                | egui::Event::Key {
+                                    key: egui::Key::Tab,
+                                    ..
+                                }
+                        )
+                    })
+                });
+                let wants_text_input = ctx.egui_wants_keyboard_input() || any_text_focus;
+                if !wants_text_input {
+                    let ctrl_z = ctx.input(|i| {
+                        i.key_pressed(egui::Key::Z)
+                            && i.modifiers.ctrl
+                            && !i.modifiers.shift
+                    });
+                    let ctrl_y = ctx.input(|i| {
+                        i.key_pressed(egui::Key::Y) && i.modifiers.ctrl
+                    });
+                    let ctrl_shift_z = ctx.input(|i| {
+                        i.key_pressed(egui::Key::Z)
+                            && i.modifiers.ctrl
+                            && i.modifiers.shift
+                    });
+                    if ctrl_z && self.undo_stack.can_undo() {
+                        self.pending_undo = true;
+                    }
+                    if (ctrl_y || ctrl_shift_z) && self.undo_stack.can_redo() {
+                        self.pending_redo = true;
+                    }
+                }
+            }
         });
     }
 
-    /// Serialize the current application state and write it to `path`.
+    /// Build an [`AppStateSerde`] snapshot of the current panel state (without
+    /// window size/position).
     ///
-    /// Called from [`render_menu`](Self::render_menu) when the user (or a
-    /// controller) requests a state save.
-    fn handle_save_state(&mut self, ui: &mut egui::Ui, path: &std::path::Path) {
-        let ctx = ui.ctx();
-        let rect = ctx.input(|i| i.content_rect());
-        let win_size = Some([rect.width(), rect.height()]);
-        let win_pos = Some([rect.left(), rect.top()]);
+    /// This is used by the undo/redo system and by [`handle_save_state`].
+    pub fn build_state_snapshot(&self) -> crate::persistence::AppStateSerde {
         let scope_states = self.liveplot_panel.scope_states();
-        let live_data = LivePlotData {
-            scope_data: self.liveplot_panel.get_data_mut(),
-            traces: &mut self.traces_data,
-            pending_requests: &mut self.pending_requests,
-            event_ctrl: self.event_ctrl.clone(),
-        };
 
-        // Helper to convert Panel::state() to PanelVisSerde.
         let mut panels_state: Vec<crate::persistence::PanelVisSerde> = Vec::new();
         let mut push_panel = |p: &Box<dyn Panel>| {
             let st = p.state();
@@ -391,12 +448,13 @@ impl LivePlotPanel {
 
         // Trace styles from all scopes.
         let trace_styles: Vec<crate::persistence::TraceStyleSerde> = {
+            let scopes = self.liveplot_panel.get_data();
             let mut seen = std::collections::HashSet::new();
             let mut snapshot: Vec<(String, crate::data::trace_look::TraceLook, f64)> = Vec::new();
-            for scope in live_data.scope_data.iter() {
+            for scope in scopes.iter() {
                 for name in scope.trace_order.iter() {
                     if seen.insert(name.0.clone()) {
-                        if let Some(tr) = live_data.traces.get_trace(name) {
+                        if let Some(tr) = self.traces_data.get_trace(name) {
                             snapshot.push((name.0.clone(), tr.look.clone(), tr.offset));
                         }
                     }
@@ -482,9 +540,9 @@ impl LivePlotPanel {
                     .map(crate::persistence::FftPanelStateSerde::from_panel)
             });
 
-        let state = crate::persistence::AppStateSerde {
-            window_size: win_size,
-            window_pos: win_pos,
+        crate::persistence::AppStateSerde {
+            window_size: None,
+            window_pos: None,
             scope: None,
             scopes: scope_states,
             scope_layout: self.liveplot_panel.scope_layout_state(),
@@ -523,28 +581,14 @@ impl LivePlotPanel {
                 .flatten(),
             #[cfg(feature = "fft")]
             fft_panel,
-        };
-
-        let _ = crate::persistence::save_state_to_path(&state, path);
+        }
     }
 
-    /// Load application state from `path` and apply it to the panel.
+    /// Apply an [`AppStateSerde`] snapshot to the panel (without window
+    /// size/position commands).
     ///
-    /// Called from [`render_menu`](Self::render_menu) when the user (or a
-    /// controller) requests a state load.
-    fn handle_load_state(&mut self, ui: &mut egui::Ui, path: &std::path::Path) {
-        let Ok(loaded) = crate::persistence::load_state_from_path(path) else {
-            return;
-        };
-
-        // Window: attempt to request size/pos via ctx.
-        if let Some(sz) = loaded.window_size {
-            ui.ctx()
-                .send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(
-                    sz[0], sz[1],
-                )));
-        }
-
+    /// This is used by the undo/redo system and by [`handle_load_state`].
+    pub fn apply_state_snapshot(&mut self, loaded: &crate::persistence::AppStateSerde) {
         // Restore all scopes (or fall back to legacy single-scope).
         let scope_states = loaded.all_scopes();
         if !scope_states.is_empty() {
@@ -691,6 +735,43 @@ impl LivePlotPanel {
                 }
             }
         }
+    }
+
+    /// Serialize the current application state and write it to `path`.
+    ///
+    /// Called from [`render_menu`](Self::render_menu) when the user (or a
+    /// controller) requests a state save.
+    fn handle_save_state(&mut self, ui: &mut egui::Ui, path: &std::path::Path) {
+        let ctx = ui.ctx();
+        let rect = ctx.input(|i| i.content_rect());
+        let win_size = Some([rect.width(), rect.height()]);
+        let win_pos = Some([rect.left(), rect.top()]);
+
+        let mut state = self.build_state_snapshot();
+        state.window_size = win_size;
+        state.window_pos = win_pos;
+
+        let _ = crate::persistence::save_state_to_path(&state, path);
+    }
+
+    /// Load application state from `path` and apply it to the panel.
+    ///
+    /// Called from [`render_menu`](Self::render_menu) when the user (or a
+    /// controller) requests a state load.
+    fn handle_load_state(&mut self, ui: &mut egui::Ui, path: &std::path::Path) {
+        let Ok(loaded) = crate::persistence::load_state_from_path(path) else {
+            return;
+        };
+
+        // Window: attempt to request size/pos via ctx.
+        if let Some(sz) = loaded.window_size {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::Vec2::new(
+                    sz[0], sz[1],
+                )));
+        }
+
+        self.apply_state_snapshot(&loaded);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

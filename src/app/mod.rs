@@ -246,6 +246,24 @@ pub struct LivePlotPanel {
     /// Set when `update_background` (external) registers new traces that
     /// haven't been synced to any scope's `trace_order` yet.
     pub traces_dirty: bool,
+
+    // ── Undo/redo (standalone mode) ────────────────────────────────────────
+    /// Undo/redo stack storing state snapshots.  Active in standalone mode;
+    /// in embedded mode the host application's undo stack is used instead.
+    pub undo_stack: crate::undo::LivePlotUndoStack,
+    /// When `true`, suppresses undo recording during undo/redo restoration
+    /// to prevent pollution of the stack.
+    pub(crate) suppress_undo: bool,
+    /// Set by the menu bar / keyboard shortcut to request an undo next frame.
+    pub(crate) pending_undo: bool,
+    /// Set by the menu bar / keyboard shortcut to request a redo next frame.
+    pub(crate) pending_redo: bool,
+    /// When `true`, the menu bar shows undo/redo buttons.  Set to `true` for
+    /// standalone, `false` for embedded (host app provides undo/redo).
+    pub show_undo_redo_buttons: bool,
+    /// Cached serialized settings JSON from the last undo checkpoint.
+    /// Used to detect user-initiated changes without serializing every frame.
+    pub(crate) last_settings_json: Option<String>,
 }
 
 impl LivePlotPanel {
@@ -306,6 +324,12 @@ impl LivePlotPanel {
             panel_id: PANEL_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
             compact: false,
             traces_dirty: false,
+            undo_stack: crate::undo::LivePlotUndoStack::new(),
+            suppress_undo: false,
+            pending_undo: false,
+            pending_redo: false,
+            show_undo_redo_buttons: true,
+            last_settings_json: None,
         }
     }
 

@@ -213,7 +213,6 @@ impl LiveplotPanel {
             traces,
             controls_currently_on: any_controls_on,
             controls_toggle_pressed: false,
-            add_scope_to: None,
         };
         self.tree.ui(&mut behavior, ui);
 
@@ -226,55 +225,35 @@ impl LiveplotPanel {
                 }
             }
         }
-
-        // Add a new scope to the tab container whose "+" button was clicked.
-        if let Some(target_tile_id) = behavior.add_scope_to {
-            self.add_scope_to_container(Some(target_tile_id));
-        }
     }
 
     pub fn add_scope(&mut self) -> usize {
-        self.add_scope_to_container(None)
-    }
-
-    pub fn add_scope_to_container(&mut self, container_tile_id: Option<TileId>) -> usize {
         let new_scope_id = self.next_scope_idx;
         let mut scope = ScopePanel::new(self.next_scope_idx);
         scope.event_ctrl = self.event_ctrl_cache.clone();
         let id = self.tree.tiles.insert_pane(scope);
         self.next_scope_idx += 1;
 
-        let target = container_tile_id.or(self.tree.root);
-        eprintln!("[liveplot] add_scope_to_container: container_tile_id={:?}, root={:?}, target={:?}", container_tile_id, self.tree.root, target);
-
-        match target {
-            Some(target_id) => {
-                match self.tree.tiles.get_mut(target_id) {
-                    Some(Tile::Container(Container::Tabs(tabs))) => {
-                        tabs.add_child(id);
-                        tabs.set_active(id);
-                    }
-                    Some(Tile::Container(Container::Linear(linear))) => {
-                        linear.children.push(id);
-                    }
-                    Some(Tile::Pane(_)) => {
-                        let previous = target_id;
-                        let tabs = Tabs::new(vec![previous, id]);
-                        let new_container = self.tree.tiles.insert_container(tabs);
-                        if Some(target_id) == self.tree.root {
-                            self.tree.root = Some(new_container);
-                        }
-                    }
-                    _ => {
-                        self.tree.tiles.remove(id);
-                        return self.add_scope();
-                    }
+        if let Some(root_id) = self.tree.root {
+            match self.tree.tiles.get_mut(root_id) {
+                Some(Tile::Container(Container::Tabs(tabs))) => {
+                    tabs.add_child(id);
+                    tabs.set_active(id);
                 }
+                Some(Tile::Container(Container::Linear(linear))) => {
+                    linear.children.push(id);
+                }
+                Some(Tile::Pane(_)) => {
+                    let previous = self.tree.root.unwrap();
+                    let tabs = Tabs::new(vec![previous, id]);
+                    let new_root = self.tree.tiles.insert_container(tabs);
+                    self.tree.root = Some(new_root);
+                }
+                _ => {}
             }
-            None => {
-                let root = self.tree.tiles.insert_tab_tile(vec![id]);
-                self.tree.root = Some(root);
-            }
+        } else {
+            let root = self.tree.tiles.insert_tab_tile(vec![id]);
+            self.tree.root = Some(root);
         }
 
         // Emit SCOPE_ADDED event
@@ -604,8 +583,6 @@ struct ScopeBehavior<'a, F> {
     controls_currently_on: bool,
     /// Set to `true` when the shared controls toggle button is clicked.
     controls_toggle_pressed: bool,
-    /// Set to the tile id of the Tabs container whose "+" button was clicked.
-    add_scope_to: Option<TileId>,
 }
 
 impl<'a, F> Behavior<ScopePanel> for ScopeBehavior<'a, F>
@@ -646,20 +623,15 @@ where
         Stroke::new(2.0_f32, visuals.widgets.noninteractive.bg_stroke.color)
     }
 
-    /// Add a "+" button and a shared "Controls" toggle button on the right side of the tab bar.
+    /// Add a shared "Controls" toggle button on the right side of the tab bar.
     fn top_bar_right_ui(
         &mut self,
         _tiles: &Tiles<ScopePanel>,
         ui: &mut Ui,
-        tile_id: TileId,
+        _tile_id: TileId,
         _tabs: &Tabs,
         _scroll_offset: &mut f32,
     ) {
-        if ui.small_button(format!("{PLUS}")).on_hover_text("Add a new scope to this tab bar").clicked() {
-            eprintln!("[liveplot] plus button clicked on tile_id={:?}", tile_id);
-            self.add_scope_to = Some(tile_id);
-        }
-
         let icon = if self.controls_currently_on {
             MINUS
         } else {

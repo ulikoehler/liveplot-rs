@@ -227,6 +227,41 @@ impl LivePlotPanel {
         // Use `push_id` to ensure that all widgets created by this panel instance
         // stay isolated from other panels (critical for embedded tile dashboards).
         ui.push_id(self.panel_id, |ui| {
+            // ── Undo/redo processing (standalone mode) ───────────────────────
+            if self.pending_undo {
+                self.pending_undo = false;
+                if let Some(entry) = self.undo_stack.pop_undo() {
+                    // Capture current state as the redo entry.
+                    let redo_state = self.build_state_snapshot();
+                    self.suppress_undo = true;
+                    self.apply_state_snapshot(&entry.old_state);
+                    self.undo_stack.push_redo(crate::undo::LivePlotUndoEntry {
+                        old_state: entry.old_state,
+                        new_state: redo_state,
+                        description: entry.description,
+                    });
+                }
+            }
+            if self.pending_redo {
+                self.pending_redo = false;
+                if let Some(entry) = self.undo_stack.pop_redo() {
+                    let undo_state = self.build_state_snapshot();
+                    self.suppress_undo = true;
+                    self.apply_state_snapshot(&entry.new_state);
+                    self.undo_stack.push_undo(crate::undo::LivePlotUndoEntry {
+                        old_state: undo_state,
+                        new_state: entry.new_state,
+                        description: entry.description,
+                    });
+                }
+            }
+
+            // ── Capture whether we should check for undo changes ────────────
+            // We only serialize/compare when a user interaction occurred, to
+            // avoid the CPU cost of double-serialization every frame and to
+            // prevent false positives from auto-fit axis bound changes.
+            let check_undo = !self.suppress_undo;
+
             let widget_rect = ui.max_rect();
             self.last_widget_rect = [
                 widget_rect.left(),
@@ -383,6 +418,45 @@ impl LivePlotPanel {
             if let Some(request) = screenshot_request {
                 self.queue_screenshot_capture(ui.ctx(), request);
             }
+
+            // ── Undo detection: only check when user interacted this frame ───
+            // Axis bounds change every frame due to auto-fit, so we only
+            // serialize and compare when the user actually interacted.
+            if check_undo {
+                let had_interaction = ui.ctx().input(|i| {
+                    i.pointer.any_click()
+                        || i.pointer.any_released()
+                        || i.events.iter().any(|e| {
+                            matches!(
+                                e,
+                                egui::Event::Key { pressed: true, .. }
+                            )
+                        })
+                });
+                if had_interaction {
+                    let after = self.build_state_snapshot();
+                    let after_json = crate::persistence::state_to_json(&after);
+                    if let Ok(after_json) = after_json {
+                        if let Some(ref old_json) = self.last_settings_json {
+                            if *old_json != after_json {
+                                if let Ok(old_state) =
+                                    crate::persistence::state_from_json(old_json)
+                                {
+                                    self.undo_stack.push(crate::undo::LivePlotUndoEntry {
+                                        old_state,
+                                        new_state: after,
+                                        description: "Settings change".to_string(),
+                                    });
+                                }
+                            }
+                        }
+                        self.last_settings_json = Some(after_json);
+                    }
+                }
+            }
+
+            // Reset suppress_undo flag after the frame is complete.
+            self.suppress_undo = false;
         });
     }
 

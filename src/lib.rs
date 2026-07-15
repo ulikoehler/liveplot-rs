@@ -13,6 +13,7 @@ pub mod config;
 pub mod controllers;
 pub mod events;
 pub mod sink;
+pub mod undo;
 
 // Public re-exports for a compact external API
 pub use app::{run_liveplot, LivePlotApp, LivePlotPanel};
@@ -46,3 +47,4 @@ pub use data::triggers::{Trigger, TriggerSlope};
 pub use config::{
     AutoFitConfig, Controllers, FeatureFlags, LivePlotConfig, ResponsiveLayout, ScopeButton,
 };
+pub use undo::{LivePlotUndoEntry, LivePlotUndoStack};
