@@ -319,7 +319,7 @@ pub struct TracesPanelState {
     pub max_points: usize,
     pub max_age_secs: f64,
     pub points_bounds: (usize, usize),
-    pub hover_trace: Option<TraceRef>,
+    pub hover_trace: Option<Vec<TraceRef>>,
     pub traces: Vec<TraceControlState>,
     pub show: bool,
     pub detached: bool,
@@ -351,7 +351,7 @@ pub(crate) struct TracesCtrlInner {
     pub(crate) hover_request: Option<Option<String>>, // Some(None)=clear, Some(Some(name))=highlight
     pub(crate) max_points_request: Option<usize>,
     pub(crate) points_bounds_request: Option<(usize, usize)>,
-    pub(crate) hover_trace_request: Option<Option<TraceRef>>,
+    pub(crate) hover_trace_request: Option<Option<Vec<TraceRef>>>,
     pub(crate) show_request: Option<bool>,
     pub(crate) detached_request: Option<bool>,
     pub(crate) width_requests: Vec<(String, f32)>,
@@ -414,7 +414,7 @@ impl TracesController {
         self.inner.lock().unwrap().points_bounds_request = Some(bounds);
     }
 
-    pub fn request_set_hover_trace(&self, trace: Option<TraceRef>) {
+    pub fn request_set_hover_trace(&self, trace: Option<Vec<TraceRef>>) {
         self.inner.lock().unwrap().hover_trace_request = Some(trace);
     }
 

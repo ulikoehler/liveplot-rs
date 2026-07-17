@@ -326,7 +326,7 @@ impl Panel for TriggersPanel {
                         ui.add(img);
                     }
                     ui.add(egui::Label::new(info).sense(egui::Sense::click()))
-                }).response;
+                }).inner;
                 if name_resp.clicked() || info_resp.clicked() {
                     // Open editor with a copy of current settings
                     let mut t = Trigger::default();
@@ -349,7 +349,7 @@ impl Panel for TriggersPanel {
                 if name_resp.hovered() || info_resp.hovered() {
                     // Highlight target trace when hovering the name
                     if !tr.target.0.is_empty() {
-                        data.traces.hover_trace = Some(tr.target.clone());
+                        data.traces.hover_trace = Some(vec![tr.target.clone()]);
                     }
                 }
 
@@ -367,7 +367,7 @@ impl Panel for TriggersPanel {
             // Hovering the whole row also highlights target trace
             if row.response.hovered() {
                 if !tr.target.0.is_empty() {
-                    data.traces.hover_trace = Some(tr.target.clone());
+                    data.traces.hover_trace = Some(vec![tr.target.clone()]);
                 }
             }
 
@@ -621,9 +621,11 @@ impl Panel for TriggersPanel {
                 };
                 let can_save =
                     !builder.name.is_empty() && !builder.target.0.is_empty() && !duplicate_name;
+                let enter_pressed = can_save && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
                 if ui
                     .add_enabled(can_save, egui::Button::new(save_label))
                     .clicked()
+                    || enter_pressed
                 {
                     // Stage a copy of the builder for saving after this UI block
                     let mut staged = Trigger::default();

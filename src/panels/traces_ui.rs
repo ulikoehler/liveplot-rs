@@ -21,7 +21,7 @@ pub struct TracesPanel {
     pub state: PanelState,
     pub look_editor_trace: Option<TraceRef>,
     pub look_editor_xy_pair: Option<(usize, usize)>,
-    pub hover_trace: Option<TraceRef>,
+    pub hover_trace: Option<Vec<TraceRef>>,
     pub dragging_trace: Option<DragPayload>,
 
     scope_settings_ui: ScopeSettingsUiPanel,
@@ -102,22 +102,6 @@ impl Panel for TracesPanel {
                         .text("0 = disabled"),
                     );
                 });
-
-                ui.separator();
-
-                // Visibility control: All Visible / All Hidden
-                if ui.button("All Visible").clicked() {
-                    for (_name, tr) in data.traces.traces_iter_mut() {
-                        tr.look.visible = true;
-                    }
-                    ui.close();
-                }
-                if ui.button("All Hidden").clicked() {
-                    for (_name, tr) in data.traces.traces_iter_mut() {
-                        tr.look.visible = false;
-                    }
-                    ui.close();
-                }
 
                 ui.separator();
 
@@ -223,21 +207,6 @@ impl Panel for TracesPanel {
 
                 ui.separator();
 
-                ui.horizontal(|ui| {
-                    ui.button("All Visible").clicked().then(|| {
-                        for (_name, tr) in data.traces.traces_iter_mut() {
-                            tr.look.visible = true;
-                        }
-                    });
-                    ui.button("All Hidden").clicked().then(|| {
-                        for (_name, tr) in data.traces.traces_iter_mut() {
-                            tr.look.visible = false;
-                        }
-                    });
-                });
-
-                ui.separator();
-
                 self.hover_trace = None;
 
                 #[derive(Clone)]
@@ -253,7 +222,7 @@ impl Panel for TracesPanel {
 
                 struct TracesDelegate<'a> {
                     traces: &'a mut crate::data::traces::TracesCollection,
-                    hover_out: &'a mut Option<TraceRef>,
+                    hover_out: &'a mut Option<Vec<TraceRef>>,
                     look_toggle: &'a mut Option<TraceRef>,
                     drag_out: &'a mut Option<DragPayload>,
                     rows: Vec<Row>,
@@ -269,14 +238,13 @@ impl Panel for TracesPanel {
                             0 => "",
                             1 => "",
                             2 => "Trace",
-                            3 => "Visible",
-                            4 => "Offset",
-                            5 => "Info",
+                            3 => "Offset",
+                            4 => "Info",
                             _ => "",
                         };
 
                         // Center certain headers; keep Trace/Info left-aligned.
-                        let centered_cols = [0usize, 1, 3, 4];
+                        let centered_cols = [0usize, 1, 3];
                         if centered_cols.contains(&col) {
                             ui.with_layout(
                                 egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
@@ -313,7 +281,7 @@ impl Panel for TracesPanel {
                                             .on_hover_text("Drag into a scope / XY slot");
 
                                         if resp.hovered() {
-                                            *self.hover_out = Some(r.name.clone());
+                                            *self.hover_out = Some(vec![r.name.clone()]);
                                             ui.output_mut(|o| {
                                                 o.cursor_icon = egui::CursorIcon::Grab
                                             });
@@ -343,7 +311,7 @@ impl Panel for TracesPanel {
                                                 .color_edit_button_srgba(&mut c)
                                                 .on_hover_text("Change trace color");
                                             if resp.hovered() {
-                                                *self.hover_out = Some(r.name.clone());
+                                                *self.hover_out = Some(vec![r.name.clone()]);
                                             }
                                             if resp.changed() {
                                                 tr.look.color = c;
@@ -368,7 +336,7 @@ impl Panel for TracesPanel {
                                     )
                                     .on_hover_text(tooltip);
                                 if resp.hovered() {
-                                    *self.hover_out = Some(r.name.clone());
+                                    *self.hover_out = Some(vec![r.name.clone()]);
                                 }
                                 if resp.drag_started() || resp.dragged() {
                                     *self.drag_out = Some(DragPayload {
@@ -382,26 +350,6 @@ impl Panel for TracesPanel {
                                 }
                             }
                             3 => {
-                                // Visible checkbox centered.
-                                ui.with_layout(
-                                    egui::Layout::centered_and_justified(
-                                        egui::Direction::LeftToRight,
-                                    ),
-                                    |ui| {
-                                        if let Some(tr) = self.traces.get_trace_mut(&r.name) {
-                                            let mut vis = tr.look.visible;
-                                            let resp = ui.checkbox(&mut vis, "");
-                                            if resp.hovered() {
-                                                *self.hover_out = Some(r.name.clone());
-                                            }
-                                            if resp.changed() {
-                                                tr.look.visible = vis;
-                                            }
-                                        }
-                                    },
-                                );
-                            }
-                            4 => {
                                 // Offset DragValue centered.
                                 ui.with_layout(
                                     egui::Layout::centered_and_justified(
@@ -416,7 +364,7 @@ impl Panel for TracesPanel {
                                                     .range(-1.0e12..=1.0e12),
                                             );
                                             if resp.hovered() {
-                                                *self.hover_out = Some(r.name.clone());
+                                                *self.hover_out = Some(vec![r.name.clone()]);
                                             }
                                             if resp.changed() {
                                                 tr.offset = off;
@@ -425,7 +373,7 @@ impl Panel for TracesPanel {
                                     },
                                 );
                             }
-                            5 => {
+                            4 => {
                                 ui.add_space(4.0);
                                 if let Some(tr) = self.traces.get_trace(&r.name) {
                                     let text = tr.info.clone();
@@ -439,7 +387,7 @@ impl Panel for TracesPanel {
                                         )
                                         .on_hover_text(tooltip);
                                     if resp.hovered() {
-                                        *self.hover_out = Some(r.name.clone());
+                                        *self.hover_out = Some(vec![r.name.clone()]);
                                     }
                                     if resp.clicked() {
                                         ui.ctx().copy_text(text);
@@ -452,7 +400,7 @@ impl Panel for TracesPanel {
                 }
 
                 // Auto-size columns, but constrain them with min/max ranges.
-                // Columns: Drag, Color, Trace, Visible, Offset, Info.
+                // Columns: Drag, Color, Trace, Offset, Info.
                 let cols = vec![
                     // Drag handle: very compact
                     egui_table::Column::new(18.0).range(egui::Rangef::new(18.0, 18.0)),
@@ -460,8 +408,6 @@ impl Panel for TracesPanel {
                     egui_table::Column::new(28.0).range(egui::Rangef::new(22.0, 40.0)),
                     // Trace name: flexible
                     egui_table::Column::new(140.0).range(egui::Rangef::new(80.0, 320.0)),
-                    // Visible checkbox: small
-                    egui_table::Column::new(50.0).range(egui::Rangef::new(50.0, 50.0)),
                     // Offset: medium
                     egui_table::Column::new(50.0).range(egui::Rangef::new(50.0, 50.0)),
                     // Info: flexible (large max so the table can still fill wide panels)
@@ -486,7 +432,7 @@ impl Panel for TracesPanel {
                 // Draw the table first (style editor is rendered below).
                 let rows_clone = rows.clone();
                 {
-                    let mut hover_tmp: Option<TraceRef> = None;
+                    let mut hover_tmp: Option<Vec<TraceRef>> = None;
                     let mut look_toggle_req: Option<TraceRef> = None;
                     let mut drag_from_table: Option<DragPayload> = None;
                     // Borrow traces mutably for the table drawing scope only.
@@ -565,7 +511,7 @@ impl Panel for TracesPanel {
                 }
 
                 if let Some(hover_trace) = self.hover_trace.clone() {
-                    data.traces.hover_trace = Some(hover_trace.clone());
+                    data.traces.hover_trace = Some(hover_trace);
                 }
 
                 if ui.ctx().input(|i| i.pointer.any_released()) {

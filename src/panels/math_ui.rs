@@ -139,6 +139,7 @@ impl Panel for MathPanel {
 
             let tr = data.get_trace_or_new(&def.name);
             tr.live = out.iter().copied().collect();
+            tr.info = def.math_formula_string();
 
             sources.insert(def.name.clone(), out);
         }
@@ -155,6 +156,7 @@ impl Panel for MathPanel {
 
             let tr = data.get_trace_or_new(&def.name);
             tr.snap = Some(out.iter().copied().collect());
+            tr.info = def.math_formula_string();
 
             sources.insert(def.name.clone(), out);
         }
@@ -184,7 +186,7 @@ impl Panel for MathPanel {
         // Existing math traces list with color editor, name, info, and Remove (right-aligned)
         // Reset hover before drawing; rows will set it when hovered
 
-        let mut hover_trace_intern = None;
+        let mut hover_trace_intern: Option<Vec<TraceRef>> = None;
         for def in self.math_traces.clone().iter_mut() {
             let row = ui.horizontal(|ui| {
                 // Color editor like in traces_ui
@@ -194,7 +196,7 @@ impl Panel for MathPanel {
                         .color_edit_button_srgba(&mut c)
                         .on_hover_text("Change trace color");
                     if resp.hovered() {
-                        hover_trace_intern = Some(def.name.clone());
+                        hover_trace_intern = Some(vec![def.name.clone()]);
                     }
                     if resp.changed() {
                         tr.look.color = c;
@@ -211,7 +213,7 @@ impl Panel for MathPanel {
                         .sense(egui::Sense::click()),
                 );
                 if name_resp.hovered() {
-                    hover_trace_intern = Some(def.name.clone());
+                    hover_trace_intern = Some(vec![def.name.clone()]);
                 }
                 if name_resp.clicked() {
                     self.builder = def.clone();
@@ -233,7 +235,7 @@ impl Panel for MathPanel {
                         .sense(egui::Sense::click()),
                 );
                 if info_resp.hovered() {
-                    hover_trace_intern = Some(def.name.clone());
+                    hover_trace_intern = Some(vec![def.name.clone()]);
                 }
                 if info_resp.clicked() {
                     self.builder = def.clone();
@@ -248,7 +250,7 @@ impl Panel for MathPanel {
                         .button(egui_phosphor::regular::TRASH)
                         .on_hover_text("Remove");
                     if remove_resp.hovered() {
-                        hover_trace_intern = Some(def.name.clone());
+                        hover_trace_intern = Some(vec![def.name.clone()]);
                     }
                     if remove_resp.clicked() {
                         let removing = def.name.clone();
@@ -288,7 +290,7 @@ impl Panel for MathPanel {
                             .button(egui_phosphor::regular::ARROW_CLOCKWISE)
                             .on_hover_text("Reset integrator/filter/min/max state for this trace");
                         if reset_resp.hovered() {
-                            hover_trace_intern = Some(def.name.clone());
+                            hover_trace_intern = Some(vec![def.name.clone()]);
                         }
                         if reset_resp.clicked() {
                             // def.reset_math_storage();
@@ -298,7 +300,7 @@ impl Panel for MathPanel {
                 });
             });
             if row.response.hovered() {
-                hover_trace_intern = Some(def.name.clone());
+                hover_trace_intern = Some(vec![def.name.clone()]);
             }
         }
         if let Some(nm) = hover_trace_intern {
@@ -692,12 +694,15 @@ impl Panel for MathPanel {
 
             ui.horizontal(|ui| {
                 let save_label = if is_editing { "Save" } else { "➕ Add trace" };
+                let can_save = !self.builder.name.0.is_empty() && !duplicate_name;
+                let enter_pressed = can_save && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
                 if ui
                     .add_enabled(
-                        !self.builder.name.0.is_empty() && !duplicate_name,
+                        can_save,
                         egui::Button::new(save_label),
                     )
                     .clicked()
+                    || enter_pressed
                 {
                     // Handle save: builder already holds the full MathTrace
                     let tr = self.builder.clone();
@@ -782,8 +787,17 @@ impl Panel for MathPanel {
         }
     }
 
-    fn settings_snapshot(&self, _data: &LivePlotData<'_>) -> Option<String> {
-        serde_json::to_string(&self.math_traces).ok()
+    fn settings_snapshot(&self, data: &LivePlotData<'_>) -> Option<String> {
+        let looks: Vec<(String, crate::persistence::TraceLookSerde)> = self
+            .math_traces
+            .iter()
+            .filter_map(|mt| {
+                data.traces
+                    .get_trace(&mt.name)
+                    .map(|tr| (mt.name.0.clone(), crate::persistence::TraceLookSerde::from(&tr.look)))
+            })
+            .collect();
+        serde_json::to_string(&(self.math_traces.clone(), looks)).ok()
     }
 }
 

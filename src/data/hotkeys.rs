@@ -623,7 +623,7 @@ pub fn format_button_tooltip(description: &str, hotkey: Option<&Hotkey>) -> Stri
 /// `min_required_width` (the pixel width needed to render the rightmost button
 /// at full text labels).
 pub fn should_collapse_topbar(available_width: f32, min_required_width: f32) -> bool {
-    available_width < min_required_width
+    available_width < min_required_width + 80.0
 }
 
 // tests moved to `tests/hotkeys.rs`

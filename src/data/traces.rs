@@ -123,7 +123,7 @@ pub struct TracesCollection {
     pub max_age_secs: f64,
     /// Slider bounds for `max_age_secs`.
     pub max_age_bounds: (f64, f64),
-    pub hover_trace: Option<TraceRef>,
+    pub hover_trace: Option<Vec<TraceRef>>,
     rx: Option<std::sync::mpsc::Receiver<PlotCommand>>,
     /// Mapping from numeric trace ID to trace name (for PlotCommand API)
     id_to_name: HashMap<u32, String>,

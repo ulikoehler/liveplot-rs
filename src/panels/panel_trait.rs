@@ -177,23 +177,10 @@ pub trait Panel: Downcast {
                     });
                 });
                 ui.separator();
-                let before = self.settings_snapshot(data);
+                let snap = self.settings_snapshot(data);
+                detect_settings_change(ui.ctx(), self.title(), snap);
                 self.render_panel(ui, data);
-                // Detect setting changes via snapshot comparison, gated by
-                // pointer interaction to avoid serializing every frame.
-                let pointer_released = ui.ctx().input(|i| i.pointer.any_released())
-                    || ui.ctx().input(|i| {
-                        i.events
-                            .iter()
-                            .any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))
-                    });
-                if pointer_released {
-                    if let (Some(before), Some(after)) = (before, self.settings_snapshot(data)) {
-                        if before != after {
-                            data.settings_changed = true;
-                        }
-                    }
-                }
+                detect_settings_change_after(ui.ctx(), self.title(), self.settings_snapshot(data), data);
             };
 
             match class {
@@ -245,4 +232,56 @@ pub trait Panel: Downcast {
 
 impl_downcast!(Panel);
 
-// tests moved to `tests/panel_trait.rs`
+/// Detect settings changes by comparing snapshots across frames.
+///
+/// Call `detect_settings_change` BEFORE `render_panel` and
+/// `detect_settings_change_after` AFTER it.
+///
+/// Uses egui temp memory to cache the pre-interaction snapshot so that
+/// multi-frame drags (sliders, DragValues) are correctly detected: the
+/// `before` snapshot is taken when the user *starts* interacting, not at
+/// the start of the release frame (which would already have the new value).
+pub fn detect_settings_change(
+    ctx: &egui::Context,
+    panel_title: &str,
+    snapshot: Option<String>,
+) {
+    let id = egui::Id::new(("settings_snapshot", panel_title));
+    let existing = ctx.data(|d| d.get_temp::<String>(id));
+    if existing.is_none() {
+        if let Some(snap) = snapshot {
+            ctx.data_mut(|d| d.insert_temp(id, snap));
+        }
+    }
+}
+
+/// Call after `render_panel`.  If the pointer was released (or a key pressed),
+/// compares the cached pre-interaction snapshot with the current one and sets
+/// `data.settings_changed` if they differ.  Always updates the cached snapshot
+/// to the current state so the next interaction starts fresh.
+pub fn detect_settings_change_after(
+    ctx: &egui::Context,
+    panel_title: &str,
+    snapshot: Option<String>,
+    data: &mut LivePlotData<'_>,
+) {
+    let pointer_released = ctx.input(|i| i.pointer.any_released())
+        || ctx.input(|i| {
+            i.events
+                .iter()
+                .any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))
+        });
+    let id = egui::Id::new(("settings_snapshot", panel_title));
+    if pointer_released {
+        let before = ctx.data(|d| d.get_temp::<String>(id));
+        let after = snapshot;
+        let changed = matches!((&before, &after), (Some(b), Some(a)) if b != a);
+        if changed {
+            data.settings_changed = true;
+        }
+        // Update cached snapshot for next interaction.
+        if let Some(after) = after {
+            ctx.data_mut(|d| d.insert_temp(id, after));
+        }
+    }
+}

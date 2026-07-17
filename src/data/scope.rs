@@ -431,7 +431,7 @@ impl ScopeData {
             let mut max_x = f64::MIN;
             let tol = 1e-9_f64;
 
-            for (x_name, y_name, _pair_look) in self.xy_pairs.iter() {
+            for (x_name, y_name, pair_look) in self.xy_pairs.iter() {
                 let (Some(x_name), Some(y_name)) = (x_name.as_ref(), y_name.as_ref()) else {
                     continue;
                 };
@@ -440,7 +440,7 @@ impl ScopeData {
                 else {
                     continue;
                 };
-                if !x_tr.look.visible || !y_tr.look.visible {
+                if !pair_look.visible || !x_tr.look.visible || !y_tr.look.visible {
                     continue;
                 }
 
@@ -542,7 +542,7 @@ impl ScopeData {
             let mut max_y = f64::MIN;
             let tol = 1e-9_f64;
 
-            for (x_name, y_name, _pair_look) in self.xy_pairs.iter() {
+            for (x_name, y_name, pair_look) in self.xy_pairs.iter() {
                 let (Some(x_name), Some(y_name)) = (x_name.as_ref(), y_name.as_ref()) else {
                     continue;
                 };
@@ -551,7 +551,7 @@ impl ScopeData {
                 else {
                     continue;
                 };
-                if !x_tr.look.visible || !y_tr.look.visible {
+                if !pair_look.visible || !x_tr.look.visible || !y_tr.look.visible {
                     continue;
                 }
 

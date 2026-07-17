@@ -1165,10 +1165,6 @@ impl ScopePanel {
                     else {
                         continue;
                     };
-                    if !pair_look.visible || !x_tr.look.visible || !y_tr.look.visible {
-                        continue;
-                    }
-
                     let x_pts = traces.get_points_ref(&x_name, self.data.paused);
                     let y_pts = traces.get_points_ref(&y_name, self.data.paused);
                     let (Some(x_pts), Some(y_pts)) = (x_pts, y_pts) else {
@@ -1230,7 +1226,7 @@ impl ScopePanel {
 
                     if let Some(hov) = &traces.hover_trace {
                         // Hover on either trace highlights this pair.
-                        let is_pair_hover = *hov == x_name || *hov == y_name;
+                        let is_pair_hover = hov.contains(&x_name) || hov.contains(&y_name);
                         if !is_pair_hover {
                             color = Color32::from_rgba_unmultiplied(
                                 color.r(),
@@ -1280,9 +1276,6 @@ impl ScopePanel {
                 for idx in 0..trace_count {
                     let name = self.data.trace_order[idx].clone();
                     if let Some(tr) = traces.get_trace(&name) {
-                        if !tr.look.visible {
-                            continue;
-                        }
                         let shown_pts = match self.data.get_drawn_points(&name, traces) {
                             Some(pts) => pts,
                             None => continue,
@@ -1316,7 +1309,7 @@ impl ScopePanel {
                         let mut width: f32 = tr.look.width.max(0.1);
                         let style = tr.look.style;
                         if let Some(hov) = &traces.hover_trace {
-                            if name != *hov {
+                            if !hov.contains(&name) {
                                 // Strongly dim non-hovered traces
                                 color = Color32::from_rgba_unmultiplied(
                                     color.r(),
@@ -1346,7 +1339,7 @@ impl ScopePanel {
                             if !pts_vec.is_empty() {
                                 let mut radius = tr.look.point_size.max(0.5);
                                 if let Some(hov) = &traces.hover_trace {
-                                    if name == *hov {
+                                    if hov.contains(&name) {
                                         radius = (radius * 1.25).max(radius + 0.5);
                                     }
                                 }
@@ -1385,18 +1378,15 @@ impl ScopePanel {
                             && !self.data.xy_pairs.is_empty()
                         {
                             let mut ids = Vec::new();
-                            for (x_name, y_name, pair_look) in self.data.xy_pairs.clone() {
+                            for (x_name, y_name, _pair_look) in self.data.xy_pairs.clone() {
                                 let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
                                     continue;
                                 };
-                                let (Some(x_tr), Some(y_tr)) =
+                                let (Some(_x_tr), Some(y_tr)) =
                                     (traces.get_trace(&x_name), traces.get_trace(&y_name))
                                 else {
                                     continue;
                                 };
-                                if !pair_look.visible || !x_tr.look.visible || !y_tr.look.visible {
-                                    continue;
-                                }
                                 let label = if self.data.show_info_in_legend
                                     && !y_tr.info.is_empty()
                                 {
@@ -1412,12 +1402,8 @@ impl ScopePanel {
                                 .trace_order
                                 .iter()
                                 .filter_map(|name| {
-                                    let tr = traces.get_trace(name)?;
-                                    if tr.look.visible {
-                                        Some(egui::Id::new(name.0.clone()))
-                                    } else {
-                                        None
-                                    }
+                                    traces.get_trace(name)?;
+                                    Some(egui::Id::new(name.0.clone()))
                                 })
                                 .collect()
                         };
@@ -1436,6 +1422,64 @@ impl ScopePanel {
                             }
                         }
                         mem.store(ui.ctx(), plot_id);
+                    }
+                }
+            }
+        }
+
+        // Sync legend hidden_items back to trace.look.visible so that
+        // auto-fit (which checks trace.look.visible) respects legend toggling.
+        if self.data.show_legend && !hide_legend {
+            let plot_id =
+                ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.data.name)));
+            if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
+                if self.data.scope_type == ScopeType::XYScope
+                    && !self.data.xy_pairs.is_empty()
+                {
+                    for (x_name, y_name, pair_look) in self.data.xy_pairs.iter_mut() {
+                        let (Some(x_name), Some(y_name)) = (x_name.as_ref(), y_name.as_ref())
+                        else {
+                            continue;
+                        };
+                        let (Some(x_tr), Some(y_tr)) = (
+                            traces.get_trace(x_name),
+                            traces.get_trace(y_name),
+                        ) else {
+                            continue;
+                        };
+                        let label = if self.data.show_info_in_legend
+                            && !y_tr.info.is_empty()
+                        {
+                            format!("{} vs {} — {}", y_name, x_name, y_tr.info)
+                        } else {
+                            format!("{} vs {}", y_name, x_name)
+                        };
+                        let id = egui::Id::new(label);
+                        let was_visible = pair_look.visible
+                            && x_tr.look.visible
+                            && y_tr.look.visible;
+                        let now_visible = !mem.hidden_items.contains(&id);
+                        if was_visible != now_visible {
+                            pair_look.visible = now_visible;
+                        }
+                    }
+                } else {
+                    for name in self.data.trace_order.iter() {
+                        let Some(tr) = traces.get_trace_mut(name) else {
+                            continue;
+                        };
+                        let label = if self.data.show_info_in_legend
+                            && !tr.info.is_empty()
+                        {
+                            format!("{} — {}", name, tr.info)
+                        } else {
+                            name.0.clone()
+                        };
+                        let id = egui::Id::new(label);
+                        let now_visible = !mem.hidden_items.contains(&id);
+                        if tr.look.visible != now_visible {
+                            tr.look.visible = now_visible;
+                        }
                     }
                 }
             }

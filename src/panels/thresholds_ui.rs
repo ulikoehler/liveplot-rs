@@ -671,9 +671,11 @@ impl Panel for ThresholdsPanel {
                 let save_label = if is_editing { "Save" } else { "Add threshold" };
                 let can_save = !self.builder.name.is_empty() && !duplicate_name;
                 let mut save_clicked = false;
+                let enter_pressed = can_save && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
                 if ui
                     .add_enabled(can_save, egui::Button::new(save_label))
                     .clicked()
+                    || enter_pressed
                 {
                     save_clicked = true;
                 }

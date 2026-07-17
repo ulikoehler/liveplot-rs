@@ -419,7 +419,7 @@ impl ScopeSettingsUiPanel {
                                             )
                                             .on_hover_text(trace_tooltip(traces_collection, t));
                                         if resp.hovered() {
-                                            traces_collection.hover_trace = Some(t.clone());
+                                            traces_collection.hover_trace = Some(vec![t.clone()]);
                                         }
 
                                         ui.with_layout(

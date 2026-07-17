@@ -240,6 +240,15 @@ impl LivePlotPanel {
                         new_state: redo_state,
                         description: entry.description,
                     });
+                    // Update last_settings_json so the next real change detects
+                    // the correct baseline.  Also consume any stale flags set
+                    // by panel rendering during the undo frame.
+                    let after = self.build_state_snapshot();
+                    if let Ok(json) = crate::persistence::state_to_json(&after) {
+                        self.last_settings_json = Some(json);
+                    }
+                    self.liveplot_panel.take_settings_changed();
+                    self.side_panels_changed = false;
                 }
             }
             if self.pending_redo {
@@ -253,6 +262,15 @@ impl LivePlotPanel {
                         new_state: entry.new_state,
                         description: entry.description,
                     });
+                    // Update last_settings_json so the next real change detects
+                    // the correct baseline.  Also consume any stale flags set
+                    // by panel rendering during the redo frame.
+                    let after = self.build_state_snapshot();
+                    if let Ok(json) = crate::persistence::state_to_json(&after) {
+                        self.last_settings_json = Some(json);
+                    }
+                    self.liveplot_panel.take_settings_changed();
+                    self.side_panels_changed = false;
                 }
             }
 
@@ -428,7 +446,7 @@ impl LivePlotPanel {
             // In embedded mode (show_undo_redo_buttons == false), the host app
             // (e.g. ASX) consumes these flags itself, so we skip the standalone
             // undo logic here to avoid consuming the flags prematurely.
-            if check_undo && self.show_undo_redo_buttons {
+            if check_undo && self.show_undo_redo_buttons && !self.pending_undo && !self.pending_redo {
                 let settings_changed = self.liveplot_panel.take_settings_changed()
                     || std::mem::take(&mut self.side_panels_changed);
                 if settings_changed {
@@ -454,6 +472,14 @@ impl LivePlotPanel {
             }
 
             // Reset suppress_undo flag after the frame is complete.
+            // If suppressing (undo/redo frame), also consume any stale
+            // settings_changed flags set by panel rendering, otherwise
+            // they'd trigger a spurious undo entry next frame that
+            // clears the redo stack.
+            if self.suppress_undo {
+                self.liveplot_panel.take_settings_changed();
+                self.side_panels_changed = false;
+            }
             self.suppress_undo = false;
         });
     }
