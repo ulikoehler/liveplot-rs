@@ -153,6 +153,9 @@ impl Panel for FftPanel {
     }
 
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
+        if !self.state().visible {
+            return;
+        }
         let paused = data.are_all_paused();
 
         // Clamp fft_size to the current max_points so we never request an

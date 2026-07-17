@@ -227,6 +227,47 @@ impl LivePlotPanel {
         // Use `push_id` to ensure that all widgets created by this panel instance
         // stay isolated from other panels (critical for embedded tile dashboards).
         ui.push_id(self.panel_id, |ui| {
+            // ── Keyboard shortcuts for undo/redo (standalone mode only) ─────
+            // Processed before any widgets are rendered so key events are
+            // captured before they can be consumed by other widgets.
+            if self.show_undo_redo_buttons {
+                let ctx = ui.ctx();
+                let wants_text_input = ctx.egui_wants_keyboard_input()
+                    || ctx.input(|i| {
+                        i.events.iter().any(|e| {
+                            matches!(
+                                e,
+                                egui::Event::Text { .. }
+                                    | egui::Event::Key {
+                                        key: egui::Key::Tab,
+                                        ..
+                                    }
+                            )
+                        })
+                    });
+                if !wants_text_input {
+                    let ctrl_z = ctx.input(|i| {
+                        i.key_pressed(egui::Key::Z)
+                            && i.modifiers.ctrl
+                            && !i.modifiers.shift
+                    });
+                    let ctrl_y = ctx.input(|i| {
+                        i.key_pressed(egui::Key::Y) && i.modifiers.ctrl
+                    });
+                    let ctrl_shift_z = ctx.input(|i| {
+                        i.key_pressed(egui::Key::Z)
+                            && i.modifiers.ctrl
+                            && i.modifiers.shift
+                    });
+                    if ctrl_z && self.undo_stack.can_undo() {
+                        self.pending_undo = true;
+                    }
+                    if (ctrl_y || ctrl_shift_z) && self.undo_stack.can_redo() {
+                        self.pending_redo = true;
+                    }
+                }
+            }
+
             // ── Undo/redo processing (standalone mode) ───────────────────────
             if self.pending_undo {
                 self.pending_undo = false;
@@ -556,31 +597,24 @@ impl LivePlotPanel {
         self.traces_dirty = false;
 
         // Propagate data to every registered sub-panel.
-        // Skip invisible panels to avoid unnecessary work (e.g. FFT computation).
+        // We always call update_data so that panels like MathPanel can keep
+        // their computed traces up-to-date even when the panel UI is closed.
+        // Panels that want to skip work when invisible (e.g. FFT) can check
+        // self.state().visible inside their own update_data.
         for p in &mut self.left_side_panels {
-            if p.state().visible {
-                p.update_data(data);
-            }
+            p.update_data(data);
         }
         for p in &mut self.right_side_panels {
-            if p.state().visible {
-                p.update_data(data);
-            }
+            p.update_data(data);
         }
         for p in &mut self.bottom_panels {
-            if p.state().visible {
-                p.update_data(data);
-            }
+            p.update_data(data);
         }
         for p in &mut self.detached_panels {
-            if p.state().visible {
-                p.update_data(data);
-            }
+            p.update_data(data);
         }
         for p in &mut self.empty_panels {
-            if p.state().visible {
-                p.update_data(data);
-            }
+            p.update_data(data);
         }
 
         // After threshold processing, forward freshly generated events to controller listeners.

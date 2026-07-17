@@ -129,13 +129,30 @@ impl Panel for MathPanel {
             data.pending_requests.clear_math = false;
         }
 
+        if self.math_traces.is_empty() {
+            return;
+        }
+
+        // Collect only the traces that are actually referenced as inputs by
+        // any math trace definition, plus the math traces' own previous output.
+        let mut needed: std::collections::HashSet<TraceRef> = std::collections::HashSet::new();
+        for def in &self.math_traces {
+            for name in def.input_trace_names() {
+                needed.insert(name.clone());
+            }
+            needed.insert(def.name.clone());
+        }
+
+        // ── Live data pass ───────────────────────────────────────────────
         let mut sources: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
         for (name, tr) in data.traces.traces_iter() {
-            sources.insert(name.clone(), tr.live.iter().copied().collect());
+            if needed.contains(name) {
+                sources.insert(name.clone(), tr.live.iter().copied().collect());
+            }
         }
 
         for def in self.math_traces.iter_mut() {
-            let out = def.compute_math_trace(sources.clone());
+            let out = def.compute_math_trace(&sources);
 
             let tr = data.get_trace_or_new(&def.name);
             tr.live = out.iter().copied().collect();
@@ -144,15 +161,18 @@ impl Panel for MathPanel {
             sources.insert(def.name.clone(), out);
         }
 
+        // ── Snapshot data pass ───────────────────────────────────────────
         sources.clear();
         for (name, tr) in data.traces.traces_iter() {
-            if let Some(d) = tr.snap.clone() {
-                sources.insert(name.clone(), d.iter().copied().collect());
+            if needed.contains(name) {
+                if let Some(d) = tr.snap.clone() {
+                    sources.insert(name.clone(), d.iter().copied().collect());
+                }
             }
         }
 
         for def in self.math_traces.iter_mut() {
-            let out = def.compute_math_trace(sources.clone());
+            let out = def.compute_math_trace(&sources);
 
             let tr = data.get_trace_or_new(&def.name);
             tr.snap = Some(out.iter().copied().collect());

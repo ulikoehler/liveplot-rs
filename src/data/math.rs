@@ -221,7 +221,7 @@ impl MathTrace {
 
     pub fn compute_math_trace(
         &mut self,
-        sources: HashMap<TraceRef, Vec<[f64; 2]>>,
+        sources: &HashMap<TraceRef, Vec<[f64; 2]>>,
     ) -> Vec<[f64; 2]> {
         let mut out = if let Some(points) = sources.get(&self.name) {
             points.clone()
@@ -229,26 +229,37 @@ impl MathTrace {
             Vec::new()
         };
 
+        // Helper: find the first index in a sorted slice where timestamp > t.
+        // Returns 0 if all elements are <= t (meaning nothing to skip).
+        let skip_until = |data: &[[f64; 2]], t: f64| -> usize {
+            if data.is_empty() {
+                return 0;
+            }
+            data.partition_point(|p| p[0] <= t)
+        };
+
         match &self.kind {
             MathKind::Add { inputs } => {
-                // Build union grid across inputs
-                // Build the union of timestamps across all referenced inputs. Sorting
-                // and deduping produces a deterministic evaluation grid. We use a
-                // small tolerance when deduping to account for floating-point
-                // representations of equal timestamps.
-
-                let used_sources: Vec<Vec<[f64; 2]>> = inputs
+                let used_sources: Vec<&[[f64; 2]]> = inputs
                     .iter()
-                    .filter_map(|(r, _k)| sources.get(r).cloned())
+                    .filter_map(|(r, _k)| sources.get(r).map(|v| v.as_slice()))
                     .collect();
 
-                let grid: Vec<f64> = MathTrace::union_times(used_sources.clone());
+                if used_sources.is_empty() {
+                    return out;
+                }
+
+                let grid: Vec<f64> = MathTrace::union_times(&used_sources);
+
+                // Binary search to find the first grid point after the last output timestamp.
+                let start = if let Some(last) = out.last() {
+                    grid.partition_point(|&t| t <= last[0])
+                } else {
+                    0
+                };
 
                 let mut idx_map: std::collections::HashMap<TraceRef, usize> = HashMap::new();
-                for t in grid {
-                    if out.last().map_or(false, |p| p[0] >= t) {
-                        continue;
-                    }
+                for &t in &grid[start..] {
                     let mut sum = 0.0;
                     let mut all = true;
                     for (r, k) in inputs {
@@ -259,9 +270,8 @@ impl MathTrace {
                                 idx_map.insert(r.clone(), 0);
                                 idx_map.get_mut(r).unwrap()
                             };
-                            //println!("Add: t = {}, last_idx for '{}' = {}", t, r.0, *last_idx);
                             if let Some(v) =
-                                MathTrace::interpolate_value_at(t, src_data.clone(), last_idx)
+                                MathTrace::interpolate_value_at(t, src_data.as_slice(), last_idx)
                             {
                                 sum += k * v;
                             } else {
@@ -276,23 +286,22 @@ impl MathTrace {
                 }
             }
             MathKind::Multiply { a, b } => {
-                // Multiply: similar union-grid evaluation as Add, but only produce
-                // a result when both operands have a defined last-sample value at
-                // the time t. Note that if one trace doesn't exist in `sources` we
-                // return an empty output (handled earlier by the data lookup).
-
                 if let (Some(src_a), Some(src_b)) = (sources.get(a), sources.get(b)) {
-                    let grid: Vec<f64> = MathTrace::union_times(vec![src_a.clone(), src_b.clone()]);
+                    let grid: Vec<f64> =
+                        MathTrace::union_times(&[src_a.as_slice(), src_b.as_slice()]);
+
+                    let start = if let Some(last) = out.last() {
+                        grid.partition_point(|&t| t <= last[0])
+                    } else {
+                        0
+                    };
 
                     let mut idx_a = 0usize;
                     let mut idx_b = 0usize;
-                    for &t in &grid {
-                        if out.last().map_or(false, |p| p[0] >= t) {
-                            continue;
-                        }
+                    for &t in &grid[start..] {
                         if let (Some(va), Some(vb)) = (
-                            MathTrace::interpolate_value_at(t, src_a.clone(), &mut idx_a),
-                            MathTrace::interpolate_value_at(t, src_b.clone(), &mut idx_b),
+                            MathTrace::interpolate_value_at(t, src_a.as_slice(), &mut idx_a),
+                            MathTrace::interpolate_value_at(t, src_b.as_slice(), &mut idx_b),
                         ) {
                             out.push([t, va * vb]);
                         }
@@ -302,22 +311,22 @@ impl MathTrace {
                 }
             }
             MathKind::Divide { a, b } => {
-                // Divide: same union-grid approach but guard against tiny
-                // denominators. We treat |b| < 1e-12 as effectively zero and skip
-                // that sample to avoid large spurious results. This threshold is a
-                // pragmatic choice balancing numerical stability and dynamic range.
                 if let (Some(src_a), Some(src_b)) = (sources.get(a), sources.get(b)) {
-                    let grid: Vec<f64> = MathTrace::union_times(vec![src_a.clone(), src_b.clone()]);
+                    let grid: Vec<f64> =
+                        MathTrace::union_times(&[src_a.as_slice(), src_b.as_slice()]);
+
+                    let start = if let Some(last) = out.last() {
+                        grid.partition_point(|&t| t <= last[0])
+                    } else {
+                        0
+                    };
 
                     let mut idx_a = 0usize;
                     let mut idx_b = 0usize;
-                    for &t in &grid {
-                        if out.last().map_or(false, |p| p[0] >= t) {
-                            continue;
-                        }
+                    for &t in &grid[start..] {
                         if let (Some(va), Some(vb)) = (
-                            MathTrace::interpolate_value_at(t, src_a.clone(), &mut idx_a),
-                            MathTrace::interpolate_value_at(t, src_b.clone(), &mut idx_b),
+                            MathTrace::interpolate_value_at(t, src_a.as_slice(), &mut idx_a),
+                            MathTrace::interpolate_value_at(t, src_b.as_slice(), &mut idx_b),
                         ) {
                             if vb.abs() > 1e-12 {
                                 out.push([t, va / vb]);
@@ -329,21 +338,24 @@ impl MathTrace {
                 }
             }
             MathKind::Differentiate { input } => {
-                // Numerical differentiation implemented using two-point forward
-                // difference using successive samples: dy/dt ~ (v1 - v0)/(t1 - t0).
-                // We skip the very first sample since no previous point exists. If
-                // timestamps are equal or dt <= 0 the sample is skipped to avoid
-                // division by zero.
                 if let Some(src) = sources.get(input) {
-                    let mut prev: Option<(f64, f64)> = None;
-                    for &p in src.iter() {
+                    // Skip already-processed samples via binary search.
+                    let start = if let Some(last) = out.last() {
+                        skip_until(src.as_slice(), last[0])
+                    } else {
+                        0
+                    };
+
+                    // Initialize prev from the sample just before start, if available.
+                    let mut prev: Option<(f64, f64)> = if start > 0 {
+                        Some((src[start - 1][0], src[start - 1][1]))
+                    } else {
+                        None
+                    };
+
+                    for &p in src.iter().skip(start) {
                         let t = p[0];
                         let v = p[1];
-
-                        if out.last().map_or(false, |p| p[0] >= t) {
-                            prev = Some((t, v));
-                            continue;
-                        }
                         if let Some((t0, v0)) = prev {
                             let dt = t - t0;
                             if dt > 0.0 {
@@ -355,137 +367,44 @@ impl MathTrace {
                 } else {
                     return out;
                 }
-
-                // let data = match sources.get(&input.0) {
-                //     Some(v) => v,
-                //     None => return out,
-                // };
-                // let mut prev: Option<(f64, f64)> = None;
-                // for &p in data.iter() {
-                //     let t = p[0];
-                //     let v = p[1];
-
-                //     if out.last().map_or(false, |p| p[0] >= t) {
-                //         continue;
-                //     }
-                //     // If we're asked to prune old samples, we still advance the
-                //     // `prev` pointer so the next kept sample will be differentiated
-                //     // against the most recent pruned point.
-                //     if let Some((t0, v0)) = prev {
-                //         let dt = t - t0;
-                //         if dt > 0.0 {
-                //             out.push([t, (v - v0) / dt]);
-                //         }
-                //     }
-                //     prev = Some((t, v));
-                // }
             }
             MathKind::Integrate { input, y0 } => {
-                // Numerical integration using the trapezoidal rule. The integrator is
-                // stateful: `state.accum` holds the running integral and
-                // `state.prev_in_t`/`state.prev_in_v` remember the last processed
-                // input sample. This allows us to append only newly arrived samples
-                // without touching older results.
                 if let Some(src) = sources.get(input) {
-                    let mut prev: Option<(f64, f64)> = None;
+                    let start = if let Some(last) = out.last() {
+                        skip_until(src.as_slice(), last[0])
+                    } else {
+                        0
+                    };
+
+                    let mut prev: Option<(f64, f64)> = if start > 0 {
+                        Some((src[start - 1][0], src[start - 1][1]))
+                    } else {
+                        None
+                    };
                     let mut accum = if out.is_empty() {
                         *y0
                     } else {
                         out.last().unwrap()[1]
                     };
-                    for &p in src.iter() {
+                    for &p in src.iter().skip(start) {
                         let t = p[0];
                         let v = p[1];
-
-                        if out.last().map_or(false, |p| p[0] >= t) {
-                            prev = Some((t, v));
-                            continue;
-                        }
                         if let Some((t0, v0)) = prev {
                             let dt = t - t0;
                             if dt > 0.0 {
                                 accum += 0.5 * (v + v0) * dt;
-                                out.push([t, accum.clone()]);
+                                out.push([t, accum]);
                             }
                         } else if out.is_empty() {
-                            // First sample, initialize output
-                            out.push([t, accum.clone()]);
+                            out.push([t, accum]);
                         }
                         prev = Some((t, v));
                     }
                 } else {
                     return out;
                 }
-
-                // let data = match sources.get(&input.0) {
-                //     Some(v) => v,
-                //     None => return out,
-                // };
-
-                // // If we have never processed this integrator before, initialize the
-                // // accumulator with the provided y0. Otherwise keep the stored value.
-                // let mut accum = if self.runtime_state.prev_in_t.is_none() {
-                //     *y0
-                // } else {
-                //     self.runtime_state.accum
-                // };
-                // // Start `prev_t`/`prev_v` from stored state so we can integrate from
-                // // the last processed point.
-                // let mut prev_t = self.runtime_state.prev_in_t;
-                // let mut prev_v = if self.runtime_state.prev_in_t.is_none() {
-                //     None
-                // } else {
-                //     Some(self.runtime_state.prev_in_v)
-                // };
-
-                // // Compute the index from which we need to process new samples. If
-                // // self.runtime_state.prev_in_t exists, find the first sample strictly after it.
-                // let mut start_idx = 0usize;
-                // if let Some(t0) = self.runtime_state.prev_in_t {
-                //     start_idx = match data.binary_search_by(|p| p[0].partial_cmp(&t0).unwrap()) {
-                //         Ok(mut i) => {
-                //             // advance past all samples <= t0
-                //             while i < data.len() && data[i][0] <= t0 {
-                //                 i += 1;
-                //             }
-                //             i
-                //         }
-                //         Err(i) => i,
-                //     };
-                // }
-
-                // // Process new samples using the trapezoid rule and append outputs.
-                // for p in data.iter().skip(start_idx) {
-                //     let t = p[0];
-                //     let v = p[1];
-                //     if let (Some(t0), Some(v0)) = (prev_t, prev_v) {
-                //         let dt = t - t0;
-                //         if dt > 0.0 {
-                //             // Trapezoidal increment: 0.5*(v + v0) * dt
-                //             accum += 0.5 * (v + v0) * dt;
-                //         }
-                //     }
-                //     prev_t = Some(t);
-                //     prev_v = Some(v);
-                //     out.push([t, accum]);
-                // }
-
-                // // Update persistent state so subsequent calls continue from here.
-                // self.runtime_state.accum = accum;
-                // self.runtime_state.last_t = prev_t;
-                // self.runtime_state.prev_in_t = prev_t;
-                // self.runtime_state.prev_in_v = prev_v.unwrap_or(self.runtime_state.prev_in_v);
             }
             MathKind::Filter { input, kind } => {
-                // IIR filter processing. We treat several FilterKind variants by
-                // converting them to `BiquadParams` on a per-sample basis because
-                // the sample interval `dt` may vary between successive samples.
-                //
-                // Stateless variant: derive initial delay-line state from the
-                // previously computed output `out` and the source input. This
-                // avoids storing persistent state in `MathRuntimeState` while
-                // still allowing incremental append-only processing. If no prior
-                // output exists, we start from zero initial conditions.
                 let data: &Vec<[f64; 2]> = match sources.get(input) {
                     Some(v) => v,
                     None => return out,
@@ -643,21 +562,27 @@ impl MathTrace {
                 mode,
             } => {
                 if let Some(src) = sources.get(input) {
-                    let mut prev: Option<(f64, f64)> = None;
+                    let start = if let Some(last) = out.last() {
+                        skip_until(src.as_slice(), last[0])
+                    } else {
+                        0
+                    };
+
+                    let mut prev: Option<(f64, f64)> = if start > 0 {
+                        Some((src[start - 1][0], src[start - 1][1]))
+                    } else {
+                        None
+                    };
                     let mut minmax = if out.is_empty() {
                         src.first().map(|p| p[1]).unwrap_or(0.0)
                     } else {
                         out.last().unwrap()[1]
                     };
 
-                    for &p in src.iter() {
+                    for &p in src.iter().skip(start) {
                         let t = p[0];
                         let v = p[1];
 
-                        if out.last().map_or(false, |p| p[0] >= t) {
-                            prev = Some((t, v));
-                            continue;
-                        }
                         minmax = match mode {
                             MinMaxMode::Min => minmax.min(v),
                             MinMaxMode::Max => minmax.max(v),
@@ -674,7 +599,7 @@ impl MathTrace {
                             }
                         }
 
-                        out.push([t, minmax.clone()]);
+                        out.push([t, minmax]);
                         prev = Some((t, v));
                     }
                 } else {
@@ -686,7 +611,7 @@ impl MathTrace {
         out
     }
 
-    fn union_times<'a>(sources: Vec<Vec<[f64; 2]>>) -> Vec<f64> {
+    fn union_times(sources: &[&[[f64; 2]]]) -> Vec<f64> {
         let mut v = Vec::new();
         for s in sources {
             v.extend(s.iter().map(|p| p[0]));
@@ -697,7 +622,7 @@ impl MathTrace {
         v
     }
 
-    fn interpolate_value_at(t: f64, data: Vec<[f64; 2]>, last_idx: &mut usize) -> Option<f64> {
+    fn interpolate_value_at(t: f64, data: &[[f64; 2]], last_idx: &mut usize) -> Option<f64> {
         if data.is_empty() {
             return None;
         }
@@ -782,6 +707,19 @@ impl MathTrace {
         } else {
             // No next point; since t <= last_t and not equal, return None
             None
+        }
+    }
+
+    /// Return the names of all source traces referenced by this math trace.
+    pub fn input_trace_names(&self) -> Vec<&TraceRef> {
+        match &self.kind {
+            MathKind::Add { inputs } => inputs.iter().map(|(r, _)| r).collect(),
+            MathKind::Multiply { a, b } => vec![a, b],
+            MathKind::Divide { a, b } => vec![a, b],
+            MathKind::Differentiate { input } => vec![input],
+            MathKind::Integrate { input, .. } => vec![input],
+            MathKind::Filter { input, .. } => vec![input],
+            MathKind::MinMax { input, .. } => vec![input],
         }
     }
 

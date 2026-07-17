@@ -137,22 +137,30 @@ impl ScopeSettingsUiPanel {
                 ui.checkbox(&mut scope.show_info_in_legend, "Info")
                     .on_hover_text("Append each trace's info text to its legend label");
 
-                ui.menu_button("Position", |ui| {
-                    let positions = [
-                        (LegendPosition::LeftTop, "Left Top"),
-                        (LegendPosition::RightTop, "Right Top"),
-                        (LegendPosition::LeftBottom, "Left Bottom"),
-                        (LegendPosition::RightBottom, "Right Bottom"),
-                    ];
-                    for (pos, label) in positions {
-                        if ui
-                            .selectable_label(scope.legend_position == pos, label)
-                            .clicked()
-                        {
-                            scope.legend_position = pos;
-                            ui.close();
-                        }
-                    }
+                let positions = [
+                    (LegendPosition::LeftTop, "Left Top"),
+                    (LegendPosition::RightTop, "Right Top"),
+                    (LegendPosition::LeftBottom, "Left Bottom"),
+                    (LegendPosition::RightBottom, "Right Bottom"),
+                ];
+                let selected_label = positions
+                    .iter()
+                    .find(|(pos, _)| *pos == scope.legend_position)
+                    .map(|(_, label)| *label)
+                    .unwrap_or("Left Top");
+                ui.horizontal(|ui| {
+                    ui.label("Position");
+                    let _ = egui::ComboBox::from_id_salt("legend_position")
+                        .selected_text(selected_label)
+                        .show_ui(ui, |ui| {
+                            for (pos, label) in positions {
+                                ui.selectable_value(
+                                    &mut scope.legend_position,
+                                    pos,
+                                    label,
+                                );
+                            }
+                        });
                 });
             });
         });

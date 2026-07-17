@@ -236,6 +236,7 @@ impl Panel for ColorSchemePanel {
                 self.dirty = false;
                 self.apply_scheme_by_index(ui, self.selected_index);
                 data.traces.recolor_using_palette();
+                data.settings_changed = true;
             }
         });
 
@@ -313,6 +314,7 @@ impl Panel for ColorSchemePanel {
                 self.apply_palette(ui, &self.editing_palette);
                 data.traces.recolor_using_palette();
                 self.dirty = false;
+                data.settings_changed = true;
             }
         });
 
@@ -358,6 +360,7 @@ impl Panel for ColorSchemePanel {
                     self.editing_palette = self.palette_for_index(0);
                     self.apply_scheme_by_index(ui, 0);
                     data.traces.recolor_using_palette();
+                    data.settings_changed = true;
                 }
             }
         }

@@ -213,9 +213,11 @@ impl Panel for TracesPanel {
                 struct Row {
                     name: TraceRef,
                 }
-                let rows: Vec<Row> = data
-                    .traces
-                    .all_trace_names()
+                let mut names = data.traces.all_trace_names();
+                names.sort_by_key(|n| {
+                    data.traces.get_trace(n).map(|t| t.creation_index).unwrap_or(usize::MAX)
+                });
+                let rows: Vec<Row> = names
                     .into_iter()
                     .map(|name| Row { name })
                     .collect();

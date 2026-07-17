@@ -388,44 +388,6 @@ impl LivePlotPanel {
                 self.handle_load_state(ui, &path);
             }
 
-            // ── Keyboard shortcuts for undo/redo (standalone mode only) ─────
-            if self.show_undo_redo_buttons {
-                let ctx = ui.ctx();
-                let any_text_focus = ctx.input(|i| {
-                    i.events.iter().any(|e| {
-                        matches!(
-                            e,
-                            egui::Event::Text { .. }
-                                | egui::Event::Key {
-                                    key: egui::Key::Tab,
-                                    ..
-                                }
-                        )
-                    })
-                });
-                let wants_text_input = ctx.egui_wants_keyboard_input() || any_text_focus;
-                if !wants_text_input {
-                    let ctrl_z = ctx.input(|i| {
-                        i.key_pressed(egui::Key::Z)
-                            && i.modifiers.ctrl
-                            && !i.modifiers.shift
-                    });
-                    let ctrl_y = ctx.input(|i| {
-                        i.key_pressed(egui::Key::Y) && i.modifiers.ctrl
-                    });
-                    let ctrl_shift_z = ctx.input(|i| {
-                        i.key_pressed(egui::Key::Z)
-                            && i.modifiers.ctrl
-                            && i.modifiers.shift
-                    });
-                    if ctrl_z && self.undo_stack.can_undo() {
-                        self.pending_undo = true;
-                    }
-                    if (ctrl_y || ctrl_shift_z) && self.undo_stack.can_redo() {
-                        self.pending_redo = true;
-                    }
-                }
-            }
         });
     }
 
@@ -773,8 +735,8 @@ impl LivePlotPanel {
             }
         }
 
-        // Apply custom color schemes to the ColorSchemePanel.
-        if !loaded.custom_color_schemes.is_empty() {
+        // Apply custom color schemes and active palette to the ColorSchemePanel.
+        {
             for p in self
                 .left_side_panels
                 .iter_mut()
@@ -787,9 +749,18 @@ impl LivePlotPanel {
                 if let Some(csp) =
                     any.downcast_mut::<crate::panels::color_scheme_ui::ColorSchemePanel>()
                 {
-                    csp.set_custom_schemes(loaded.custom_color_schemes.clone());
+                    if !loaded.custom_color_schemes.is_empty() {
+                        csp.set_custom_schemes(loaded.custom_color_schemes.clone());
+                    }
                     if let Some(ref palette) = loaded.active_palette {
                         csp.restore_active_palette(palette);
+                        // Apply the restored palette to the global state so
+                        // new traces get the correct colors.
+                        let colors: Vec<egui::Color32> = palette
+                            .iter()
+                            .map(|c| egui::Color32::from_rgb(c[0], c[1], c[2]))
+                            .collect();
+                        crate::color_scheme::set_global_palette(colors);
                     }
                     break;
                 }
