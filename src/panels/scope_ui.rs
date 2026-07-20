@@ -499,11 +499,11 @@ impl ScopePanel {
         let settings_snapshot = self.snapshot_settings();
 
         if !self.data.paused {
-            if ui.button("⏸ Pause").clicked() {
+            if ui.button("⏸ Scope").clicked() {
                 self.data.paused = true;
                 traces.take_snapshot();
             }
-        } else if ui.button("▶ Resume").clicked() {
+        } else if ui.button("▶ Scope").clicked() {
             self.data.paused = false;
         }
 
