@@ -740,11 +740,7 @@ impl TraceData {
     /// When the input has fewer points than `max_pts`, all points within
     /// bounds are returned.  When more, every Nth point is kept (stride
     /// = ceil(len / max_pts)) so the overall shape is preserved.
-    pub fn cap_and_decimate(
-        pts: &[[f64; 2]],
-        bounds: (f64, f64),
-        max_pts: usize,
-    ) -> Vec<[f64; 2]> {
+    pub fn cap_and_decimate(pts: &[[f64; 2]], bounds: (f64, f64), max_pts: usize) -> Vec<[f64; 2]> {
         let len = pts.len();
         if len <= max_pts {
             return pts
@@ -788,8 +784,16 @@ mod tests {
     fn cap_and_decimate_reduces_points() {
         let pts: Vec<[f64; 2]> = (0..10_000).map(|i| [i as f64, i as f64]).collect();
         let result = TraceData::cap_and_decimate(&pts, (0.0, 9999.0), 2000);
-        assert!(result.len() <= 2001, "result should have at most 2001 points (2000 + last), got {}", result.len());
-        assert!(result.len() > 1000, "result should have significant decimation, got {}", result.len());
+        assert!(
+            result.len() <= 2001,
+            "result should have at most 2001 points (2000 + last), got {}",
+            result.len()
+        );
+        assert!(
+            result.len() > 1000,
+            "result should have significant decimation, got {}",
+            result.len()
+        );
         // First and last points should be preserved
         assert_eq!(result[0], [0.0, 0.0]);
         assert_eq!(*result.last().unwrap(), [9999.0, 9999.0]);
@@ -857,9 +861,21 @@ mod tests {
         let (tx, rx) = std::sync::mpsc::channel();
         let mut col = TracesCollection::new(rx);
         // Register 3 traces → indices 0, 1, 2
-        let _ = tx.send(PlotCommand::RegisterTrace { id: 1, name: "a".into(), info: None });
-        let _ = tx.send(PlotCommand::RegisterTrace { id: 2, name: "b".into(), info: None });
-        let _ = tx.send(PlotCommand::RegisterTrace { id: 3, name: "c".into(), info: None });
+        let _ = tx.send(PlotCommand::RegisterTrace {
+            id: 1,
+            name: "a".into(),
+            info: None,
+        });
+        let _ = tx.send(PlotCommand::RegisterTrace {
+            id: 2,
+            name: "b".into(),
+            info: None,
+        });
+        let _ = tx.send(PlotCommand::RegisterTrace {
+            id: 3,
+            name: "c".into(),
+            info: None,
+        });
         let _ = col.update();
         // Remove "b" (index 1) → used slots are {0, 2}
         col.remove_trace(&TraceRef("b".into()));
@@ -877,9 +893,21 @@ mod tests {
         color_scheme::set_global_palette(palette.clone());
         let (tx, rx) = std::sync::mpsc::channel();
         let mut col = TracesCollection::new(rx);
-        let _ = tx.send(PlotCommand::RegisterTrace { id: 1, name: "a".into(), info: None });
-        let _ = tx.send(PlotCommand::RegisterTrace { id: 2, name: "b".into(), info: None });
-        let _ = tx.send(PlotCommand::RegisterTrace { id: 3, name: "c".into(), info: None });
+        let _ = tx.send(PlotCommand::RegisterTrace {
+            id: 1,
+            name: "a".into(),
+            info: None,
+        });
+        let _ = tx.send(PlotCommand::RegisterTrace {
+            id: 2,
+            name: "b".into(),
+            info: None,
+        });
+        let _ = tx.send(PlotCommand::RegisterTrace {
+            id: 3,
+            name: "c".into(),
+            info: None,
+        });
         let _ = col.update();
 
         // Recolor in reverse order: c, b, a
@@ -889,9 +917,18 @@ mod tests {
             TraceRef("a".into()),
         ];
         col.recolor_by_order(&order);
-        assert_eq!(col.get_trace(&TraceRef("c".into())).unwrap().look.color, palette[0]);
-        assert_eq!(col.get_trace(&TraceRef("b".into())).unwrap().look.color, palette[1]);
-        assert_eq!(col.get_trace(&TraceRef("a".into())).unwrap().look.color, palette[2]);
+        assert_eq!(
+            col.get_trace(&TraceRef("c".into())).unwrap().look.color,
+            palette[0]
+        );
+        assert_eq!(
+            col.get_trace(&TraceRef("b".into())).unwrap().look.color,
+            palette[1]
+        );
+        assert_eq!(
+            col.get_trace(&TraceRef("a".into())).unwrap().look.color,
+            palette[2]
+        );
     }
 
     #[test]
@@ -938,18 +975,29 @@ mod tests {
 
         // All indices must be distinct (the bug was that they all became 0)
         let unique: std::collections::HashSet<usize> = indices.iter().copied().collect();
-        assert_eq!(unique.len(), 5, "new traces should have distinct creation_index values, got {:?}", indices);
+        assert_eq!(
+            unique.len(),
+            5,
+            "new traces should have distinct creation_index values, got {:?}",
+            indices
+        );
 
         // Colors should cycle through the palette (3 distinct colors for 5 traces)
-        let colors: Vec<Color32> = indices
-            .iter()
-            .map(|&idx| palette[idx % pal_len])
-            .collect();
+        let colors: Vec<Color32> = indices.iter().map(|&idx| palette[idx % pal_len]).collect();
         let unique_colors: std::collections::HashSet<Color32> = colors.iter().copied().collect();
-        assert_eq!(unique_colors.len(), 3, "new traces should cycle through palette colors, got {:?}", colors);
+        assert_eq!(
+            unique_colors.len(),
+            3,
+            "new traces should cycle through palette colors, got {:?}",
+            colors
+        );
         // No two consecutive new traces should share the same color
         for w in colors.windows(2) {
-            assert_ne!(w[0], w[1], "consecutive traces should not share a color: {:?}", colors);
+            assert_ne!(
+                w[0], w[1],
+                "consecutive traces should not share a color: {:?}",
+                colors
+            );
         }
     }
 }

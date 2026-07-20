@@ -717,10 +717,7 @@ impl Panel for MathPanel {
                 let can_save = !self.builder.name.0.is_empty() && !duplicate_name;
                 let enter_pressed = can_save && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
                 if ui
-                    .add_enabled(
-                        can_save,
-                        egui::Button::new(save_label),
-                    )
+                    .add_enabled(can_save, egui::Button::new(save_label))
                     .clicked()
                     || enter_pressed
                 {
@@ -812,9 +809,12 @@ impl Panel for MathPanel {
             .math_traces
             .iter()
             .filter_map(|mt| {
-                data.traces
-                    .get_trace(&mt.name)
-                    .map(|tr| (mt.name.0.clone(), crate::persistence::TraceLookSerde::from(&tr.look)))
+                data.traces.get_trace(&mt.name).map(|tr| {
+                    (
+                        mt.name.0.clone(),
+                        crate::persistence::TraceLookSerde::from(&tr.look),
+                    )
+                })
             })
             .collect();
         serde_json::to_string(&(self.math_traces.clone(), looks)).ok()

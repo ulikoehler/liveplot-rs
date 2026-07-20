@@ -585,7 +585,8 @@ impl FftPanelStateSerde {
         panel.fft_data.recompute_interval_ms = self.recompute_interval_ms;
         self.scope.clone().apply_to_panel(&mut panel.scope_ui);
         // FFT panel always uses RightTop legend position
-        panel.scope_ui.get_data_mut().legend_position = crate::data::scope::LegendPosition::RightTop;
+        panel.scope_ui.get_data_mut().legend_position =
+            crate::data::scope::LegendPosition::RightTop;
         panel.scope_ui.get_data_mut().show_legend = true;
     }
 }

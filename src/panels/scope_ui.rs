@@ -2,10 +2,10 @@ use egui::{Color32, Ui};
 use egui_plot::{Legend, Line, Plot, PlotMemory, Points};
 use serde::{Deserialize, Serialize};
 
+use crate::data::scope::AxisType;
 use crate::data::scope::LegendPosition;
 use crate::data::scope::ScopeData;
 use crate::data::scope::ScopeType;
-use crate::data::scope::AxisType;
 use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
 use crate::events::EventController;
@@ -1058,7 +1058,11 @@ impl ScopePanel {
             .label_formatter(|pos| {
                 use egui_plot::HoverPosition;
                 let (name, value) = match pos {
-                    HoverPosition::NearDataPoint { plot_name, position, .. } => (*plot_name, *position),
+                    HoverPosition::NearDataPoint {
+                        plot_name,
+                        position,
+                        ..
+                    } => (*plot_name, *position),
                     HoverPosition::Elsewhere { position } => ("", *position),
                 };
                 let x = if x_log { 10f64.powf(value.x) } else { value.x };
@@ -1163,7 +1167,11 @@ impl ScopePanel {
                 let tol = 1e-9_f64;
                 let mut pairs = self.data.xy_pairs.clone();
                 pairs.sort_by_key(|(_, y_name, _)| {
-                    y_name.as_ref().and_then(|yn| traces.get_trace(yn)).map(|t| t.creation_index).unwrap_or(usize::MAX)
+                    y_name
+                        .as_ref()
+                        .and_then(|yn| traces.get_trace(yn))
+                        .map(|t| t.creation_index)
+                        .unwrap_or(usize::MAX)
                 });
                 for (x_name, y_name, pair_look) in pairs.into_iter() {
                     let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
@@ -1283,7 +1291,10 @@ impl ScopePanel {
             } else {
                 let mut ordered: Vec<TraceRef> = self.data.trace_order.clone();
                 ordered.sort_by_key(|n| {
-                    traces.get_trace(n).map(|t| t.creation_index).unwrap_or(usize::MAX)
+                    traces
+                        .get_trace(n)
+                        .map(|t| t.creation_index)
+                        .unwrap_or(usize::MAX)
                 });
                 let trace_count = ordered.len();
                 for idx in 0..trace_count {
@@ -1386,8 +1397,7 @@ impl ScopePanel {
                         && plot_resp.response.contains_pointer()
                     {
                         // Collect all current legend item IDs
-                        let all_ids: Vec<egui::Id> = if self.data.scope_type
-                            == ScopeType::XYScope
+                        let all_ids: Vec<egui::Id> = if self.data.scope_type == ScopeType::XYScope
                             && !self.data.xy_pairs.is_empty()
                         {
                             let mut ids = Vec::new();
@@ -1400,13 +1410,12 @@ impl ScopePanel {
                                 else {
                                     continue;
                                 };
-                                let label = if self.data.show_info_in_legend
-                                    && !y_tr.info.is_empty()
-                                {
-                                    format!("{} vs {} — {}", y_name, x_name, y_tr.info)
-                                } else {
-                                    format!("{} vs {}", y_name, x_name)
-                                };
+                                let label =
+                                    if self.data.show_info_in_legend && !y_tr.info.is_empty() {
+                                        format!("{} vs {} — {}", y_name, x_name, y_tr.info)
+                                    } else {
+                                        format!("{} vs {}", y_name, x_name)
+                                    };
                                 ids.push(egui::Id::new(label));
                             }
                             ids
@@ -1446,31 +1455,25 @@ impl ScopePanel {
             let plot_id =
                 ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.data.name)));
             if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
-                if self.data.scope_type == ScopeType::XYScope
-                    && !self.data.xy_pairs.is_empty()
-                {
+                if self.data.scope_type == ScopeType::XYScope && !self.data.xy_pairs.is_empty() {
                     for (x_name, y_name, pair_look) in self.data.xy_pairs.iter_mut() {
                         let (Some(x_name), Some(y_name)) = (x_name.as_ref(), y_name.as_ref())
                         else {
                             continue;
                         };
-                        let (Some(x_tr), Some(y_tr)) = (
-                            traces.get_trace(x_name),
-                            traces.get_trace(y_name),
-                        ) else {
+                        let (Some(x_tr), Some(y_tr)) =
+                            (traces.get_trace(x_name), traces.get_trace(y_name))
+                        else {
                             continue;
                         };
-                        let label = if self.data.show_info_in_legend
-                            && !y_tr.info.is_empty()
-                        {
+                        let label = if self.data.show_info_in_legend && !y_tr.info.is_empty() {
                             format!("{} vs {} — {}", y_name, x_name, y_tr.info)
                         } else {
                             format!("{} vs {}", y_name, x_name)
                         };
                         let id = egui::Id::new(label);
-                        let was_visible = pair_look.visible
-                            && x_tr.look.visible
-                            && y_tr.look.visible;
+                        let was_visible =
+                            pair_look.visible && x_tr.look.visible && y_tr.look.visible;
                         let now_visible = !mem.hidden_items.contains(&id);
                         if was_visible != now_visible {
                             pair_look.visible = now_visible;
@@ -1481,9 +1484,7 @@ impl ScopePanel {
                         let Some(tr) = traces.get_trace_mut(name) else {
                             continue;
                         };
-                        let label = if self.data.show_info_in_legend
-                            && !tr.info.is_empty()
-                        {
+                        let label = if self.data.show_info_in_legend && !tr.info.is_empty() {
                             format!("{} — {}", name, tr.info)
                         } else {
                             name.0.clone()
@@ -1517,9 +1518,7 @@ impl ScopePanel {
                             start.y.min(hover_pos.y)..=start.y.max(hover_pos.y),
                         )
                     }
-                    ZoomMode::Both => {
-                        egui::Rect::from_two_pos(start, hover_pos)
-                    }
+                    ZoomMode::Both => egui::Rect::from_two_pos(start, hover_pos),
                     ZoomMode::Off => unreachable!(),
                 };
                 let painter = ui.painter().with_clip_rect(frame);

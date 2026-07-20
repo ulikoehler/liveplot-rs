@@ -34,7 +34,10 @@ impl LiveplotPanel {
     ///   its own pan/zoom state.
     /// - `scope_id_offset`: added to the default scope index so the scope's plot
     ///   ID (`scope_plot_<name>`) is unique across instances.
-    pub fn new_with_id(tree_key: impl std::hash::Hash + std::fmt::Debug, scope_id_offset: usize) -> Self {
+    pub fn new_with_id(
+        tree_key: impl std::hash::Hash + std::fmt::Debug,
+        scope_id_offset: usize,
+    ) -> Self {
         let mut tiles = Tiles::default();
         let mut scope = ScopePanel::new(0);
         scope.set_controls_in_toolbar(true);

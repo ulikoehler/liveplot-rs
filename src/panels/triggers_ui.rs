@@ -321,12 +321,16 @@ impl Panel for TriggersPanel {
                     .as_ref()
                     .map(|(_, y_axis)| tr.get_info_without_slope(y_axis))
                     .unwrap_or_default();
-                let info_resp = ui.horizontal(|ui| {
-                    if let Some(img) = super::edge_icons::edge_icon_image(ui.ctx(), tr.slope_icon(), 12.0) {
-                        ui.add(img);
-                    }
-                    ui.add(egui::Label::new(info).sense(egui::Sense::click()))
-                }).inner;
+                let info_resp = ui
+                    .horizontal(|ui| {
+                        if let Some(img) =
+                            super::edge_icons::edge_icon_image(ui.ctx(), tr.slope_icon(), 12.0)
+                        {
+                            ui.add(img);
+                        }
+                        ui.add(egui::Label::new(info).sense(egui::Sense::click()))
+                    })
+                    .inner;
                 if name_resp.clicked() || info_resp.clicked() {
                     // Open editor with a copy of current settings
                     let mut t = Trigger::default();
@@ -556,22 +560,43 @@ impl Panel for TriggersPanel {
                     let ctx = ui.ctx().clone();
                     // Rising
                     let rising_selected = matches!(builder.slope, TriggerSlope::Rising);
-                    if let Some(img) = super::edge_icons::edge_icon_image(&ctx, super::edge_icons::EdgeIcon::Rising, icon_size) {
-                        if ui.add(egui::Button::selectable(rising_selected, (img, "Rising"))).clicked() {
+                    if let Some(img) = super::edge_icons::edge_icon_image(
+                        &ctx,
+                        super::edge_icons::EdgeIcon::Rising,
+                        icon_size,
+                    ) {
+                        if ui
+                            .add(egui::Button::selectable(rising_selected, (img, "Rising")))
+                            .clicked()
+                        {
                             builder.slope = TriggerSlope::Rising;
                         }
                     }
                     // Falling
                     let falling_selected = matches!(builder.slope, TriggerSlope::Falling);
-                    if let Some(img) = super::edge_icons::edge_icon_image(&ctx, super::edge_icons::EdgeIcon::Falling, icon_size) {
-                        if ui.add(egui::Button::selectable(falling_selected, (img, "Falling"))).clicked() {
+                    if let Some(img) = super::edge_icons::edge_icon_image(
+                        &ctx,
+                        super::edge_icons::EdgeIcon::Falling,
+                        icon_size,
+                    ) {
+                        if ui
+                            .add(egui::Button::selectable(falling_selected, (img, "Falling")))
+                            .clicked()
+                        {
                             builder.slope = TriggerSlope::Falling;
                         }
                     }
                     // Any (Both)
                     let any_selected = matches!(builder.slope, TriggerSlope::Any);
-                    if let Some(img) = super::edge_icons::edge_icon_image(&ctx, super::edge_icons::EdgeIcon::Both, icon_size) {
-                        if ui.add(egui::Button::selectable(any_selected, (img, "Any"))).clicked() {
+                    if let Some(img) = super::edge_icons::edge_icon_image(
+                        &ctx,
+                        super::edge_icons::EdgeIcon::Both,
+                        icon_size,
+                    ) {
+                        if ui
+                            .add(egui::Button::selectable(any_selected, (img, "Any")))
+                            .clicked()
+                        {
                             builder.slope = TriggerSlope::Any;
                         }
                     }
@@ -677,8 +702,10 @@ impl Panel for TriggersPanel {
     fn settings_snapshot(&self, _data: &LivePlotData<'_>) -> Option<String> {
         let mut sorted: Vec<_> = self.triggers.values().collect();
         sorted.sort_by(|a, b| a.name.cmp(&b.name));
-        let ser: Vec<crate::persistence::TriggerSerde> =
-            sorted.iter().map(|t| crate::persistence::TriggerSerde::from_trigger(t)).collect();
+        let ser: Vec<crate::persistence::TriggerSerde> = sorted
+            .iter()
+            .map(|t| crate::persistence::TriggerSerde::from_trigger(t))
+            .collect();
         serde_json::to_string(&ser).ok()
     }
 }

@@ -167,8 +167,15 @@ impl LivePlotPanel {
                     .render_menu(ui, &mut self.traces_data, topbar_collapsed);
             }
 
-            let (save_req, load_req, add_scope_req, remove_scope_req,
-                 should_trigger_pause, should_trigger_resume, side_changed) = {
+            let (
+                save_req,
+                load_req,
+                add_scope_req,
+                remove_scope_req,
+                should_trigger_pause,
+                should_trigger_resume,
+                side_changed,
+            ) = {
                 let scope_data = self.liveplot_panel.get_data_mut();
                 let mut data = LivePlotData {
                     scope_data,
@@ -196,9 +203,18 @@ impl LivePlotPanel {
                             .and_then(|name| get_hotkey_for_name(&hk, name))
                             .map(|k| format_button_tooltip(p.title(), Some(k)))
                             .unwrap_or_else(|| p.title().to_string());
-                        crate::panels::panel_trait::detect_settings_change(ui.ctx(), p.title(), p.settings_snapshot(&data));
+                        crate::panels::panel_trait::detect_settings_change(
+                            ui.ctx(),
+                            p.title(),
+                            p.settings_snapshot(&data),
+                        );
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
-                        crate::panels::panel_trait::detect_settings_change_after(ui.ctx(), p.title(), p.settings_snapshot(&data), &mut data);
+                        crate::panels::panel_trait::detect_settings_change_after(
+                            ui.ctx(),
+                            p.title(),
+                            p.settings_snapshot(&data),
+                            &mut data,
+                        );
                     }
                     for p in &mut self.right_side_panels {
                         if !top_bar_btns
@@ -212,9 +228,18 @@ impl LivePlotPanel {
                             .and_then(|name| get_hotkey_for_name(&hk, name))
                             .map(|k| format_button_tooltip(p.title(), Some(k)))
                             .unwrap_or_else(|| p.title().to_string());
-                        crate::panels::panel_trait::detect_settings_change(ui.ctx(), p.title(), p.settings_snapshot(&data));
+                        crate::panels::panel_trait::detect_settings_change(
+                            ui.ctx(),
+                            p.title(),
+                            p.settings_snapshot(&data),
+                        );
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
-                        crate::panels::panel_trait::detect_settings_change_after(ui.ctx(), p.title(), p.settings_snapshot(&data), &mut data);
+                        crate::panels::panel_trait::detect_settings_change_after(
+                            ui.ctx(),
+                            p.title(),
+                            p.settings_snapshot(&data),
+                            &mut data,
+                        );
                     }
                     for p in &mut self.bottom_panels {
                         if !top_bar_btns
@@ -228,9 +253,18 @@ impl LivePlotPanel {
                             .and_then(|name| get_hotkey_for_name(&hk, name))
                             .map(|k| format_button_tooltip(p.title(), Some(k)))
                             .unwrap_or_else(|| p.title().to_string());
-                        crate::panels::panel_trait::detect_settings_change(ui.ctx(), p.title(), p.settings_snapshot(&data));
+                        crate::panels::panel_trait::detect_settings_change(
+                            ui.ctx(),
+                            p.title(),
+                            p.settings_snapshot(&data),
+                        );
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
-                        crate::panels::panel_trait::detect_settings_change_after(ui.ctx(), p.title(), p.settings_snapshot(&data), &mut data);
+                        crate::panels::panel_trait::detect_settings_change_after(
+                            ui.ctx(),
+                            p.title(),
+                            p.settings_snapshot(&data),
+                            &mut data,
+                        );
                     }
                     for p in &mut self.detached_panels {
                         if !top_bar_btns
@@ -244,9 +278,18 @@ impl LivePlotPanel {
                             .and_then(|name| get_hotkey_for_name(&hk, name))
                             .map(|k| format_button_tooltip(p.title(), Some(k)))
                             .unwrap_or_else(|| p.title().to_string());
-                        crate::panels::panel_trait::detect_settings_change(ui.ctx(), p.title(), p.settings_snapshot(&data));
+                        crate::panels::panel_trait::detect_settings_change(
+                            ui.ctx(),
+                            p.title(),
+                            p.settings_snapshot(&data),
+                        );
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
-                        crate::panels::panel_trait::detect_settings_change_after(ui.ctx(), p.title(), p.settings_snapshot(&data), &mut data);
+                        crate::panels::panel_trait::detect_settings_change_after(
+                            ui.ctx(),
+                            p.title(),
+                            p.settings_snapshot(&data),
+                            &mut data,
+                        );
                     }
                     for p in &mut self.empty_panels {
                         if !top_bar_btns
@@ -260,9 +303,18 @@ impl LivePlotPanel {
                             .and_then(|name| get_hotkey_for_name(&hk, name))
                             .map(|k| format_button_tooltip(p.title(), Some(k)))
                             .unwrap_or_else(|| p.title().to_string());
-                        crate::panels::panel_trait::detect_settings_change(ui.ctx(), p.title(), p.settings_snapshot(&data));
+                        crate::panels::panel_trait::detect_settings_change(
+                            ui.ctx(),
+                            p.title(),
+                            p.settings_snapshot(&data),
+                        );
                         p.render_menu(ui, &mut data, topbar_collapsed, &tt);
-                        crate::panels::panel_trait::detect_settings_change_after(ui.ctx(), p.title(), p.settings_snapshot(&data), &mut data);
+                        crate::panels::panel_trait::detect_settings_change_after(
+                            ui.ctx(),
+                            p.title(),
+                            p.settings_snapshot(&data),
+                            &mut data,
+                        );
                     }
 
                     // ── Pause / Resume / Clear All ───────────────────────────
@@ -387,7 +439,6 @@ impl LivePlotPanel {
             if let Some(path) = load_req {
                 self.handle_load_state(ui, &path);
             }
-
         });
     }
 
@@ -669,8 +720,11 @@ impl LivePlotPanel {
             }
             out
         };
-        let new_math_names: std::collections::HashSet<TraceRef> =
-            loaded.math_traces.iter().map(|mt| mt.name.clone()).collect();
+        let new_math_names: std::collections::HashSet<TraceRef> = loaded
+            .math_traces
+            .iter()
+            .map(|mt| mt.name.clone())
+            .collect();
         for name in &old_math_names {
             if !new_math_names.contains(name) {
                 self.traces_data.remove_trace(name);

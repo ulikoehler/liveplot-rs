@@ -23,8 +23,8 @@ pub use controllers::{
     TraceControlState, TraceInfo, TracesController, TracesInfo, TracesPanelState,
     UiActionController, WindowController, WindowInfo,
 };
-pub use data::traces::TraceRef;
 pub use data::scope::ScopeType;
+pub use data::traces::TraceRef;
 pub use events::{
     ClickMeta, DataUpdateMeta, EventController, EventFilter, EventKind, ExportMeta, KeyModifiers,
     KeyPressMeta, MathTraceMeta, MeasurementMeta, PauseMeta, PlotEvent, PlotPos, ResizeMeta,
@@ -34,11 +34,11 @@ pub use panels::{Panel, PanelState};
 pub use sink::{channel_plot, PlotCommand, PlotPoint, PlotSink, Trace, TraceId};
 // Re-export individual panel types from panels module
 pub use data::thresholds::{ThresholdDef, ThresholdKind};
+pub use panels::color_scheme_ui::{ColorSchemePanel, NamedCustomScheme};
 pub use panels::{
     ExportPanel, HotkeysPanel, LiveplotPanel, MathPanel, MeasurementPanel,
     ScopePanel as PanelScopePanel, ThresholdsPanel, TracesPanel, TriggersPanel,
 };
-pub use panels::color_scheme_ui::{ColorSchemePanel, NamedCustomScheme};
 
 // Re-exports from new modules
 pub use data::triggers::{Trigger, TriggerSlope};

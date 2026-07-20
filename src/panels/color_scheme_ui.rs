@@ -2,7 +2,9 @@
 
 use eframe::egui;
 use eframe::egui::Color32;
-use egui_phosphor::regular::{ARROW_DOWN, ARROW_UP, CHECK, FLOPPY_DISK, MINUS, PALETTE, PLUS, TRASH, WARNING};
+use egui_phosphor::regular::{
+    ARROW_DOWN, ARROW_UP, CHECK, FLOPPY_DISK, MINUS, PALETTE, PLUS, TRASH, WARNING,
+};
 use serde::{Deserialize, Serialize};
 
 use super::panel_trait::{Panel, PanelState};
@@ -28,10 +30,7 @@ impl NamedCustomScheme {
     pub fn from_palette(name: &str, palette: &[Color32]) -> Self {
         Self {
             name: name.to_string(),
-            colors: palette
-                .iter()
-                .map(|c| [c.r(), c.g(), c.b()])
-                .collect(),
+            colors: palette.iter().map(|c| [c.r(), c.g(), c.b()]).collect(),
         }
     }
 }
@@ -69,10 +68,7 @@ impl Default for ColorSchemePanel {
 impl ColorSchemePanel {
     /// Get the list of all scheme names (built-in + custom).
     fn scheme_labels(&self) -> Vec<String> {
-        let mut labels: Vec<String> = ColorScheme::all()
-            .iter()
-            .map(|s| s.label())
-            .collect();
+        let mut labels: Vec<String> = ColorScheme::all().iter().map(|s| s.label()).collect();
         for cs in &self.custom_schemes {
             labels.push(cs.name.clone());
         }
@@ -325,14 +321,12 @@ impl Panel for ColorSchemePanel {
         ui.horizontal(|ui| {
             ui.text_edit_singleline(&mut self.editing_name);
             ui.add_space(4.0);
-            if ui.button(format!("{} Save", FLOPPY_DISK)).clicked() && !self.editing_name.trim().is_empty() {
+            if ui.button(format!("{} Save", FLOPPY_DISK)).clicked()
+                && !self.editing_name.trim().is_empty()
+            {
                 let name = self.editing_name.trim().to_string();
                 // Check if name already exists — if so, replace.
-                if let Some(pos) = self
-                    .custom_schemes
-                    .iter()
-                    .position(|s| s.name == name)
-                {
+                if let Some(pos) = self.custom_schemes.iter().position(|s| s.name == name) {
                     self.custom_schemes[pos] =
                         NamedCustomScheme::from_palette(&name, &self.editing_palette);
                 } else {
@@ -352,7 +346,10 @@ impl Panel for ColorSchemePanel {
         let is_custom = self.selected_index >= builtins.len();
         if is_custom {
             ui.add_space(4.0);
-            if ui.button(format!("{} Delete this custom scheme", TRASH)).clicked() {
+            if ui
+                .button(format!("{} Delete this custom scheme", TRASH))
+                .clicked()
+            {
                 let ci = self.selected_index - builtins.len();
                 if ci < self.custom_schemes.len() {
                     self.custom_schemes.remove(ci);
@@ -371,7 +368,10 @@ impl Panel for ColorSchemePanel {
             ui.horizontal(|ui| {
                 ui.colored_label(
                     Color32::from_rgb(200, 160, 0),
-                    format!("{} Unsaved changes — click Apply to preview, or save as a custom scheme", WARNING),
+                    format!(
+                        "{} Unsaved changes — click Apply to preview, or save as a custom scheme",
+                        WARNING
+                    ),
                 );
             });
         }
@@ -431,8 +431,10 @@ mod tests {
 
         // Simulate save.
         let name = panel.editing_name.trim().to_string();
-        panel.custom_schemes
-            .push(NamedCustomScheme::from_palette(&name, &panel.editing_palette));
+        panel.custom_schemes.push(NamedCustomScheme::from_palette(
+            &name,
+            &panel.editing_palette,
+        ));
 
         assert_eq!(panel.custom_schemes.len(), 1);
         assert_eq!(panel.custom_schemes[0].name, "Test Scheme");
@@ -445,15 +447,17 @@ mod tests {
         panel.editing_palette = vec![Color32::from_rgb(1, 2, 3)];
 
         // First save.
-        panel
-            .custom_schemes
-            .push(NamedCustomScheme::from_palette("MyName", &panel.editing_palette));
+        panel.custom_schemes.push(NamedCustomScheme::from_palette(
+            "MyName",
+            &panel.editing_palette,
+        ));
 
         // Second save with same name but different colors.
         panel.editing_palette = vec![Color32::from_rgb(7, 8, 9)];
         let name = "MyName".to_string();
         if let Some(pos) = panel.custom_schemes.iter().position(|s| s.name == name) {
-            panel.custom_schemes[pos] = NamedCustomScheme::from_palette(&name, &panel.editing_palette);
+            panel.custom_schemes[pos] =
+                NamedCustomScheme::from_palette(&name, &panel.editing_palette);
         }
 
         assert_eq!(panel.custom_schemes.len(), 1);
@@ -467,9 +471,10 @@ mod tests {
         let labels = panel.scheme_labels();
         assert_eq!(labels.len(), builtin_count);
 
-        panel
-            .custom_schemes
-            .push(NamedCustomScheme::from_palette("Custom1", &[Color32::from_rgb(1, 2, 3)]));
+        panel.custom_schemes.push(NamedCustomScheme::from_palette(
+            "Custom1",
+            &[Color32::from_rgb(1, 2, 3)],
+        ));
         let labels = panel.scheme_labels();
         assert_eq!(labels.len(), builtin_count + 1);
         assert_eq!(labels[builtin_count], "Custom1");

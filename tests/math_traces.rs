@@ -33,8 +33,20 @@ fn test_add_incremental_preserves_old_points() {
 
     // New data arrives — only append new points to sources
     let sources2 = make_sources(&[
-        ("a", vec![[0.0, 1.0], [1.0, 2.0], [2.0, 3.0], [3.0, 4.0], [4.0, 5.0]]),
-        ("b", vec![[0.0, 10.0], [1.0, 20.0], [2.0, 30.0], [3.0, 40.0], [4.0, 50.0]]),
+        (
+            "a",
+            vec![[0.0, 1.0], [1.0, 2.0], [2.0, 3.0], [3.0, 4.0], [4.0, 5.0]],
+        ),
+        (
+            "b",
+            vec![
+                [0.0, 10.0],
+                [1.0, 20.0],
+                [2.0, 30.0],
+                [3.0, 40.0],
+                [4.0, 50.0],
+            ],
+        ),
         ("sum", out1.clone()),
     ]);
     let out2 = trace.compute_math_trace(&sources2);
@@ -167,7 +179,10 @@ fn test_minmax_incremental() {
     assert_eq!(out1[2], [2.0, 7.0]);
 
     let sources2 = make_sources(&[
-        ("sig", vec![[0.0, 3.0], [1.0, 7.0], [2.0, 5.0], [3.0, 9.0], [4.0, 2.0]]),
+        (
+            "sig",
+            vec![[0.0, 3.0], [1.0, 7.0], [2.0, 5.0], [3.0, 9.0], [4.0, 2.0]],
+        ),
         ("maxtrace", out1.clone()),
     ]);
     let out2 = trace.compute_math_trace(&sources2);
@@ -214,10 +229,7 @@ fn test_divide_incremental() {
 #[test]
 fn test_no_math_traces_no_crash() {
     // Verify that compute_math_trace with empty inputs doesn't panic
-    let mut trace = MathTrace::new(
-        TraceRef::new("empty"),
-        MathKind::Add { inputs: vec![] },
-    );
+    let mut trace = MathTrace::new(TraceRef::new("empty"), MathKind::Add { inputs: vec![] });
     let sources = make_sources(&[("empty", vec![])]);
     let out = trace.compute_math_trace(&sources);
     assert!(out.is_empty());
@@ -228,10 +240,7 @@ fn test_input_trace_names() {
     let trace = MathTrace::new(
         TraceRef::new("result"),
         MathKind::Add {
-            inputs: vec![
-                (TraceRef::new("a"), 1.0),
-                (TraceRef::new("b"), -1.0),
-            ],
+            inputs: vec![(TraceRef::new("a"), 1.0), (TraceRef::new("b"), -1.0)],
         },
     );
     let names = trace.input_trace_names();

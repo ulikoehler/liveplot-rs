@@ -286,14 +286,11 @@ impl FftData {
     /// Mark a trace as having been successfully dispatched for FFT computation.
     /// Updates the cache key and throttle timestamp.
     #[cfg(feature = "fft")]
-    pub fn mark_computed(
-        &mut self,
-        name: &TraceRef,
-        buf_len: usize,
-        last_ts: Option<f64>,
-    ) {
-        self.cached_trace_keys.insert(name.clone(), (buf_len, last_ts));
-        self.last_compute_time.insert(name.clone(), std::time::Instant::now());
+    pub fn mark_computed(&mut self, name: &TraceRef, buf_len: usize, last_ts: Option<f64>) {
+        self.cached_trace_keys
+            .insert(name.clone(), (buf_len, last_ts));
+        self.last_compute_time
+            .insert(name.clone(), std::time::Instant::now());
     }
 
     /// Invalidate all cached FFT state (e.g. when window or pause changes).
@@ -444,17 +441,10 @@ impl FftData {
     }
 
     #[cfg(not(feature = "fft"))]
-    pub fn mark_computed(
-        &mut self,
-        _name: &TraceRef,
-        _buf_len: usize,
-        _last_ts: Option<f64>,
-    ) {
-    }
+    pub fn mark_computed(&mut self, _name: &TraceRef, _buf_len: usize, _last_ts: Option<f64>) {}
 
     #[cfg(not(feature = "fft"))]
-    pub fn invalidate_cache(&mut self) {
-    }
+    pub fn invalidate_cache(&mut self) {}
 
     #[cfg(not(feature = "fft"))]
     pub fn check_window_pause_changed(&mut self, _paused: bool) {}

@@ -154,11 +154,7 @@ impl ScopeSettingsUiPanel {
                         .selected_text(selected_label)
                         .show_ui(ui, |ui| {
                             for (pos, label) in positions {
-                                ui.selectable_value(
-                                    &mut scope.legend_position,
-                                    pos,
-                                    label,
-                                );
+                                ui.selectable_value(&mut scope.legend_position, pos, label);
                             }
                         });
                 });
@@ -174,7 +170,11 @@ impl ScopeSettingsUiPanel {
                 resp.recolor_requested = true;
             }
 
-            let sort_icon = if self.sort_ascending { CARET_UP } else { CARET_DOWN };
+            let sort_icon = if self.sort_ascending {
+                CARET_UP
+            } else {
+                CARET_DOWN
+            };
             if ui
                 .small_button(sort_icon)
                 .on_hover_text(if self.sort_ascending {

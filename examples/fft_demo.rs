@@ -42,9 +42,8 @@ fn main() -> eframe::Result<()> {
             let t = n as f64 / FS_HZ;
 
             // Two-tone: sum of two sines
-            let two_tone_val =
-                (2.0 * std::f64::consts::PI * F1_HZ * t).sin()
-                    + (2.0 * std::f64::consts::PI * F2_HZ * t).sin();
+            let two_tone_val = (2.0 * std::f64::consts::PI * F1_HZ * t).sin()
+                + (2.0 * std::f64::consts::PI * F2_HZ * t).sin();
 
             // Swept frequency: instantaneous frequency varies sinusoidally
             // f_inst(t) = F_CENTER + F_DEV * sin(2*pi*F_MOD*t)
@@ -58,8 +57,20 @@ fn main() -> eframe::Result<()> {
                 .map(|d| d.as_secs_f64())
                 .unwrap_or(0.0);
 
-            let _ = sink.send_point(&tr_two_tone, PlotPoint { x: t_s, y: two_tone_val });
-            let _ = sink.send_point(&tr_swept, PlotPoint { x: t_s, y: swept_val });
+            let _ = sink.send_point(
+                &tr_two_tone,
+                PlotPoint {
+                    x: t_s,
+                    y: two_tone_val,
+                },
+            );
+            let _ = sink.send_point(
+                &tr_swept,
+                PlotPoint {
+                    x: t_s,
+                    y: swept_val,
+                },
+            );
 
             n = n.wrapping_add(1);
             std::thread::sleep(DT);

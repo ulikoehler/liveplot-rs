@@ -98,7 +98,8 @@ impl Panel for TracesPanel {
                         egui::Slider::new(
                             &mut data.traces.max_age_secs,
                             data.traces.max_age_bounds.0..=data.traces.max_age_bounds.1,
-                        ).suffix(" s")
+                        )
+                        .suffix(" s")
                         .text("0 = disabled"),
                     );
                 });
@@ -201,7 +202,8 @@ impl Panel for TracesPanel {
                     egui::Slider::new(
                         &mut data.traces.max_age_secs,
                         data.traces.max_age_bounds.0..=data.traces.max_age_bounds.1,
-                    ).suffix(" s")
+                    )
+                    .suffix(" s")
                     .text("0 = disabled"),
                 );
 
@@ -215,12 +217,12 @@ impl Panel for TracesPanel {
                 }
                 let mut names = data.traces.all_trace_names();
                 names.sort_by_key(|n| {
-                    data.traces.get_trace(n).map(|t| t.creation_index).unwrap_or(usize::MAX)
+                    data.traces
+                        .get_trace(n)
+                        .map(|t| t.creation_index)
+                        .unwrap_or(usize::MAX)
                 });
-                let rows: Vec<Row> = names
-                    .into_iter()
-                    .map(|name| Row { name })
-                    .collect();
+                let rows: Vec<Row> = names.into_iter().map(|name| Row { name }).collect();
 
                 struct TracesDelegate<'a> {
                     traces: &'a mut crate::data::traces::TracesCollection,
@@ -541,12 +543,7 @@ impl Panel for TracesPanel {
         let scope_orders: Vec<(usize, Vec<String>)> = data
             .scope_data
             .iter()
-            .map(|s| {
-                (
-                    s.id,
-                    s.trace_order.iter().map(|t| t.0.clone()).collect(),
-                )
-            })
+            .map(|s| (s.id, s.trace_order.iter().map(|t| t.0.clone()).collect()))
             .collect();
         let xy_pairs: Vec<(usize, Vec<crate::persistence::XYPairSerde>)> = data
             .scope_data

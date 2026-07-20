@@ -186,8 +186,8 @@ impl LivePlotApp {
         // changes going forward.
         for p in self.main_panel.right_side_panels.iter_mut() {
             let any: &mut dyn crate::panels::Panel = &mut **p;
-            if let Some(csp) = any
-                .downcast_mut::<crate::panels::color_scheme_ui::ColorSchemePanel>()
+            if let Some(csp) =
+                any.downcast_mut::<crate::panels::color_scheme_ui::ColorSchemePanel>()
             {
                 csp.set_initial_scheme(&cfg.color_scheme);
             }

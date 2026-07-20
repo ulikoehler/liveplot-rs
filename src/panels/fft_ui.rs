@@ -2,8 +2,8 @@ use super::panel_trait::{Panel, PanelState};
 use crate::data::data::{LivePlotData, ScreenshotRequest, ScreenshotTarget};
 use crate::data::fft::{FFTWindow, FftData};
 use crate::data::scope::{AxisType, LegendPosition, ScopeType, ValueFormat};
-use crate::data::traces::{TraceData, TracesCollection};
 use crate::data::traces::TraceRef;
+use crate::data::traces::{TraceData, TracesCollection};
 use crate::panels::scope_ui::{ScopePanel, ZoomMode};
 use egui::Ui;
 use egui_plot::PlotMemory;
@@ -234,7 +234,10 @@ impl Panel for FftPanel {
                 self.insufficient_data = true;
             }
 
-            if !self.fft_data.needs_recompute(name, buf_len, last_ts, paused) {
+            if !self
+                .fft_data
+                .needs_recompute(name, buf_len, last_ts, paused)
+            {
                 continue;
             }
 
@@ -247,10 +250,8 @@ impl Panel for FftPanel {
                 // and mark computed so we don't spin every frame.
                 self.insufficient_data = true;
                 if let Some(entry) = self.fft_data.fft_traces.get_mut(name) {
-                    entry.info = format!(
-                        "Need {} samples (have {})",
-                        self.fft_data.fft_size, buf_len
-                    );
+                    entry.info =
+                        format!("Need {} samples (have {})", self.fft_data.fft_size, buf_len);
                 }
                 self.fft_data.mark_computed(name, buf_len, last_ts);
             }
@@ -333,7 +334,8 @@ impl Panel for FftPanel {
             ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
                 let resp = ui.horizontal(|ui| {
                     ui.label("Pad:");
-                    let pad_options: [(usize, &str); 5] = [(1, "1×"), (2, "2×"), (4, "4×"), (8, "8×"), (16, "16×")];
+                    let pad_options: [(usize, &str); 5] =
+                        [(1, "1×"), (2, "2×"), (4, "4×"), (8, "8×"), (16, "16×")];
                     let pad_label = pad_options
                         .iter()
                         .find(|(v, _)| *v == self.fft_data.zero_pad_factor)
@@ -343,11 +345,7 @@ impl Panel for FftPanel {
                         .selected_text(pad_label)
                         .show_ui(ui, |ui| {
                             for (v, label) in pad_options.iter() {
-                                ui.selectable_value(
-                                    &mut self.fft_data.zero_pad_factor,
-                                    *v,
-                                    *label,
-                                );
+                                ui.selectable_value(&mut self.fft_data.zero_pad_factor, *v, *label);
                             }
                         });
                 });
@@ -452,8 +450,10 @@ impl Panel for FftPanel {
         );
 
         // Read back which traces the user toggled in the legend
-        let plot_id =
-            ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.scope_ui.get_data().name)));
+        let plot_id = ui.make_persistent_id(egui::Id::new(format!(
+            "scope_plot_{}",
+            self.scope_ui.get_data().name
+        )));
         if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
             self.hidden_in_legend.clear();
             for name in self.fft_data.fft_traces.keys() {

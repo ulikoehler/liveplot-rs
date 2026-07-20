@@ -180,7 +180,12 @@ pub trait Panel: Downcast {
                 let snap = self.settings_snapshot(data);
                 detect_settings_change(ui.ctx(), self.title(), snap);
                 self.render_panel(ui, data);
-                detect_settings_change_after(ui.ctx(), self.title(), self.settings_snapshot(data), data);
+                detect_settings_change_after(
+                    ui.ctx(),
+                    self.title(),
+                    self.settings_snapshot(data),
+                    data,
+                );
             };
 
             match class {
@@ -241,11 +246,7 @@ impl_downcast!(Panel);
 /// multi-frame drags (sliders, DragValues) are correctly detected: the
 /// `before` snapshot is taken when the user *starts* interacting, not at
 /// the start of the release frame (which would already have the new value).
-pub fn detect_settings_change(
-    ctx: &egui::Context,
-    panel_title: &str,
-    snapshot: Option<String>,
-) {
+pub fn detect_settings_change(ctx: &egui::Context, panel_title: &str, snapshot: Option<String>) {
     let id = egui::Id::new(("settings_snapshot", panel_title));
     let existing = ctx.data(|d| d.get_temp::<String>(id));
     if existing.is_none() {

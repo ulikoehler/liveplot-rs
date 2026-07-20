@@ -28,10 +28,11 @@ fn rasterize_svg(svg_template: &str, color: egui::Color32, size: u32) -> Option<
     let options = usvg::Options::default();
     let tree = usvg::Tree::from_str(&svg, &options).ok()?;
     let mut pixmap = tiny_skia::Pixmap::new(size, size)?;
-    resvg::render(&tree, tiny_skia::Transform::from_scale(
-        size as f32 / 24.0,
-        size as f32 / 24.0,
-    ), &mut pixmap.as_mut());
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(size as f32 / 24.0, size as f32 / 24.0),
+        &mut pixmap.as_mut(),
+    );
     let pixels = pixmap.take();
     Some(egui::ColorImage::from_rgba_unmultiplied(
         [size as usize, size as usize],
@@ -129,12 +130,14 @@ pub fn edge_icon(ui: &mut egui::Ui, icon: EdgeIcon, size: f32) -> Option<egui::R
 }
 
 /// Get an `egui::Image` for use as an atom in `Button::selectable((image, "text"))`.
-pub fn edge_icon_image(ctx: &egui::Context, icon: EdgeIcon, size: f32) -> Option<egui::Image<'static>> {
+pub fn edge_icon_image(
+    ctx: &egui::Context,
+    icon: EdgeIcon,
+    size: f32,
+) -> Option<egui::Image<'static>> {
     let tex_id = edge_icon_handle(ctx, icon)?;
-    Some(
-        egui::Image::from_texture(egui::load::SizedTexture {
-            id: tex_id,
-            size: egui::Vec2::splat(size),
-        }),
-    )
+    Some(egui::Image::from_texture(egui::load::SizedTexture {
+        id: tex_id,
+        size: egui::Vec2::splat(size),
+    }))
 }

@@ -358,7 +358,9 @@ impl ScopeData {
             .filter(|t| t.look.visible)
             .fold((0usize, None::<f64>), |(len, max_ts), t| {
                 let ts = if self.paused {
-                    t.snap.as_ref().and_then(|s| s.back().map(|p| p[0]))
+                    t.snap
+                        .as_ref()
+                        .and_then(|s| s.back().map(|p| p[0]))
                         .or_else(|| t.live.back().map(|p| p[0]))
                 } else {
                     t.live.back().map(|p| p[0])
@@ -661,7 +663,9 @@ impl ScopeData {
         traces: &TracesCollection,
     ) -> Option<Vec<[f64; 2]>> {
         if self.scope_type == ScopeType::XYScope {
-            traces.get_points_ref(name, self.paused).map(|v| v.iter().copied().collect())
+            traces
+                .get_points_ref(name, self.paused)
+                .map(|v| v.iter().copied().collect())
         } else {
             // Decimate directly from the VecDeque without cloning all points first.
             // This avoids a 10K-point clone per trace per frame.

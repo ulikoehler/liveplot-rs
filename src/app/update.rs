@@ -247,17 +247,11 @@ impl LivePlotPanel {
                     });
                 if !wants_text_input {
                     let ctrl_z = ctx.input(|i| {
-                        i.key_pressed(egui::Key::Z)
-                            && i.modifiers.ctrl
-                            && !i.modifiers.shift
+                        i.key_pressed(egui::Key::Z) && i.modifiers.ctrl && !i.modifiers.shift
                     });
-                    let ctrl_y = ctx.input(|i| {
-                        i.key_pressed(egui::Key::Y) && i.modifiers.ctrl
-                    });
+                    let ctrl_y = ctx.input(|i| i.key_pressed(egui::Key::Y) && i.modifiers.ctrl);
                     let ctrl_shift_z = ctx.input(|i| {
-                        i.key_pressed(egui::Key::Z)
-                            && i.modifiers.ctrl
-                            && i.modifiers.shift
+                        i.key_pressed(egui::Key::Z) && i.modifiers.ctrl && i.modifiers.shift
                     });
                     if ctrl_z && self.undo_stack.can_undo() {
                         self.pending_undo = true;
@@ -487,7 +481,8 @@ impl LivePlotPanel {
             // In embedded mode (show_undo_redo_buttons == false), the host app
             // (e.g. ASX) consumes these flags itself, so we skip the standalone
             // undo logic here to avoid consuming the flags prematurely.
-            if check_undo && self.show_undo_redo_buttons && !self.pending_undo && !self.pending_redo {
+            if check_undo && self.show_undo_redo_buttons && !self.pending_undo && !self.pending_redo
+            {
                 let settings_changed = self.liveplot_panel.take_settings_changed()
                     || std::mem::take(&mut self.side_panels_changed);
                 if settings_changed {
@@ -496,8 +491,7 @@ impl LivePlotPanel {
                     if let Ok(after_json) = after_json {
                         if let Some(ref old_json) = self.last_settings_json {
                             if *old_json != after_json {
-                                if let Ok(old_state) =
-                                    crate::persistence::state_from_json(old_json)
+                                if let Ok(old_state) = crate::persistence::state_from_json(old_json)
                                 {
                                     self.undo_stack.push(crate::undo::LivePlotUndoEntry {
                                         old_state,
