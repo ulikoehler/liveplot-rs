@@ -130,3 +130,7 @@ path = "examples/features.rs"
 name = "fft_demo"
 path = "examples/fft_demo.rs"
 required-features = ["fft"]
+
+[patch.crates-io]
+egui-phosphor = { git = "https://github.com/crumblingstatue/egui-phosphor", branch = "egui-035" }
+egui_table = { git = "https://github.com/rerun-io/egui_table" }
