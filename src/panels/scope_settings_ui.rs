@@ -295,7 +295,7 @@ impl ScopeSettingsUiPanel {
 
     fn render_drop_slot(
         ui: &mut Ui,
-        id_salt: impl Hash,
+        id_salt: impl Hash + std::fmt::Debug,
         dragging: Option<&DragPayload>,
         drag_active: bool,
         label: &str,
@@ -351,7 +351,7 @@ impl ScopeSettingsUiPanel {
 
     fn render_trace_list(
         ui: &mut Ui,
-        id_salt: impl Hash,
+        id_salt: impl Hash + std::fmt::Debug,
         title: &str,
         global_dragging: &mut Option<DragPayload>,
         origin_scope_id: Option<usize>,

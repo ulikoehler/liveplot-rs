@@ -418,7 +418,7 @@ impl LivePlotPanel {
             } else {
                 central_panel
             };
-            central_panel.show_inside(ui, |ui| {
+            central_panel.show(ui, |ui| {
                 use std::cell::RefCell;
                 // Temporarily take panel lists to build a local overlay drawer
                 // without borrowing `self` mutably (needed because the liveplot

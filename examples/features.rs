@@ -281,7 +281,7 @@ impl eframe::App for FeaturesApp {
         // data is produced on a background thread; nothing to do here
 
         // draw checkboxes at the top
-        egui::Panel::top("features_top").show_inside(ui, |ui| {
+        egui::Panel::top("features_top").show(ui, |ui| {
             ui.label("Toggle features:");
             ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut self.features.top_bar, "top_bar");
@@ -308,7 +308,7 @@ impl eframe::App for FeaturesApp {
         self.apply_features();
 
         // render the plot panel
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.plot.main_panel.update_embedded(ui);
         });
 

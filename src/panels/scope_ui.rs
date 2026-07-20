@@ -1055,7 +1055,12 @@ impl ScopePanel {
                     .y_axis
                     .format_value(y_value, Some(y.step_size.abs()))
             })
-            .label_formatter(|name, value| {
+            .label_formatter(|pos| {
+                use egui_plot::HoverPosition;
+                let (name, value) = match pos {
+                    HoverPosition::NearDataPoint { plot_name, position, .. } => (*plot_name, *position),
+                    HoverPosition::Elsewhere { position } => ("", *position),
+                };
                 let x = if x_log { 10f64.powf(value.x) } else { value.x };
                 let y = if y_log { 10f64.powf(value.y) } else { value.y };
                 // For time axes this routes through TimeFormatter; for value axes numeric.
@@ -1063,9 +1068,9 @@ impl ScopePanel {
                 let x_str = self.data.x_axis.format_value(x, None);
                 let y_str = self.data.y_axis.format_value(y, None);
                 if name.is_empty() {
-                    format!("x = {}\ny = {}", x_str, y_str)
+                    Some(format!("x = {}\ny = {}", x_str, y_str))
                 } else {
-                    format!("{}\nx = {}\ny = {}", name, x_str, y_str)
+                    Some(format!("{}\nx = {}\ny = {}", name, x_str, y_str))
                 }
             });
 

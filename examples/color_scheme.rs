@@ -55,7 +55,7 @@ impl eframe::App for ColorSchemePickerApp {
         // Apply color scheme
         self.scheme.apply(&ctx);
 
-        egui::Panel::top("color_scheme_picker_top").show_inside(ui, |ui| {
+        egui::Panel::top("color_scheme_picker_top").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Color scheme:");
                 ComboBox::from_id_salt("color_scheme_picker")
@@ -71,7 +71,7 @@ impl eframe::App for ColorSchemePickerApp {
             });
         });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.plot.main_panel.update_embedded(ui);
         });
 

@@ -192,7 +192,7 @@ impl eframe::App for LotsOfTinyPlotsApp {
         }
         self.last_window_size = current_size;
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("Lots of tiny sine plots — 20 × 15");
             ui.label(format!(
                 "Each plot shows the same sine wave shifted by phase; every trace has its own color. — samples: {:.1} Hz, sine: {:.3} Hz",

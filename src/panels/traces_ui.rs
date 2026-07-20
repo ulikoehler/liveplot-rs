@@ -130,7 +130,7 @@ impl Panel for TracesPanel {
                 .min_size(120.0)
                 .max_size(ui.available_height() * 0.45)
                 .resizable(true)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     if let Some(tn) = self.look_editor_trace.clone() {
                         self.look_editor_xy_pair = None;
                         if let Some(tr) = data.traces.get_trace_mut(&tn) {

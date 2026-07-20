@@ -1,4 +1,4 @@
-use egui::ahash::HashMap;
+use std::collections::HashMap;
 // FFT logic for time-series data, extracted from main.rs
 // Provides windowing and spectrum calculation utilities for plotting
 #[cfg(feature = "fft")]

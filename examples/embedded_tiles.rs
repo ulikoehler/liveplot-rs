@@ -167,7 +167,7 @@ impl eframe::App for DashboardApp {
             panel.feed(t);
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("Embedded LivePlot dashboard");
             ui.label("Four independent LivePlot instances embedded in a resizable 2 x 2 grid.");
             ui.add_space(8.0);

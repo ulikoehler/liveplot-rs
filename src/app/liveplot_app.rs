@@ -641,7 +641,7 @@ impl eframe::App for LivePlotApp {
 
         // Optional headline banner at the top of the window.
         if self.headline.is_some() || self.subheadline.is_some() {
-            egui::Panel::top("liveplot_headline").show_inside(ui, |ui| {
+            egui::Panel::top("liveplot_headline").show(ui, |ui| {
                 if let Some(h) = &self.headline {
                     ui.heading(h);
                 }
@@ -652,7 +652,7 @@ impl eframe::App for LivePlotApp {
         }
 
         // Main content area.
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.main_panel.update(ui);
         });
 

@@ -855,7 +855,7 @@ impl LivePlotPanel {
             egui::Panel::right(format!("right_icon_strip_{}", self.panel_id))
                 .resizable(false)
                 .exact_size(36.0)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     let hk = hk_rc.borrow();
                     ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                         for btn in &sidebar_btns {
@@ -992,7 +992,7 @@ impl LivePlotPanel {
                 .resizable(true)
                 .default_size(sidebar_default)
                 .min_size(sidebar_min)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     egui::ScrollArea::vertical()
                         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                         .scroll_source(ScrollSource::NONE)
@@ -1008,7 +1008,7 @@ impl LivePlotPanel {
                 .resizable(true)
                 .default_size(30.0)
                 .min_size(30.0)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     let hk = hk_rc_left.borrow();
                     egui::ScrollArea::vertical()
                         .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
@@ -1065,7 +1065,7 @@ impl LivePlotPanel {
                 .resizable(true)
                 .default_size(sidebar_default)
                 .min_size(sidebar_min)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     self.render_tabs(ui, &mut list);
                 });
             self.right_side_panels = list;
@@ -1078,7 +1078,7 @@ impl LivePlotPanel {
                 .resizable(true)
                 .default_size(30.0)
                 .min_size(30.0)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     let hk = hk_rc_right.borrow();
                     let mut clicked: Option<usize> = None;
                     ui.vertical(|ui| {
@@ -1132,7 +1132,7 @@ impl LivePlotPanel {
                 .default_size(bar_default)
                 .min_size(bar_min)
                 .max_size(bar_max)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     self.render_tabs(ui, &mut list);
                 });
             self.bottom_panels = list;
@@ -1143,7 +1143,7 @@ impl LivePlotPanel {
                 .resizable(false)
                 .default_size(24.0)
                 .min_size(24.0)
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     let hk = hk_rc_bottom.borrow();
                     let mut clicked: Option<usize> = None;
                     ui.add_space(2.0);
