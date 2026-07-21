@@ -54,23 +54,3 @@ impl TraceLook {
     }
 }
 
-// --- tests -----------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::color_scheme;
-    use egui::Color32;
-
-    #[test]
-    fn alloc_color_uses_global_palette() {
-        // start with known palette
-        color_scheme::set_global_palette(vec![
-            Color32::from_rgb(1, 2, 3),
-            Color32::from_rgb(4, 5, 6),
-        ]);
-        assert_eq!(TraceLook::alloc_color(0), Color32::from_rgb(1, 2, 3));
-        assert_eq!(TraceLook::alloc_color(1), Color32::from_rgb(4, 5, 6));
-        assert_eq!(TraceLook::alloc_color(2), Color32::from_rgb(1, 2, 3));
-    }
-}

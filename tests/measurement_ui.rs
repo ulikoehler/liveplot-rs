@@ -1,8 +1,6 @@
-use egui_phosphor_icons::icons::{CROSSHAIR, EYE};
 use liveplot::data::data::{LivePlotData, LivePlotRequests};
 use liveplot::data::scope::ScopeData;
 use liveplot::data::traces::TracesCollection;
-use liveplot::panels::measurment_ui::{SHOW_MEASUREMENTS_LABEL, TAKE_P1_LABEL, TAKE_P2_LABEL};
 use liveplot::panels::MeasurementPanel;
 use liveplot::panels::Panel;
 

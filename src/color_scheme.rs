@@ -24,7 +24,7 @@ pub fn global_palette() -> Vec<Color32> {
 
 /// Update the global colour palette.  Called automatically when a
 /// [`ColorScheme`] is applied, but user code (or tests) may call it directly.
-pub(crate) fn set_global_palette(new: Vec<Color32>) {
+pub fn set_global_palette(new: Vec<Color32>) {
     let mut guard = GLOBAL_PALETTE.lock().unwrap();
     *guard = new;
 }
