@@ -6,6 +6,7 @@ use crate::data::traces::TracesCollection;
 use crate::data::triggers::{Trigger, TriggerSlope};
 use crate::panels::trace_look_ui::render_trace_look_editor;
 use egui::Ui;
+use egui_phosphor_icons::icons::{BELL, CROSSHAIR, PLUS};
 use egui_plot::{HLine, Points, VLine};
 use std::collections::HashMap;
 
@@ -21,7 +22,7 @@ pub struct TriggersPanel {
 impl Default for TriggersPanel {
     fn default() -> Self {
         let mut panel = Self {
-            state: PanelState::new("Triggers", "🔔"),
+            state: PanelState::new("Triggers", BELL.as_str()),
             triggers: HashMap::new(),
             builder: None,
             editing: None,
@@ -77,7 +78,7 @@ impl Panel for TriggersPanel {
 
                 ui.separator();
 
-                if ui.button("New").clicked() {
+                if ui.button(format!("{} New", PLUS.as_str())).clicked() {
                     let mut t = crate::data::triggers::Trigger::default();
                     let idx = self.triggers.len() + 1;
                     t.name = format!("Trigger{}", idx);
@@ -90,7 +91,10 @@ impl Panel for TriggersPanel {
                     ui.close();
                 }
                 if ui
-                    .button(egui_phosphor::regular::PLAY.to_string() + " Start all")
+                    .button(format!(
+                        "{} Start all",
+                        egui_phosphor_icons::icons::PLAY.as_str()
+                    ))
                     .clicked()
                 {
                     for (_n, trig) in self.triggers.iter_mut() {
@@ -99,7 +103,10 @@ impl Panel for TriggersPanel {
                     ui.close();
                 }
                 if ui
-                    .button(egui_phosphor::regular::STOP.to_string() + " Stop all")
+                    .button(format!(
+                        "{} Stop all",
+                        egui_phosphor_icons::icons::STOP.as_str()
+                    ))
                     .clicked()
                 {
                     for (_n, trig) in self.triggers.iter_mut() {
@@ -108,7 +115,10 @@ impl Panel for TriggersPanel {
                     ui.close();
                 }
                 if ui
-                    .button(egui_phosphor::regular::ARROW_CLOCKWISE.to_string() + " Reset all")
+                    .button(format!(
+                        "{} Reset all",
+                        egui_phosphor_icons::icons::ARROW_CLOCKWISE.as_str()
+                    ))
                     .clicked()
                 {
                     for (_n, trig) in self.triggers.iter_mut() {
@@ -271,7 +281,10 @@ impl Panel for TriggersPanel {
         // Global actions
         ui.horizontal(|ui| {
             if ui
-                .button(egui_phosphor::regular::ARROW_CLOCKWISE.to_string() + " Reset all")
+                .button(format!(
+                    "{} Reset all",
+                    egui_phosphor_icons::icons::ARROW_CLOCKWISE.as_str()
+                ))
                 .on_hover_text("Reset all triggers")
                 .clicked()
             {
@@ -282,7 +295,10 @@ impl Panel for TriggersPanel {
                 }
             }
             if ui
-                .button(egui_phosphor::regular::PLAY.to_string() + " Start all")
+                .button(format!(
+                    "{} Start all",
+                    egui_phosphor_icons::icons::PLAY.as_str()
+                ))
                 .on_hover_text("Enable and start all triggers")
                 .clicked()
             {
@@ -359,7 +375,7 @@ impl Panel for TriggersPanel {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .button(egui_phosphor::regular::TRASH)
+                        .button(egui_phosphor_icons::icons::TRASH)
                         .on_hover_text("Remove")
                         .clicked()
                     {
@@ -403,7 +419,7 @@ impl Panel for TriggersPanel {
                     if ui
                         .add_enabled(
                             last_exists,
-                            egui::Button::new(egui_phosphor::regular::ARROW_CLOCKWISE),
+                            egui::Button::new(egui_phosphor_icons::icons::ARROW_CLOCKWISE),
                         )
                         .clicked()
                     {
@@ -413,7 +429,7 @@ impl Panel for TriggersPanel {
                         if ui
                             .add_enabled(
                                 enabled_flag,
-                                egui::Button::new(egui_phosphor::regular::STOP),
+                                egui::Button::new(egui_phosphor_icons::icons::STOP),
                             )
                             .clicked()
                         {
@@ -423,7 +439,7 @@ impl Panel for TriggersPanel {
                         if ui
                             .add_enabled(
                                 enabled_flag,
-                                egui::Button::new(egui_phosphor::regular::PLAY),
+                                egui::Button::new(egui_phosphor_icons::icons::PLAY),
                             )
                             .clicked()
                         {
@@ -463,7 +479,10 @@ impl Panel for TriggersPanel {
         // New button
         ui.add_space(6.0);
         let new_clicked = ui
-            .add_sized([ui.available_width(), 24.0], egui::Button::new("➕ New"))
+            .add_sized(
+                [ui.available_width(), 24.0],
+                egui::Button::new(format!("{} New", PLUS.as_str())),
+            )
             .on_hover_text("Create a new trigger")
             .clicked();
         if new_clicked {
@@ -533,7 +552,7 @@ impl Panel for TriggersPanel {
                 ui.add(egui::DragValue::new(&mut builder.level).speed(0.1));
                 if self.pick_level_pending {
                     if ui
-                        .button("⌖ Picking…")
+                        .button(format!("{} Picking…", CROSSHAIR.as_str()))
                         .on_hover_text("Click on the plot to set the Y level")
                         .clicked()
                     {
@@ -541,7 +560,7 @@ impl Panel for TriggersPanel {
                     }
                 } else {
                     if ui
-                        .button("⌖")
+                        .button(CROSSHAIR.as_str())
                         .on_hover_text("Pick Y level from plot (click on plot)")
                         .clicked()
                     {

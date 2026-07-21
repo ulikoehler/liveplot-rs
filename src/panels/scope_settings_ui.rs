@@ -6,7 +6,7 @@ use crate::data::traces::TracesCollection;
 use eframe::egui;
 use egui::{Color32, Id, Ui};
 use egui_dnd::dnd;
-use egui_phosphor::regular::{CARET_DOWN, CARET_UP, DOTS_SIX_VERTICAL};
+use egui_phosphor_icons::icons::{CARET_DOWN, CARET_UP, DOTS_SIX_VERTICAL, PALETTE, PENCIL, TRASH};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -112,14 +112,18 @@ impl ScopeSettingsUiPanel {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .add_enabled(can_remove_scope, egui::Button::new("🗑"))
+                    .add_enabled(can_remove_scope, egui::Button::new(TRASH.as_str()))
                     .on_hover_text("Remove this scope from layout")
                     .clicked()
                 {
                     pending.remove_scope = Some(scope_id);
                 }
 
-                if ui.small_button("✏").on_hover_text("Rename").clicked() {
+                if ui
+                    .small_button(PENCIL.as_str())
+                    .on_hover_text("Rename")
+                    .clicked()
+                {
                     self.renaming_scope_id = Some(scope_id);
                     self.rename_buffer = scope.name.clone();
                     self.rename_focus_scope = Some(scope_id);
@@ -163,7 +167,7 @@ impl ScopeSettingsUiPanel {
 
         ui.horizontal(|ui| {
             if ui
-                .small_button("🎨")
+                .small_button(PALETTE.as_str())
                 .on_hover_text("Recolor traces to match legend order")
                 .clicked()
             {
@@ -434,7 +438,7 @@ impl ScopeSettingsUiPanel {
                                             egui::Layout::right_to_left(egui::Align::Center),
                                             |ui| {
                                                 if ui
-                                                    .small_button(egui_phosphor::regular::TRASH)
+                                                    .small_button(egui_phosphor_icons::icons::TRASH)
                                                     .on_hover_text("Remove")
                                                     .clicked()
                                                 {
@@ -442,7 +446,7 @@ impl ScopeSettingsUiPanel {
                                                 }
                                                 if open_look_editor.is_some() {
                                                     if ui
-                                                        .small_button("🎨")
+                                                        .small_button(PALETTE.as_str())
                                                         .on_hover_text("Edit trace style")
                                                         .clicked()
                                                     {

@@ -9,6 +9,9 @@ use crate::data::scope::ScopeType;
 use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
 use crate::events::EventController;
+use egui_phosphor_icons::icons::{
+    ARROWS_DOWN_UP, ARROWS_LEFT_RIGHT, IMAGE, MAGNIFYING_GLASS, PAUSE, PLAY,
+};
 
 /// Lightweight snapshot of scope settings for change detection (undo tracking).
 /// Bounds are only included when auto-fit is OFF, so auto-fit axis changes
@@ -499,11 +502,11 @@ impl ScopePanel {
         let settings_snapshot = self.snapshot_settings();
 
         if !self.data.paused {
-            if ui.button("⏸ Scope").clicked() {
+            if ui.button(format!("{} Scope", PAUSE.as_str())).clicked() {
                 self.data.paused = true;
                 traces.take_snapshot();
             }
-        } else if ui.button("▶ Scope").clicked() {
+        } else if ui.button(format!("{} Scope", PLAY.as_str())).clicked() {
             self.data.paused = false;
         }
 
@@ -590,7 +593,7 @@ impl ScopePanel {
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             let response = ui.horizontal(|ui| {
                 if ui
-                    .button("↔ Fit X")
+                    .button(format!("{} Fit X", ARROWS_LEFT_RIGHT.as_str()))
                     .on_hover_text("Fit X to visible data")
                     .clicked()
                 {
@@ -786,7 +789,7 @@ impl ScopePanel {
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             let response = ui.horizontal(|ui| {
                 if ui
-                    .button("↕ Fit Y")
+                    .button(format!("{} Fit Y", ARROWS_DOWN_UP.as_str()))
                     .on_hover_text("Fit Y to visible data")
                     .clicked()
                 {
@@ -952,7 +955,7 @@ impl ScopePanel {
         ui.separator();
 
         if ui
-            .button("🔍 Fit to View")
+            .button(format!("{} Fit to View", MAGNIFYING_GLASS.as_str()))
             .on_hover_text("Fit both axes to visible data")
             .clicked()
         {
@@ -982,7 +985,7 @@ impl ScopePanel {
 
         // Screenshot button kept in core controls
         if ui
-            .button("🖼 Save Screenshot")
+            .button(format!("{} Save Screenshot", IMAGE.as_str()))
             .on_hover_text("Take a screenshot of this scope")
             .clicked()
         {

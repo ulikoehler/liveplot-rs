@@ -6,6 +6,7 @@ use crate::data::traces::TraceRef;
 use crate::data::traces::{TraceData, TracesCollection};
 use crate::panels::scope_ui::{ScopePanel, ZoomMode};
 use egui::Ui;
+use egui_phosphor_icons::icons::{CHART_BAR, WARNING};
 use egui_plot::PlotMemory;
 use std::collections::HashSet;
 
@@ -49,7 +50,7 @@ impl Default for FftPanel {
         scope_data.legend_position = LegendPosition::RightTop;
 
         Self {
-            state: PanelState::new("FFT", "📊"),
+            state: PanelState::new("FFT", CHART_BAR.as_str()),
             fft_data: FftData::default(),
             scope_ui,
             fft_db: false,
@@ -321,8 +322,11 @@ impl Panel for FftPanel {
             // Warning when not enough datapoints for the current FFT size
             if self.insufficient_data {
                 ui.label(
-                    egui::RichText::new("⚠ Not enough data for FFT size")
-                        .color(egui::Color32::from_rgb(220, 160, 40)),
+                    egui::RichText::new(format!(
+                        "{} Not enough data for FFT size",
+                        WARNING.as_str()
+                    ))
+                    .color(egui::Color32::from_rgb(220, 160, 40)),
                 );
             }
 

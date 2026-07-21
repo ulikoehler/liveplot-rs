@@ -9,6 +9,7 @@ use crate::data::hotkeys::{Hotkey, HotkeyName, Hotkeys, Modifier};
 
 use super::panel_trait::{Panel, PanelState};
 use crate::data::data::LivePlotData;
+use egui_phosphor_icons::icons::{CIRCLE, FLOPPY_DISK, KEYBOARD, RECYCLE};
 
 pub struct HotkeysPanel {
     state: PanelState,
@@ -20,7 +21,7 @@ impl HotkeysPanel {
     pub fn new(shared_hotkeys: Rc<RefCell<Hotkeys>>) -> Self {
         Self {
             // Use the basic keyboard glyph (no FE0F variation selector) to avoid double-char rendering
-            state: PanelState::new("Hotkeys", "⌨"),
+            state: PanelState::new("Hotkeys", KEYBOARD.as_str()),
             capturing_hotkey: None,
             hotkeys: shared_hotkeys,
         }
@@ -172,11 +173,17 @@ impl Panel for HotkeysPanel {
                     st.request_focus = true;
                     ui.close();
                 }
-                if ui.button("Reset to defaults").clicked() {
+                if ui
+                    .button(format!("{} Reset to Defaults", RECYCLE.as_str()))
+                    .clicked()
+                {
                     self.reset_defaults();
                     ui.close();
                 }
-                if ui.button("Save").clicked() {
+                if ui
+                    .button(format!("{} Save", FLOPPY_DISK.as_str()))
+                    .clicked()
+                {
                     let _ = self.hotkeys.borrow().save_to_default_path();
                     ui.close();
                 }
@@ -217,7 +224,7 @@ impl Panel for HotkeysPanel {
 
                     let capturing_this = self.capturing_hotkey == Some(name);
                     let btn_text = if capturing_this {
-                        "⏺ Press keys...".to_owned()
+                        format!("{} Press keys...", CIRCLE.as_str()).to_owned()
                     } else {
                         match current {
                             Some(h) => h.to_string(),
@@ -351,10 +358,16 @@ impl Panel for HotkeysPanel {
 
         ui.separator();
         ui.horizontal(|ui| {
-            if ui.button("Reset to defaults").clicked() {
+            if ui
+                .button(format!("{} Reset to Defaults", RECYCLE.as_str()))
+                .clicked()
+            {
                 self.reset_defaults();
             }
-            if ui.button("Save").clicked() {
+            if ui
+                .button(format!("{} Save", FLOPPY_DISK.as_str()))
+                .clicked()
+            {
                 let _ = self.hotkeys.borrow().save_to_default_path();
             }
         });

@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use crate::data::trace_look::TraceLook;
 use crate::panels::panel_trait::{Panel, PanelState};
 use crate::panels::trace_look_ui::render_trace_look_editor;
+use egui_phosphor_icons::icons::{BROOM, PLUS, RECYCLE};
 
 #[derive(Debug, Clone)]
 pub struct MathPanel {
@@ -77,7 +78,7 @@ impl Panel for MathPanel {
 
                 ui.separator();
 
-                if ui.button("New").clicked() {
+                if ui.button(format!("{} New", PLUS.as_str())).clicked() {
                     self.builder =
                         MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() });
                     self.editing = None;
@@ -88,13 +89,16 @@ impl Panel for MathPanel {
                     st.request_focus = true;
                     ui.close();
                 }
-                if ui.button("Reset storage").clicked() {
+                if ui
+                    .button(format!("{} Reset All Storage", RECYCLE.as_str()))
+                    .clicked()
+                {
                     for def in self.math_traces.iter() {
                         data.traces.clear_trace(&def.name);
                     }
                     ui.close();
                 }
-                if ui.button("X Clear All math traces").clicked() {
+                if ui.button(format!("{} Clear All", BROOM.as_str())).clicked() {
                     // Remove math traces & their underlying live data
                     for def in self.math_traces.iter() {
                         // Emit MATH_TRACE_REMOVED for each
@@ -192,7 +196,7 @@ impl Panel for MathPanel {
         // Global storage reset for all stateful math traces
         ui.horizontal(|ui| {
             if ui
-                .button("♻ Reset All Storage")
+                .button(format!("{} Reset All Storage", RECYCLE.as_str()))
                 .on_hover_text("Reset integrators, filters, min/max for all math traces")
                 .clicked()
             {
@@ -267,7 +271,7 @@ impl Panel for MathPanel {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Remove button with hover highlight
                     let remove_resp = ui
-                        .button(egui_phosphor::regular::TRASH)
+                        .button(egui_phosphor_icons::icons::TRASH)
                         .on_hover_text("Remove");
                     if remove_resp.hovered() {
                         hover_trace_intern = Some(vec![def.name.clone()]);
@@ -307,7 +311,7 @@ impl Panel for MathPanel {
                     );
                     if is_stateful {
                         let reset_resp = ui
-                            .button(egui_phosphor::regular::ARROW_CLOCKWISE)
+                            .button(egui_phosphor_icons::icons::ARROW_CLOCKWISE)
                             .on_hover_text("Reset integrator/filter/min/max state for this trace");
                         if reset_resp.hovered() {
                             hover_trace_intern = Some(vec![def.name.clone()]);
@@ -332,7 +336,10 @@ impl Panel for MathPanel {
         // Full-width New button after the list
         ui.add_space(6.0);
         let new_clicked = ui
-            .add_sized([ui.available_width(), 24.0], egui::Button::new("New"))
+            .add_sized(
+                [ui.available_width(), 24.0],
+                egui::Button::new(format!("{} New", PLUS.as_str())),
+            )
             .on_hover_text("Create a new math trace")
             .clicked();
         if new_clicked {
@@ -509,7 +516,7 @@ impl Panel for MathPanel {
                         });
                     }
                     ui.horizontal(|ui| {
-                        if ui.button("➕ Add input").clicked() {
+                        if ui.button(format!("{} Add input", PLUS.as_str())).clicked() {
                             let nm = trace_names.get(0).cloned().unwrap_or_default();
                             inputs.push((nm, 1.0));
                         }
@@ -713,7 +720,11 @@ impl Panel for MathPanel {
                 });
 
             ui.horizontal(|ui| {
-                let save_label = if is_editing { "Save" } else { "➕ Add trace" };
+                let save_label = if is_editing {
+                    "Save".to_string()
+                } else {
+                    format!("{} Add trace", PLUS.as_str())
+                };
                 let can_save = !self.builder.name.0.is_empty() && !duplicate_name;
                 let enter_pressed = can_save && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
                 if ui

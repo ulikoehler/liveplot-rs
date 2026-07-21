@@ -72,7 +72,12 @@ pub fn run_liveplot(
         Box::new(|cc| {
             // Install Phosphor icon font before creating the app.
             let mut fonts = egui::FontDefinitions::default();
-            egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+            egui_phosphor_icons::add_fonts(&mut fonts);
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .push("phosphor-icons".to_owned());
             cc.egui_ctx.set_fonts(fonts);
             Ok(Box::new(app))
         }),

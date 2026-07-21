@@ -7,7 +7,8 @@ fn collapse_when_width_is_strictly_less() {
 
 #[test]
 fn no_collapse_when_width_equals_required() {
-    assert!(!should_collapse_topbar(100.0, 100.0));
+    // Boundary is at available == required + 80px buffer
+    assert!(!should_collapse_topbar(180.0, 100.0));
 }
 
 #[test]

@@ -14,7 +14,9 @@
 
 use eframe::egui;
 use eframe::egui::scroll_area::{ScrollBarVisibility, ScrollSource};
-use egui_phosphor::regular::BROOM;
+use egui_phosphor_icons::icons::{
+    ARROW_U_UP_LEFT, ARROW_U_UP_RIGHT, BROOM, EYE, IMAGE, PAUSE, PLAY,
+};
 
 use crate::config::ScopeButton;
 use crate::data::data::LivePlotData;
@@ -116,7 +118,7 @@ impl LivePlotPanel {
 
         // 1. Scopes button (only if in top_bar_btns)
         if top_bar_btns.contains(&ScopeButton::Scopes) {
-            required_width += calc_width("🔭 Scopes");
+            required_width += calc_width(&format!("{} Scopes", EYE.as_str()));
         }
 
         // 2. All other panels (only those in top_bar_btns)
@@ -142,15 +144,15 @@ impl LivePlotPanel {
 
         // 4. Pause / Resume (take the wider one, only if in top_bar_btns)
         if top_bar_btns.contains(&ScopeButton::PauseResume) {
-            required_width += calc_width("⏸ Pause");
+            required_width += calc_width(&format!("{} Pause", PAUSE.as_str()));
         }
 
         // 5. Clear All (only if in top_bar_btns)
         if top_bar_btns.contains(&ScopeButton::ClearAll) {
-            required_width += calc_width(&format!("{BROOM} Clear All"));
+            required_width += calc_width(&format!("{} Clear All", BROOM.as_str()));
         }
 
-        required_width += calc_width("🖼 Screenshot");
+        required_width += calc_width(&format!("{} Screenshot", IMAGE.as_str()));
 
         // Remove trailing spacing
         required_width -= item_spacing;
@@ -326,15 +328,19 @@ impl LivePlotPanel {
                     if top_bar_btns.contains(&ScopeButton::PauseResume) {
                         let pause_tt = format_button_tooltip("Pause / Resume", hk.pause.as_ref());
                         if !data.are_all_paused() {
-                            let pause_label = if topbar_collapsed { "⏸" } else { "⏸ Pause" };
+                            let pause_label = if topbar_collapsed {
+                                PAUSE.as_str().to_string()
+                            } else {
+                                format!("{} Pause", PAUSE.as_str())
+                            };
                             if ui.button(pause_label).on_hover_text(&pause_tt).clicked() {
                                 should_trigger_pause = true;
                             }
                         } else {
                             let resume_label = if topbar_collapsed {
-                                "▶"
+                                PLAY.as_str().to_string()
                             } else {
-                                "▶ Resume"
+                                format!("{} Resume", PLAY.as_str())
                             };
                             if ui.button(resume_label).on_hover_text(&pause_tt).clicked() {
                                 should_trigger_resume = true;
@@ -344,9 +350,9 @@ impl LivePlotPanel {
 
                     if top_bar_btns.contains(&ScopeButton::ClearAll) {
                         let clear_all_label = if topbar_collapsed {
-                            BROOM.to_string()
+                            BROOM.as_str().to_string()
                         } else {
-                            format!("{BROOM} Clear All")
+                            format!("{} Clear All", BROOM.as_str())
                         };
                         let clear_tt = format_button_tooltip("Clear All", hk.clear_all.as_ref());
                         if ui.button(clear_all_label).on_hover_text(clear_tt).clicked() {
@@ -355,9 +361,9 @@ impl LivePlotPanel {
                     }
 
                     let screenshot_label = if topbar_collapsed {
-                        "🖼"
+                        IMAGE.as_str().to_string()
                     } else {
-                        "🖼 Screenshot"
+                        format!("{} Screenshot", IMAGE.as_str())
                     };
                     if ui
                         .button(screenshot_label)
@@ -374,7 +380,11 @@ impl LivePlotPanel {
                     // ── Undo / Redo buttons (standalone mode only) ──────────
                     if self.show_undo_redo_buttons {
                         ui.separator();
-                        let undo_label = if topbar_collapsed { "↩" } else { "↩ Undo" };
+                        let undo_label = if topbar_collapsed {
+                            ARROW_U_UP_LEFT.as_str().to_string()
+                        } else {
+                            format!("{} Undo", ARROW_U_UP_LEFT.as_str())
+                        };
                         let undo_tt = self
                             .undo_stack
                             .undo_description()
@@ -386,7 +396,11 @@ impl LivePlotPanel {
                         {
                             self.pending_undo = true;
                         }
-                        let redo_label = if topbar_collapsed { "↪" } else { "↪ Redo" };
+                        let redo_label = if topbar_collapsed {
+                            ARROW_U_UP_RIGHT.as_str().to_string()
+                        } else {
+                            format!("{} Redo", ARROW_U_UP_RIGHT.as_str())
+                        };
                         let redo_tt = self
                             .undo_stack
                             .redo_description()
@@ -916,9 +930,9 @@ impl LivePlotPanel {
                             match btn {
                                 ScopeButton::PauseResume => {
                                     let (icon, tooltip) = if all_paused {
-                                        ("▶", "Resume")
+                                        (PLAY.as_str(), "Resume")
                                     } else {
-                                        ("⏸", "Pause")
+                                        (PAUSE.as_str(), "Pause")
                                     };
                                     if ui.button(icon).on_hover_text(tooltip).clicked() {
                                         clicked_btns.push(ScopeButton::PauseResume);
@@ -927,12 +941,17 @@ impl LivePlotPanel {
                                 ScopeButton::ClearAll => {
                                     let tt =
                                         format_button_tooltip("Clear All", hk.clear_all.as_ref());
-                                    if ui.button(BROOM.to_string()).on_hover_text(tt).clicked() {
+                                    if ui
+                                        .button(BROOM.as_str().to_string())
+                                        .on_hover_text(tt)
+                                        .clicked()
+                                    {
                                         clicked_btns.push(ScopeButton::ClearAll);
                                     }
                                 }
                                 ScopeButton::Scopes => {
-                                    ui.button("🔭").on_hover_text("Scopes (use the top bar)");
+                                    ui.button(EYE.as_str())
+                                        .on_hover_text("Scopes (use the top bar)");
                                 }
                                 other => {
                                     // Find panel info across all lists (immutable borrows only).

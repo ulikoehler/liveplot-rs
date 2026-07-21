@@ -3,7 +3,7 @@ use crate::data::scope::ScopeType;
 use crate::data::{data::LivePlotData, traces::TraceRef};
 use eframe::egui;
 use egui::{Id, Ui};
-use egui_phosphor::regular::{BROOM, DOTS_SIX_VERTICAL};
+use egui_phosphor_icons::icons::{BROOM, CHART_LINE_UP, DOTS_SIX_VERTICAL, PLUS, X};
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 
 use super::scope_settings_ui::{DragPayload, ScopeSettingsUiPanel};
@@ -30,7 +30,7 @@ pub struct TracesPanel {
 impl Default for TracesPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Traces", "📈"),
+            state: PanelState::new("Traces", CHART_LINE_UP.as_str()),
             look_editor_trace: None,
             look_editor_xy_pair: None,
             hover_trace: None,
@@ -106,7 +106,7 @@ impl Panel for TracesPanel {
 
                 ui.separator();
 
-                if ui.button(format!("{BROOM} Clear All")).clicked() {
+                if ui.button(format!("{} Clear All", BROOM.as_str())).clicked() {
                     data.traces.clear_all();
                     ui.close();
                 }
@@ -141,7 +141,10 @@ impl Panel for TracesPanel {
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
-                                            if ui.small_button("✖ Close").clicked() {
+                                            if ui
+                                                .small_button(format!("{} Close", X.as_str()))
+                                                .clicked()
+                                            {
                                                 self.look_editor_trace = None;
                                             }
                                         },
@@ -161,7 +164,10 @@ impl Panel for TracesPanel {
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
-                                        if ui.small_button("✖ Close").clicked() {
+                                        if ui
+                                            .small_button(format!("{} Close", X.as_str()))
+                                            .clicked()
+                                        {
                                             self.look_editor_xy_pair = None;
                                         }
                                     },
@@ -576,7 +582,7 @@ impl Panel for TracesPanel {
 impl TracesPanel {
     fn render_scope_assignments(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         let can_remove_scope = data.scope_data.len() > 1;
-        if ui.button("➕ Add scope").clicked() {
+        if ui.button(format!("{} Add scope", PLUS.as_str())).clicked() {
             data.pending_requests.add_scope = true;
         }
         ui.add_space(4.0);

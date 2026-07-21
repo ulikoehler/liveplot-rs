@@ -3,7 +3,7 @@ use crate::data::data::LivePlotData;
 use crate::data::measurement::Measurement;
 use crate::data::scope::{AxisSettings, ScopeData};
 use egui::{Align2, Color32};
-use egui_phosphor::regular::BROOM;
+use egui_phosphor_icons::icons::{BROOM, CROSSHAIR, PLUS, RULER};
 use egui_plot::{Line, PlotPoint, Points, Text};
 
 pub struct MeasurementPanel {
@@ -18,7 +18,7 @@ pub struct MeasurementPanel {
 impl Default for MeasurementPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Measurement", "📏"),
+            state: PanelState::new("Measurement", RULER.as_str()),
             measurements: Vec::new(),
             selected_measurement: None,
             selected_point_index: None,
@@ -28,12 +28,8 @@ impl Default for MeasurementPanel {
     }
 }
 
-impl MeasurementPanel {
-    /// Menu/button labels (exported for unit tests).
-    pub const SHOW_MEASUREMENTS_LABEL: &'static str = "👁 Show Measurements";
-    pub const TAKE_P1_LABEL: &'static str = "⌖ Take P1 at click";
-    pub const TAKE_P2_LABEL: &'static str = "⌖ Take P2 at click";
 
+impl MeasurementPanel {
     fn trace_point_to_plot_coords(
         scope: &ScopeData,
         point: [f64; 2],
@@ -115,7 +111,7 @@ impl Panel for MeasurementPanel {
         let mr = egui::containers::menu::MenuButton::new(label)
             .config(menu_cfg)
             .ui(ui, |ui| {
-                if ui.button(Self::SHOW_MEASUREMENTS_LABEL).clicked() {
+                if ui.button("Show Measurements").clicked() {
                     let st = self.state_mut();
                     st.visible = true;
                     st.request_focus = true;
@@ -124,7 +120,7 @@ impl Panel for MeasurementPanel {
 
                 ui.separator();
 
-                if ui.button("New measurement").clicked() {
+                if ui.button(format!("{} New", PLUS.as_str())).clicked() {
                     let idx = self.measurements.len() + 1;
                     self.measurements
                         .push(Measurement::new(&format!("M{}", idx)));
@@ -135,7 +131,7 @@ impl Panel for MeasurementPanel {
                     ui.close();
                 }
                 if ui
-                    .button(format!("{BROOM} Clear measurements"))
+                    .button(format!("{} Clear All", BROOM.as_str()))
                     .on_hover_text("Clear measurement markers across all scopes")
                     .clicked()
                 {
@@ -146,11 +142,11 @@ impl Panel for MeasurementPanel {
                     }
                     ui.close();
                 }
-                if ui.button(Self::TAKE_P1_LABEL).clicked() {
+                if ui.button(format!("{} Take P1 at click", CROSSHAIR.as_str())).clicked() {
                     self.selected_point_index = Some(0);
                     ui.close();
                 }
-                if ui.button(Self::TAKE_P2_LABEL).clicked() {
+                if ui.button(format!("{} Take P2 at click", CROSSHAIR.as_str())).clicked() {
                     self.selected_point_index = Some(1);
                     ui.close();
                 }
@@ -572,14 +568,14 @@ impl Panel for MeasurementPanel {
     fn render_panel(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
         ui.label("Pick points on the plot and compute deltas.");
         ui.horizontal(|ui| {
-            if ui.button("➕ Add").clicked() {
+            if ui.button(format!("{} Add", PLUS.as_str())).clicked() {
                 let idx = self.measurements.len() + 1;
                 self.measurements
                     .push(Measurement::new(&format!("M{}", idx)));
                 self.selected_measurement = Some(self.measurements.len() - 1);
                 self.selected_point_index = None;
             }
-            if ui.button(format!("{} Clear All", BROOM)).clicked() {
+            if ui.button(format!("{} Clear All", BROOM.as_str())).clicked() {
                 for m in &mut self.measurements {
                     m.clear();
                 }
@@ -635,14 +631,14 @@ impl Panel for MeasurementPanel {
                 }
 
                 let clear_btn = ui
-                    .button(egui_phosphor::regular::BROOM)
+                    .button(egui_phosphor_icons::icons::BROOM)
                     .on_hover_text("Clear");
                 if clear_btn.clicked() {
                     m.clear();
                 }
 
                 let rm_btn = ui
-                    .button(egui_phosphor::regular::TRASH)
+                    .button(egui_phosphor_icons::icons::TRASH)
                     .on_hover_text("Remove");
                 if rm_btn.clicked() {
                     remove_this = true;
@@ -919,15 +915,5 @@ mod tests {
             panel.selected_measurement, None,
             "Default panel should have no selected measurement"
         );
-    }
-
-    #[test]
-    fn measurement_menu_labels_include_icons() {
-        assert_eq!(
-            MeasurementPanel::SHOW_MEASUREMENTS_LABEL,
-            "👁 Show Measurements"
-        );
-        assert_eq!(MeasurementPanel::TAKE_P1_LABEL, "⌖ Take P1 at click");
-        assert_eq!(MeasurementPanel::TAKE_P2_LABEL, "⌖ Take P2 at click");
     }
 }

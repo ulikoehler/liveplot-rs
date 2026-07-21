@@ -4,7 +4,7 @@ use crate::data::data::{ScreenshotRequest, ScreenshotTarget};
 use crate::data::scope::ScopeData;
 use crate::data::traces::TracesCollection;
 use egui::{Stroke, Ui, Visuals, WidgetText};
-use egui_phosphor::regular::{BROOM, MINUS, PLUS, SIDEBAR};
+use egui_phosphor_icons::icons::{BROOM, EYE, MINUS, PLUS, SIDEBAR};
 use egui_tiles::{
     Behavior, Container, Linear, LinearDir, TabState, Tabs, Tile, TileId, Tiles, Tree, UiResponse,
 };
@@ -145,20 +145,24 @@ impl LiveplotPanel {
         });
 
         // Add an icon to the Scopes menu for easier recognition; collapse to icon when narrow
-        let scopes_label = if collapsed { "🔭" } else { "🔭 Scopes" };
+        let scopes_label = if collapsed {
+            EYE.as_str().to_string()
+        } else {
+            format!("{} Scopes", EYE.as_str())
+        };
         egui::containers::menu::MenuButton::new(scopes_label)
             .config(
                 egui::containers::menu::MenuConfig::new()
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
             )
             .ui(ui, |ui| {
-                if ui.button(format!("{PLUS} Add scope")).clicked() {
+                if ui.button(format!("{} Add scope", PLUS.as_str())).clicked() {
                     self.add_scope();
                     self.structure_changed = true;
                 }
 
                 if ui
-                    .button(format!("{BROOM} Clear all"))
+                    .button(format!("{} Clear all", BROOM.as_str()))
                     .on_hover_text("Clear all trace data")
                     .clicked()
                 {
@@ -641,9 +645,9 @@ where
         _scroll_offset: &mut f32,
     ) {
         let icon = if self.controls_currently_on {
-            MINUS
+            MINUS.as_str()
         } else {
-            SIDEBAR
+            SIDEBAR.as_str()
         };
         let label = format!("{icon} Controls");
         if ui

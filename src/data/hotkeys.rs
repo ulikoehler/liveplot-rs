@@ -770,13 +770,13 @@ fn collapse_decision_very_narrow_window() {
 
 #[test]
 fn collapse_decision_exactly_at_boundary() {
-    // Exactly at the boundary: should NOT collapse (≥ required)
-    assert!(!should_collapse_topbar(100.0, 100.0));
+    // Exactly at the boundary (available == required + 80px buffer): should NOT collapse
+    assert!(!should_collapse_topbar(180.0, 100.0));
 }
 
 #[test]
 fn collapse_decision_one_pixel_short() {
     // One floating-point unit below the threshold: should collapse
-    assert!(should_collapse_topbar(99.999_985, 100.0));
+    assert!(should_collapse_topbar(179.999_985, 100.0));
 }
 // tests moved to `tests/hotkeys.rs`

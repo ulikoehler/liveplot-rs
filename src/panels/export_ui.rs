@@ -4,6 +4,9 @@ use crate::data::data::{ScreenshotRequest, ScreenshotTarget};
 use crate::data::export; // main crate's export module
 use crate::data::traces::TraceRef;
 use egui::Ui;
+use egui_phosphor_icons::icons::{EXPORT, FOLDER_OPEN, IMAGE, FILE_CSV};
+#[cfg(feature = "parquet")]
+use egui_phosphor_icons::icons::TABLE;
 use std::collections::HashMap;
 
 pub struct ExportPanel {
@@ -12,16 +15,11 @@ pub struct ExportPanel {
 impl Default for ExportPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Export", "📤"),
+            state: PanelState::new("Export", EXPORT.as_str()),
         }
     }
 }
 
-impl ExportPanel {
-    pub const SNAPSHOT_CSV_LABEL: &'static str = "🖹 Snapshot as CSV";
-    pub const SAVE_STATE_LABEL: &'static str = "📂 Save state...";
-    pub const LOAD_STATE_LABEL: &'static str = "📂 Load state...";
-}
 
 impl Panel for ExportPanel {
     fn state(&self) -> &PanelState {
@@ -55,7 +53,7 @@ impl Panel for ExportPanel {
             .config(menu_cfg)
             .ui(ui, |ui| {
                 if ui
-                    .button("🖼 Save Screenshot")
+                    .button(format!("{} Save Screenshot", IMAGE.as_str()))
                     .on_hover_text("Take one screenshot of the full center panel")
                     .clicked()
                 {
@@ -65,7 +63,10 @@ impl Panel for ExportPanel {
                     });
                     ui.close();
                 }
-                if ui.button("Snapshot as CSV").clicked() {
+                if ui
+                    .button(format!("{} Snapshot as CSV", FILE_CSV.as_str()))
+                    .clicked()
+                {
                     if let Some(path) = rfd::FileDialog::new()
                         .set_file_name("snapshot.csv")
                         .add_filter("CSV", &["csv"])
@@ -111,7 +112,7 @@ impl Panel for ExportPanel {
                 }
                 // Move Save/Load state into Export menu
                 ui.separator();
-                if ui.button(Self::SAVE_STATE_LABEL).clicked() {
+                if ui.button(format!("{} Save state...", FOLDER_OPEN.as_str())).clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("JSON", &["json"])
                         .set_file_name("liveplot_state.json")
@@ -121,7 +122,7 @@ impl Panel for ExportPanel {
                     }
                     ui.close();
                 }
-                if ui.button(Self::LOAD_STATE_LABEL).clicked() {
+                if ui.button(format!("{} Load state...", FOLDER_OPEN.as_str())).clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("JSON", &["json"])
                         .pick_file()
@@ -132,7 +133,10 @@ impl Panel for ExportPanel {
                 }
                 #[cfg(feature = "parquet")]
                 {
-                    if ui.button("Snapshot as Parquet").clicked() {
+                    if ui
+                        .button(format!("{} Snapshot as Parquet", TABLE.as_str()))
+                        .clicked()
+                    {
                         if let Some(path) = rfd::FileDialog::new()
                             .set_file_name("snapshot.parquet")
                             .add_filter("Parquet", &["parquet"])
