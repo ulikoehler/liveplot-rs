@@ -1,8 +1,8 @@
+use egui::Color32;
 use liveplot::color_scheme;
 use liveplot::data::trace_look::TraceLook;
 use liveplot::data::traces::{TraceData, TraceRef, TracesCollection};
 use liveplot::sink::PlotCommand;
-use egui::Color32;
 
 #[test]
 fn cap_and_decimate_reduces_points() {
@@ -60,10 +60,7 @@ fn recolor_changes_existing_traces() {
     let first_color = col.get_trace(&TraceRef("a".into())).unwrap().look.color;
     assert_ne!(first_color, Color32::GRAY); // sanity
                                             // set a simple custom palette
-    color_scheme::set_global_palette(vec![
-        Color32::from_rgb(9, 9, 9),
-        Color32::from_rgb(8, 8, 8),
-    ]);
+    color_scheme::set_global_palette(vec![Color32::from_rgb(9, 9, 9), Color32::from_rgb(8, 8, 8)]);
     col.recolor_using_palette();
     assert_eq!(
         col.get_trace(&TraceRef("a".into())).unwrap().look.color,
@@ -228,10 +225,7 @@ fn next_color_index_sequential_when_palette_full() {
 #[test]
 fn alloc_color_uses_global_palette() {
     // start with known palette
-    color_scheme::set_global_palette(vec![
-        Color32::from_rgb(1, 2, 3),
-        Color32::from_rgb(4, 5, 6),
-    ]);
+    color_scheme::set_global_palette(vec![Color32::from_rgb(1, 2, 3), Color32::from_rgb(4, 5, 6)]);
     assert_eq!(TraceLook::alloc_color(0), Color32::from_rgb(1, 2, 3));
     assert_eq!(TraceLook::alloc_color(1), Color32::from_rgb(4, 5, 6));
     assert_eq!(TraceLook::alloc_color(2), Color32::from_rgb(1, 2, 3));

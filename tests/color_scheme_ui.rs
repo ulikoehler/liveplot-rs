@@ -1,6 +1,6 @@
+use egui::Color32;
 use liveplot::panels::color_scheme_ui::{ColorSchemePanel, NamedCustomScheme};
 use liveplot::ColorScheme;
-use egui::Color32;
 
 #[test]
 fn named_custom_scheme_roundtrip() {
@@ -68,8 +68,7 @@ fn save_replaces_existing_name() {
     panel.editing_palette = vec![Color32::from_rgb(7, 8, 9)];
     let name = "MyName".to_string();
     if let Some(pos) = panel.custom_schemes.iter().position(|s| s.name == name) {
-        panel.custom_schemes[pos] =
-            NamedCustomScheme::from_palette(&name, &panel.editing_palette);
+        panel.custom_schemes[pos] = NamedCustomScheme::from_palette(&name, &panel.editing_palette);
     }
 
     assert_eq!(panel.custom_schemes.len(), 1);

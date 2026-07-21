@@ -4,9 +4,9 @@ use crate::data::data::{ScreenshotRequest, ScreenshotTarget};
 use crate::data::export; // main crate's export module
 use crate::data::traces::TraceRef;
 use egui::Ui;
-use egui_phosphor_icons::icons::{EXPORT, FOLDER_OPEN, IMAGE, FILE_CSV};
 #[cfg(feature = "parquet")]
 use egui_phosphor_icons::icons::TABLE;
+use egui_phosphor_icons::icons::{EXPORT, FILE_CSV, FOLDER_OPEN, IMAGE};
 use std::collections::HashMap;
 
 pub struct ExportPanel {
@@ -19,7 +19,6 @@ impl Default for ExportPanel {
         }
     }
 }
-
 
 impl Panel for ExportPanel {
     fn state(&self) -> &PanelState {
@@ -112,7 +111,10 @@ impl Panel for ExportPanel {
                 }
                 // Move Save/Load state into Export menu
                 ui.separator();
-                if ui.button(format!("{} Save state...", FOLDER_OPEN.as_str())).clicked() {
+                if ui
+                    .button(format!("{} Save state...", FOLDER_OPEN.as_str()))
+                    .clicked()
+                {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("JSON", &["json"])
                         .set_file_name("liveplot_state.json")
@@ -122,7 +124,10 @@ impl Panel for ExportPanel {
                     }
                     ui.close();
                 }
-                if ui.button(format!("{} Load state...", FOLDER_OPEN.as_str())).clicked() {
+                if ui
+                    .button(format!("{} Load state...", FOLDER_OPEN.as_str()))
+                    .clicked()
+                {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("JSON", &["json"])
                         .pick_file()

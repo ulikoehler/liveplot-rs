@@ -770,4 +770,3 @@ impl TraceData {
         out
     }
 }
-

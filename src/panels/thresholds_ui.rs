@@ -8,7 +8,7 @@ use crate::panels::trace_look_ui::render_trace_look_editor;
 use chrono::Local;
 use egui;
 use egui::{Color32, Ui};
-use egui_phosphor_icons::icons::{FILE_TEXT, PLUS, WARNING, X, BROOM};
+use egui_phosphor_icons::icons::{BROOM, FILE_TEXT, PLUS, WARNING, X};
 use egui_plot::{HLine, LineStyle, MarkerShape, Points, VLine};
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 use std::cmp::Ordering;
@@ -917,7 +917,6 @@ impl Panel for ThresholdsPanel {
         serde_json::to_string(&ser).ok()
     }
 }
-
 
 impl ThresholdsPanel {
     pub fn save_threshold_events_csv(

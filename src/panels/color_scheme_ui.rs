@@ -422,4 +422,3 @@ impl Panel for ColorSchemePanel {
         serde_json::to_string(&snap).ok()
     }
 }
-

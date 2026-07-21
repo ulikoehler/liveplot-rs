@@ -28,7 +28,6 @@ impl Default for MeasurementPanel {
     }
 }
 
-
 impl MeasurementPanel {
     fn trace_point_to_plot_coords(
         scope: &ScopeData,
@@ -142,11 +141,17 @@ impl Panel for MeasurementPanel {
                     }
                     ui.close();
                 }
-                if ui.button(format!("{} Take P1 at click", CROSSHAIR.as_str())).clicked() {
+                if ui
+                    .button(format!("{} Take P1 at click", CROSSHAIR.as_str()))
+                    .clicked()
+                {
                     self.selected_point_index = Some(0);
                     ui.close();
                 }
-                if ui.button(format!("{} Take P2 at click", CROSSHAIR.as_str())).clicked() {
+                if ui
+                    .button(format!("{} Take P2 at click", CROSSHAIR.as_str()))
+                    .clicked()
+                {
                     self.selected_point_index = Some(1);
                     ui.close();
                 }
@@ -894,4 +899,3 @@ impl MeasurementPanel {
         }
     }
 }
-
