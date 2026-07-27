@@ -347,7 +347,7 @@ fn envelope_incremental_remove_no_recompute_when_not_extreme() {
         let y = if i % 100 == 0 { 5.0 } else { 0.0 };
         td.live.push_back([x, y]);
     }
-    td.recompute_envelope(100, 1.0);
+    td.recompute_envelope(100, 10.0);
     // Remove a point with y=0 (not min or max of its bucket)
     let removed = td.live[500]; // y=0, not extreme
     td.envelope_remove_point(removed);
@@ -366,7 +366,7 @@ fn envelope_incremental_remove_recomputes_when_extreme() {
         let y = if i % 100 == 0 { 5.0 } else { 0.0 };
         td.live.push_back([x, y]);
     }
-    td.recompute_envelope(100, 1.0);
+    td.recompute_envelope(100, 10.0);
     // Remove a point with y=5.0 (the max of its bucket)
     let removed = td.live[0]; // y=5.0, the max
     td.live.pop_front();
@@ -389,7 +389,7 @@ fn envelope_scroll_no_recompute() {
 #[test]
 fn envelope_buckets_cover_all_data() {
     let mut td = make_trace_with_points(10_000);
-    td.recompute_envelope(100, 1.0);
+    td.recompute_envelope(100, 10.0);
     let cache = td.envelope_cache.as_ref().unwrap();
     let data_min_x = td.live.front().unwrap()[0];
     let data_max_x = td.live.back().unwrap()[0];
@@ -398,4 +398,80 @@ fn envelope_buckets_cover_all_data() {
     // Last bucket should cover data_max_x
     let last = cache.buckets.back().unwrap();
     assert!(last.x_max >= data_max_x || (last.x_min - data_max_x).abs() < cache.bucket_width);
+}
+
+// ── Density cache tests ───────────────────────────────────────────────
+
+#[test]
+fn density_recompute_creates_grid() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_density(100, 10.0);
+    let cache = td.density_cache.expect("density cache should exist");
+    assert!(cache.num_x_buckets > 0);
+    assert_eq!(cache.num_y_buckets, 200);
+    assert!(cache.max_count > 0);
+    // Total counts should equal number of points
+    let total: u32 = cache.cells.iter().flat_map(|c| c.counts.iter().map(|&v| v as u32)).sum();
+    assert_eq!(total, 10_000);
+}
+
+#[test]
+fn density_incremental_add_increments_cell() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_density(100, 10.0);
+    let cache = td.density_cache.as_ref().unwrap();
+    let xi = cache.num_x_buckets / 2;
+    let yi = cache.num_y_buckets / 2;
+    let x = cache.origin_x + xi as f64 * cache.bucket_width + 1e-6;
+    let y = cache.origin_y + yi as f64 * cache.bucket_height + 1e-6;
+    let count_before = cache.cells[xi].counts[yi];
+    td.density_add_point([x, y]);
+    let cache = td.density_cache.as_ref().unwrap();
+    assert_eq!(cache.cells[xi].counts[yi], count_before + 1);
+}
+
+#[test]
+fn density_incremental_remove_decrements_cell() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_density(100, 10.0);
+    let cache = td.density_cache.as_ref().unwrap();
+    // Find a non-empty cell
+    let (xi, yi, count_before) = cache.cells.iter().enumerate()
+        .flat_map(|(xi, col)| col.counts.iter().enumerate().map(move |(yi, &c)| (xi, yi, c)))
+        .find(|(_, _, c)| *c > 0)
+        .expect("at least one non-empty cell");
+    let x = cache.origin_x + xi as f64 * cache.bucket_width + 1e-6;
+    let y = cache.origin_y + yi as f64 * cache.bucket_height + 1e-6;
+    td.density_remove_point([x, y]);
+    let cache = td.density_cache.as_ref().unwrap();
+    assert_eq!(cache.cells[xi].counts[yi], count_before - 1);
+}
+
+#[test]
+fn density_add_outside_y_range_triggers_recompute() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_density(100, 10.0);
+    // Add a point with y far outside the current range
+    let x = td.live.back().unwrap()[0] - 0.1;
+    td.density_add_point([x, 1e6]);
+    // Cache should be cleared (needs recompute)
+    assert!(td.density_cache.is_none());
+}
+
+#[test]
+fn density_scroll_no_recompute() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_density(100, 10.0);
+    let needs = td.density_needs_recompute(100, 10.0);
+    assert!(!needs, "scrolling should not trigger density recompute");
+}
+
+#[test]
+fn density_recompute_on_width_change() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_density(100, 10.0);
+    let bw1 = td.density_cache.as_ref().unwrap().bucket_width;
+    td.recompute_density(200, 10.0);
+    let bw2 = td.density_cache.as_ref().unwrap().bucket_width;
+    assert_ne!(bw1, bw2);
 }

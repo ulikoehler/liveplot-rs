@@ -9,6 +9,7 @@ use crate::data::scope::ScopeType;
 use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
 use crate::data::trace_look::RenderMode;
+use crate::data::density_render::paint_density;
 use crate::events::EventController;
 use egui_phosphor_icons::icons::{
     ARROWS_DOWN_UP, ARROWS_LEFT_RIGHT, IMAGE, MAGNIFYING_GLASS, PAUSE, PLAY,
@@ -1318,16 +1319,94 @@ impl ScopePanel {
                             tr.look.point_size,
                             tr.look.marker,
                             tr.info.clone(),
+                            tr.look.brightness_gain,
                         ),
                         None => continue,
                     };
-                    let (render_mode, offset, base_color, base_width, style, show_points, point_size, marker, info) = trace_info;
+                    let (render_mode, offset, base_color, base_width, style, show_points, point_size, marker, info, brightness_gain) = trace_info;
+
+                    // Density splatting: paint density grid directly, skip line drawing
+                    if render_mode == RenderMode::DensitySplatting {
+                        // Check hover state before mutable borrow for density cache
+                        let is_dimmed = traces.hover_trace.as_ref().map_or(false, |hov| !hov.contains(&name));
+                        let mut color = base_color;
+                        if is_dimmed {
+                            color = Color32::from_rgba_unmultiplied(
+                                color.r(),
+                                color.g(),
+                                color.b(),
+                                40,
+                            );
+                        }
+                        if let Some(dcache) = traces.get_density_cache(
+                            &name,
+                            self.data.paused,
+                            self.data.x_axis.bounds,
+                            self.data.time_window,
+                            screen_width,
+                        ) {
+                            let transform = plot_ui.transform();
+                            let resp = plot_ui.response();
+                            let painter = resp.ctx.layer_painter(resp.layer_id);
+                            paint_density(
+                                &painter,
+                                transform,
+                                dcache,
+                                color,
+                                brightness_gain,
+                                self.data.x_axis.bounds,
+                            );
+                        }
+                        // Still draw a thin outline line for context
+                        let shown_pts = match traces.get_drawn_points_envelope(
+                            &name,
+                            self.data.paused,
+                            self.data.x_axis.bounds,
+                            self.data.time_window,
+                            screen_width,
+                        ) {
+                            Some(pts) => pts,
+                            None => continue,
+                        };
+                        let pts_vec: Vec<[f64; 2]> = shown_pts
+                            .into_iter()
+                            .map(|p| {
+                                let y_lin = p[1] + offset;
+                                let y = if self.data.y_axis.log_scale {
+                                    if y_lin > 0.0 { y_lin.log10() } else { f64::NAN }
+                                } else { y_lin };
+                                let x = if self.data.x_axis.log_scale {
+                                    if p[0] > 0.0 { p[0].log10() } else { f64::NAN }
+                                } else { p[0] };
+                                [x, y]
+                            })
+                            .collect();
+                        let legend_label = if self.data.show_info_in_legend && !info.is_empty() {
+                            format!("{} — {}", name, info)
+                        } else {
+                            name.0.clone()
+                        };
+                        let line = Line::new(name.clone(), pts_vec)
+                            .color(Color32::from_rgba_unmultiplied(
+                                base_color.r(),
+                                base_color.g(),
+                                base_color.b(),
+                                80,
+                            ))
+                            .width(0.5)
+                            .style(style)
+                            .name(legend_label);
+                        plot_ui.line(line);
+                        continue;
+                    }
+
                     let shown_pts = match render_mode {
-                        RenderMode::MinMaxEnvelope | RenderMode::DensitySplatting => {
+                        RenderMode::MinMaxEnvelope => {
                             match traces.get_drawn_points_envelope(
                                 &name,
                                 self.data.paused,
                                 self.data.x_axis.bounds,
+                                self.data.time_window,
                                 screen_width,
                             ) {
                                 Some(pts) => pts,
@@ -1339,6 +1418,9 @@ impl ScopePanel {
                                 Some(pts) => pts,
                                 None => continue,
                             }
+                        }
+                        RenderMode::DensitySplatting => {
+                            continue; // handled above
                         }
                     };
                     let pts_vec: Vec<[f64; 2]> = shown_pts

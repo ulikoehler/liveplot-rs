@@ -200,6 +200,7 @@ impl TracesCollection {
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
                                     envelope_cache: None,
+                                    density_cache: None,
                                 })
                             }
                         };
@@ -236,14 +237,21 @@ impl TracesCollection {
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
                                         envelope_cache: None,
+                                        density_cache: None,
                                     })
                                 }
                             };
                             entry.live.push_back([point.x, point.y]);
-                            entry.envelope_add_point([point.x, point.y]);
+                            if entry.snap.is_none() {
+                                entry.envelope_add_point([point.x, point.y]);
+                                entry.density_add_point([point.x, point.y]);
+                            }
                             if entry.live.len() > self.max_points {
                                 if let Some(removed) = entry.live.pop_front() {
-                                    entry.envelope_remove_point(removed);
+                                    if entry.snap.is_none() {
+                                        entry.envelope_remove_point(removed);
+                                        entry.density_remove_point(removed);
+                                    }
                                 }
                             }
                         } else {
@@ -267,10 +275,14 @@ impl TracesCollection {
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
                                     envelope_cache: None,
+                                    density_cache: None,
                                 }
                             });
                             entry.live.push_back([point.x, point.y]);
-                            entry.envelope_add_point([point.x, point.y]);
+                            if entry.snap.is_none() {
+                                entry.envelope_add_point([point.x, point.y]);
+                                entry.density_add_point([point.x, point.y]);
+                            }
                         }
                     }
                     PlotCommand::Points { trace_id, points } => {
@@ -294,16 +306,23 @@ impl TracesCollection {
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
                                         envelope_cache: None,
+                                        density_cache: None,
                                     })
                                 }
                             };
                             for p in points {
                                 entry.live.push_back([p.x, p.y]);
-                                entry.envelope_add_point([p.x, p.y]);
+                                if entry.snap.is_none() {
+                                    entry.envelope_add_point([p.x, p.y]);
+                                    entry.density_add_point([p.x, p.y]);
+                                }
                             }
                             while entry.live.len() > self.max_points {
                                 if let Some(removed) = entry.live.pop_front() {
-                                    entry.envelope_remove_point(removed);
+                                    if entry.snap.is_none() {
+                                        entry.envelope_remove_point(removed);
+                                        entry.density_remove_point(removed);
+                                    }
                                 }
                             }
                         }
@@ -329,11 +348,13 @@ impl TracesCollection {
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
                                         envelope_cache: None,
+                                        density_cache: None,
                                     })
                                 }
                             };
                             entry.live.clear();
                             entry.envelope_cache = None;
+                            entry.density_cache = None;
                             for p in points {
                                 entry.live.push_back([p.x, p.y]);
                             }
@@ -345,6 +366,7 @@ impl TracesCollection {
                             if let Some(tr) = self.traces.get_mut(&tref) {
                                 tr.live.clear();
                                 tr.envelope_cache = None;
+                                tr.density_cache = None;
                             }
                         }
                     }
@@ -480,6 +502,7 @@ impl TracesCollection {
                     #[cfg(feature = "fft")]
                     last_fft: None,
                     envelope_cache: None,
+                    density_cache: None,
                 },
             );
         }
@@ -575,6 +598,7 @@ impl TracesCollection {
         name: &TraceRef,
         snapshot: bool,
         bounds: (f64, f64),
+        visible_width: f64,
         screen_width: usize,
     ) -> Option<Vec<[f64; 2]>> {
         let trace = self.traces.get_mut(name)?;
@@ -598,14 +622,19 @@ impl TracesCollection {
             );
         }
 
-        let visible_width = bounds.1 - bounds.0;
         if visible_width <= 0.0 || screen_width == 0 {
             return Some(Vec::new());
         }
 
         // Ensure cache is valid for current params
         if trace.envelope_needs_recompute(screen_width, visible_width) {
-            trace.recompute_envelope(screen_width, visible_width);
+            // Build cache from the correct data source (snapshot when paused)
+            let source_for_recompute: VecDeque<[f64; 2]> = if snapshot {
+                trace.snap.as_ref().unwrap_or(&trace.live).clone()
+            } else {
+                trace.live.clone()
+            };
+            trace.recompute_envelope_from(&source_for_recompute, screen_width, visible_width);
         }
 
         let cache = trace.envelope_cache.as_ref()?;
@@ -625,6 +654,37 @@ impl TracesCollection {
         }
 
         Some(out)
+    }
+
+    /// Ensure the density cache for a trace is valid and return a reference to it.
+    /// Returns None if the trace doesn't exist or has no data.
+    pub fn get_density_cache(
+        &mut self,
+        name: &TraceRef,
+        snapshot: bool,
+        _bounds: (f64, f64),
+        visible_width: f64,
+        screen_width: usize,
+    ) -> Option<&DensityCache> {
+        let trace = self.traces.get_mut(name)?;
+        let source: &VecDeque<[f64; 2]> = if snapshot {
+            trace.snap.as_ref().unwrap_or(&trace.live)
+        } else {
+            &trace.live
+        };
+        if source.is_empty() || screen_width == 0 {
+            return None;
+        }
+
+        if visible_width <= 0.0 {
+            return None;
+        }
+
+        if trace.density_needs_recompute(screen_width, visible_width) {
+            trace.recompute_density(screen_width, visible_width);
+        }
+
+        trace.density_cache.as_ref()
     }
 
     pub fn get_all_points(&self, snapshot: bool) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
@@ -780,6 +840,69 @@ impl EnvelopeCache {
     }
 }
 
+/// A column of y-bucket counts in the density grid.
+pub struct DensityColumn {
+    /// Count of points in each y-bucket for this x-bucket.
+    pub counts: Vec<u16>,
+}
+
+/// 2D density grid cache for a trace.
+///
+/// Uses the same x-bucketing as `EnvelopeCache` (bucket_width = visible_width / screen_width).
+/// Y-buckets cover the data's y-range with a fixed resolution (default 200 buckets).
+/// Maintained incrementally on point add/remove. Full recompute only on cache miss,
+/// screen_width change, visible_width change, or y-range expansion.
+pub struct DensityCache {
+    /// One column per x-bucket, each containing `num_y_buckets` counts.
+    pub cells: Vec<DensityColumn>,
+    /// X-bucket width in data units (= visible_width / screen_width).
+    pub bucket_width: f64,
+    /// Y-bucket height in data units.
+    pub bucket_height: f64,
+    /// X-value of the left edge of the first bucket.
+    pub origin_x: f64,
+    /// Y-value of the bottom edge of the first bucket.
+    pub origin_y: f64,
+    /// Number of x-buckets (grows as data extends).
+    pub num_x_buckets: usize,
+    /// Number of y-buckets (fixed at recompute time).
+    pub num_y_buckets: usize,
+    /// Screen width the cache was built for.
+    pub screen_width: usize,
+    /// Visible range width the cache was built for.
+    pub visible_width: f64,
+    /// Maximum count in any single cell (for normalization during rendering).
+    pub max_count: u16,
+}
+
+impl DensityCache {
+    /// Compute x-bucket index for a given x-value. Returns None if out of range.
+    pub fn x_bucket_index(&self, x: f64) -> Option<usize> {
+        if x < self.origin_x || self.bucket_width <= 0.0 {
+            return None;
+        }
+        let idx = ((x - self.origin_x) / self.bucket_width + 1e-9) as usize;
+        if idx < self.num_x_buckets {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+
+    /// Compute y-bucket index for a given y-value. Returns None if out of range.
+    pub fn y_bucket_index(&self, y: f64) -> Option<usize> {
+        if y < self.origin_y || self.bucket_height <= 0.0 {
+            return None;
+        }
+        let idx = ((y - self.origin_y) / self.bucket_height + 1e-9) as usize;
+        if idx < self.num_y_buckets {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+}
+
 /// Per-trace data: live buffer, optional snapshot, and styling.
 #[derive(Default)]
 pub struct TraceData {
@@ -804,13 +927,18 @@ pub struct TraceData {
     /// Incremental min/max envelope cache. Built lazily on first render
     /// request, then maintained incrementally on point add/remove.
     pub envelope_cache: Option<EnvelopeCache>,
+    /// 2D density grid cache for density splatting render mode.
+    pub density_cache: Option<DensityCache>,
 }
 
 impl TraceData {
     pub fn prune_by_points(&mut self, max_points: usize) {
         while self.live.len() > max_points {
             if let Some(removed) = self.live.pop_front() {
-                self.envelope_remove_point(removed);
+                if self.snap.is_none() {
+                    self.envelope_remove_point(removed);
+                    self.density_remove_point(removed);
+                }
             }
         }
     }
@@ -828,7 +956,10 @@ impl TraceData {
         while let Some(&front) = self.live.front() {
             if front[0] < cutoff {
                 self.live.pop_front();
-                self.envelope_remove_point(front);
+                if self.snap.is_none() {
+                    self.envelope_remove_point(front);
+                    self.density_remove_point(front);
+                }
             } else {
                 break;
             }
@@ -839,14 +970,21 @@ impl TraceData {
         self.live.clear();
         self.snap = None;
         self.envelope_cache = None;
+        self.density_cache = None;
     }
 
     pub fn take_snapshot(&mut self) {
         self.snap = Some(self.live.clone());
+        // Clear caches so they rebuild from snapshot data on next render
+        self.envelope_cache = None;
+        self.density_cache = None;
     }
 
     pub fn clear_snapshot(&mut self) {
         self.snap = None;
+        // Clear caches so they rebuild from live data on next render
+        self.envelope_cache = None;
+        self.density_cache = None;
     }
 
     pub fn get_last_live_timestamp(&self) -> Option<f64> {
@@ -904,25 +1042,49 @@ impl TraceData {
     /// Full O(n) recompute of the envelope cache. Called on cache miss,
     /// screen_width change, or visible_width (zoom) change.
     pub fn recompute_envelope(&mut self, screen_width: usize, visible_width: f64) {
-        if self.live.is_empty() || screen_width == 0 || visible_width <= 0.0 {
+        let live = self.live.clone();
+        self.recompute_envelope_from(&live, screen_width, visible_width);
+    }
+
+    /// Full O(n) recompute of the envelope cache from a specific data source.
+    /// Used to build the cache from snapshot data when paused.
+    pub fn recompute_envelope_from(
+        &mut self,
+        source: &VecDeque<[f64; 2]>,
+        screen_width: usize,
+        visible_width: f64,
+    ) {
+        let had_cache = self.envelope_cache.is_some();
+        eprintln!(
+            "[envelope] recompute: screen_width={}, visible_width={:.6}, source_len={}, had_cache={}",
+            screen_width, visible_width, source.len(), had_cache
+        );
+        if source.is_empty() || screen_width == 0 || visible_width <= 0.0 {
             self.envelope_cache = None;
             return;
         }
-        if self.live.len() <= screen_width {
+        if source.len() <= screen_width {
             // No envelope needed — few enough points to draw directly
             self.envelope_cache = None;
             return;
         }
 
-        let data_min_x = self.live.front().map(|p| p[0]).unwrap_or(0.0);
-        let data_max_x = self.live.back().map(|p| p[0]).unwrap_or(0.0);
+        let data_min_x = source.front().map(|p| p[0]).unwrap_or(0.0);
+        let data_max_x = source.back().map(|p| p[0]).unwrap_or(0.0);
         let bucket_width = visible_width / screen_width as f64;
         if bucket_width <= 0.0 {
             self.envelope_cache = None;
             return;
         }
         let data_range = data_max_x - data_min_x;
-        let num_buckets = ((data_range / bucket_width).ceil() as usize).max(1);
+        let max_buckets = 2 * screen_width;
+        let (origin_x, num_buckets) = if data_range > max_buckets as f64 * bucket_width {
+            // Data range exceeds what we need — only cache the most recent portion
+            let origin = data_max_x - max_buckets as f64 * bucket_width;
+            (origin, max_buckets)
+        } else {
+            (data_min_x, ((data_range / bucket_width).ceil() as usize).max(1))
+        };
 
         let mut buckets: VecDeque<EnvelopeBucket> = VecDeque::with_capacity(num_buckets);
         for _ in 0..num_buckets {
@@ -931,13 +1093,16 @@ impl TraceData {
 
         // Initialize bucket x-ranges
         for (i, b) in buckets.iter_mut().enumerate() {
-            b.x_min = data_min_x + i as f64 * bucket_width;
+            b.x_min = origin_x + i as f64 * bucket_width;
             b.x_max = b.x_min + bucket_width;
         }
 
-        // Assign each point to its bucket
-        for &p in &self.live {
-            let idx = ((p[0] - data_min_x) / bucket_width + 1e-9) as usize;
+        // Assign each point to its bucket (skip points before origin_x)
+        for &p in source {
+            if p[0] < origin_x {
+                continue;
+            }
+            let idx = ((p[0] - origin_x) / bucket_width + 1e-9) as usize;
             let idx = idx.min(num_buckets - 1);
             let b = &mut buckets[idx];
             if b.count == 0 {
@@ -953,7 +1118,7 @@ impl TraceData {
         self.envelope_cache = Some(EnvelopeCache {
             buckets,
             bucket_width,
-            origin_x: data_min_x,
+            origin_x,
             screen_width,
             visible_width,
         });
@@ -1018,10 +1183,11 @@ impl TraceData {
                     });
                 }
             }
-            // Rebalance check: if bucket count grew too large, mark for recompute
-            if cache.buckets.len() > 2 * cache.screen_width {
-                // Mark stale by clearing — will be recomputed on next render
-                self.envelope_cache = None;
+            // Rebalance: if bucket count grew too large, evict oldest buckets
+            // instead of clearing the entire cache
+            while cache.buckets.len() > 2 * cache.screen_width {
+                cache.buckets.pop_front();
+                cache.origin_x += cache.bucket_width;
             }
         }
     }
@@ -1080,6 +1246,170 @@ impl TraceData {
         let non_empty_count = cache.buckets.iter().filter(|b| b.count > 0).count();
         if non_empty_count < cache.screen_width / 2 {
             self.envelope_cache = None;
+        }
+    }
+
+    // ── Density cache methods ───────────────────────────────────────────
+
+    /// Number of y-buckets for the density grid.
+    const DENSITY_Y_BUCKETS: usize = 200;
+
+    /// Full O(n) recompute of the density cache.
+    pub fn recompute_density(&mut self, screen_width: usize, visible_width: f64) {
+        if self.live.is_empty() || screen_width == 0 || visible_width <= 0.0 {
+            self.density_cache = None;
+            return;
+        }
+
+        let data_min_x = self.live.front().map(|p| p[0]).unwrap_or(0.0);
+        let data_max_x = self.live.back().map(|p| p[0]).unwrap_or(0.0);
+        let bucket_width = visible_width / screen_width as f64;
+        if bucket_width <= 0.0 {
+            self.density_cache = None;
+            return;
+        }
+
+        // Compute y-range from data
+        let mut data_min_y = f64::INFINITY;
+        let mut data_max_y = f64::NEG_INFINITY;
+        for &p in &self.live {
+            data_min_y = data_min_y.min(p[1]);
+            data_max_y = data_max_y.max(p[1]);
+        }
+        if !data_min_y.is_finite() || !data_max_y.is_finite() {
+            self.density_cache = None;
+            return;
+        }
+        // Add 1% padding to y-range to avoid edge points falling outside
+        let y_range = (data_max_y - data_min_y).max(1e-9);
+        let y_pad = y_range * 0.01;
+        data_min_y -= y_pad;
+        data_max_y += y_pad;
+        let y_range_padded = data_max_y - data_min_y;
+        let bucket_height = y_range_padded / Self::DENSITY_Y_BUCKETS as f64;
+
+        let data_range = data_max_x - data_min_x;
+        let num_x_buckets = ((data_range / bucket_width).ceil() as usize).max(1);
+        let num_y_buckets = Self::DENSITY_Y_BUCKETS;
+
+        let mut cells: Vec<DensityColumn> = Vec::with_capacity(num_x_buckets);
+        for _ in 0..num_x_buckets {
+            cells.push(DensityColumn {
+                counts: vec![0u16; num_y_buckets],
+            });
+        }
+
+        let mut max_count: u16 = 0;
+        for &p in &self.live {
+            let xi = ((p[0] - data_min_x) / bucket_width + 1e-9) as usize;
+            let xi = xi.min(num_x_buckets - 1);
+            let yi = ((p[1] - data_min_y) / bucket_height + 1e-9) as usize;
+            let yi = yi.min(num_y_buckets - 1);
+            let cell = &mut cells[xi];
+            cell.counts[yi] = cell.counts[yi].saturating_add(1);
+            if cell.counts[yi] > max_count {
+                max_count = cell.counts[yi];
+            }
+        }
+
+        self.density_cache = Some(DensityCache {
+            cells,
+            bucket_width,
+            bucket_height,
+            origin_x: data_min_x,
+            origin_y: data_min_y,
+            num_x_buckets,
+            num_y_buckets,
+            screen_width,
+            visible_width,
+            max_count,
+        });
+    }
+
+    /// Check if the density cache needs a full recompute for the given params.
+    pub fn density_needs_recompute(&self, screen_width: usize, visible_width: f64) -> bool {
+        match &self.density_cache {
+            None => true,
+            Some(c) => {
+                c.screen_width != screen_width
+                    || (c.visible_width - visible_width).abs() > visible_width * 0.001
+            }
+        }
+    }
+
+    /// Incremental update on point add — O(1).
+    pub fn density_add_point(&mut self, point: [f64; 2]) {
+        let cache = match &mut self.density_cache {
+            Some(c) => c,
+            None => return,
+        };
+
+        let xi = if cache.bucket_width <= 0.0 {
+            return;
+        } else {
+            ((point[0] - cache.origin_x) / cache.bucket_width + 1e-9) as usize
+        };
+
+        // Check if point is within existing y-range
+        let yi = if point[1] < cache.origin_y || point[1] >= cache.origin_y + cache.num_y_buckets as f64 * cache.bucket_height {
+            // Point outside y-range — need full recompute
+            self.density_cache = None;
+            return;
+        } else {
+            ((point[1] - cache.origin_y) / cache.bucket_height + 1e-9) as usize
+        };
+
+        if xi < cache.num_x_buckets {
+            if yi < cache.num_y_buckets {
+                let cell = &mut cache.cells[xi];
+                cell.counts[yi] = cell.counts[yi].saturating_add(1);
+                if cell.counts[yi] > cache.max_count {
+                    cache.max_count = cell.counts[yi];
+                }
+            }
+        } else {
+            // Point beyond current x-range — extend with empty columns
+            let start = cache.num_x_buckets;
+            for _ in start..=xi {
+                cache.cells.push(DensityColumn {
+                    counts: vec![0u16; cache.num_y_buckets],
+                });
+            }
+            cache.num_x_buckets = xi + 1;
+            if yi < cache.num_y_buckets {
+                let cell = &mut cache.cells[xi];
+                cell.counts[yi] = 1;
+                if cell.counts[yi] > cache.max_count {
+                    cache.max_count = cell.counts[yi];
+                }
+            }
+            // Rebalance check
+            if cache.num_x_buckets > 2 * cache.screen_width {
+                self.density_cache = None;
+            }
+        }
+    }
+
+    /// Incremental update on point remove — O(1).
+    /// Note: we don't rescan for max_count on remove; it's updated on next recompute.
+    pub fn density_remove_point(&mut self, point: [f64; 2]) {
+        let cache = match &mut self.density_cache {
+            Some(c) => c,
+            None => return,
+        };
+
+        let xi = match cache.x_bucket_index(point[0]) {
+            Some(i) => i,
+            None => return,
+        };
+        let yi = match cache.y_bucket_index(point[1]) {
+            Some(i) => i,
+            None => return,
+        };
+
+        let cell = &mut cache.cells[xi];
+        if cell.counts[yi] > 0 {
+            cell.counts[yi] -= 1;
         }
     }
 }
