@@ -569,22 +569,37 @@ impl TracesCollection {
             );
         }
         // Stride decimation: pick every Nth point within bounds
-        let stride = (len + max_pts - 1) / max_pts;
-        let mut out = Vec::with_capacity(max_pts.min(len));
-        let mut i = 0usize;
-        while i < len {
+        // First, find the index range of visible points
+        // (binary search not available on VecDeque, so linear scan from both ends)
+        let mut start = 0usize;
+        while start < len && source[start][0] < bounds.0 {
+            start += 1;
+        }
+        let mut end = len;
+        while end > start && source[end - 1][0] > bounds.1 {
+            end -= 1;
+        }
+        let visible_count = end - start;
+        if visible_count == 0 {
+            return Some(Vec::new());
+        }
+        if visible_count <= max_pts {
+            // All visible points fit — return them all
+            return Some(source.range(start..end).copied().collect());
+        }
+        // Decimate only within the visible index range
+        let stride = (visible_count + max_pts - 1) / max_pts;
+        let mut out = Vec::with_capacity(max_pts.min(visible_count));
+        let mut i = start;
+        while i < end {
             let p = source[i];
-            if p[0] >= bounds.0 && p[0] <= bounds.1 {
-                out.push(p);
-            }
+            out.push(p);
             i += stride;
         }
-        // Always include the last point so the line doesn't appear truncated
-        if let Some(&last) = source.back() {
-            if last[0] >= bounds.0 && last[0] <= bounds.1 {
-                if out.last() != Some(&last) {
-                    out.push(last);
-                }
+        // Always include the last visible point so the line doesn't appear truncated
+        if let Some(&last) = source.get(end - 1) {
+            if out.last() != Some(&last) {
+                out.push(last);
             }
         }
         Some(out)
@@ -627,14 +642,14 @@ impl TracesCollection {
         }
 
         // Ensure cache is valid for current params
-        if trace.envelope_needs_recompute(screen_width, visible_width) {
+        if trace.envelope_needs_recompute(screen_width, visible_width, bounds) {
             // Build cache from the correct data source (snapshot when paused)
             let source_for_recompute: VecDeque<[f64; 2]> = if snapshot {
                 trace.snap.as_ref().unwrap_or(&trace.live).clone()
             } else {
                 trace.live.clone()
             };
-            trace.recompute_envelope_from(&source_for_recompute, screen_width, visible_width);
+            trace.recompute_envelope_from(&source_for_recompute, screen_width, visible_width, Some(bounds));
         }
 
         let cache = trace.envelope_cache.as_ref()?;
@@ -648,9 +663,15 @@ impl TracesCollection {
             if b.x_max < bounds.0 || b.x_min > bounds.1 {
                 continue;
             }
-            // Emit min and max points for this bucket
-            out.push([b.x_min, b.y_min]);
-            out.push([b.x_max, b.y_max]);
+            if b.count == 1 {
+                // Single point — emit at bucket center to avoid staircase artifacts
+                let cx = (b.x_min + b.x_max) * 0.5;
+                out.push([cx, b.y_min]);
+            } else {
+                // Emit min and max points for this bucket
+                out.push([b.x_min, b.y_min]);
+                out.push([b.x_max, b.y_max]);
+            }
         }
 
         Some(out)
@@ -1043,16 +1064,19 @@ impl TraceData {
     /// screen_width change, or visible_width (zoom) change.
     pub fn recompute_envelope(&mut self, screen_width: usize, visible_width: f64) {
         let live = self.live.clone();
-        self.recompute_envelope_from(&live, screen_width, visible_width);
+        self.recompute_envelope_from(&live, screen_width, visible_width, None);
     }
 
     /// Full O(n) recompute of the envelope cache from a specific data source.
     /// Used to build the cache from snapshot data when paused.
+    /// `bounds` is the visible x-range; when data exceeds the cache capacity,
+    /// the cache is centered on the visible range instead of the most recent data.
     pub fn recompute_envelope_from(
         &mut self,
         source: &VecDeque<[f64; 2]>,
         screen_width: usize,
         visible_width: f64,
+        bounds: Option<(f64, f64)>,
     ) {
         let had_cache = self.envelope_cache.is_some();
         eprintln!(
@@ -1079,8 +1103,14 @@ impl TraceData {
         let data_range = data_max_x - data_min_x;
         let max_buckets = 2 * screen_width;
         let (origin_x, num_buckets) = if data_range > max_buckets as f64 * bucket_width {
-            // Data range exceeds what we need — only cache the most recent portion
-            let origin = data_max_x - max_buckets as f64 * bucket_width;
+            // Data range exceeds cache capacity — center on visible range
+            let origin = if let Some((b0, _)) = bounds {
+                // Start one visible_width before the visible area for scroll margin
+                (b0 - visible_width).max(data_min_x)
+            } else {
+                // No bounds info — fall back to most recent data
+                data_max_x - max_buckets as f64 * bucket_width
+            };
             (origin, max_buckets)
         } else {
             (data_min_x, ((data_range / bucket_width).ceil() as usize).max(1))
@@ -1125,12 +1155,25 @@ impl TraceData {
     }
 
     /// Check if the envelope cache needs a full recompute for the given params.
-    pub fn envelope_needs_recompute(&self, screen_width: usize, visible_width: f64) -> bool {
+    /// Also checks if the visible bounds fall outside the cached range.
+    pub fn envelope_needs_recompute(
+        &self,
+        screen_width: usize,
+        visible_width: f64,
+        bounds: (f64, f64),
+    ) -> bool {
         match &self.envelope_cache {
             None => true,
             Some(c) => {
-                c.screen_width != screen_width
+                if c.screen_width != screen_width
                     || (c.visible_width - visible_width).abs() > visible_width * 0.001
+                {
+                    return true;
+                }
+                // Check if visible range is outside the cached range
+                let cache_min = c.origin_x;
+                let cache_max = c.origin_x + c.buckets.len() as f64 * c.bucket_width;
+                bounds.0 < cache_min || bounds.1 > cache_max
             }
         }
     }

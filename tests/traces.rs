@@ -380,9 +380,9 @@ fn envelope_incremental_remove_recomputes_when_extreme() {
 #[test]
 fn envelope_scroll_no_recompute() {
     let mut td = make_trace_with_points(10_000);
-    td.recompute_envelope(100, 1.0);
-    // Simulate scrolling: same screen_width and visible_width, different bounds
-    let needs_recompute = td.envelope_needs_recompute(100, 1.0);
+    td.recompute_envelope(100, 10.0);
+    // Simulate scrolling: same screen_width and visible_width, bounds within cached range
+    let needs_recompute = td.envelope_needs_recompute(100, 10.0, (2.0, 5.0));
     assert!(!needs_recompute, "scrolling should not trigger recompute");
 }
 
