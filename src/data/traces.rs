@@ -663,10 +663,13 @@ impl TracesCollection {
             if b.x_max < bounds.0 || b.x_min > bounds.1 {
                 continue;
             }
-            // Emit a single mean point at bucket center
-            let cx = (b.x_min + b.x_max) * 0.5;
-            let cy = b.y_sum / b.count as f64;
-            out.push([cx, cy]);
+            // Emit first and last data points at their real x positions
+            if b.count == 1 {
+                out.push([b.x_first, b.y_first]);
+            } else {
+                out.push([b.x_first, b.y_first]);
+                out.push([b.x_last, b.y_last]);
+            }
         }
 
         Some(out)
@@ -818,8 +821,12 @@ pub struct EnvelopeBucket {
     /// Min/max y-values of all samples in this bucket.
     pub y_min: f64,
     pub y_max: f64,
-    /// Sum of y-values for computing the mean.
-    pub y_sum: f64,
+    /// First data point in this bucket (at its real x position).
+    pub x_first: f64,
+    pub y_first: f64,
+    /// Last data point in this bucket (at its real x position).
+    pub x_last: f64,
+    pub y_last: f64,
     /// Number of samples in this bucket.
     pub count: usize,
 }
@@ -1135,12 +1142,14 @@ impl TraceData {
             if b.count == 0 {
                 b.y_min = p[1];
                 b.y_max = p[1];
-                b.y_sum = p[1];
+                b.x_first = p[0];
+                b.y_first = p[1];
             } else {
                 b.y_min = b.y_min.min(p[1]);
                 b.y_max = b.y_max.max(p[1]);
-                b.y_sum += p[1];
             }
+            b.x_last = p[0];
+            b.y_last = p[1];
             b.count += 1;
         }
 
@@ -1169,7 +1178,11 @@ impl TraceData {
                 {
                     return true;
                 }
-                // Check if visible range is outside the cached range
+                // If cache covers all data (not capped), bounds check is unnecessary
+                if c.buckets.len() < 2 * c.screen_width {
+                    return false;
+                }
+                // Cache was capped — check if visible range is outside the cached range
                 let cache_min = c.origin_x;
                 let cache_max = c.origin_x + c.buckets.len() as f64 * c.bucket_width;
                 bounds.0 < cache_min || bounds.1 > cache_max
@@ -1196,12 +1209,14 @@ impl TraceData {
             if b.count == 0 {
                 b.y_min = point[1];
                 b.y_max = point[1];
-                b.y_sum = point[1];
+                b.x_first = point[0];
+                b.y_first = point[1];
             } else {
                 b.y_min = b.y_min.min(point[1]);
                 b.y_max = b.y_max.max(point[1]);
-                b.y_sum += point[1];
             }
+            b.x_last = point[0];
+            b.y_last = point[1];
             b.count += 1;
         } else {
             // Point is beyond current range — append gap buckets + target bucket
@@ -1215,7 +1230,10 @@ impl TraceData {
                         x_max,
                         y_min: point[1],
                         y_max: point[1],
-                        y_sum: point[1],
+                        x_first: point[0],
+                        y_first: point[1],
+                        x_last: point[0],
+                        y_last: point[1],
                         count: 1,
                     });
                 } else {
@@ -1224,7 +1242,10 @@ impl TraceData {
                         x_max,
                         y_min: 0.0,
                         y_max: 0.0,
-                        y_sum: 0.0,
+                        x_first: 0.0,
+                        y_first: 0.0,
+                        x_last: 0.0,
+                        y_last: 0.0,
                         count: 0,
                     });
                 }
@@ -1253,43 +1274,52 @@ impl TraceData {
 
         let b = &mut cache.buckets[idx];
 
-        // If the removed point is neither min nor max, bucket is unchanged
-        let was_min = b.count > 0 && (point[1] - b.y_min).abs() < f64::EPSILON;
-        let was_max = b.count > 0 && (point[1] - b.y_max).abs() < f64::EPSILON;
-
         if b.count > 0 {
             b.count -= 1;
-            b.y_sum -= point[1];
         }
 
         if b.count == 0 {
             // Bucket is now empty — reset it
             b.y_min = 0.0;
             b.y_max = 0.0;
-            b.y_sum = 0.0;
+            b.x_first = 0.0;
+            b.y_first = 0.0;
+            b.x_last = 0.0;
+            b.y_last = 0.0;
             // Don't remove the bucket from the middle — just leave it empty.
             // Edge buckets will be handled by rebalance check.
-        } else if was_min || was_max {
-            // Need to rescan this bucket to find new min/max and recompute y_sum
+        } else {
+            // Need to rescan this bucket to find new min/max and first/last
             let bucket_x_min = b.x_min;
             let bucket_x_max = b.x_max;
             // Search the live VecDeque for points in this bucket's x-range
             let mut new_min = f64::INFINITY;
             let mut new_max = f64::NEG_INFINITY;
-            let mut new_sum = 0.0;
+            let mut first_x = 0.0;
+            let mut first_y = 0.0;
+            let mut last_x = 0.0;
+            let mut last_y = 0.0;
             let mut found = false;
             for &p in &self.live {
                 if p[0] >= bucket_x_min && p[0] < bucket_x_max {
                     new_min = new_min.min(p[1]);
                     new_max = new_max.max(p[1]);
-                    new_sum += p[1];
+                    if !found {
+                        first_x = p[0];
+                        first_y = p[1];
+                    }
+                    last_x = p[0];
+                    last_y = p[1];
                     found = true;
                 }
             }
             if found {
                 b.y_min = new_min;
                 b.y_max = new_max;
-                b.y_sum = new_sum;
+                b.x_first = first_x;
+                b.y_first = first_y;
+                b.x_last = last_x;
+                b.y_last = last_y;
             }
         }
 
