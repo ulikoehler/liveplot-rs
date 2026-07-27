@@ -55,8 +55,9 @@ pub fn paint_density(
                 Pos2::new(screen_x_min.max(screen_x_max), screen_y_min.max(screen_y_max)),
             );
 
-            let intensity = (count as f32 / max_count) * brightness_gain;
-            let alpha = (intensity * 255.0).min(255.0) as u8;
+            let ratio = count as f32 / max_count;
+            let intensity = ratio.sqrt() * brightness_gain;
+            let alpha = (intensity * 255.0).max(30.0).min(255.0) as u8;
             let color = Color32::from_rgba_unmultiplied(
                 base_color.r(),
                 base_color.g(),

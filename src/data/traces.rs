@@ -663,15 +663,10 @@ impl TracesCollection {
             if b.x_max < bounds.0 || b.x_min > bounds.1 {
                 continue;
             }
-            if b.count == 1 {
-                // Single point — emit at bucket center to avoid staircase artifacts
-                let cx = (b.x_min + b.x_max) * 0.5;
-                out.push([cx, b.y_min]);
-            } else {
-                // Emit min and max points for this bucket
-                out.push([b.x_min, b.y_min]);
-                out.push([b.x_max, b.y_max]);
-            }
+            // Emit a single mean point at bucket center
+            let cx = (b.x_min + b.x_max) * 0.5;
+            let cy = b.y_sum / b.count as f64;
+            out.push([cx, cy]);
         }
 
         Some(out)
@@ -823,6 +818,8 @@ pub struct EnvelopeBucket {
     /// Min/max y-values of all samples in this bucket.
     pub y_min: f64,
     pub y_max: f64,
+    /// Sum of y-values for computing the mean.
+    pub y_sum: f64,
     /// Number of samples in this bucket.
     pub count: usize,
 }
@@ -1138,9 +1135,11 @@ impl TraceData {
             if b.count == 0 {
                 b.y_min = p[1];
                 b.y_max = p[1];
+                b.y_sum = p[1];
             } else {
                 b.y_min = b.y_min.min(p[1]);
                 b.y_max = b.y_max.max(p[1]);
+                b.y_sum += p[1];
             }
             b.count += 1;
         }
@@ -1197,9 +1196,11 @@ impl TraceData {
             if b.count == 0 {
                 b.y_min = point[1];
                 b.y_max = point[1];
+                b.y_sum = point[1];
             } else {
                 b.y_min = b.y_min.min(point[1]);
                 b.y_max = b.y_max.max(point[1]);
+                b.y_sum += point[1];
             }
             b.count += 1;
         } else {
@@ -1214,6 +1215,7 @@ impl TraceData {
                         x_max,
                         y_min: point[1],
                         y_max: point[1],
+                        y_sum: point[1],
                         count: 1,
                     });
                 } else {
@@ -1222,6 +1224,7 @@ impl TraceData {
                         x_max,
                         y_min: 0.0,
                         y_max: 0.0,
+                        y_sum: 0.0,
                         count: 0,
                     });
                 }
@@ -1256,32 +1259,37 @@ impl TraceData {
 
         if b.count > 0 {
             b.count -= 1;
+            b.y_sum -= point[1];
         }
 
         if b.count == 0 {
             // Bucket is now empty — reset it
             b.y_min = 0.0;
             b.y_max = 0.0;
+            b.y_sum = 0.0;
             // Don't remove the bucket from the middle — just leave it empty.
             // Edge buckets will be handled by rebalance check.
         } else if was_min || was_max {
-            // Need to rescan this bucket to find new min/max
+            // Need to rescan this bucket to find new min/max and recompute y_sum
             let bucket_x_min = b.x_min;
             let bucket_x_max = b.x_max;
             // Search the live VecDeque for points in this bucket's x-range
             let mut new_min = f64::INFINITY;
             let mut new_max = f64::NEG_INFINITY;
+            let mut new_sum = 0.0;
             let mut found = false;
             for &p in &self.live {
                 if p[0] >= bucket_x_min && p[0] < bucket_x_max {
                     new_min = new_min.min(p[1]);
                     new_max = new_max.max(p[1]);
+                    new_sum += p[1];
                     found = true;
                 }
             }
             if found {
                 b.y_min = new_min;
                 b.y_max = new_max;
+                b.y_sum = new_sum;
             }
         }
 
