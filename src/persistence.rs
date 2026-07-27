@@ -13,7 +13,7 @@ use crate::data::math::MathTrace;
 use crate::data::measurement::Measurement;
 use crate::data::scope::{AxisSettings, ScopeData, ScopeType};
 use crate::data::thresholds::{ThresholdDef, ThresholdKind};
-use crate::data::trace_look::TraceLook;
+use crate::data::trace_look::{RenderMode, TraceLook};
 use crate::data::traces::TraceRef;
 use crate::data::triggers::{Trigger, TriggerSlope};
 use crate::panels::color_scheme_ui::NamedCustomScheme;
@@ -175,6 +175,41 @@ pub enum SerMarkerShape {
     Right,
 }
 
+/// Serializable version of RenderMode.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SerRenderMode {
+    Line,
+    MinMaxEnvelope,
+    DensitySplatting,
+}
+
+impl Default for SerRenderMode {
+    fn default() -> Self {
+        SerRenderMode::MinMaxEnvelope
+    }
+}
+
+impl From<RenderMode> for SerRenderMode {
+    fn from(m: RenderMode) -> Self {
+        match m {
+            RenderMode::Line => SerRenderMode::Line,
+            RenderMode::MinMaxEnvelope => SerRenderMode::MinMaxEnvelope,
+            RenderMode::DensitySplatting => SerRenderMode::DensitySplatting,
+        }
+    }
+}
+
+impl From<SerRenderMode> for RenderMode {
+    fn from(m: SerRenderMode) -> Self {
+        match m {
+            SerRenderMode::Line => RenderMode::Line,
+            SerRenderMode::MinMaxEnvelope => RenderMode::MinMaxEnvelope,
+            SerRenderMode::DensitySplatting => RenderMode::DensitySplatting,
+        }
+    }
+}
+
 /// Serializable version of TraceLook.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceLookSerde {
@@ -186,6 +221,14 @@ pub struct TraceLookSerde {
     pub style: SerLineStyle,
     pub point_size: f32,
     pub marker: SerMarkerShape,
+    #[serde(default)]
+    pub render_mode: SerRenderMode,
+    #[serde(default = "default_brightness_gain")]
+    pub brightness_gain: f32,
+}
+
+fn default_brightness_gain() -> f32 {
+    1.0
 }
 
 impl From<&TraceLook> for TraceLookSerde {
@@ -218,6 +261,8 @@ impl From<&TraceLook> for TraceLookSerde {
             style,
             point_size: l.point_size,
             marker,
+            render_mode: l.render_mode.into(),
+            brightness_gain: l.brightness_gain,
         }
     }
 }
@@ -259,6 +304,8 @@ impl TraceLookSerde {
             style,
             point_size: self.point_size,
             marker,
+            render_mode: self.render_mode.into(),
+            brightness_gain: self.brightness_gain,
         }
     }
 }

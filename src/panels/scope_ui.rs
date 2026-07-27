@@ -8,6 +8,7 @@ use crate::data::scope::ScopeData;
 use crate::data::scope::ScopeType;
 use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
+use crate::data::trace_look::RenderMode;
 use crate::events::EventController;
 use egui_phosphor_icons::icons::{
     ARROWS_DOWN_UP, ARROWS_LEFT_RIGHT, IMAGE, MAGNIFYING_GLASS, PAUSE, PLAY,
@@ -1101,6 +1102,9 @@ impl ScopePanel {
             let bounds_changed =
                 is_box_zoom_dragging || is_box_zoom_finished || is_panning || is_zooming_with_wheel;
 
+            // Capture screen width for envelope bucket sizing
+            let screen_width = resp.rect.width().max(1.0) as usize;
+
             if is_zooming_with_wheel {
                 let mut zoom_factor = egui::Vec2::new(1.0, 1.0);
                 if scroll_data.y != 0.0
@@ -1302,80 +1306,108 @@ impl ScopePanel {
                 let trace_count = ordered.len();
                 for idx in 0..trace_count {
                     let name = ordered[idx].clone();
-                    if let Some(tr) = traces.get_trace(&name) {
-                        let shown_pts = match self.data.get_drawn_points(&name, traces) {
-                            Some(pts) => pts,
-                            None => continue,
-                        };
-                        let pts_vec: Vec<[f64; 2]> = shown_pts
-                            .into_iter()
-                            .map(|p| {
-                                let y_lin = p[1] + tr.offset;
-                                let y = if self.data.y_axis.log_scale {
-                                    if y_lin > 0.0 {
-                                        y_lin.log10()
-                                    } else {
-                                        f64::NAN
-                                    }
-                                } else {
-                                    y_lin
-                                };
-                                let x = if self.data.x_axis.log_scale {
-                                    if p[0] > 0.0 {
-                                        p[0].log10()
-                                    } else {
-                                        f64::NAN
-                                    }
-                                } else {
-                                    p[0]
-                                };
-                                [x, y]
-                            })
-                            .collect();
-                        let mut color = tr.look.color;
-                        let mut width: f32 = tr.look.width.max(0.1);
-                        let style = tr.look.style;
-                        if let Some(hov) = &traces.hover_trace {
-                            if !hov.contains(&name) {
-                                // Strongly dim non-hovered traces
-                                color = Color32::from_rgba_unmultiplied(
-                                    color.r(),
-                                    color.g(),
-                                    color.b(),
-                                    40,
-                                );
-                            } else {
-                                // Emphasize hovered trace
-                                width = (width * 1.6).max(width + 1.0);
+                    // Get all needed trace fields upfront (immutable borrow released before mutable use)
+                    let trace_info = match traces.get_trace(&name) {
+                        Some(tr) => (
+                            tr.look.render_mode,
+                            tr.offset,
+                            tr.look.color,
+                            tr.look.width,
+                            tr.look.style,
+                            tr.look.show_points,
+                            tr.look.point_size,
+                            tr.look.marker,
+                            tr.info.clone(),
+                        ),
+                        None => continue,
+                    };
+                    let (render_mode, offset, base_color, base_width, style, show_points, point_size, marker, info) = trace_info;
+                    let shown_pts = match render_mode {
+                        RenderMode::MinMaxEnvelope | RenderMode::DensitySplatting => {
+                            match traces.get_drawn_points_envelope(
+                                &name,
+                                self.data.paused,
+                                self.data.x_axis.bounds,
+                                screen_width,
+                            ) {
+                                Some(pts) => pts,
+                                None => continue,
                             }
                         }
-                        let mut line = Line::new(name.clone(), pts_vec.clone())
-                            .color(color)
-                            .width(width)
-                            .style(style);
-                        let legend_label = if self.data.show_info_in_legend && !tr.info.is_empty() {
-                            format!("{} — {}", name, tr.info)
-                        } else {
-                            name.0.clone()
-                        };
-                        line = line.name(legend_label.clone());
-                        plot_ui.line(line);
-
-                        // Optional point markers for each datapoint
-                        if tr.look.show_points {
-                            if !pts_vec.is_empty() {
-                                let mut radius = tr.look.point_size.max(0.5);
-                                if let Some(hov) = &traces.hover_trace {
-                                    if hov.contains(&name) {
-                                        radius = (radius * 1.25).max(radius + 0.5);
-                                    }
-                                }
-                                let points = Points::new(legend_label, pts_vec.clone())
-                                    .radius(radius)
-                                    .shape(tr.look.marker)
-                                    .color(color);
-                                plot_ui.points(points);
+                        RenderMode::Line => {
+                            match self.data.get_drawn_points(&name, traces) {
+                                Some(pts) => pts,
+                                None => continue,
                             }
+                        }
+                    };
+                    let pts_vec: Vec<[f64; 2]> = shown_pts
+                        .into_iter()
+                        .map(|p| {
+                            let y_lin = p[1] + offset;
+                            let y = if self.data.y_axis.log_scale {
+                                if y_lin > 0.0 {
+                                    y_lin.log10()
+                                } else {
+                                    f64::NAN
+                                }
+                            } else {
+                                y_lin
+                            };
+                            let x = if self.data.x_axis.log_scale {
+                                if p[0] > 0.0 {
+                                    p[0].log10()
+                                } else {
+                                    f64::NAN
+                                }
+                            } else {
+                                p[0]
+                            };
+                            [x, y]
+                        })
+                        .collect();
+                    let mut color = base_color;
+                    let mut width: f32 = base_width.max(0.1);
+                    if let Some(hov) = &traces.hover_trace {
+                        if !hov.contains(&name) {
+                            // Strongly dim non-hovered traces
+                            color = Color32::from_rgba_unmultiplied(
+                                color.r(),
+                                color.g(),
+                                color.b(),
+                                40,
+                            );
+                        } else {
+                            // Emphasize hovered trace
+                            width = (width * 1.6).max(width + 1.0);
+                        }
+                    }
+                    let mut line = Line::new(name.clone(), pts_vec.clone())
+                        .color(color)
+                        .width(width)
+                        .style(style);
+                    let legend_label = if self.data.show_info_in_legend && !info.is_empty() {
+                        format!("{} — {}", name, info)
+                    } else {
+                        name.0.clone()
+                    };
+                    line = line.name(legend_label.clone());
+                    plot_ui.line(line);
+
+                    // Optional point markers for each datapoint
+                    if show_points {
+                        if !pts_vec.is_empty() {
+                            let mut radius = point_size.max(0.5);
+                            if let Some(hov) = &traces.hover_trace {
+                                if hov.contains(&name) {
+                                    radius = (radius * 1.25).max(radius + 0.5);
+                                }
+                            }
+                            let points = Points::new(legend_label, pts_vec.clone())
+                                .radius(radius)
+                                .shape(marker)
+                                .color(color);
+                            plot_ui.points(points);
                         }
                     }
                 }

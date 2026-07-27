@@ -199,6 +199,7 @@ impl TracesCollection {
                                     creation_index: new_index,
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
+                                    envelope_cache: None,
                                 })
                             }
                         };
@@ -234,12 +235,16 @@ impl TracesCollection {
                                         creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
+                                        envelope_cache: None,
                                     })
                                 }
                             };
                             entry.live.push_back([point.x, point.y]);
+                            entry.envelope_add_point([point.x, point.y]);
                             if entry.live.len() > self.max_points {
-                                entry.live.pop_front();
+                                if let Some(removed) = entry.live.pop_front() {
+                                    entry.envelope_remove_point(removed);
+                                }
                             }
                         } else {
                             // Auto-register trace
@@ -261,9 +266,11 @@ impl TracesCollection {
                                     creation_index: new_index,
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
+                                    envelope_cache: None,
                                 }
                             });
                             entry.live.push_back([point.x, point.y]);
+                            entry.envelope_add_point([point.x, point.y]);
                         }
                     }
                     PlotCommand::Points { trace_id, points } => {
@@ -286,14 +293,18 @@ impl TracesCollection {
                                         creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
+                                        envelope_cache: None,
                                     })
                                 }
                             };
                             for p in points {
                                 entry.live.push_back([p.x, p.y]);
+                                entry.envelope_add_point([p.x, p.y]);
                             }
                             while entry.live.len() > self.max_points {
-                                entry.live.pop_front();
+                                if let Some(removed) = entry.live.pop_front() {
+                                    entry.envelope_remove_point(removed);
+                                }
                             }
                         }
                     }
@@ -317,10 +328,12 @@ impl TracesCollection {
                                         creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
+                                        envelope_cache: None,
                                     })
                                 }
                             };
                             entry.live.clear();
+                            entry.envelope_cache = None;
                             for p in points {
                                 entry.live.push_back([p.x, p.y]);
                             }
@@ -331,6 +344,7 @@ impl TracesCollection {
                             let tref = TraceRef(name);
                             if let Some(tr) = self.traces.get_mut(&tref) {
                                 tr.live.clear();
+                                tr.envelope_cache = None;
                             }
                         }
                     }
@@ -465,6 +479,7 @@ impl TracesCollection {
                     creation_index: new_index,
                     #[cfg(feature = "fft")]
                     last_fft: None,
+                    envelope_cache: None,
                 },
             );
         }
@@ -549,6 +564,66 @@ impl TracesCollection {
                 }
             }
         }
+        Some(out)
+    }
+
+    /// Return min/max envelope points for a trace, filtered by x-bounds.
+    /// Uses an incremental cache that is maintained on point add/remove.
+    /// Full recompute only on cache miss, screen_width change, or zoom.
+    pub fn get_drawn_points_envelope(
+        &mut self,
+        name: &TraceRef,
+        snapshot: bool,
+        bounds: (f64, f64),
+        screen_width: usize,
+    ) -> Option<Vec<[f64; 2]>> {
+        let trace = self.traces.get_mut(name)?;
+        let source: &VecDeque<[f64; 2]> = if snapshot {
+            trace.snap.as_ref().unwrap_or(&trace.live)
+        } else {
+            &trace.live
+        };
+        let len = source.len();
+        if len == 0 {
+            return Some(Vec::new());
+        }
+        if len <= screen_width {
+            // No envelope needed — return all points within bounds
+            return Some(
+                source
+                    .iter()
+                    .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
+                    .copied()
+                    .collect(),
+            );
+        }
+
+        let visible_width = bounds.1 - bounds.0;
+        if visible_width <= 0.0 || screen_width == 0 {
+            return Some(Vec::new());
+        }
+
+        // Ensure cache is valid for current params
+        if trace.envelope_needs_recompute(screen_width, visible_width) {
+            trace.recompute_envelope(screen_width, visible_width);
+        }
+
+        let cache = trace.envelope_cache.as_ref()?;
+        let mut out = Vec::new();
+
+        for b in &cache.buckets {
+            if b.count == 0 {
+                continue;
+            }
+            // Skip buckets entirely outside the visible bounds
+            if b.x_max < bounds.0 || b.x_min > bounds.1 {
+                continue;
+            }
+            // Emit min and max points for this bucket
+            out.push([b.x_min, b.y_min]);
+            out.push([b.x_max, b.y_max]);
+        }
+
         Some(out)
     }
 
@@ -658,6 +733,53 @@ impl TracesCollection {
     }
 }
 
+/// A single bucket in the min/max envelope cache.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EnvelopeBucket {
+    /// X-range covered by this bucket.
+    pub x_min: f64,
+    pub x_max: f64,
+    /// Min/max y-values of all samples in this bucket.
+    pub y_min: f64,
+    pub y_max: f64,
+    /// Number of samples in this bucket.
+    pub count: usize,
+}
+
+/// Incremental min/max envelope cache for a trace.
+///
+/// Buckets cover the ENTIRE data range, not just the visible range.
+/// `bucket_width` is derived from `visible_width / screen_width` so each
+/// bucket ≈ 1 pixel on screen. Stays constant during scrolling (visible
+/// range shifts but width stays = time_window). Changes on zoom or resize.
+pub struct EnvelopeCache {
+    /// Bucket i covers [origin_x + i*bucket_width, origin_x + (i+1)*bucket_width).
+    pub buckets: VecDeque<EnvelopeBucket>,
+    /// Fixed width of each bucket in data-x units.
+    pub bucket_width: f64,
+    /// X-value of the left edge of the first bucket.
+    pub origin_x: f64,
+    /// Screen width the cache was built for.
+    pub screen_width: usize,
+    /// Visible range width the cache was built for.
+    pub visible_width: f64,
+}
+
+impl EnvelopeCache {
+    /// Compute bucket index for a given x-value. Returns None if out of range.
+    pub fn bucket_index(&self, x: f64) -> Option<usize> {
+        if x < self.origin_x || self.bucket_width <= 0.0 {
+            return None;
+        }
+        let idx = ((x - self.origin_x) / self.bucket_width + 1e-9) as usize;
+        if idx < self.buckets.len() {
+            Some(idx)
+        } else {
+            None
+        }
+    }
+}
+
 /// Per-trace data: live buffer, optional snapshot, and styling.
 #[derive(Default)]
 pub struct TraceData {
@@ -679,12 +801,17 @@ pub struct TraceData {
     /// feature flag.
     #[cfg(feature = "fft")]
     pub last_fft: Option<VecDeque<[f64; 2]>>,
+    /// Incremental min/max envelope cache. Built lazily on first render
+    /// request, then maintained incrementally on point add/remove.
+    pub envelope_cache: Option<EnvelopeCache>,
 }
 
 impl TraceData {
     pub fn prune_by_points(&mut self, max_points: usize) {
         while self.live.len() > max_points {
-            self.live.pop_front();
+            if let Some(removed) = self.live.pop_front() {
+                self.envelope_remove_point(removed);
+            }
         }
     }
 
@@ -701,6 +828,7 @@ impl TraceData {
         while let Some(&front) = self.live.front() {
             if front[0] < cutoff {
                 self.live.pop_front();
+                self.envelope_remove_point(front);
             } else {
                 break;
             }
@@ -710,6 +838,7 @@ impl TraceData {
     pub fn clear_all(&mut self) {
         self.live.clear();
         self.snap = None;
+        self.envelope_cache = None;
     }
 
     pub fn take_snapshot(&mut self) {
@@ -768,5 +897,189 @@ impl TraceData {
             }
         }
         out
+    }
+
+    // ── Envelope cache methods ──────────────────────────────────────────
+
+    /// Full O(n) recompute of the envelope cache. Called on cache miss,
+    /// screen_width change, or visible_width (zoom) change.
+    pub fn recompute_envelope(&mut self, screen_width: usize, visible_width: f64) {
+        if self.live.is_empty() || screen_width == 0 || visible_width <= 0.0 {
+            self.envelope_cache = None;
+            return;
+        }
+        if self.live.len() <= screen_width {
+            // No envelope needed — few enough points to draw directly
+            self.envelope_cache = None;
+            return;
+        }
+
+        let data_min_x = self.live.front().map(|p| p[0]).unwrap_or(0.0);
+        let data_max_x = self.live.back().map(|p| p[0]).unwrap_or(0.0);
+        let bucket_width = visible_width / screen_width as f64;
+        if bucket_width <= 0.0 {
+            self.envelope_cache = None;
+            return;
+        }
+        let data_range = data_max_x - data_min_x;
+        let num_buckets = ((data_range / bucket_width).ceil() as usize).max(1);
+
+        let mut buckets: VecDeque<EnvelopeBucket> = VecDeque::with_capacity(num_buckets);
+        for _ in 0..num_buckets {
+            buckets.push_back(EnvelopeBucket::default());
+        }
+
+        // Initialize bucket x-ranges
+        for (i, b) in buckets.iter_mut().enumerate() {
+            b.x_min = data_min_x + i as f64 * bucket_width;
+            b.x_max = b.x_min + bucket_width;
+        }
+
+        // Assign each point to its bucket
+        for &p in &self.live {
+            let idx = ((p[0] - data_min_x) / bucket_width + 1e-9) as usize;
+            let idx = idx.min(num_buckets - 1);
+            let b = &mut buckets[idx];
+            if b.count == 0 {
+                b.y_min = p[1];
+                b.y_max = p[1];
+            } else {
+                b.y_min = b.y_min.min(p[1]);
+                b.y_max = b.y_max.max(p[1]);
+            }
+            b.count += 1;
+        }
+
+        self.envelope_cache = Some(EnvelopeCache {
+            buckets,
+            bucket_width,
+            origin_x: data_min_x,
+            screen_width,
+            visible_width,
+        });
+    }
+
+    /// Check if the envelope cache needs a full recompute for the given params.
+    pub fn envelope_needs_recompute(&self, screen_width: usize, visible_width: f64) -> bool {
+        match &self.envelope_cache {
+            None => true,
+            Some(c) => {
+                c.screen_width != screen_width
+                    || (c.visible_width - visible_width).abs() > visible_width * 0.001
+            }
+        }
+    }
+
+    /// Incremental update on point add — O(1), updates only the target bucket.
+    pub fn envelope_add_point(&mut self, point: [f64; 2]) {
+        let cache = match &mut self.envelope_cache {
+            Some(c) => c,
+            None => return,
+        };
+
+        let idx = if cache.bucket_width <= 0.0 {
+            return;
+        } else {
+            ((point[0] - cache.origin_x) / cache.bucket_width + 1e-9) as usize
+        };
+
+        if idx < cache.buckets.len() {
+            // Point falls in existing bucket
+            let b = &mut cache.buckets[idx];
+            if b.count == 0 {
+                b.y_min = point[1];
+                b.y_max = point[1];
+            } else {
+                b.y_min = b.y_min.min(point[1]);
+                b.y_max = b.y_max.max(point[1]);
+            }
+            b.count += 1;
+        } else {
+            // Point is beyond current range — append gap buckets + target bucket
+            let start = cache.buckets.len();
+            for i in start..=idx {
+                let x_min = cache.origin_x + i as f64 * cache.bucket_width;
+                let x_max = x_min + cache.bucket_width;
+                if i == idx {
+                    cache.buckets.push_back(EnvelopeBucket {
+                        x_min,
+                        x_max,
+                        y_min: point[1],
+                        y_max: point[1],
+                        count: 1,
+                    });
+                } else {
+                    cache.buckets.push_back(EnvelopeBucket {
+                        x_min,
+                        x_max,
+                        y_min: 0.0,
+                        y_max: 0.0,
+                        count: 0,
+                    });
+                }
+            }
+            // Rebalance check: if bucket count grew too large, mark for recompute
+            if cache.buckets.len() > 2 * cache.screen_width {
+                // Mark stale by clearing — will be recomputed on next render
+                self.envelope_cache = None;
+            }
+        }
+    }
+
+    /// Incremental update on point remove — O(1) typical, O(bucket_size) worst case.
+    /// Only recomputes the bucket if the removed point was its min or max.
+    pub fn envelope_remove_point(&mut self, point: [f64; 2]) {
+        let cache = match &mut self.envelope_cache {
+            Some(c) => c,
+            None => return,
+        };
+
+        let idx = match cache.bucket_index(point[0]) {
+            Some(i) => i,
+            None => return,
+        };
+
+        let b = &mut cache.buckets[idx];
+
+        // If the removed point is neither min nor max, bucket is unchanged
+        let was_min = b.count > 0 && (point[1] - b.y_min).abs() < f64::EPSILON;
+        let was_max = b.count > 0 && (point[1] - b.y_max).abs() < f64::EPSILON;
+
+        if b.count > 0 {
+            b.count -= 1;
+        }
+
+        if b.count == 0 {
+            // Bucket is now empty — reset it
+            b.y_min = 0.0;
+            b.y_max = 0.0;
+            // Don't remove the bucket from the middle — just leave it empty.
+            // Edge buckets will be handled by rebalance check.
+        } else if was_min || was_max {
+            // Need to rescan this bucket to find new min/max
+            let bucket_x_min = b.x_min;
+            let bucket_x_max = b.x_max;
+            // Search the live VecDeque for points in this bucket's x-range
+            let mut new_min = f64::INFINITY;
+            let mut new_max = f64::NEG_INFINITY;
+            let mut found = false;
+            for &p in &self.live {
+                if p[0] >= bucket_x_min && p[0] < bucket_x_max {
+                    new_min = new_min.min(p[1]);
+                    new_max = new_max.max(p[1]);
+                    found = true;
+                }
+            }
+            if found {
+                b.y_min = new_min;
+                b.y_max = new_max;
+            }
+        }
+
+        // Rebalance check: if bucket count shrank too much, mark for recompute
+        let non_empty_count = cache.buckets.iter().filter(|b| b.count > 0).count();
+        if non_empty_count < cache.screen_width / 2 {
+            self.envelope_cache = None;
+        }
     }
 }

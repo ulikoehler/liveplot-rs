@@ -230,3 +230,172 @@ fn alloc_color_uses_global_palette() {
     assert_eq!(TraceLook::alloc_color(1), Color32::from_rgb(4, 5, 6));
     assert_eq!(TraceLook::alloc_color(2), Color32::from_rgb(1, 2, 3));
 }
+
+// ── Envelope cache tests ──────────────────────────────────────────────
+
+fn make_trace_with_points(n: usize) -> TraceData {
+    let mut td = TraceData::default();
+    for i in 0..n {
+        let x = i as f64 * 0.001; // 1 kHz, 0..n ms
+        let y = (i as f64 * 0.1).sin(); // varying y
+        td.live.push_back([x, y]);
+    }
+    td
+}
+
+#[test]
+fn envelope_preserves_extremes() {
+    let mut td = TraceData::default();
+    // 10000 points, each 100-point group has a known min at index 50 and max at index 0
+    for i in 0..10_000usize {
+        let x = i as f64 * 0.001;
+        let group_local = i % 100;
+        let y = if group_local == 0 {
+            10.0 // max
+        } else if group_local == 50 {
+            -10.0 // min
+        } else {
+            0.0
+        };
+        td.live.push_back([x, y]);
+    }
+    // data range = 10.0, visible_width=10.0, screen_width=100 → bucket_width=0.1 → 100 buckets
+    td.recompute_envelope(100, 10.0);
+    let cache = td.envelope_cache.expect("cache should exist");
+    assert_eq!(cache.buckets.len(), 100);
+    // Each bucket covers 100 points, should have y_min=-10 and y_max=10
+    for (i, b) in cache.buckets.iter().enumerate() {
+        assert!(b.count > 0, "bucket {} should have points", i);
+        assert_eq!(b.y_min, -10.0, "bucket {} should capture min", i);
+        assert_eq!(b.y_max, 10.0, "bucket {} should capture max", i);
+    }
+}
+
+#[test]
+fn envelope_degrades_to_line_when_few_points() {
+    let mut td = make_trace_with_points(50);
+    td.recompute_envelope(800, 1.0);
+    // 50 points <= 800 screen_width → no envelope needed
+    assert!(td.envelope_cache.is_none());
+}
+
+#[test]
+fn envelope_full_recompute_on_screen_width_change() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_envelope(800, 1.0);
+    let bw1 = td.envelope_cache.as_ref().unwrap().bucket_width;
+    let nb1 = td.envelope_cache.as_ref().unwrap().buckets.len();
+    td.recompute_envelope(1000, 1.0);
+    let bw2 = td.envelope_cache.as_ref().unwrap().bucket_width;
+    let nb2 = td.envelope_cache.as_ref().unwrap().buckets.len();
+    // bucket_width should change (visible_width same, screen_width different)
+    assert_ne!(bw1, bw2);
+    // number of buckets should also change
+    assert_ne!(nb1, nb2);
+}
+
+#[test]
+fn envelope_full_recompute_on_visible_width_change() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_envelope(100, 1.0);
+    let bw1 = td.envelope_cache.as_ref().unwrap().bucket_width;
+    td.recompute_envelope(100, 0.5);
+    let bw2 = td.envelope_cache.as_ref().unwrap().bucket_width;
+    // bucket_width should halve when visible_width halves
+    assert!((bw1 - 2.0 * bw2).abs() < 1e-9);
+}
+
+#[test]
+fn envelope_incremental_add_updates_single_bucket() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_envelope(100, 10.0);
+    let cache = td.envelope_cache.as_ref().unwrap();
+    let bucket_count_before = cache.buckets[50].count;
+
+    // Add a point in bucket 50's x-range
+    let bucket_50_x_min = cache.buckets[50].x_min;
+    let new_point = [bucket_50_x_min + 0.0001, 42.0];
+    td.envelope_add_point(new_point);
+
+    let cache = td.envelope_cache.as_ref().unwrap();
+    assert_eq!(cache.buckets[50].count, bucket_count_before + 1);
+    assert_eq!(cache.buckets[50].y_max, 42.0); // 42 > any sin value
+    // Other buckets should have unchanged count
+    assert_eq!(cache.buckets[51].count, bucket_count_before);
+}
+
+#[test]
+fn envelope_incremental_add_appends_new_bucket() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_envelope(100, 10.0);
+    let n_buckets = td.envelope_cache.as_ref().unwrap().buckets.len();
+    // Add a point just beyond the current data range (within rebalance limit)
+    let data_max_x = td.live.back().unwrap()[0];
+    let bucket_width = td.envelope_cache.as_ref().unwrap().bucket_width;
+    let new_point = [data_max_x + bucket_width * 0.5, 5.0];
+    td.envelope_add_point(new_point);
+    let cache = td.envelope_cache.as_ref().unwrap();
+    assert!(cache.buckets.len() > n_buckets, "new bucket should be appended");
+}
+
+#[test]
+fn envelope_incremental_remove_no_recompute_when_not_extreme() {
+    let mut td = TraceData::default();
+    // Fill with points where y=0 except first and last in each bucket
+    for i in 0..10_000usize {
+        let x = i as f64 * 0.001;
+        let y = if i % 100 == 0 { 5.0 } else { 0.0 };
+        td.live.push_back([x, y]);
+    }
+    td.recompute_envelope(100, 1.0);
+    // Remove a point with y=0 (not min or max of its bucket)
+    let removed = td.live[500]; // y=0, not extreme
+    td.envelope_remove_point(removed);
+    let cache = td.envelope_cache.as_ref().unwrap();
+    // Bucket min/max should be unchanged (0 is not min or max)
+    let bucket_idx = cache.bucket_index(removed[0]).unwrap();
+    assert_eq!(cache.buckets[bucket_idx].y_min, 0.0);
+    assert_eq!(cache.buckets[bucket_idx].y_max, 5.0);
+}
+
+#[test]
+fn envelope_incremental_remove_recomputes_when_extreme() {
+    let mut td = TraceData::default();
+    for i in 0..10_000usize {
+        let x = i as f64 * 0.001;
+        let y = if i % 100 == 0 { 5.0 } else { 0.0 };
+        td.live.push_back([x, y]);
+    }
+    td.recompute_envelope(100, 1.0);
+    // Remove a point with y=5.0 (the max of its bucket)
+    let removed = td.live[0]; // y=5.0, the max
+    td.live.pop_front();
+    td.envelope_remove_point(removed);
+    let cache = td.envelope_cache.as_ref().unwrap();
+    let bucket_idx = cache.bucket_index(removed[0]).unwrap();
+    // After removing the max (y=5.0), the new max should be 0.0
+    assert_eq!(cache.buckets[bucket_idx].y_max, 0.0);
+}
+
+#[test]
+fn envelope_scroll_no_recompute() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_envelope(100, 1.0);
+    // Simulate scrolling: same screen_width and visible_width, different bounds
+    let needs_recompute = td.envelope_needs_recompute(100, 1.0);
+    assert!(!needs_recompute, "scrolling should not trigger recompute");
+}
+
+#[test]
+fn envelope_buckets_cover_all_data() {
+    let mut td = make_trace_with_points(10_000);
+    td.recompute_envelope(100, 1.0);
+    let cache = td.envelope_cache.as_ref().unwrap();
+    let data_min_x = td.live.front().unwrap()[0];
+    let data_max_x = td.live.back().unwrap()[0];
+    // First bucket should start at data_min_x
+    assert!((cache.buckets[0].x_min - data_min_x).abs() < 1e-9);
+    // Last bucket should cover data_max_x
+    let last = cache.buckets.back().unwrap();
+    assert!(last.x_max >= data_max_x || (last.x_min - data_max_x).abs() < cache.bucket_width);
+}

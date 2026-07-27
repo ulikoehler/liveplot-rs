@@ -1,7 +1,7 @@
 use egui::Ui;
 use egui_plot::LineStyle;
 
-use crate::data::trace_look::TraceLook;
+use crate::data::trace_look::{RenderMode, TraceLook};
 
 pub fn render_trace_look_editor(look: &mut TraceLook, ui: &mut Ui, allow_points: bool) {
     ui.horizontal(|ui| {
@@ -57,6 +57,52 @@ pub fn render_trace_look_editor(look: &mut TraceLook, ui: &mut Ui, allow_points:
             });
         }
         LineStyle::Solid => {}
+    }
+    // Render mode selector
+    egui::ComboBox::from_label("Render mode")
+        .selected_text(match look.render_mode {
+            RenderMode::MinMaxEnvelope => "Min/Max Envelope",
+            RenderMode::Line => "Line",
+            RenderMode::DensitySplatting => "Density Splatting (experimental)",
+        })
+        .show_ui(ui, |ui| {
+            if ui
+                .selectable_label(
+                    matches!(look.render_mode, RenderMode::MinMaxEnvelope),
+                    "Min/Max Envelope",
+                )
+                .on_hover_text("Anti-aliased min/max envelope — best for noisy signals")
+                .clicked()
+            {
+                look.render_mode = RenderMode::MinMaxEnvelope;
+            }
+            if ui
+                .selectable_label(matches!(look.render_mode, RenderMode::Line), "Line")
+                .on_hover_text("Legacy stride-decimated line rendering")
+                .clicked()
+            {
+                look.render_mode = RenderMode::Line;
+            }
+            if ui
+                .selectable_label(
+                    matches!(look.render_mode, RenderMode::DensitySplatting),
+                    "Density Splatting (experimental)",
+                )
+                .on_hover_text("Density-based heat map rendering")
+                .clicked()
+            {
+                look.render_mode = RenderMode::DensitySplatting;
+            }
+        });
+    if look.render_mode == RenderMode::DensitySplatting {
+        ui.horizontal(|ui| {
+            ui.label("Brightness");
+            ui.add(
+                egui::DragValue::new(&mut look.brightness_gain)
+                    .range(0.01..=10.0)
+                    .speed(0.1),
+            );
+        });
     }
     if allow_points {
         ui.separator();

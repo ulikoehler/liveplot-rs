@@ -3,6 +3,16 @@
 use eframe::egui::Color32;
 use egui_plot::{LineStyle, MarkerShape};
 
+/// How a trace is rendered on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderMode {
+    Line,
+    #[default]
+    MinMaxEnvelope,
+    DensitySplatting,
+}
+
 /// The visual presentation of a trace (color, visibility, line style, markers).
 #[derive(Debug, Clone)]
 pub struct TraceLook {
@@ -14,6 +24,8 @@ pub struct TraceLook {
     pub style: LineStyle,
     pub point_size: f32,
     pub marker: MarkerShape,
+    pub render_mode: RenderMode,
+    pub brightness_gain: f32,
 }
 
 impl Default for TraceLook {
@@ -27,6 +39,8 @@ impl Default for TraceLook {
             style: LineStyle::Solid,
             point_size: 4.0,
             marker: MarkerShape::Circle,
+            render_mode: RenderMode::default(),
+            brightness_gain: 1.0,
         }
     }
 }
