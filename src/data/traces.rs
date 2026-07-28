@@ -1228,18 +1228,35 @@ impl TraceData {
         }
     }
 
-    /// Incremental update on point remove — O(1).
-    /// Only pops from selected if the removed point matches the front.
+    /// Incremental update on point remove — O(1) typical.
+    /// Pops from selected if the removed point matches the front.
+    /// Also removes any stale selected points that no longer exist in live.
     pub fn decimation_remove_point(&mut self, point: [f64; 2]) {
-        let cache = match &mut self.decimation_cache {
-            Some(c) => c,
-            None => return,
-        };
-        if let Some(&front) = cache.selected.front() {
-            if (front[0] - point[0]).abs() < f64::EPSILON
-                && (front[1] - point[1]).abs() < f64::EPSILON
-            {
-                cache.selected.pop_front();
+        // Phase 1: Pop the front if it matches the removed point
+        if let Some(cache) = &mut self.decimation_cache {
+            if let Some(&front) = cache.selected.front() {
+                if (front[0] - point[0]).abs() < f64::EPSILON
+                    && (front[1] - point[1]).abs() < f64::EPSILON
+                {
+                    cache.selected.pop_front();
+                }
+            }
+        }
+        // Phase 2: Pop any stale selected points that are no longer in live
+        // (can happen when a non-selected point was removed and the
+        // selected front is now behind the live front)
+        let live_front_x = self.live.front().map(|p| p[0]);
+        if let Some(cache) = &mut self.decimation_cache {
+            while let Some(&sel) = cache.selected.front() {
+                if let Some(live_x) = live_front_x {
+                    if sel[0] < live_x {
+                        cache.selected.pop_front();
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
             }
         }
     }
@@ -1555,9 +1572,20 @@ impl TraceData {
             }
         }
 
-        // Rebalance check: if bucket count shrank too much, mark for recompute
+        // Pop empty buckets from the front of the cache
+        while let Some(b) = cache.buckets.front() {
+            if b.count == 0 {
+                cache.buckets.pop_front();
+                cache.origin_x += cache.bucket_width;
+            } else {
+                break;
+            }
+        }
+
+        // Rebalance check: if more than half the buckets are empty, mark for recompute
+        let total_buckets = cache.buckets.len();
         let non_empty_count = cache.buckets.iter().filter(|b| b.count > 0).count();
-        if non_empty_count < cache.screen_width / 2 {
+        if total_buckets > 0 && non_empty_count < total_buckets / 2 {
             self.envelope_cache = None;
         }
     }
