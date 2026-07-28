@@ -7,9 +7,10 @@ use egui_plot::{LineStyle, MarkerShape};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RenderMode {
-    Line,
     #[default]
+    Line,
     Downsampled,
+    MinMaxEnvelope,
     DensitySplatting,
 }
 

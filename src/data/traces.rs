@@ -734,6 +734,74 @@ impl TracesCollection {
         Some(out)
     }
 
+    /// Return min/max envelope points for a trace, filtered by x-bounds.
+    /// Emits [x_min, y_min] and [x_max, y_max] per bucket to show the
+    /// full vertical extent of the signal in each pixel-width bucket.
+    pub fn get_drawn_points_minmax_envelope(
+        &mut self,
+        name: &TraceRef,
+        snapshot: bool,
+        bounds: (f64, f64),
+        visible_width: f64,
+        screen_width: usize,
+    ) -> Option<Vec<[f64; 2]>> {
+        let trace = self.traces.get_mut(name)?;
+        let source: &VecDeque<[f64; 2]> = if snapshot {
+            trace.snap.as_ref().unwrap_or(&trace.live)
+        } else {
+            &trace.live
+        };
+        let len = source.len();
+        if len == 0 {
+            return Some(Vec::new());
+        }
+        if len <= screen_width {
+            return Some(
+                source
+                    .iter()
+                    .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
+                    .copied()
+                    .collect(),
+            );
+        }
+
+        if visible_width <= 0.0 || screen_width == 0 {
+            return Some(Vec::new());
+        }
+
+        if trace.envelope_needs_recompute(screen_width, visible_width, bounds) {
+            let source_for_recompute: VecDeque<[f64; 2]> = if snapshot {
+                trace.snap.as_ref().unwrap_or(&trace.live).clone()
+            } else {
+                trace.live.clone()
+            };
+            trace.recompute_envelope_from(
+                &source_for_recompute,
+                screen_width,
+                visible_width,
+                Some(bounds),
+            );
+        }
+
+        let cache = trace.envelope_cache.as_ref()?;
+        let mut out = Vec::new();
+
+        for b in &cache.buckets {
+            if b.count == 0 {
+                continue;
+            }
+            if b.x_max < bounds.0 || b.x_min > bounds.1 {
+                continue;
+            }
+            out.push([b.x_min, b.y_min]);
+            if b.count > 1 {
+                out.push([b.x_max, b.y_max]);
+            }
+        }
+
+        Some(out)
+    }
+
     /// Ensure the density cache for a trace is valid and return a reference to it.
     /// Returns None if the trace doesn't exist or has no data.
     pub fn get_density_cache(

@@ -1413,6 +1413,18 @@ impl ScopePanel {
                                 None => continue,
                             }
                         }
+                        RenderMode::MinMaxEnvelope => {
+                            match traces.get_drawn_points_minmax_envelope(
+                                &name,
+                                self.data.paused,
+                                self.data.x_axis.bounds,
+                                self.data.time_window,
+                                screen_width,
+                            ) {
+                                Some(pts) => pts,
+                                None => continue,
+                            }
+                        }
                         RenderMode::Line => {
                             match traces.get_drawn_points_decimated(
                                 &name,

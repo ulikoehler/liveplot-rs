@@ -183,6 +183,8 @@ pub enum SerRenderMode {
     #[serde(rename = "min_max_envelope")]
     MinMaxEnvelopeLegacy,
     Downsampled,
+    #[serde(rename = "min_max_envelope_v2")]
+    MinMaxEnvelope,
     DensitySplatting,
 }
 
@@ -197,6 +199,7 @@ impl From<RenderMode> for SerRenderMode {
         match m {
             RenderMode::Line => SerRenderMode::Line,
             RenderMode::Downsampled => SerRenderMode::Downsampled,
+            RenderMode::MinMaxEnvelope => SerRenderMode::MinMaxEnvelope,
             RenderMode::DensitySplatting => SerRenderMode::DensitySplatting,
         }
     }
@@ -206,8 +209,9 @@ impl From<SerRenderMode> for RenderMode {
     fn from(m: SerRenderMode) -> Self {
         match m {
             SerRenderMode::Line => RenderMode::Line,
-            SerRenderMode::MinMaxEnvelopeLegacy => RenderMode::Downsampled,
+            SerRenderMode::MinMaxEnvelopeLegacy => RenderMode::MinMaxEnvelope,
             SerRenderMode::Downsampled => RenderMode::Downsampled,
+            SerRenderMode::MinMaxEnvelope => RenderMode::MinMaxEnvelope,
             SerRenderMode::DensitySplatting => RenderMode::DensitySplatting,
         }
     }

@@ -62,6 +62,7 @@ pub fn render_trace_look_editor(look: &mut TraceLook, ui: &mut Ui, allow_points:
     egui::ComboBox::from_label("Render mode")
         .selected_text(match look.render_mode {
             RenderMode::Downsampled => "Downsampled",
+            RenderMode::MinMaxEnvelope => "Min/Max Envelope",
             RenderMode::Line => "Line",
             RenderMode::DensitySplatting => "Density Splatting (experimental)",
         })
@@ -75,6 +76,16 @@ pub fn render_trace_look_editor(look: &mut TraceLook, ui: &mut Ui, allow_points:
                 .clicked()
             {
                 look.render_mode = RenderMode::Downsampled;
+            }
+            if ui
+                .selectable_label(
+                    matches!(look.render_mode, RenderMode::MinMaxEnvelope),
+                    "Min/Max Envelope",
+                )
+                .on_hover_text("Bucketed min/max envelope — shows full vertical extent per pixel")
+                .clicked()
+            {
+                look.render_mode = RenderMode::MinMaxEnvelope;
             }
             if ui
                 .selectable_label(matches!(look.render_mode, RenderMode::Line), "Line")
