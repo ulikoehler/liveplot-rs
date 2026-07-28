@@ -51,8 +51,14 @@ pub fn paint_density(
             let screen_y_max = transform.position_from_point_y(y_max);
 
             let rect = Rect::from_min_max(
-                Pos2::new(screen_x_min.min(screen_x_max), screen_y_min.min(screen_y_max)),
-                Pos2::new(screen_x_min.max(screen_x_max), screen_y_min.max(screen_y_max)),
+                Pos2::new(
+                    screen_x_min.min(screen_x_max),
+                    screen_y_min.min(screen_y_max),
+                ),
+                Pos2::new(
+                    screen_x_min.max(screen_x_max),
+                    screen_y_min.max(screen_y_max),
+                ),
             );
 
             let ratio = count as f32 / max_count;

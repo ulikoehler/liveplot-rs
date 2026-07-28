@@ -190,7 +190,7 @@ pub enum SerRenderMode {
 
 impl Default for SerRenderMode {
     fn default() -> Self {
-        SerRenderMode::Line
+        SerRenderMode::MinMaxEnvelope
     }
 }
 

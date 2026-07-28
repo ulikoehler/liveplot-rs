@@ -2,14 +2,14 @@ use egui::{Color32, Ui};
 use egui_plot::{Legend, Line, Plot, PlotMemory, Points};
 use serde::{Deserialize, Serialize};
 
+use crate::data::density_render::paint_density;
 use crate::data::scope::AxisType;
 use crate::data::scope::LegendPosition;
 use crate::data::scope::ScopeData;
 use crate::data::scope::ScopeType;
+use crate::data::trace_look::RenderMode;
 use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
-use crate::data::trace_look::RenderMode;
-use crate::data::density_render::paint_density;
 use crate::events::EventController;
 use egui_phosphor_icons::icons::{
     ARROWS_DOWN_UP, ARROWS_LEFT_RIGHT, IMAGE, MAGNIFYING_GLASS, PAUSE, PLAY,
@@ -1323,12 +1323,26 @@ impl ScopePanel {
                         ),
                         None => continue,
                     };
-                    let (render_mode, offset, base_color, base_width, style, show_points, point_size, marker, info, brightness_gain) = trace_info;
+                    let (
+                        render_mode,
+                        offset,
+                        base_color,
+                        base_width,
+                        style,
+                        show_points,
+                        point_size,
+                        marker,
+                        info,
+                        brightness_gain,
+                    ) = trace_info;
 
                     // Density splatting: paint density grid directly, skip line drawing
                     if render_mode == RenderMode::DensitySplatting {
                         // Check hover state before mutable borrow for density cache
-                        let is_dimmed = traces.hover_trace.as_ref().map_or(false, |hov| !hov.contains(&name));
+                        let is_dimmed = traces
+                            .hover_trace
+                            .as_ref()
+                            .map_or(false, |hov| !hov.contains(&name));
                         let mut color = base_color;
                         if is_dimmed {
                             color = Color32::from_rgba_unmultiplied(
@@ -1373,11 +1387,23 @@ impl ScopePanel {
                             .map(|p| {
                                 let y_lin = p[1] + offset;
                                 let y = if self.data.y_axis.log_scale {
-                                    if y_lin > 0.0 { y_lin.log10() } else { f64::NAN }
-                                } else { y_lin };
+                                    if y_lin > 0.0 {
+                                        y_lin.log10()
+                                    } else {
+                                        f64::NAN
+                                    }
+                                } else {
+                                    y_lin
+                                };
                                 let x = if self.data.x_axis.log_scale {
-                                    if p[0] > 0.0 { p[0].log10() } else { f64::NAN }
-                                } else { p[0] };
+                                    if p[0] > 0.0 {
+                                        p[0].log10()
+                                    } else {
+                                        f64::NAN
+                                    }
+                                } else {
+                                    p[0]
+                                };
                                 [x, y]
                             })
                             .collect();

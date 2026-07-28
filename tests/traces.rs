@@ -320,7 +320,7 @@ fn envelope_incremental_add_updates_single_bucket() {
     let cache = td.envelope_cache.as_ref().unwrap();
     assert_eq!(cache.buckets[50].count, bucket_count_before + 1);
     assert_eq!(cache.buckets[50].y_max, 42.0); // 42 > any sin value
-    // Other buckets should have unchanged count
+                                               // Other buckets should have unchanged count
     assert_eq!(cache.buckets[51].count, bucket_count_before);
 }
 
@@ -335,7 +335,10 @@ fn envelope_incremental_add_appends_new_bucket() {
     let new_point = [data_max_x + bucket_width * 0.5, 5.0];
     td.envelope_add_point(new_point);
     let cache = td.envelope_cache.as_ref().unwrap();
-    assert!(cache.buckets.len() > n_buckets, "new bucket should be appended");
+    assert!(
+        cache.buckets.len() > n_buckets,
+        "new bucket should be appended"
+    );
 }
 
 #[test]
@@ -411,7 +414,11 @@ fn density_recompute_creates_grid() {
     assert_eq!(cache.num_y_buckets, 200);
     assert!(cache.max_count > 0);
     // Total counts should equal number of points
-    let total: u32 = cache.cells.iter().flat_map(|c| c.counts.iter().map(|&v| v as u32)).sum();
+    let total: u32 = cache
+        .cells
+        .iter()
+        .flat_map(|c| c.counts.iter().map(|&v| v as u32))
+        .sum();
     assert_eq!(total, 10_000);
 }
 
@@ -436,8 +443,16 @@ fn density_incremental_remove_decrements_cell() {
     td.recompute_density(100, 10.0);
     let cache = td.density_cache.as_ref().unwrap();
     // Find a non-empty cell
-    let (xi, yi, count_before) = cache.cells.iter().enumerate()
-        .flat_map(|(xi, col)| col.counts.iter().enumerate().map(move |(yi, &c)| (xi, yi, c)))
+    let (xi, yi, count_before) = cache
+        .cells
+        .iter()
+        .enumerate()
+        .flat_map(|(xi, col)| {
+            col.counts
+                .iter()
+                .enumerate()
+                .map(move |(yi, &c)| (xi, yi, c))
+        })
         .find(|(_, _, c)| *c > 0)
         .expect("at least one non-empty cell");
     let x = cache.origin_x + xi as f64 * cache.bucket_width + 1e-6;

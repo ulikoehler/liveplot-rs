@@ -704,14 +704,22 @@ impl TracesCollection {
             } else {
                 trace.live.clone()
             };
-            trace.recompute_envelope_from(&source_for_recompute, screen_width, visible_width, Some(bounds));
+            trace.recompute_envelope_from(
+                &source_for_recompute,
+                screen_width,
+                visible_width,
+                Some(bounds),
+            );
         }
 
         let cache = trace.envelope_cache.as_ref()?;
         let mut out = Vec::new();
 
         // Find the index of the last non-empty bucket within bounds
-        let last_visible_idx = cache.buckets.iter().enumerate()
+        let last_visible_idx = cache
+            .buckets
+            .iter()
+            .enumerate()
             .filter(|(_, b)| b.count > 0 && !(b.x_max < bounds.0 || b.x_min > bounds.1))
             .map(|(i, _)| i)
             .last();
@@ -793,9 +801,9 @@ impl TracesCollection {
             if b.x_max < bounds.0 || b.x_min > bounds.1 {
                 continue;
             }
-            out.push([b.x_min, b.y_min]);
+            out.push([b.x_at_ymin, b.y_min]);
             if b.count > 1 {
-                out.push([b.x_max, b.y_max]);
+                out.push([b.x_at_ymax, b.y_max]);
             }
         }
 
@@ -948,6 +956,10 @@ pub struct EnvelopeBucket {
     /// Min/max y-values of all samples in this bucket.
     pub y_min: f64,
     pub y_max: f64,
+    /// Actual x position of the point with y_min.
+    pub x_at_ymin: f64,
+    /// Actual x position of the point with y_max.
+    pub x_at_ymax: f64,
     /// First data point in this bucket (at its real x position).
     pub x_first: f64,
     pub y_first: f64,
@@ -1181,11 +1193,7 @@ impl TraceData {
     }
 
     /// Rebuild the decimation cache from scratch.
-    pub fn recompute_decimation_from(
-        &mut self,
-        snapshot: bool,
-        max_pts: usize,
-    ) {
+    pub fn recompute_decimation_from(&mut self, snapshot: bool, max_pts: usize) {
         let cache_data = {
             let source: &VecDeque<[f64; 2]> = if snapshot {
                 self.snap.as_ref().unwrap_or(&self.live)
@@ -1206,13 +1214,11 @@ impl TraceData {
                 Some((selected, stride, len))
             }
         };
-        self.decimation_cache = cache_data.map(|(selected, stride, add_counter)| {
-            DecimationCache {
-                selected,
-                stride,
-                max_pts,
-                add_counter,
-            }
+        self.decimation_cache = cache_data.map(|(selected, stride, add_counter)| DecimationCache {
+            selected,
+            stride,
+            max_pts,
+            add_counter,
         });
     }
 
@@ -1331,11 +1337,6 @@ impl TraceData {
         visible_width: f64,
         bounds: Option<(f64, f64)>,
     ) {
-        let had_cache = self.envelope_cache.is_some();
-        eprintln!(
-            "[envelope] recompute: screen_width={}, visible_width={:.6}, source_len={}, had_cache={}",
-            screen_width, visible_width, source.len(), had_cache
-        );
         if source.is_empty() || screen_width == 0 || visible_width <= 0.0 {
             self.envelope_cache = None;
             return;
@@ -1366,7 +1367,10 @@ impl TraceData {
             };
             (origin, max_buckets)
         } else {
-            (data_min_x, ((data_range / bucket_width).ceil() as usize).max(1))
+            (
+                data_min_x,
+                ((data_range / bucket_width).ceil() as usize).max(1),
+            )
         };
 
         let mut buckets: VecDeque<EnvelopeBucket> = VecDeque::with_capacity(num_buckets);
@@ -1391,11 +1395,19 @@ impl TraceData {
             if b.count == 0 {
                 b.y_min = p[1];
                 b.y_max = p[1];
+                b.x_at_ymin = p[0];
+                b.x_at_ymax = p[0];
                 b.x_first = p[0];
                 b.y_first = p[1];
             } else {
-                b.y_min = b.y_min.min(p[1]);
-                b.y_max = b.y_max.max(p[1]);
+                if p[1] < b.y_min {
+                    b.y_min = p[1];
+                    b.x_at_ymin = p[0];
+                }
+                if p[1] > b.y_max {
+                    b.y_max = p[1];
+                    b.x_at_ymax = p[0];
+                }
             }
             b.x_last = p[0];
             b.y_last = p[1];
@@ -1458,11 +1470,19 @@ impl TraceData {
             if b.count == 0 {
                 b.y_min = point[1];
                 b.y_max = point[1];
+                b.x_at_ymin = point[0];
+                b.x_at_ymax = point[0];
                 b.x_first = point[0];
                 b.y_first = point[1];
             } else {
-                b.y_min = b.y_min.min(point[1]);
-                b.y_max = b.y_max.max(point[1]);
+                if point[1] < b.y_min {
+                    b.y_min = point[1];
+                    b.x_at_ymin = point[0];
+                }
+                if point[1] > b.y_max {
+                    b.y_max = point[1];
+                    b.x_at_ymax = point[0];
+                }
             }
             b.x_last = point[0];
             b.y_last = point[1];
@@ -1479,6 +1499,8 @@ impl TraceData {
                         x_max,
                         y_min: point[1],
                         y_max: point[1],
+                        x_at_ymin: point[0],
+                        x_at_ymax: point[0],
                         x_first: point[0],
                         y_first: point[1],
                         x_last: point[0],
@@ -1491,6 +1513,8 @@ impl TraceData {
                         x_max,
                         y_min: 0.0,
                         y_max: 0.0,
+                        x_at_ymin: 0.0,
+                        x_at_ymax: 0.0,
                         x_first: 0.0,
                         y_first: 0.0,
                         x_last: 0.0,
@@ -1511,16 +1535,25 @@ impl TraceData {
     /// Incremental update on point remove — O(1) typical, O(bucket_size) worst case.
     /// Only recomputes the bucket if the removed point was its min or max.
     pub fn envelope_remove_point(&mut self, point: [f64; 2]) {
-        let cache = match &mut self.envelope_cache {
-            Some(c) => c,
+        let origin_x = match &self.envelope_cache {
+            Some(c) => c.origin_x,
             None => return,
         };
 
-        let idx = match cache.bucket_index(point[0]) {
+        let idx = match self.envelope_cache.as_ref().unwrap().bucket_index(point[0]) {
             Some(i) => i,
-            None => return,
+            None => {
+                // Point is outside the cached range.
+                // If it's before origin_x, the cache no longer matches the data
+                // (points were evicted but still counted) — invalidate cache.
+                if point[0] < origin_x {
+                    self.envelope_cache = None;
+                }
+                return;
+            }
         };
 
+        let cache = self.envelope_cache.as_mut().unwrap();
         let b = &mut cache.buckets[idx];
 
         if b.count > 0 {
@@ -1531,6 +1564,8 @@ impl TraceData {
             // Bucket is now empty — reset it
             b.y_min = 0.0;
             b.y_max = 0.0;
+            b.x_at_ymin = 0.0;
+            b.x_at_ymax = 0.0;
             b.x_first = 0.0;
             b.y_first = 0.0;
             b.x_last = 0.0;
@@ -1544,15 +1579,25 @@ impl TraceData {
             // Search the live VecDeque for points in this bucket's x-range
             let mut new_min = f64::INFINITY;
             let mut new_max = f64::NEG_INFINITY;
+            let mut x_at_min = 0.0;
+            let mut x_at_max = 0.0;
             let mut first_x = 0.0;
             let mut first_y = 0.0;
             let mut last_x = 0.0;
             let mut last_y = 0.0;
             let mut found = false;
-            for &p in &self.live {
+            // Determine the correct data source to rescan
+            let source: &VecDeque<[f64; 2]> = self.snap.as_ref().unwrap_or(&self.live);
+            for &p in source {
                 if p[0] >= bucket_x_min && p[0] < bucket_x_max {
-                    new_min = new_min.min(p[1]);
-                    new_max = new_max.max(p[1]);
+                    if p[1] < new_min {
+                        new_min = p[1];
+                        x_at_min = p[0];
+                    }
+                    if p[1] > new_max {
+                        new_max = p[1];
+                        x_at_max = p[0];
+                    }
                     if !found {
                         first_x = p[0];
                         first_y = p[1];
@@ -1565,6 +1610,8 @@ impl TraceData {
             if found {
                 b.y_min = new_min;
                 b.y_max = new_max;
+                b.x_at_ymin = x_at_min;
+                b.x_at_ymax = x_at_max;
                 b.x_first = first_x;
                 b.y_first = first_y;
                 b.x_last = last_x;
@@ -1692,7 +1739,9 @@ impl TraceData {
         };
 
         // Check if point is within existing y-range
-        let yi = if point[1] < cache.origin_y || point[1] >= cache.origin_y + cache.num_y_buckets as f64 * cache.bucket_height {
+        let yi = if point[1] < cache.origin_y
+            || point[1] >= cache.origin_y + cache.num_y_buckets as f64 * cache.bucket_height
+        {
             // Point outside y-range — need full recompute
             self.density_cache = None;
             return;
