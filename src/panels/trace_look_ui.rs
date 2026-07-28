@@ -61,20 +61,20 @@ pub fn render_trace_look_editor(look: &mut TraceLook, ui: &mut Ui, allow_points:
     // Render mode selector
     egui::ComboBox::from_label("Render mode")
         .selected_text(match look.render_mode {
-            RenderMode::MinMaxEnvelope => "Min/Max Envelope",
+            RenderMode::Downsampled => "Downsampled",
             RenderMode::Line => "Line",
             RenderMode::DensitySplatting => "Density Splatting (experimental)",
         })
         .show_ui(ui, |ui| {
             if ui
                 .selectable_label(
-                    matches!(look.render_mode, RenderMode::MinMaxEnvelope),
-                    "Min/Max Envelope",
+                    matches!(look.render_mode, RenderMode::Downsampled),
+                    "Downsampled",
                 )
-                .on_hover_text("Anti-aliased min/max envelope — best for noisy signals")
+                .on_hover_text("Bucketed first/last point downsampling — best for large datasets")
                 .clicked()
             {
-                look.render_mode = RenderMode::MinMaxEnvelope;
+                look.render_mode = RenderMode::Downsampled;
             }
             if ui
                 .selectable_label(matches!(look.render_mode, RenderMode::Line), "Line")

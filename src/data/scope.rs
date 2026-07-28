@@ -667,9 +667,9 @@ impl ScopeData {
                 .get_points_ref(name, self.paused)
                 .map(|v| v.iter().copied().collect())
         } else {
-            // Decimate directly from the VecDeque without cloning all points first.
-            // This avoids a 10K-point clone per trace per frame.
-            traces.get_drawn_points_decimated(name, self.paused, self.x_axis.bounds, 2000)
+            // Uncached decimation for non-rendering callers (export, thresholds, etc.)
+            // The rendering path uses traces.get_drawn_points_decimated directly.
+            traces.get_drawn_points_uncached(name, self.paused, self.x_axis.bounds, 2000)
         }
     }
 

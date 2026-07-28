@@ -1401,7 +1401,7 @@ impl ScopePanel {
                     }
 
                     let shown_pts = match render_mode {
-                        RenderMode::MinMaxEnvelope => {
+                        RenderMode::Downsampled => {
                             match traces.get_drawn_points_envelope(
                                 &name,
                                 self.data.paused,
@@ -1414,7 +1414,12 @@ impl ScopePanel {
                             }
                         }
                         RenderMode::Line => {
-                            match self.data.get_drawn_points(&name, traces) {
+                            match traces.get_drawn_points_decimated(
+                                &name,
+                                self.data.paused,
+                                self.data.x_axis.bounds,
+                                2000,
+                            ) {
                                 Some(pts) => pts,
                                 None => continue,
                             }

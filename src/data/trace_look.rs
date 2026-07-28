@@ -9,7 +9,7 @@ use egui_plot::{LineStyle, MarkerShape};
 pub enum RenderMode {
     Line,
     #[default]
-    MinMaxEnvelope,
+    Downsampled,
     DensitySplatting,
 }
 

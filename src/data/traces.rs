@@ -200,6 +200,7 @@ impl TracesCollection {
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
                                     envelope_cache: None,
+                                    decimation_cache: None,
                                     density_cache: None,
                                 })
                             }
@@ -237,6 +238,7 @@ impl TracesCollection {
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
                                         envelope_cache: None,
+                                        decimation_cache: None,
                                         density_cache: None,
                                     })
                                 }
@@ -244,12 +246,14 @@ impl TracesCollection {
                             entry.live.push_back([point.x, point.y]);
                             if entry.snap.is_none() {
                                 entry.envelope_add_point([point.x, point.y]);
+                                entry.decimation_add_point([point.x, point.y]);
                                 entry.density_add_point([point.x, point.y]);
                             }
                             if entry.live.len() > self.max_points {
                                 if let Some(removed) = entry.live.pop_front() {
                                     if entry.snap.is_none() {
                                         entry.envelope_remove_point(removed);
+                                        entry.decimation_remove_point(removed);
                                         entry.density_remove_point(removed);
                                     }
                                 }
@@ -275,12 +279,14 @@ impl TracesCollection {
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
                                     envelope_cache: None,
+                                    decimation_cache: None,
                                     density_cache: None,
                                 }
                             });
                             entry.live.push_back([point.x, point.y]);
                             if entry.snap.is_none() {
                                 entry.envelope_add_point([point.x, point.y]);
+                                entry.decimation_add_point([point.x, point.y]);
                                 entry.density_add_point([point.x, point.y]);
                             }
                         }
@@ -306,6 +312,7 @@ impl TracesCollection {
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
                                         envelope_cache: None,
+                                        decimation_cache: None,
                                         density_cache: None,
                                     })
                                 }
@@ -314,6 +321,7 @@ impl TracesCollection {
                                 entry.live.push_back([p.x, p.y]);
                                 if entry.snap.is_none() {
                                     entry.envelope_add_point([p.x, p.y]);
+                                    entry.decimation_add_point([p.x, p.y]);
                                     entry.density_add_point([p.x, p.y]);
                                 }
                             }
@@ -321,6 +329,7 @@ impl TracesCollection {
                                 if let Some(removed) = entry.live.pop_front() {
                                     if entry.snap.is_none() {
                                         entry.envelope_remove_point(removed);
+                                        entry.decimation_remove_point(removed);
                                         entry.density_remove_point(removed);
                                     }
                                 }
@@ -348,12 +357,14 @@ impl TracesCollection {
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
                                         envelope_cache: None,
+                                        decimation_cache: None,
                                         density_cache: None,
                                     })
                                 }
                             };
                             entry.live.clear();
                             entry.envelope_cache = None;
+                            entry.decimation_cache = None;
                             entry.density_cache = None;
                             for p in points {
                                 entry.live.push_back([p.x, p.y]);
@@ -366,6 +377,7 @@ impl TracesCollection {
                             if let Some(tr) = self.traces.get_mut(&tref) {
                                 tr.live.clear();
                                 tr.envelope_cache = None;
+                                tr.decimation_cache = None;
                                 tr.density_cache = None;
                             }
                         }
@@ -502,6 +514,7 @@ impl TracesCollection {
                     #[cfg(feature = "fft")]
                     last_fft: None,
                     envelope_cache: None,
+                    decimation_cache: None,
                     density_cache: None,
                 },
             );
@@ -541,7 +554,7 @@ impl TracesCollection {
     /// reducing to at most `max_pts` points.  This avoids cloning the
     /// full VecDeque — it iterates in-place and collects only the kept
     /// points into a Vec.
-    pub fn get_drawn_points_decimated(
+    pub fn get_drawn_points_uncached(
         &self,
         name: &TraceRef,
         snapshot: bool,
@@ -559,7 +572,6 @@ impl TracesCollection {
             return Some(Vec::new());
         }
         if len <= max_pts {
-            // No decimation needed — just filter by bounds
             return Some(
                 source
                     .iter()
@@ -568,38 +580,81 @@ impl TracesCollection {
                     .collect(),
             );
         }
-        // Stride decimation: pick every Nth point within bounds
-        // First, find the index range of visible points
-        // (binary search not available on VecDeque, so linear scan from both ends)
-        let mut start = 0usize;
-        while start < len && source[start][0] < bounds.0 {
-            start += 1;
+        let stride = (len + max_pts - 1) / max_pts;
+        let mut out = Vec::with_capacity(max_pts.min(len));
+        for (i, &p) in source.iter().enumerate() {
+            if i % stride == 0 && p[0] >= bounds.0 && p[0] <= bounds.1 {
+                out.push(p);
+            }
         }
-        let mut end = len;
-        while end > start && source[end - 1][0] > bounds.1 {
-            end -= 1;
+        if let Some(&last) = source.back() {
+            if last[0] >= bounds.0 && last[0] <= bounds.1 {
+                if out.last() != Some(&last) {
+                    out.push(last);
+                }
+            }
         }
-        let visible_count = end - start;
-        if visible_count == 0 {
+        Some(out)
+    }
+
+    /// Return decimated points for a trace, filtering by x-bounds and
+    /// reducing to at most `max_pts` points.  This avoids cloning the
+    /// full VecDeque — it iterates in-place and collects only the kept
+    /// points into a Vec.
+    pub fn get_drawn_points_decimated(
+        &mut self,
+        name: &TraceRef,
+        snapshot: bool,
+        bounds: (f64, f64),
+        max_pts: usize,
+    ) -> Option<Vec<[f64; 2]>> {
+        let trace = self.traces.get_mut(name)?;
+        let len = if snapshot {
+            trace.snap.as_ref().unwrap_or(&trace.live).len()
+        } else {
+            trace.live.len()
+        };
+        if len == 0 {
             return Some(Vec::new());
         }
-        if visible_count <= max_pts {
-            // All visible points fit — return them all
-            return Some(source.range(start..end).copied().collect());
+        if len <= max_pts {
+            // No decimation needed — just filter by bounds
+            let source: &VecDeque<[f64; 2]> = if snapshot {
+                trace.snap.as_ref().unwrap_or(&trace.live)
+            } else {
+                &trace.live
+            };
+            return Some(
+                source
+                    .iter()
+                    .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
+                    .copied()
+                    .collect(),
+            );
         }
-        // Decimate only within the visible index range
-        let stride = (visible_count + max_pts - 1) / max_pts;
-        let mut out = Vec::with_capacity(max_pts.min(visible_count));
-        let mut i = start;
-        while i < end {
-            let p = source[i];
-            out.push(p);
-            i += stride;
+        // Ensure decimation cache is valid
+        if trace.decimation_needs_recompute(len, max_pts) {
+            trace.recompute_decimation_from(snapshot, max_pts);
         }
+        let cache = trace.decimation_cache.as_ref()?;
+        // Filter cached selected points by bounds — no recompute on scroll
+        let mut out: Vec<[f64; 2]> = cache
+            .selected
+            .iter()
+            .filter(|p| p[0] >= bounds.0 && p[0] <= bounds.1)
+            .copied()
+            .collect();
         // Always include the last visible point so the line doesn't appear truncated
-        if let Some(&last) = source.get(end - 1) {
-            if out.last() != Some(&last) {
-                out.push(last);
+        let source: &VecDeque<[f64; 2]> = if snapshot {
+            trace.snap.as_ref().unwrap_or(&trace.live)
+        } else {
+            &trace.live
+        };
+        if let Some(&last) = source.back() {
+            if last[0] >= bounds.0 && last[0] <= bounds.1 {
+                if out.last() != Some(&last) {
+                    out.push(last);
+                }
             }
         }
         Some(out)
@@ -655,7 +710,13 @@ impl TracesCollection {
         let cache = trace.envelope_cache.as_ref()?;
         let mut out = Vec::new();
 
-        for b in &cache.buckets {
+        // Find the index of the last non-empty bucket within bounds
+        let last_visible_idx = cache.buckets.iter().enumerate()
+            .filter(|(_, b)| b.count > 0 && !(b.x_max < bounds.0 || b.x_min > bounds.1))
+            .map(|(i, _)| i)
+            .last();
+
+        for (idx, b) in cache.buckets.iter().enumerate() {
             if b.count == 0 {
                 continue;
             }
@@ -663,11 +724,9 @@ impl TracesCollection {
             if b.x_max < bounds.0 || b.x_min > bounds.1 {
                 continue;
             }
-            // Emit first and last data points at their real x positions
-            if b.count == 1 {
-                out.push([b.x_first, b.y_first]);
-            } else {
-                out.push([b.x_first, b.y_first]);
+            // Emit first point always; emit last point only if not the final bucket
+            out.push([b.x_first, b.y_first]);
+            if b.count > 1 && Some(idx) != last_visible_idx {
                 out.push([b.x_last, b.y_last]);
             }
         }
@@ -952,8 +1011,27 @@ pub struct TraceData {
     /// Incremental min/max envelope cache. Built lazily on first render
     /// request, then maintained incrementally on point add/remove.
     pub envelope_cache: Option<EnvelopeCache>,
+    /// Stable decimation cache for line mode rendering.
+    pub decimation_cache: Option<DecimationCache>,
     /// 2D density grid cache for density splatting render mode.
     pub density_cache: Option<DensityCache>,
+}
+
+/// Stable decimation cache for line mode rendering.
+///
+/// Stores every stride-th point so that the same physical points are selected
+/// regardless of scroll position. `add_counter` is monotonic — never decremented
+/// on removal — ensuring phase stability. Invalidated only when stride changes
+/// (data length crosses a multiple of max_pts), snapshot taken/cleared, or data cleared.
+pub struct DecimationCache {
+    /// Every stride-th point from the source data.
+    pub selected: VecDeque<[f64; 2]>,
+    /// Stride used to build the cache.
+    pub stride: usize,
+    /// Max points target used to compute stride.
+    pub max_pts: usize,
+    /// Monotonic counter — incremented on every add, never decremented on removal.
+    pub add_counter: usize,
 }
 
 impl TraceData {
@@ -962,6 +1040,7 @@ impl TraceData {
             if let Some(removed) = self.live.pop_front() {
                 if self.snap.is_none() {
                     self.envelope_remove_point(removed);
+                    self.decimation_remove_point(removed);
                     self.density_remove_point(removed);
                 }
             }
@@ -983,6 +1062,7 @@ impl TraceData {
                 self.live.pop_front();
                 if self.snap.is_none() {
                     self.envelope_remove_point(front);
+                    self.decimation_remove_point(front);
                     self.density_remove_point(front);
                 }
             } else {
@@ -995,6 +1075,7 @@ impl TraceData {
         self.live.clear();
         self.snap = None;
         self.envelope_cache = None;
+        self.decimation_cache = None;
         self.density_cache = None;
     }
 
@@ -1002,6 +1083,7 @@ impl TraceData {
         self.snap = Some(self.live.clone());
         // Clear caches so they rebuild from snapshot data on next render
         self.envelope_cache = None;
+        self.decimation_cache = None;
         self.density_cache = None;
     }
 
@@ -1009,7 +1091,89 @@ impl TraceData {
         self.snap = None;
         // Clear caches so they rebuild from live data on next render
         self.envelope_cache = None;
+        self.decimation_cache = None;
         self.density_cache = None;
+    }
+
+    // ── Decimation cache methods ────────────────────────────────────────
+
+    /// Check if the decimation cache needs to be rebuilt.
+    /// Returns true if cache is missing or stride has changed.
+    pub fn decimation_needs_recompute(&self, source_len: usize, max_pts: usize) -> bool {
+        match &self.decimation_cache {
+            None => true,
+            Some(c) => {
+                if c.max_pts != max_pts {
+                    return true;
+                }
+                let expected_stride = (source_len + max_pts - 1) / max_pts;
+                c.stride != expected_stride
+            }
+        }
+    }
+
+    /// Rebuild the decimation cache from scratch.
+    pub fn recompute_decimation_from(
+        &mut self,
+        snapshot: bool,
+        max_pts: usize,
+    ) {
+        let cache_data = {
+            let source: &VecDeque<[f64; 2]> = if snapshot {
+                self.snap.as_ref().unwrap_or(&self.live)
+            } else {
+                &self.live
+            };
+            let len = source.len();
+            if len == 0 || len <= max_pts {
+                None
+            } else {
+                let stride = (len + max_pts - 1) / max_pts;
+                let mut selected = VecDeque::with_capacity(len / stride + 1);
+                for (i, &p) in source.iter().enumerate() {
+                    if i % stride == 0 {
+                        selected.push_back(p);
+                    }
+                }
+                Some((selected, stride, len))
+            }
+        };
+        self.decimation_cache = cache_data.map(|(selected, stride, add_counter)| {
+            DecimationCache {
+                selected,
+                stride,
+                max_pts,
+                add_counter,
+            }
+        });
+    }
+
+    /// Incremental update on point add — O(1).
+    pub fn decimation_add_point(&mut self, point: [f64; 2]) {
+        let cache = match &mut self.decimation_cache {
+            Some(c) => c,
+            None => return,
+        };
+        cache.add_counter += 1;
+        if cache.add_counter % cache.stride == 0 {
+            cache.selected.push_back(point);
+        }
+    }
+
+    /// Incremental update on point remove — O(1).
+    /// Only pops from selected if the removed point matches the front.
+    pub fn decimation_remove_point(&mut self, point: [f64; 2]) {
+        let cache = match &mut self.decimation_cache {
+            Some(c) => c,
+            None => return,
+        };
+        if let Some(&front) = cache.selected.front() {
+            if (front[0] - point[0]).abs() < f64::EPSILON
+                && (front[1] - point[1]).abs() < f64::EPSILON
+            {
+                cache.selected.pop_front();
+            }
+        }
     }
 
     pub fn get_last_live_timestamp(&self) -> Option<f64> {

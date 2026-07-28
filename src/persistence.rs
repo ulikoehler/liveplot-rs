@@ -180,13 +180,15 @@ pub enum SerMarkerShape {
 #[serde(rename_all = "snake_case")]
 pub enum SerRenderMode {
     Line,
-    MinMaxEnvelope,
+    #[serde(rename = "min_max_envelope")]
+    MinMaxEnvelopeLegacy,
+    Downsampled,
     DensitySplatting,
 }
 
 impl Default for SerRenderMode {
     fn default() -> Self {
-        SerRenderMode::MinMaxEnvelope
+        SerRenderMode::Downsampled
     }
 }
 
@@ -194,7 +196,7 @@ impl From<RenderMode> for SerRenderMode {
     fn from(m: RenderMode) -> Self {
         match m {
             RenderMode::Line => SerRenderMode::Line,
-            RenderMode::MinMaxEnvelope => SerRenderMode::MinMaxEnvelope,
+            RenderMode::Downsampled => SerRenderMode::Downsampled,
             RenderMode::DensitySplatting => SerRenderMode::DensitySplatting,
         }
     }
@@ -204,7 +206,8 @@ impl From<SerRenderMode> for RenderMode {
     fn from(m: SerRenderMode) -> Self {
         match m {
             SerRenderMode::Line => RenderMode::Line,
-            SerRenderMode::MinMaxEnvelope => RenderMode::MinMaxEnvelope,
+            SerRenderMode::MinMaxEnvelopeLegacy => RenderMode::Downsampled,
+            SerRenderMode::Downsampled => RenderMode::Downsampled,
             SerRenderMode::DensitySplatting => RenderMode::DensitySplatting,
         }
     }
