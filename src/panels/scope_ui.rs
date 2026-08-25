@@ -1099,6 +1099,9 @@ impl ScopePanel {
 
             // Capture hover_pos before mutable plot_ui calls to avoid borrow conflict
             let hover_pos = resp.hover_pos();
+            // Tracks the pointer even when it leaves the plot area during a drag,
+            // so releasing outside the scope still zooms to the larger rectangle.
+            let box_zoom_pos = resp.interact_pointer_pos().or(hover_pos);
 
             let bounds_changed =
                 is_box_zoom_dragging || is_box_zoom_finished || is_panning || is_zooming_with_wheel;
@@ -1125,10 +1128,10 @@ impl ScopePanel {
             // Custom box zoom that respects ZoomMode
             if self.zoom_mode != ZoomMode::Off {
                 if is_box_zoom_dragging && self.box_zoom_start.is_none() {
-                    self.box_zoom_start = hover_pos;
+                    self.box_zoom_start = box_zoom_pos;
                 }
                 if is_box_zoom_finished {
-                    if let (Some(start), Some(end)) = (self.box_zoom_start, hover_pos) {
+                    if let (Some(start), Some(end)) = (self.box_zoom_start, box_zoom_pos) {
                         let p0 = plot_ui.plot_from_screen(start);
                         let p1 = plot_ui.plot_from_screen(end);
                         let (x_min, x_max) = (p0.x.min(p1.x), p0.x.max(p1.x));
@@ -1661,7 +1664,13 @@ impl ScopePanel {
 
         // Draw box zoom selection rectangle if active
         if let Some(start) = self.box_zoom_start {
-            if let Some(hover_pos) = ui.input(|i| i.pointer.hover_pos()) {
+            // Prefer the interact pointer position so the rectangle keeps tracking
+            // the pointer even when it leaves the plot area during the drag.
+            if let Some(hover_pos) = plot_resp
+                .response
+                .interact_pointer_pos()
+                .or_else(|| ui.input(|i| i.pointer.hover_pos()))
+            {
                 let frame = *plot_resp.transform.frame();
                 let rect = match self.zoom_mode {
                     ZoomMode::X => {
