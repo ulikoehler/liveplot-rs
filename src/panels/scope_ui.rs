@@ -1102,6 +1102,14 @@ impl ScopePanel {
             // Tracks the pointer even when it leaves the plot area during a drag,
             // so releasing outside the scope still zooms to the larger rectangle.
             let box_zoom_pos = resp.interact_pointer_pos().or(hover_pos);
+            // Escape cancels an in-progress box-zoom drag: egui stops the drag
+            // without emitting `drag_stopped_by`, so we must clear the start
+            // state ourselves, otherwise the selection rectangle would remain
+            // drawn indefinitely. Captured here (before mutable plot_ui calls)
+            // to avoid borrow conflicts.
+            let escape_pressed = resp
+                .ctx
+                .input(|i| i.key_pressed(egui::Key::Escape));
 
             let bounds_changed =
                 is_box_zoom_dragging || is_box_zoom_finished || is_panning || is_zooming_with_wheel;
@@ -1159,6 +1167,14 @@ impl ScopePanel {
                     self.box_zoom_start = None;
                 }
             } else {
+                self.box_zoom_start = None;
+            }
+
+            // Escape cancels an in-progress box-zoom drag: egui stops the drag
+            // without emitting `drag_stopped_by`, so we must clear the start
+            // state ourselves, otherwise the selection rectangle would remain
+            // drawn indefinitely.
+            if self.box_zoom_start.is_some() && escape_pressed {
                 self.box_zoom_start = None;
             }
 
