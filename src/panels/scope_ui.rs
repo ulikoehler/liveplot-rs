@@ -1038,7 +1038,11 @@ impl ScopePanel {
             }
         }
         if self.data.show_legend && !hide_legend {
-            plot = plot.legend(Legend::default().position(self.data.legend_position.into()));
+            plot = plot.legend(
+                Legend::default()
+                    .position(self.data.legend_position.into())
+                    .follow_insertion_order(true),
+            );
         }
         let plot = plot
             .x_axis_formatter(|x, _range| {
