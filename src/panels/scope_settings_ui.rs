@@ -427,11 +427,17 @@ impl ScopeSettingsUiPanel {
                                             .add(
                                                 egui::Label::new(t.0.clone())
                                                     .truncate()
-                                                    .show_tooltip_when_elided(true),
+                                                    .show_tooltip_when_elided(true)
+                                                    .sense(egui::Sense::click()),
                                             )
                                             .on_hover_text(trace_tooltip(traces_collection, t));
                                         if resp.hovered() {
                                             traces_collection.hover_trace = Some(vec![t.clone()]);
+                                        }
+                                        if resp.clicked() && open_look_editor.is_some() {
+                                            if let Some(open_out) = open_look_editor.as_mut() {
+                                                **open_out = idx;
+                                            }
                                         }
 
                                         ui.with_layout(

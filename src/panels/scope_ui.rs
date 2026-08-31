@@ -1192,14 +1192,7 @@ impl ScopePanel {
             // Draw traces
             if self.data.scope_type == ScopeType::XYScope && !self.data.xy_pairs.is_empty() {
                 let tol = 1e-9_f64;
-                let mut pairs = self.data.xy_pairs.clone();
-                pairs.sort_by_key(|(_, y_name, _)| {
-                    y_name
-                        .as_ref()
-                        .and_then(|yn| traces.get_trace(yn))
-                        .map(|t| t.creation_index)
-                        .unwrap_or(usize::MAX)
-                });
+                let pairs = self.data.xy_pairs.clone();
                 for (x_name, y_name, pair_look) in pairs.into_iter() {
                     let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
                         continue;
@@ -1316,13 +1309,7 @@ impl ScopePanel {
                     }
                 }
             } else {
-                let mut ordered: Vec<TraceRef> = self.data.trace_order.clone();
-                ordered.sort_by_key(|n| {
-                    traces
-                        .get_trace(n)
-                        .map(|t| t.creation_index)
-                        .unwrap_or(usize::MAX)
-                });
+                let ordered: Vec<TraceRef> = self.data.trace_order.clone();
                 let trace_count = ordered.len();
                 for idx in 0..trace_count {
                     let name = ordered[idx].clone();

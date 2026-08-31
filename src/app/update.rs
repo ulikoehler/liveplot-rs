@@ -581,12 +581,17 @@ impl LivePlotPanel {
         };
 
         // Attach newly created traces to the primary (first) scope only.
+        // Sort alphabetically so vector/array field traces (which arrive in
+        // HashMap/channel order) are added in a deterministic, user-friendly
+        // order.
         if let Some(scope) = data.primary_scope_mut() {
-            for name in new_traces.into_iter().chain(all_trace_names) {
-                if !scope.trace_order.iter().any(|n| n == &name) {
-                    scope.trace_order.push(name);
-                }
-            }
+            let mut to_add: Vec<TraceRef> = new_traces
+                .into_iter()
+                .chain(all_trace_names)
+                .filter(|name| !scope.trace_order.iter().any(|n| n == name))
+                .collect();
+            to_add.sort_by(|a, b| a.0.cmp(&b.0));
+            scope.trace_order.extend(to_add);
         }
         self.traces_dirty = false;
 
