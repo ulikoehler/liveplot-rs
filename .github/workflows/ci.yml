@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install system dependencies (incl. protoc for grpc)
         run: |
@@ -62,7 +62,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -87,7 +87,7 @@ jobs:
       # cache the tarpaulin binary to avoid reinstalling every run
       - name: Cache tarpaulin
         id: cache-tarpaulin
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-tarpaulin
           key: ${{ runner.os }}-tarpaulin-${{ hashFiles('**/Cargo.lock') }}
@@ -103,7 +103,7 @@ jobs:
         run: cargo tarpaulin --all-features --out Xml
 
       # archive the report as an artifact so it can be inspected
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: tarpaulin-report.xml
