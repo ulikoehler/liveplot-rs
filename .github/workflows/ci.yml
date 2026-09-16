@@ -99,11 +99,13 @@ jobs:
         run: cargo install cargo-tarpaulin
 
       - name: Run tarpaulin
-        # Xml output is compatible with codecov and many other tools
+        # Xml output is compatible with codecov and many other tools;
+        # tarpaulin writes it to cobertura.xml by default
         run: cargo tarpaulin --all-features --out Xml
 
       # archive the report as an artifact so it can be inspected
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-report
-          path: tarpaulin-report.xml
+          path: cobertura.xml
+          if-no-files-found: error
