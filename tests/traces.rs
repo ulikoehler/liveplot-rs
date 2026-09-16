@@ -3,6 +3,11 @@ use liveplot::color_scheme;
 use liveplot::data::trace_look::TraceLook;
 use liveplot::data::traces::{TraceData, TraceRef, TracesCollection};
 use liveplot::sink::PlotCommand;
+use std::sync::Mutex;
+
+/// Serializes tests that mutate/read the global trace palette (`GLOBAL_PALETTE`
+/// is shared process-wide, so parallel tests would race on it).
+static PALETTE_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn cap_and_decimate_reduces_points() {
@@ -40,6 +45,7 @@ fn cap_and_decimate_no_decimation_when_under_limit() {
 
 #[test]
 fn recolor_changes_existing_traces() {
+    let _guard = PALETTE_LOCK.lock().unwrap();
     // create collection with two traces
     let (tx, rx) = std::sync::mpsc::channel();
     let mut col = TracesCollection::new(rx);
@@ -74,6 +80,7 @@ fn recolor_changes_existing_traces() {
 
 #[test]
 fn next_color_index_avoids_collision_after_removal() {
+    let _guard = PALETTE_LOCK.lock().unwrap();
     color_scheme::set_global_palette(vec![
         Color32::from_rgb(1, 1, 1),
         Color32::from_rgb(2, 2, 2),
@@ -106,6 +113,7 @@ fn next_color_index_avoids_collision_after_removal() {
 
 #[test]
 fn recolor_by_order_assigns_palette_in_order() {
+    let _guard = PALETTE_LOCK.lock().unwrap();
     let palette = vec![
         Color32::from_rgb(10, 10, 10),
         Color32::from_rgb(20, 20, 20),
@@ -154,6 +162,7 @@ fn recolor_by_order_assigns_palette_in_order() {
 
 #[test]
 fn next_color_index_sequential_when_palette_full() {
+    let _guard = PALETTE_LOCK.lock().unwrap();
     let palette = vec![
         Color32::from_rgb(1, 1, 1),
         Color32::from_rgb(2, 2, 2),
@@ -224,6 +233,7 @@ fn next_color_index_sequential_when_palette_full() {
 
 #[test]
 fn alloc_color_uses_global_palette() {
+    let _guard = PALETTE_LOCK.lock().unwrap();
     // start with known palette
     color_scheme::set_global_palette(vec![Color32::from_rgb(1, 2, 3), Color32::from_rgb(4, 5, 6)]);
     assert_eq!(TraceLook::alloc_color(0), Color32::from_rgb(1, 2, 3));
