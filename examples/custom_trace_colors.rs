@@ -61,11 +61,6 @@ fn main() -> eframe::Result<()> {
         });
     }
 
-    // Run the UI with the controller attached via config
-    let mut cfg = LivePlotConfig::default();
-    cfg.title = "LivePlot (custom colors)".into();
-    cfg.controllers.traces = Some(traces_ctrl);
-
     // make a yellow background and rainbow palette for traces
     let rainbow = vec![
         Color32::from_rgb(255, 0, 0),   // red
@@ -78,30 +73,38 @@ fn main() -> eframe::Result<()> {
     ];
     let mut visuals = eframe::egui::Visuals::dark();
     visuals.panel_fill = Color32::YELLOW; // bright yellow background
-    cfg.color_scheme = ColorScheme::Custom(liveplot::config::CustomColorScheme {
-        visuals: Some(visuals),
-        palette: rainbow.clone(),
-        label: Some("Rainbow Theme".to_string()),
-    });
 
-    // overlay closure draws rainbow grid lines over plots
-    cfg.overlays = Some(Box::new(move |plot_ui, _scope, _traces| {
-        let rect = plot_ui.response().rect;
-        let n = rainbow.len();
-        for i in 0..n {
-            let color = rainbow[i];
-            let x = rect.left() + rect.width() * (i as f32) / (n as f32);
-            plot_ui.ctx().debug_painter().line_segment(
-                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-                (1.0, color),
-            );
-            let y = rect.top() + rect.height() * (i as f32) / (n as f32);
-            plot_ui.ctx().debug_painter().line_segment(
-                [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
-                (1.0, color),
-            );
-        }
-    }));
+    // Run the UI with the controller attached via config
+    let cfg = LivePlotConfig {
+        title: "LivePlot (custom colors)".into(),
+        controllers: liveplot::Controllers {
+            traces: Some(traces_ctrl),
+            ..Default::default()
+        },
+        color_scheme: ColorScheme::Custom(liveplot::config::CustomColorScheme {
+            visuals: Some(visuals),
+            palette: rainbow.clone(),
+            label: Some("Rainbow Theme".to_string()),
+        }),
+        // overlay closure draws rainbow grid lines over plots
+        overlays: Some(Box::new(move |plot_ui, _scope, _traces| {
+            let rect = plot_ui.response().rect;
+            let n = rainbow.len();
+            for (i, &color) in rainbow.iter().enumerate() {
+                let x = rect.left() + rect.width() * (i as f32) / (n as f32);
+                plot_ui.ctx().debug_painter().line_segment(
+                    [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                    (1.0, color),
+                );
+                let y = rect.top() + rect.height() * (i as f32) / (n as f32);
+                plot_ui.ctx().debug_painter().line_segment(
+                    [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+                    (1.0, color),
+                );
+            }
+        })),
+        ..Default::default()
+    };
 
     run_liveplot(rx, cfg)
 }

@@ -25,6 +25,30 @@ pub struct ScopeSettingsResponse {
     pub sort_ascending: bool,
 }
 
+struct TraceListArgs<'a, S: Hash + std::fmt::Debug> {
+    id_salt: S,
+    title: &'a str,
+    global_dragging: &'a mut Option<DragPayload>,
+    origin_scope_id: Option<usize>,
+    traces_collection: &'a mut TracesCollection,
+    traces: &'a mut Vec<Option<TraceRef>>,
+    empty_label: &'a str,
+    preserve_slots: bool,
+    color_chooser: Option<Vec<&'a mut Color32>>,
+    open_look_editor: Option<&'a mut usize>,
+}
+
+/// Bundled arguments for [`ScopeSettingsUiPanel::render_scope_assignment`].
+pub struct ScopeAssignmentArgs<'a> {
+    pub scope: &'a mut ScopeData,
+    pub can_remove_scope: bool,
+    pub pending: &'a mut LivePlotRequests,
+    pub global_dragging: &'a mut Option<DragPayload>,
+    pub traces_collection: &'a mut TracesCollection,
+    pub look_editor_out: &'a mut Option<TraceRef>,
+    pub xy_pair_look_editor_out: &'a mut Option<(usize, usize)>,
+}
+
 #[derive(Default)]
 pub struct ScopeSettingsUiPanel {
     renaming_scope_id: Option<usize>,
@@ -270,7 +294,7 @@ impl ScopeSettingsUiPanel {
                 traces
                     .get_trace(&x)
                     .map(|t| t.look.clone())
-                    .unwrap_or_else(TraceLook::default)
+                    .unwrap_or_default()
             };
 
             rebuilt.push((Some(x), y, look));
@@ -353,19 +377,22 @@ impl ScopeSettingsUiPanel {
         None
     }
 
-    fn render_trace_list(
+    fn render_trace_list<S: Hash + std::fmt::Debug>(
         ui: &mut Ui,
-        id_salt: impl Hash + std::fmt::Debug,
-        title: &str,
-        global_dragging: &mut Option<DragPayload>,
-        origin_scope_id: Option<usize>,
-        traces_collection: &mut TracesCollection,
-        traces: &mut Vec<Option<TraceRef>>,
-        empty_label: &str,
-        preserve_slots: bool,
-        color_chooser: Option<Vec<&mut Color32>>,
-        open_look_editor: Option<&mut usize>,
+        args: TraceListArgs<'_, S>,
     ) -> (bool, Option<(usize, DragPayload)>) {
+        let TraceListArgs {
+            id_salt,
+            title,
+            global_dragging,
+            origin_scope_id,
+            traces_collection,
+            traces,
+            empty_label,
+            preserve_slots,
+            color_chooser,
+            open_look_editor,
+        } = args;
         let before = traces.clone();
         let mut removed: HashSet<TraceRef> = HashSet::new();
         let mut pending_place: Option<(usize, DragPayload)> = None;
@@ -418,7 +445,7 @@ impl ScopeSettingsUiPanel {
 
                                         if let Some(colors) = color_chooser.as_mut() {
                                             if let Some(slot_color) = colors.get_mut(idx) {
-                                                ui.color_edit_button_srgba(*slot_color)
+                                                ui.color_edit_button_srgba(slot_color)
                                                     .on_hover_text("Change color");
                                             }
                                         }
@@ -450,17 +477,16 @@ impl ScopeSettingsUiPanel {
                                                 {
                                                     removed.insert(t.clone());
                                                 }
-                                                if open_look_editor.is_some() {
-                                                    if ui
+                                                if open_look_editor.is_some()
+                                                    && ui
                                                         .small_button(PALETTE.as_str())
                                                         .on_hover_text("Edit trace style")
                                                         .clicked()
+                                                {
+                                                    if let Some(open_out) =
+                                                        open_look_editor.as_mut()
                                                     {
-                                                        if let Some(open_out) =
-                                                            open_look_editor.as_mut()
-                                                        {
-                                                            **open_out = idx;
-                                                        }
+                                                        **open_out = idx;
                                                     }
                                                 }
                                             },
@@ -550,14 +576,17 @@ impl ScopeSettingsUiPanel {
     pub fn render_scope_assignment(
         &mut self,
         ui: &mut Ui,
-        scope: &mut ScopeData,
-        can_remove_scope: bool,
-        pending: &mut LivePlotRequests,
-        global_dragging: &mut Option<DragPayload>,
-        traces_collection: &mut TracesCollection,
-        look_editor_out: &mut Option<TraceRef>,
-        xy_pair_look_editor_out: &mut Option<(usize, usize)>,
+        args: ScopeAssignmentArgs<'_>,
     ) -> ScopeSettingsResponse {
+        let ScopeAssignmentArgs {
+            scope,
+            can_remove_scope,
+            pending,
+            global_dragging,
+            traces_collection,
+            look_editor_out,
+            xy_pair_look_editor_out,
+        } = args;
         let mut resp = self.render_scope_settings(ui, scope, can_remove_scope, pending);
         let mut scope_changed = false;
 
@@ -627,16 +656,18 @@ impl ScopeSettingsUiPanel {
 
                 let (changed, dropped) = Self::render_trace_list(
                     ui,
-                    ("time_scope", scope.id),
-                    "Trace",
-                    global_dragging,
-                    Some(scope.id),
-                    traces_collection,
-                    &mut tmp,
-                    "Drop trace here",
-                    false,
-                    Some(color_refs),
-                    Some(&mut open_editor_idx),
+                    TraceListArgs {
+                        id_salt: ("time_scope", scope.id),
+                        title: "Trace",
+                        global_dragging,
+                        origin_scope_id: Some(scope.id),
+                        traces_collection,
+                        traces: &mut tmp,
+                        empty_label: "Drop trace here",
+                        preserve_slots: false,
+                        color_chooser: Some(color_refs),
+                        open_look_editor: Some(&mut open_editor_idx),
+                    },
                 );
 
                 // Apply edited colors back by TraceRef identity.
@@ -704,16 +735,18 @@ impl ScopeSettingsUiPanel {
 
                             let (changed, dropped) = Self::render_trace_list(
                                 ui,
-                                ("xy_scope_x", scope.id),
-                                "X Traces",
-                                global_dragging,
-                                Some(scope.id),
-                                traces_collection,
-                                &mut x_vec,
-                                "Drop X trace here",
-                                true,
-                                Some(color_refs),
-                                None,
+                                TraceListArgs {
+                                    id_salt: ("xy_scope_x", scope.id),
+                                    title: "X Traces",
+                                    global_dragging,
+                                    origin_scope_id: Some(scope.id),
+                                    traces_collection,
+                                    traces: &mut x_vec,
+                                    empty_label: "Drop X trace here",
+                                    preserve_slots: true,
+                                    color_chooser: Some(color_refs),
+                                    open_look_editor: None,
+                                },
                             );
                             scope_changed |= changed;
 
@@ -756,16 +789,18 @@ impl ScopeSettingsUiPanel {
                             let mut open_editor_idx = usize::MAX;
                             let (changed, dropped) = Self::render_trace_list(
                                 ui,
-                                ("xy_scope_y", scope.id),
-                                "Y Traces",
-                                global_dragging,
-                                Some(scope.id),
-                                traces_collection,
-                                &mut y_vec,
-                                "Drop Y trace here",
-                                true,
-                                None,
-                                Some(&mut open_editor_idx),
+                                TraceListArgs {
+                                    id_salt: ("xy_scope_y", scope.id),
+                                    title: "Y Traces",
+                                    global_dragging,
+                                    origin_scope_id: Some(scope.id),
+                                    traces_collection,
+                                    traces: &mut y_vec,
+                                    empty_label: "Drop Y trace here",
+                                    preserve_slots: true,
+                                    color_chooser: None,
+                                    open_look_editor: Some(&mut open_editor_idx),
+                                },
                             );
                             scope_changed |= changed;
 
@@ -802,8 +837,7 @@ impl ScopeSettingsUiPanel {
                 if scope_changed {
                     let max_len = x_vec.len().max(y_vec.len()).max(look_vec.len());
                     let mut rebuilt: Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)> =
-                        Vec::new();
-                    rebuilt.reserve(max_len);
+                        Vec::with_capacity(max_len);
 
                     for i in 0..max_len {
                         let x = x_vec.get(i).cloned().unwrap_or(None);

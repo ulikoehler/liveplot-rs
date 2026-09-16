@@ -451,7 +451,7 @@ impl TracesCollection {
     }
 
     fn drain(&mut self) {
-        for (_name, trace) in self.traces.iter_mut() {
+        for trace in self.traces.values_mut() {
             trace.prune_by_points(self.max_points);
             trace.prune_by_age(self.max_age_secs);
         }
@@ -464,13 +464,13 @@ impl TracesCollection {
     }
 
     pub fn take_snapshot(&mut self) {
-        for (_name, trace) in self.traces.iter_mut() {
+        for trace in self.traces.values_mut() {
             trace.take_snapshot();
         }
     }
 
     pub fn clear_snapshot(&mut self) {
-        for (_name, trace) in self.traces.iter_mut() {
+        for trace in self.traces.values_mut() {
             trace.clear_snapshot();
         }
     }
@@ -580,7 +580,7 @@ impl TracesCollection {
                     .collect(),
             );
         }
-        let stride = (len + max_pts - 1) / max_pts;
+        let stride = len.div_ceil(max_pts);
         let mut out = Vec::with_capacity(max_pts.min(len));
         for (i, &p) in source.iter().enumerate() {
             if i % stride == 0 && p[0] >= bounds.0 && p[0] <= bounds.1 {
@@ -588,10 +588,8 @@ impl TracesCollection {
             }
         }
         if let Some(&last) = source.back() {
-            if last[0] >= bounds.0 && last[0] <= bounds.1 {
-                if out.last() != Some(&last) {
-                    out.push(last);
-                }
+            if last[0] >= bounds.0 && last[0] <= bounds.1 && out.last() != Some(&last) {
+                out.push(last);
             }
         }
         Some(out)
@@ -651,10 +649,8 @@ impl TracesCollection {
             &trace.live
         };
         if let Some(&last) = source.back() {
-            if last[0] >= bounds.0 && last[0] <= bounds.1 {
-                if out.last() != Some(&last) {
-                    out.push(last);
-                }
+            if last[0] >= bounds.0 && last[0] <= bounds.1 && out.last() != Some(&last) {
+                out.push(last);
             }
         }
         Some(out)
@@ -722,7 +718,7 @@ impl TracesCollection {
             .enumerate()
             .filter(|(_, b)| b.count > 0 && !(b.x_max < bounds.0 || b.x_min > bounds.1))
             .map(|(i, _)| i)
-            .last();
+            .next_back();
 
         for (idx, b) in cache.buckets.iter().enumerate() {
             if b.count == 0 {
@@ -843,7 +839,7 @@ impl TracesCollection {
 
     pub fn get_all_points(&self, snapshot: bool) -> HashMap<TraceRef, VecDeque<[f64; 2]>> {
         let mut result = HashMap::new();
-        for (name, _) in self.traces.iter() {
+        for name in self.traces.keys() {
             if let Some(pts) = self.get_points(name, snapshot) {
                 result.insert(name.clone(), pts);
             }
@@ -888,7 +884,7 @@ impl TracesCollection {
         if palette.is_empty() {
             return;
         }
-        for (_name, tr) in self.traces.iter_mut() {
+        for tr in self.traces.values_mut() {
             let idx = tr.creation_index;
             tr.look.color = palette[idx % palette.len()];
         }
@@ -1186,7 +1182,7 @@ impl TraceData {
                 if c.max_pts != max_pts {
                     return true;
                 }
-                let expected_stride = (source_len + max_pts - 1) / max_pts;
+                let expected_stride = source_len.div_ceil(max_pts);
                 c.stride != expected_stride
             }
         }
@@ -1204,7 +1200,7 @@ impl TraceData {
             if len == 0 || len <= max_pts {
                 None
             } else {
-                let stride = (len + max_pts - 1) / max_pts;
+                let stride = len.div_ceil(max_pts);
                 let mut selected = VecDeque::with_capacity(len / stride + 1);
                 for (i, &p) in source.iter().enumerate() {
                     if i % stride == 0 {
@@ -1296,7 +1292,7 @@ impl TraceData {
                 .copied()
                 .collect();
         }
-        let stride = (len + max_pts - 1) / max_pts;
+        let stride = len.div_ceil(max_pts);
         let mut out = Vec::with_capacity(max_pts.min(len));
         let mut i = 0;
         while i < len {
@@ -1308,10 +1304,8 @@ impl TraceData {
         }
         // Always include the last point so the line doesn't appear truncated
         if let Some(last) = pts.last() {
-            if last[0] >= bounds.0 && last[0] <= bounds.1 {
-                if out.last() != Some(last) {
-                    out.push(*last);
-                }
+            if last[0] >= bounds.0 && last[0] <= bounds.1 && out.last() != Some(last) {
+                out.push(*last);
             }
         }
         out

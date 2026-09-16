@@ -97,7 +97,7 @@ impl Panel for TriggersPanel {
                     ))
                     .clicked()
                 {
-                    for (_n, trig) in self.triggers.iter_mut() {
+                    for trig in self.triggers.values_mut() {
                         trig.start();
                     }
                     ui.close();
@@ -109,7 +109,7 @@ impl Panel for TriggersPanel {
                     ))
                     .clicked()
                 {
-                    for (_n, trig) in self.triggers.iter_mut() {
+                    for trig in self.triggers.values_mut() {
                         trig.stop();
                     }
                     ui.close();
@@ -121,7 +121,7 @@ impl Panel for TriggersPanel {
                     ))
                     .clicked()
                 {
-                    for (_n, trig) in self.triggers.iter_mut() {
+                    for trig in self.triggers.values_mut() {
                         trig.reset_runtime_state();
                     }
                     ui.close();
@@ -134,7 +134,7 @@ impl Panel for TriggersPanel {
 
     fn clear_all(&mut self) {
         // Reset all triggers to disabled and clear last-trigger times
-        for (_name, trig) in self.triggers.iter_mut() {
+        for trig in self.triggers.values_mut() {
             trig.enabled = false;
             trig.reset_runtime_state();
         }
@@ -249,9 +249,9 @@ impl Panel for TriggersPanel {
         }
 
         {
-            let scope_ids: Vec<usize> = data.scope_data.iter().map(|scope| (**scope).id).collect();
+            let scope_ids: Vec<usize> = data.scope_data.iter().map(|scope| scope.id).collect();
             for scope_id in scope_ids {
-                for (_name, tr) in self.triggers.iter_mut() {
+                for tr in self.triggers.values_mut() {
                     // Skip single-shot triggers that have already fired
                     if tr.single_shot && tr.is_triggered() {
                         continue;
@@ -290,7 +290,7 @@ impl Panel for TriggersPanel {
             {
                 // Resume if paused due to any trigger, then clear their state
                 data.resume_all();
-                for (_name, tr) in self.triggers.iter_mut() {
+                for tr in self.triggers.values_mut() {
                     tr.reset();
                 }
             }
@@ -304,7 +304,7 @@ impl Panel for TriggersPanel {
             {
                 // Resume stream and enable+start all triggers
                 data.resume_all();
-                for (_name, tr) in self.triggers.iter_mut() {
+                for tr in self.triggers.values_mut() {
                     tr.enabled = true;
                     tr.start();
                 }
@@ -385,10 +385,8 @@ impl Panel for TriggersPanel {
             });
 
             // Hovering the whole row also highlights target trace
-            if row.response.hovered() {
-                if !tr.target.0.is_empty() {
-                    data.traces.hover_trace = Some(vec![tr.target.clone()]);
-                }
+            if row.response.hovered() && !tr.target.0.is_empty() {
+                data.traces.hover_trace = Some(vec![tr.target.clone()]);
             }
 
             // Stage removal (will be applied after the loop)
@@ -702,10 +700,7 @@ impl Panel for TriggersPanel {
             if let Some(staged) = save_trigger {
                 let key_old = self.editing.clone();
                 let key_new = staged.name.clone();
-                let entry = self
-                    .triggers
-                    .entry(key_new.clone())
-                    .or_insert_with(|| Trigger::default());
+                let entry = self.triggers.entry(key_new.clone()).or_default();
                 *entry = staged;
                 if let Some(old) = key_old {
                     if old != key_new {
@@ -731,7 +726,7 @@ impl Panel for TriggersPanel {
 
 impl TriggersPanel {
     pub fn reset_all(&mut self) {
-        for (_name, tr) in self.triggers.iter_mut() {
+        for tr in self.triggers.values_mut() {
             tr.reset();
         }
     }

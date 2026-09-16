@@ -120,7 +120,7 @@ pub trait Panel: Downcast {
         };
 
         // Ensure a stable viewport id for this panel
-        let vid = vid_opt.unwrap_or_else(|| egui::ViewportId::from_hash_of(&(title, "panel")));
+        let vid = vid_opt.unwrap_or_else(|| egui::ViewportId::from_hash_of((title, "panel")));
 
         // Persist the id back to state
         {

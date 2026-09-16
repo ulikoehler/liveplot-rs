@@ -324,12 +324,12 @@ impl ScopePanel {
         let names = self.generated_axis_trace_names(traces, is_x);
         if names.is_empty() {
             if is_x {
-                return Some(match self.data.scope_type {
+                Some(match self.data.scope_type {
                     ScopeType::TimeScope => "Time".to_string(),
                     ScopeType::XYScope => "X".to_string(),
-                });
+                })
             } else {
-                return Some("Y".to_string());
+                Some("Y".to_string())
             }
         } else {
             Some(names.join(", "))
@@ -655,17 +655,15 @@ impl ScopePanel {
                 ui.checkbox(&mut self.data.x_axis.show_label, "Show Label");
                 let mut use_custom = self.data.x_axis.name.is_some();
                 ui.add_enabled_ui(self.data.x_axis.show_label, |ui| {
-                    if ui.checkbox(&mut use_custom, "Use custom label").changed() {
-                        if use_custom {
-                            if self.data.x_axis.name.is_none() {
-                                self.data.x_axis.name =
-                                    if self.data.scope_type == ScopeType::TimeScope {
-                                        Some("Time".to_string())
-                                    } else {
-                                        Some("X".to_string())
-                                    };
-                            }
-                        }
+                    if ui.checkbox(&mut use_custom, "Use custom label").changed()
+                        && use_custom
+                        && self.data.x_axis.name.is_none()
+                    {
+                        self.data.x_axis.name = if self.data.scope_type == ScopeType::TimeScope {
+                            Some("Time".to_string())
+                        } else {
+                            Some("X".to_string())
+                        };
                     }
                 });
                 if !use_custom {
@@ -1111,9 +1109,7 @@ impl ScopePanel {
             // state ourselves, otherwise the selection rectangle would remain
             // drawn indefinitely. Captured here (before mutable plot_ui calls)
             // to avoid borrow conflicts.
-            let escape_pressed = resp
-                .ctx
-                .input(|i| i.key_pressed(egui::Key::Escape));
+            let escape_pressed = resp.ctx.input(|i| i.key_pressed(egui::Key::Escape));
 
             let bounds_changed =
                 is_box_zoom_dragging || is_box_zoom_finished || is_panning || is_zooming_with_wheel;
@@ -1314,9 +1310,7 @@ impl ScopePanel {
                 }
             } else {
                 let ordered: Vec<TraceRef> = self.data.trace_order.clone();
-                let trace_count = ordered.len();
-                for idx in 0..trace_count {
-                    let name = ordered[idx].clone();
+                for name in ordered.iter().cloned() {
                     // Get all needed trace fields upfront (immutable borrow released before mutable use)
                     let trace_info = match traces.get_trace(&name) {
                         Some(tr) => (
@@ -1352,7 +1346,7 @@ impl ScopePanel {
                         let is_dimmed = traces
                             .hover_trace
                             .as_ref()
-                            .map_or(false, |hov| !hov.contains(&name));
+                            .is_some_and(|hov| !hov.contains(&name));
                         let mut color = base_color;
                         if is_dimmed {
                             color = Color32::from_rgba_unmultiplied(
@@ -1530,20 +1524,18 @@ impl ScopePanel {
                     plot_ui.line(line);
 
                     // Optional point markers for each datapoint
-                    if show_points {
-                        if !pts_vec.is_empty() {
-                            let mut radius = point_size.max(0.5);
-                            if let Some(hov) = &traces.hover_trace {
-                                if hov.contains(&name) {
-                                    radius = (radius * 1.25).max(radius + 0.5);
-                                }
+                    if show_points && !pts_vec.is_empty() {
+                        let mut radius = point_size.max(0.5);
+                        if let Some(hov) = &traces.hover_trace {
+                            if hov.contains(&name) {
+                                radius = (radius * 1.25).max(radius + 0.5);
                             }
-                            let points = Points::new(legend_label, pts_vec.clone())
-                                .radius(radius)
-                                .shape(marker)
-                                .color(color);
-                            plot_ui.points(points);
                         }
+                        let points = Points::new(legend_label, pts_vec.clone())
+                            .radius(radius)
+                            .shape(marker)
+                            .color(color);
+                        plot_ui.points(points);
                     }
                 }
             }

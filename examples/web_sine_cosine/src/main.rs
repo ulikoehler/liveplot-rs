@@ -66,13 +66,13 @@ impl SineCosineApp {
 // ---------------------------------------------------------------------------
 
 impl eframe::App for SineCosineApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.advance_buffer();
 
         // Request continuous repaints so the plot keeps moving.
-        ctx.request_repaint();
+        ui.ctx().request_repaint();
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("Sine & Cosine – Live Web Demo");
             ui.separator();
 

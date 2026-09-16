@@ -63,7 +63,7 @@ pub fn paint_density(
 
             let ratio = count as f32 / max_count;
             let intensity = ratio.powf(0.3) * brightness_gain;
-            let alpha = (intensity * 255.0).max(120.0).min(255.0) as u8;
+            let alpha = (intensity * 255.0).clamp(120.0, 255.0) as u8;
             let color = Color32::from_rgba_unmultiplied(
                 base_color.r(),
                 base_color.g(),

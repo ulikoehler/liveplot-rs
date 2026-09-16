@@ -229,6 +229,16 @@ pub struct Controllers {
 // LivePlotConfig
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Overlay callback invoked inside the plot rendering callback; see
+/// [`LivePlotConfig::overlays`].
+pub type OverlayCallback = Box<
+    dyn FnMut(
+            &mut egui_plot::PlotUi,
+            &crate::data::scope::ScopeData,
+            &crate::data::traces::TracesCollection,
+        ) + 'static,
+>;
+
 /// Top-level configuration for the live plot.
 ///
 /// Organised into sub-configs for clarity:
@@ -278,15 +288,7 @@ pub struct LivePlotConfig {
     /// plot rendering callback and can draw custom graphics using the
     /// [`egui_plot::PlotUi`] API.  Useful for example code that wants to add
     /// extra decorations (rainbow grid lines, annotations, etc.).
-    pub overlays: Option<
-        Box<
-            dyn for<'a> FnMut(
-                    &mut egui_plot::PlotUi,
-                    &crate::data::scope::ScopeData,
-                    &crate::data::traces::TracesCollection,
-                ) + 'static,
-        >,
-    >,
+    pub overlays: Option<OverlayCallback>,
 
     // ── Auto-fit ─────────────────────────────────────────────────────────────
     /// Automatic axis fitting configuration.

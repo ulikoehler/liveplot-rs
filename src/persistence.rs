@@ -178,20 +178,16 @@ pub enum SerMarkerShape {
 /// Serializable version of RenderMode.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum SerRenderMode {
     Line,
     #[serde(rename = "min_max_envelope")]
     MinMaxEnvelopeLegacy,
     Downsampled,
     #[serde(rename = "min_max_envelope_v2")]
+    #[default]
     MinMaxEnvelope,
     DensitySplatting,
-}
-
-impl Default for SerRenderMode {
-    fn default() -> Self {
-        SerRenderMode::MinMaxEnvelope
-    }
 }
 
 impl From<RenderMode> for SerRenderMode {
@@ -431,16 +427,17 @@ impl ThresholdSerde {
 
     /// Convert back to a ThresholdDef.
     pub fn into_threshold(self) -> ThresholdDef {
-        let mut d = ThresholdDef::default();
-        d.name = self.name;
-        d.target = TraceRef(self.target);
-        d.kind = self.kind;
-        d.min_duration_s = self.min_duration_s;
-        d.max_events = self.max_events;
-        d.look = self.look.into_look();
-        d.start_look = self.start_look.into_look();
-        d.stop_look = self.stop_look.into_look();
-        d
+        ThresholdDef {
+            name: self.name,
+            target: TraceRef(self.target),
+            kind: self.kind,
+            min_duration_s: self.min_duration_s,
+            max_events: self.max_events,
+            look: self.look.into_look(),
+            start_look: self.start_look.into_look(),
+            stop_look: self.stop_look.into_look(),
+            ..Default::default()
+        }
     }
 }
 

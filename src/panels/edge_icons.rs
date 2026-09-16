@@ -114,21 +114,6 @@ pub fn edge_icon_handle(ctx: &egui::Context, icon: EdgeIcon) -> Option<egui::Tex
     slot.as_ref().map(|h| h.id())
 }
 
-/// Render an edge icon image widget at the given size in points.
-#[allow(dead_code)]
-pub fn edge_icon(ui: &mut egui::Ui, icon: EdgeIcon, size: f32) -> Option<egui::Response> {
-    let tex_id = edge_icon_handle(ui.ctx(), icon)?;
-    Some(
-        ui.add(
-            egui::Image::from_texture(egui::load::SizedTexture {
-                id: tex_id,
-                size: egui::Vec2::splat(size),
-            })
-            .fit_to_exact_size(egui::Vec2::splat(size)),
-        ),
-    )
-}
-
 /// Get an `egui::Image` for use as an atom in `Button::selectable((image, "text"))`.
 pub fn edge_icon_image(
     ctx: &egui::Context,

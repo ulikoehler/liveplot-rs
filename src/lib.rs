@@ -6,8 +6,6 @@ pub mod data;
 pub use data::hotkeys;
 pub mod panels;
 pub mod persistence;
-// #[cfg(feature = "tiles")]
-// pub mod tiles;
 
 pub mod config;
 pub mod controllers;

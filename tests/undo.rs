@@ -2,10 +2,11 @@ use liveplot::persistence::AppStateSerde;
 use liveplot::{LivePlotUndoEntry, LivePlotUndoStack};
 
 fn dummy_state(id: u32) -> AppStateSerde {
-    let mut s = AppStateSerde::default();
     // Distinguish states by varying a field.
-    s.next_scope_idx = Some(id as usize);
-    s
+    AppStateSerde {
+        next_scope_idx: Some(id as usize),
+        ..Default::default()
+    }
 }
 
 #[test]

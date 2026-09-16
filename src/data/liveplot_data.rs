@@ -26,6 +26,7 @@ pub struct ScreenshotRequest {
     pub path: Option<PathBuf>,
 }
 
+#[derive(Default)]
 pub struct LivePlotRequests {
     pub save_state: Option<std::path::PathBuf>,
     pub load_state: Option<std::path::PathBuf>,
@@ -36,22 +37,6 @@ pub struct LivePlotRequests {
     pub clear_measurements: bool,
     pub clear_thresholds: bool,
     pub clear_triggers: bool,
-}
-
-impl Default for LivePlotRequests {
-    fn default() -> Self {
-        Self {
-            save_state: None,
-            load_state: None,
-            screenshot: None,
-            add_scope: false,
-            remove_scope: None,
-            clear_math: false,
-            clear_measurements: false,
-            clear_thresholds: false,
-            clear_triggers: false,
-        }
-    }
 }
 
 /// A view struct that combines scope data and traces for panel rendering.
@@ -124,13 +109,13 @@ impl<'a> LivePlotData<'a> {
                 break;
             }
         }
-        if self.scope_data.iter().all(|scope| !(**scope).paused) {
+        if self.scope_data.iter().all(|scope| !scope.paused) {
             self.traces.clear_snapshot();
         }
     }
 
     pub fn are_all_paused(&self) -> bool {
-        self.scope_data.iter().all(|scope| (**scope).paused) && self.traces.has_snapshot()
+        self.scope_data.iter().all(|scope| scope.paused) && self.traces.has_snapshot()
     }
 
     pub fn get_trace_or_new(&mut self, name: &TraceRef) -> &mut TraceData {
@@ -241,7 +226,7 @@ impl<'a> LivePlotData<'a> {
 
     pub fn scope_by_id_mut(&mut self, scope_id: usize) -> Option<&mut ScopeData> {
         self.scope_data.iter_mut().find_map(|scope| {
-            if (**scope).id == scope_id {
+            if scope.id == scope_id {
                 Some(&mut **scope)
             } else {
                 None

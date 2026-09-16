@@ -75,9 +75,14 @@ fn main() -> eframe::Result<()> {
     });
 
     // Run with default options but attach our window controller
-    let mut cfg = LivePlotConfig::default();
-    cfg.title = "LivePlot (window control demo)".into();
-    cfg.native_options = Some(eframe::NativeOptions::default());
-    cfg.controllers.window = Some(window_ctrl);
+    let cfg = LivePlotConfig {
+        title: "LivePlot (window control demo)".into(),
+        native_options: Some(eframe::NativeOptions::default()),
+        controllers: liveplot::Controllers {
+            window: Some(window_ctrl),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
     run_liveplot(rx, cfg)
 }

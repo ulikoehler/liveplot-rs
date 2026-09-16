@@ -86,7 +86,7 @@ impl LivePlotPanel {
         let base_path = match pending.path.clone() {
             Some(path) => Some(path),
             None => rfd::FileDialog::new()
-                .set_file_name(&self.screenshot_default_name(pending.targets.len() > 1))
+                .set_file_name(self.screenshot_default_name(pending.targets.len() > 1))
                 .add_filter("PNG", &["png"])
                 .save_file(),
         };
@@ -344,7 +344,7 @@ impl LivePlotPanel {
                 let cur_size = [self.last_plot_size.x, self.last_plot_size.y];
                 let size_changed = {
                     let inner = ctrl.inner.lock().unwrap();
-                    inner.last_size.map_or(true, |prev| {
+                    inner.last_size.is_none_or(|prev| {
                         (prev[0] - cur_size[0]).abs() > 0.5 || (prev[1] - cur_size[1]).abs() > 0.5
                     })
                 };

@@ -236,85 +236,68 @@ impl Panel for HotkeysPanel {
                         .button(btn_text)
                         .on_hover_text("Click to assign; press desired keys; Esc to cancel")
                         .clicked()
+                        && !capturing_this
                     {
-                        if !capturing_this {
-                            self.capturing_hotkey = Some(name);
-                        }
+                        self.capturing_hotkey = Some(name);
                     }
 
                     if capturing_this && ui.button("Cancel").clicked() {
                         self.capturing_hotkey = None;
                     }
 
-                    if !capturing_this {
-                        if ui
+                    if !capturing_this
+                        && ui
                             .button("Clear")
                             .on_hover_text("Disable this hotkey")
                             .clicked()
-                        {
-                            self.set_hotkey(name, None);
-                        }
+                    {
+                        self.set_hotkey(name, None);
                     }
                 });
             };
 
         let panel_rows = vec![
             #[cfg(feature = "fft")]
-            ("FFT:", HotkeyName::Fft, current.fft.clone()),
-            ("Traces:", HotkeyName::Traces, current.traces.clone()),
-            (
-                "Thresholds:",
-                HotkeyName::Thresholds,
-                current.thresholds.clone(),
-            ),
-            ("Math:", HotkeyName::Math, current.math.clone()),
+            ("FFT:", HotkeyName::Fft, current.fft),
+            ("Traces:", HotkeyName::Traces, current.traces),
+            ("Thresholds:", HotkeyName::Thresholds, current.thresholds),
+            ("Math:", HotkeyName::Math, current.math),
             (
                 "Measurements:",
                 HotkeyName::Measurements,
-                current.measurements.clone(),
+                current.measurements,
             ),
-            ("Triggers:", HotkeyName::Triggers, current.triggers.clone()),
-            (
-                "Hotkeys:",
-                HotkeyName::HotkeysPanel,
-                current.hotkeys_panel.clone(),
-            ),
+            ("Triggers:", HotkeyName::Triggers, current.triggers),
+            ("Hotkeys:", HotkeyName::HotkeysPanel, current.hotkeys_panel),
         ];
 
         let view_rows = vec![
-            ("Fit view:", HotkeyName::FitView, current.fit_view.clone()),
-            ("Fit Y:", HotkeyName::FitY, current.fit_y.clone()),
+            ("Fit view:", HotkeyName::FitView, current.fit_view),
+            ("Fit Y:", HotkeyName::FitY, current.fit_y),
             (
                 "Fit view continuously:",
                 HotkeyName::FitViewCont,
-                current.fit_view_cont.clone(),
+                current.fit_view_cont,
             ),
         ];
 
         let control_rows = vec![
-            ("Pause:", HotkeyName::Pause, current.pause.clone()),
-            (
-                "Export:",
-                HotkeyName::ExportData,
-                current.export_data.clone(),
-            ),
+            ("Pause:", HotkeyName::Pause, current.pause),
+            ("Export:", HotkeyName::ExportData, current.export_data),
             (
                 "Reset measurements:",
                 HotkeyName::ResetMeasurements,
-                current.reset_measurements.clone(),
+                current.reset_measurements,
             ),
         ];
 
         let data_rows = vec![
-            (
-                "Clear all data:",
-                HotkeyName::ClearAll,
-                current.clear_all.clone(),
-            ),
-            ("Save PNG:", HotkeyName::SavePng, current.save_png.clone()),
+            ("Clear all data:", HotkeyName::ClearAll, current.clear_all),
+            ("Save PNG:", HotkeyName::SavePng, current.save_png),
         ];
 
-        let sections: Vec<(&str, Vec<(&str, HotkeyName, Option<Hotkey>)>)> = vec![
+        type HotkeyRow<'a> = (&'a str, HotkeyName, Option<Hotkey>);
+        let sections: Vec<(&str, Vec<HotkeyRow>)> = vec![
             ("Panels", panel_rows),
             ("View", view_rows),
             ("Controls", control_rows),

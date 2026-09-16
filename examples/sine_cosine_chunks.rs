@@ -56,8 +56,10 @@ fn main() -> eframe::Result<()> {
         }
     });
     // Run the UI until closed. Uses the unified multi-trace engine.
-    let mut cfg = LivePlotConfig::default();
-    cfg.headline = Some("Sine/cosine example".to_string());
-    cfg.subheadline = Some("(with chunks)".to_string());
+    let cfg = LivePlotConfig {
+        headline: Some("Sine/cosine example".to_string()),
+        subheadline: Some("(with chunks)".to_string()),
+        ..Default::default()
+    };
     run_liveplot(rx, cfg)
 }

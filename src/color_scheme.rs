@@ -30,9 +30,11 @@ pub fn set_global_palette(new: Vec<Color32>) {
 }
 
 /// Visual theme for the plot UI, including user-defined custom schemes.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
+#[allow(clippy::large_enum_variant)]
 pub enum ColorScheme {
     /// Follow the system / eframe default (typically dark).
+    #[default]
     Dark,
     /// Light theme.
     Light,
@@ -65,12 +67,6 @@ pub struct CustomColorScheme {
     pub palette: Vec<Color32>,
     /// Optional label for UI display.
     pub label: Option<String>,
-}
-
-impl Default for ColorScheme {
-    fn default() -> Self {
-        ColorScheme::Dark
-    }
 }
 
 impl ColorScheme {

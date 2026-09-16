@@ -188,7 +188,7 @@ fn next_color_index_sequential_when_palette_full() {
     // Collect creation_indices of the 5 new traces
     let indices: Vec<usize> = (0..5)
         .map(|i| {
-            col.get_trace(&TraceRef(format!("v{}", i).into()))
+            col.get_trace(&TraceRef(format!("v{}", i)))
                 .unwrap()
                 .creation_index
         })

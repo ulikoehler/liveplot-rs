@@ -6,7 +6,7 @@ use egui::{Id, Ui};
 use egui_phosphor_icons::icons::{BROOM, CHART_LINE_UP, DOTS_SIX_VERTICAL, PLUS, X};
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 
-use super::scope_settings_ui::{DragPayload, ScopeSettingsUiPanel};
+use super::scope_settings_ui::{DragPayload, ScopeAssignmentArgs, ScopeSettingsUiPanel};
 use super::trace_look_ui::render_trace_look_editor;
 
 fn trace_tooltip(name: &TraceRef, info: &str) -> String {
@@ -593,13 +593,15 @@ impl TracesPanel {
 
             let settings_resp = self.scope_settings_ui.render_scope_assignment(
                 ui,
-                scope,
-                can_remove_scope,
-                &mut data.pending_requests,
-                &mut self.dragging_trace,
-                &mut *data.traces,
-                &mut self.look_editor_trace,
-                &mut self.look_editor_xy_pair,
+                ScopeAssignmentArgs {
+                    scope,
+                    can_remove_scope,
+                    pending: data.pending_requests,
+                    global_dragging: &mut self.dragging_trace,
+                    traces_collection: &mut *data.traces,
+                    look_editor_out: &mut self.look_editor_trace,
+                    xy_pair_look_editor_out: &mut self.look_editor_xy_pair,
+                },
             );
 
             if let Some(m) = settings_resp.moved_from_scope {

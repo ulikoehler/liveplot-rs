@@ -3,7 +3,7 @@ use crate::data::data::{LivePlotData, ScreenshotRequest, ScreenshotTarget};
 use crate::data::fft::{FFTWindow, FftData};
 use crate::data::scope::{AxisType, LegendPosition, ScopeType, ValueFormat};
 use crate::data::traces::TraceRef;
-use crate::data::traces::{TraceData, TracesCollection};
+use crate::data::traces::TracesCollection;
 use crate::panels::scope_ui::{ScopePanel, ZoomMode};
 use egui::Ui;
 use egui_phosphor_icons::icons::{CHART_BAR, WARNING};
@@ -191,7 +191,7 @@ impl Panel for FftPanel {
         for (trace_ref, spectrum, info) in results {
             if let Some(entry) = self.fft_data.fft_traces.get_mut(&trace_ref) {
                 entry.live.clear();
-                entry.live.extend(spectrum.into_iter());
+                entry.live.extend(spectrum);
                 entry.snap = None;
                 entry.info = info;
             }
@@ -206,11 +206,7 @@ impl Panel for FftPanel {
 
             // Ensure a placeholder entry exists so the trace shows up in the
             // legend immediately, even before the first result arrives.
-            let entry = self
-                .fft_data
-                .fft_traces
-                .entry(name.clone())
-                .or_insert_with(TraceData::default);
+            let entry = self.fft_data.fft_traces.entry(name.clone()).or_default();
             entry.look = tr.look.clone();
             entry.offset = 0.0;
             if entry.info.is_empty() {
@@ -308,7 +304,7 @@ impl Panel for FftPanel {
                 let resp = ui.horizontal(|ui| {
                     ui.label("FFT size:");
                     let max_log2 = (data.traces.max_points as f32).log2().floor() as u32;
-                    let max_log2 = max_log2.max(8).min(20);
+                    let max_log2 = max_log2.clamp(8, 20);
                     let mut size_log2 = (self.fft_data.fft_size as f32).log2() as u32;
                     size_log2 = size_log2.min(max_log2);
                     let slider = egui::Slider::new(&mut size_log2, 8..=max_log2).text("2^N");

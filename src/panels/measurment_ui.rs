@@ -528,13 +528,15 @@ impl Panel for MeasurementPanel {
                     "{}:\n{}",
                     name,
                     self.format_delta_summary(
-                        &scope,
-                        dx_lin,
-                        dy_lin,
-                        slope,
-                        x_max_lin - x_min_lin,
-                        y_range,
-                        true
+                        scope,
+                        DeltaSummaryArgs {
+                            dx_lin,
+                            dy_lin,
+                            slope,
+                            x_range: x_max_lin - x_min_lin,
+                            y_range,
+                            multiline: true,
+                        },
                     )
                 );
                 let slope_plot = if dx != 0.0 || oy != 0.0 || ox != 0.0 {
@@ -748,7 +750,15 @@ impl Panel for MeasurementPanel {
                     f64::INFINITY
                 };
                 let diff_txt = self.format_delta_summary(
-                    &scope, dx_lin, dy_lin, slope_lin, x_range, y_range, false,
+                    scope,
+                    DeltaSummaryArgs {
+                        dx_lin,
+                        dy_lin,
+                        slope: slope_lin,
+                        x_range,
+                        y_range,
+                        multiline: false,
+                    },
                 );
                 let mut diff_label = ui.colored_label(Color32::LIGHT_GREEN, diff_txt.clone());
                 diff_label = diff_label.on_hover_text("Delta between P1 and P2");
@@ -779,6 +789,15 @@ impl Panel for MeasurementPanel {
         let snap = crate::persistence::MeasurementPanelStateSerde::from_panel(self);
         serde_json::to_string(&snap).ok()
     }
+}
+
+struct DeltaSummaryArgs {
+    dx_lin: f64,
+    dy_lin: f64,
+    slope: f64,
+    x_range: f64,
+    y_range: f64,
+    multiline: bool,
 }
 
 impl MeasurementPanel {
@@ -824,16 +843,15 @@ impl MeasurementPanel {
         }
     }
 
-    fn format_delta_summary(
-        &self,
-        scope: &ScopeData,
-        dx_lin: f64,
-        dy_lin: f64,
-        slope: f64,
-        x_range: f64,
-        y_range: f64,
-        multiline: bool,
-    ) -> String {
+    fn format_delta_summary(&self, scope: &ScopeData, args: DeltaSummaryArgs) -> String {
+        let DeltaSummaryArgs {
+            dx_lin,
+            dy_lin,
+            slope,
+            x_range,
+            y_range,
+            multiline,
+        } = args;
         // Δx formatting: if x axis is time, show a duration using s/ms/us/ns; otherwise use axis formatting
         let (dx_txt, dx_unit_opt, x_scale) = match scope.x_axis.axis_type {
             crate::data::scope::AxisType::Time(_) => {

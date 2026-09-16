@@ -180,7 +180,7 @@ impl Trigger {
     /// number of subsequent samples. `trigger_position` is in [0,1]:
     /// - 0.0 => pause immediately when the trigger occurs
     /// - 1.0 => pause after `data.max_points` new samples on the target trace
-    /// Values in between scale linearly.
+    ///   Values in between scale linearly.
     ///
     /// Returns `true` if there's an active trigger pending or just fired.
     pub fn check_trigger(&mut self, data: &mut LivePlotData<'_>) -> bool {

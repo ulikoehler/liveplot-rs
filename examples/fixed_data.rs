@@ -60,10 +60,15 @@ fn main() -> eframe::Result<()> {
     let _ = sink.set_data(&cos_t, cosine_points);
 
     // Build configuration via LivePlotConfig instead of mutating the internal app fields
-    let mut cfg = LivePlotConfig::default();
-    cfg.time_window_secs = 10.0;
-    cfg.max_points = 10_000;
-    cfg.features.legend = true;
+    let cfg = LivePlotConfig {
+        time_window_secs: 10.0,
+        max_points: 10_000,
+        features: liveplot::FeatureFlags {
+            legend: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
 
     // Show the UI using the channel receiver and the config
     run_liveplot(rx, cfg)

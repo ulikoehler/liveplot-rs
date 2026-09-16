@@ -1,25 +1,13 @@
 use crate::TraceRef;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Measurement {
     pub name: String,
     pub p1: Option<[f64; 2]>,
     pub p2: Option<[f64; 2]>,
     pub catch_trace: Option<TraceRef>,
     pub scope_id: Option<usize>,
-}
-
-impl Default for Measurement {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            p1: None,
-            p2: None,
-            catch_trace: None,
-            scope_id: None,
-        }
-    }
 }
 
 impl Measurement {

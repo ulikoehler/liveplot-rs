@@ -83,6 +83,7 @@ impl LivePlotApp {
     }
 
     /// Create a new `LivePlotApp` with the given controller handles already wired.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_controllers(
         rx: std::sync::mpsc::Receiver<PlotCommand>,
         window_ctrl: Option<WindowController>,

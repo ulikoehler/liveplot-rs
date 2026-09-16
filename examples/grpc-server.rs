@@ -75,7 +75,7 @@ impl SineWave for SineSvc {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "0.0.0.0:50051".parse()?;
-    let svc = SineSvc::default();
+    let svc = SineSvc;
 
     println!("SineWave gRPC server streaming on {}", addr);
     tonic::transport::Server::builder()

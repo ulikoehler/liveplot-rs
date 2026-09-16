@@ -69,10 +69,8 @@ fn main() -> eframe::Result<()> {
         }
     });
 
-    let mut cfg = LivePlotConfig::default();
-    cfg.color_scheme = scheme;
     // rainbow overlay for grid
-    let palette = vec![
+    let palette = [
         Color32::from_rgb(255, 0, 0),
         Color32::from_rgb(255, 127, 0),
         Color32::from_rgb(255, 255, 0),
@@ -81,27 +79,29 @@ fn main() -> eframe::Result<()> {
         Color32::from_rgb(75, 0, 130),
         Color32::from_rgb(148, 0, 211),
     ];
-    cfg.overlays = Some(Box::new(move |plot_ui, _scope, _traces| {
-        let rect = plot_ui.response().rect;
-        let n = palette.len();
-        for i in 0..n {
-            let color = palette[i];
-            let x = rect.left() + rect.width() * (i as f32) / (n as f32);
-            plot_ui.ctx().debug_painter().line_segment(
-                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-                (1.0, color),
-            );
-            let y = rect.top() + rect.height() * (i as f32) / (n as f32);
-            plot_ui.ctx().debug_painter().line_segment(
-                [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
-                (1.0, color),
-            );
-        }
-    }));
-
-    cfg.title = "Custom Color Scheme Demo".to_string();
-    cfg.headline = Some("Custom Color Scheme Demo".to_string());
-    cfg.subheadline = Some("This uses a user-defined palette and visuals".to_string());
+    let cfg = LivePlotConfig {
+        color_scheme: scheme,
+        overlays: Some(Box::new(move |plot_ui, _scope, _traces| {
+            let rect = plot_ui.response().rect;
+            let n = palette.len();
+            for (i, &color) in palette.iter().enumerate() {
+                let x = rect.left() + rect.width() * (i as f32) / (n as f32);
+                plot_ui.ctx().debug_painter().line_segment(
+                    [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                    (1.0, color),
+                );
+                let y = rect.top() + rect.height() * (i as f32) / (n as f32);
+                plot_ui.ctx().debug_painter().line_segment(
+                    [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
+                    (1.0, color),
+                );
+            }
+        })),
+        title: "Custom Color Scheme Demo".to_string(),
+        headline: Some("Custom Color Scheme Demo".to_string()),
+        subheadline: Some("This uses a user-defined palette and visuals".to_string()),
+        ..Default::default()
+    };
 
     run_liveplot(rx, cfg)
 }

@@ -658,8 +658,8 @@ impl LivePlotPanel {
         let (adds, removes) = {
             let mut inner = ctrl.inner.lock().unwrap();
             (
-                inner.add_requests.drain(..).collect::<Vec<_>>(),
-                inner.remove_requests.drain(..).collect::<Vec<_>>(),
+                std::mem::take(&mut inner.add_requests),
+                std::mem::take(&mut inner.remove_requests),
             )
         };
 

@@ -1,4 +1,5 @@
-pub mod data;
+pub mod liveplot_data;
+pub use liveplot_data as data;
 pub mod density_render;
 pub mod export;
 pub mod hotkeys;

@@ -37,7 +37,7 @@ pub fn align_series(
         for (i, data) in refs.iter().enumerate() {
             if idx[i] < data.len() {
                 let t = data[idx[i]][0];
-                if t_min.map_or(true, |m| t < m) {
+                if t_min.is_none_or(|m| t < m) {
                     t_min = Some(t);
                 }
             }
@@ -158,19 +158,19 @@ pub fn write_parquet_aligned_path(
     }
 
     let batch = RecordBatch::try_new(schema.clone(), arrays)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
 
     // Write Parquet
     let file = std::fs::File::create(path)?;
     let props = WriterProperties::builder().build();
     let mut writer = ArrowWriter::try_new(file, schema, Some(props))
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     writer
         .write(&batch)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     writer
         .close()
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| io::Error::other(e.to_string()))?;
     Ok(())
 }
 

@@ -5,7 +5,6 @@ use eframe::egui;
 use egui::{Color32, Ui};
 use std::collections::HashMap;
 
-//use super::app::ScopeAppMulti;
 use crate::data::trace_look::TraceLook;
 use crate::panels::panel_trait::{Panel, PanelState};
 use crate::panels::trace_look_ui::render_trace_look_editor;
@@ -432,7 +431,7 @@ impl Panel for MathPanel {
 
             if kind_idx != prev_kind_idx {
                 // Switch to a new kind with sensible defaults
-                let first = trace_names.get(0).cloned().unwrap_or_default();
+                let first = trace_names.first().cloned().unwrap_or_default();
                 let second = trace_names.get(1).cloned().unwrap_or_else(|| first.clone());
                 self.builder.kind = match kind_idx {
                     0 => MathKind::Add {
@@ -488,7 +487,7 @@ impl Panel for MathPanel {
                 MathKind::Add { inputs } => {
                     // Ensure at least one input row for UX
                     if inputs.is_empty() {
-                        if let Some(nm) = trace_names.get(0) {
+                        if let Some(nm) = trace_names.first() {
                             inputs.push((nm.clone(), 1.0));
                         }
                     }
@@ -517,13 +516,11 @@ impl Panel for MathPanel {
                     }
                     ui.horizontal(|ui| {
                         if ui.button(format!("{} Add input", PLUS.as_str())).clicked() {
-                            let nm = trace_names.get(0).cloned().unwrap_or_default();
+                            let nm = trace_names.first().cloned().unwrap_or_default();
                             inputs.push((nm, 1.0));
                         }
-                        if ui.button("Remove input").clicked() {
-                            if inputs.len() > 1 {
-                                inputs.pop();
-                            }
+                        if ui.button("Remove input").clicked() && inputs.len() > 1 {
+                            inputs.pop();
                         }
                     });
                 }
@@ -649,7 +646,7 @@ impl Panel for MathPanel {
                                 ui.add(egui::DragValue::new(&mut f2).speed(0.1));
                             });
                         }
-                        3 | 4 | 5 => {
+                        3..=5 => {
                             let label = if which == 5 { "Center Hz" } else { "Cutoff Hz" };
                             ui.horizontal(|ui| {
                                 ui.label(label);

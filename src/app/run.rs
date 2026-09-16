@@ -46,10 +46,7 @@ pub fn run_liveplot(
     app.apply_config(&mut cfg);
 
     let title = cfg.title.clone();
-    let mut opts = cfg
-        .native_options
-        .take()
-        .unwrap_or_else(eframe::NativeOptions::default);
+    let mut opts = cfg.native_options.take().unwrap_or_default();
 
     // Try to set application icon from icon.svg if available.
     if opts.viewport.icon.is_none() {

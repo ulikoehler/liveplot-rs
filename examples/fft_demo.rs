@@ -77,8 +77,10 @@ fn main() -> eframe::Result<()> {
         }
     });
 
-    let mut cfg = LivePlotConfig::default();
-    cfg.headline = Some("FFT Demo".to_string());
-    cfg.subheadline = Some("Two-tone + swept-frequency signals — click Show FFT".to_string());
+    let cfg = LivePlotConfig {
+        headline: Some("FFT Demo".to_string()),
+        subheadline: Some("Two-tone + swept-frequency signals — click Show FFT".to_string()),
+        ..Default::default()
+    };
     run_liveplot(rx, cfg)
 }

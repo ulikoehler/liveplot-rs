@@ -43,6 +43,12 @@ pub(crate) struct WindowCtrlInner {
     pub(crate) listeners: Vec<Sender<WindowInfo>>,
 }
 
+impl Default for WindowController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl WindowController {
     /// Create a fresh controller.
     pub fn new() -> Self {
@@ -124,6 +130,12 @@ pub(crate) struct UiActionInner {
     pub(crate) fft_listeners: Vec<Sender<FFTRawData>>,
     pub(crate) request_screenshot_to: Option<std::path::PathBuf>,
     pub(crate) request_save_raw_to: Option<(RawExportFormat, std::path::PathBuf)>,
+}
+
+impl Default for UiActionController {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl UiActionController {
@@ -231,6 +243,12 @@ pub(crate) struct FFTCtrlInner {
     pub(crate) request_set_size: Option<[f32; 2]>,
     pub(crate) last_info: Option<FFTPanelInfo>,
     pub(crate) listeners: Vec<Sender<FFTPanelInfo>>,
+}
+
+impl Default for FFTController {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FFTController {
@@ -360,6 +378,12 @@ pub(crate) struct TracesCtrlInner {
     pub(crate) panel_listeners: Vec<Sender<TracesPanelState>>,
     pub(crate) last_snapshot: Option<TracesInfo>,
     pub(crate) last_panel_state: Option<TracesPanelState>,
+}
+
+impl Default for TracesController {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TracesController {
@@ -566,6 +590,12 @@ pub(crate) struct ScopeCtrlInner {
     pub(crate) listeners: Vec<Sender<ScopesState>>,
 }
 
+impl Default for ScopesController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ScopesController {
     pub fn new() -> Self {
         Self {
@@ -658,6 +688,12 @@ pub(crate) struct LiveplotCtrlInner {
     pub(crate) listeners: Vec<Sender<LiveplotState>>,
 }
 
+impl Default for LiveplotController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LiveplotController {
     pub fn new() -> Self {
         Self {
@@ -726,6 +762,12 @@ impl LiveplotController {
 
     pub fn request_reorder_scopes(&self, order: Vec<usize>) {
         self.inner.lock().unwrap().requests.reorder_scopes = Some(order);
+    }
+}
+
+impl Default for ThresholdController {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -125,15 +125,7 @@ pub struct LivePlotPanel {
     /// Collection of all traces (time-series data) received through the command channel.
     pub traces_data: TracesCollection,
     /// Optional plot overlay callback, supplied via configuration.
-    pub overlays: Option<
-        Box<
-            dyn for<'a> FnMut(
-                    &mut egui_plot::PlotUi,
-                    &crate::data::scope::ScopeData,
-                    &crate::data::traces::TracesCollection,
-                ) + 'static,
-        >,
-    >,
+    pub overlays: Option<crate::config::OverlayCallback>,
 
     /// Shared hotkey bindings used by all panels and menu buttons.
     pub hotkeys: Rc<RefCell<Hotkeys>>,
@@ -342,6 +334,7 @@ impl LivePlotPanel {
     ///
     /// These mirror the controllers used by [`LivePlotApp`]; call this once after
     /// construction to enable programmatic interaction from external code.
+    #[allow(clippy::too_many_arguments)]
     pub fn set_controllers(
         &mut self,
         window_ctrl: Option<WindowController>,

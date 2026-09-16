@@ -129,7 +129,7 @@ impl Panel for ThresholdsPanel {
             let xr = bounds.range_x();
             let xmin = *xr.start();
             let xmax = *xr.end();
-            for (_name, def) in &self.thresholds {
+            for def in self.thresholds.values() {
                 if let Some(tr) = traces.get_trace(&def.target) {
                     if !tr.look.visible {
                         continue;
@@ -431,11 +431,11 @@ impl Panel for ThresholdsPanel {
                         dt_utc.with_timezone(&Local).format("%H:%M:%S").to_string()
                     };
                     let resp = ui.label(format!(
-                        "Events: {} • last: {} • {} ms • area {}",
+                        "Events: {} • last: {} • {:.3} ms • area {:.4}",
                         cnt,
                         start_fmt,
-                        format!("{:.3}", last.duration * 1000.0),
-                        format!("{:.4}", last.area)
+                        last.duration * 1000.0,
+                        last.area
                     ));
                     if resp.hovered() {
                         self.hover_threshold = Some(name.clone());
@@ -694,37 +694,34 @@ impl Panel for ThresholdsPanel {
                         self.error = None;
                     }
                 });
-                if save_clicked {
-                    if !self.builder.name.is_empty() {
-                        if is_editing {
-                            // Insert/replace edited definition; remove old key when renaming
-                            let old_key = self.editing.clone();
+                if save_clicked && !self.builder.name.is_empty() {
+                    if is_editing {
+                        // Insert/replace edited definition; remove old key when renaming
+                        let old_key = self.editing.clone();
+                        self.thresholds
+                            .insert(self.builder.name.clone(), self.builder.clone());
+                        if let Some(old) = old_key {
+                            if old != self.builder.name {
+                                self.thresholds.remove(&old);
+                            }
+                        }
+                        self.editing = None;
+                        self.creating = false;
+                        self.builder = ThresholdDef::default();
+                        self.error = None;
+                    } else {
+                        if self
+                            .thresholds
+                            .iter()
+                            .any(|(_name, d)| d.name == self.builder.name)
+                        {
+                            self.error = Some("A threshold with this name already exists".into());
+                        } else {
                             self.thresholds
                                 .insert(self.builder.name.clone(), self.builder.clone());
-                            if let Some(old) = old_key {
-                                if old != self.builder.name {
-                                    self.thresholds.remove(&old);
-                                }
-                            }
-                            self.editing = None;
                             self.creating = false;
                             self.builder = ThresholdDef::default();
                             self.error = None;
-                        } else {
-                            if self
-                                .thresholds
-                                .iter()
-                                .any(|(_name, d)| d.name == self.builder.name)
-                            {
-                                self.error =
-                                    Some("A threshold with this name already exists".into());
-                            } else {
-                                self.thresholds
-                                    .insert(self.builder.name.clone(), self.builder.clone());
-                                self.creating = false;
-                                self.builder = ThresholdDef::default();
-                                self.error = None;
-                            }
                         }
                     }
                 }
@@ -738,18 +735,14 @@ impl Panel for ThresholdsPanel {
         ui.horizontal(|ui| {
             ui.label("Filter:");
             // Build list of names from current thresholds and from the log
-            let mut names: Vec<String> = self
-                .thresholds
-                .iter()
-                .map(|(_name, d)| d.name.clone())
-                .collect();
+            let mut names: Vec<String> = self.thresholds.values().map(|d| d.name.clone()).collect();
 
             names.sort();
             names.dedup();
             let mut sel = self.events_filter.clone();
             egui::ComboBox::from_id_salt("thr_events_filter")
                 .selected_text(match &sel {
-                    Some(s) => format!("{}", s),
+                    Some(s) => s.to_string(),
                     None => "All".to_string(),
                 })
                 .show_ui(ui, |ui| {
@@ -797,7 +790,7 @@ impl Panel for ThresholdsPanel {
             .filter(|e| {
                 self.events_filter
                     .as_ref()
-                    .map_or(true, |f| &e.threshold == f)
+                    .is_none_or(|f| &e.threshold == f)
             })
             .collect();
         // Sort by start time descending (latest first)
@@ -937,7 +930,7 @@ impl ThresholdsPanel {
             .filter(|e| {
                 self.events_filter
                     .as_ref()
-                    .map_or(true, |f| &e.threshold == f)
+                    .is_none_or(|f| &e.threshold == f)
             })
             .collect();
 

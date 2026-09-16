@@ -137,7 +137,7 @@ impl DashboardApp {
 
     fn render_dashboard(&mut self, ui: &mut egui::Ui) {
         let cols = 2;
-        let rows = (self.panels.len() + cols - 1) / cols;
+        let rows = self.panels.len().div_ceil(cols);
         let avail = ui.available_size();
         let cell_w = avail.x / cols as f32;
         let cell_h = avail.y / rows as f32;

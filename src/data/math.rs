@@ -11,10 +11,10 @@
 //!   timestamps. When combining multiple inputs we evaluate the result on the union of
 //!   timestamps, using a last-sample-hold behaviour for channels that don't have a value
 //!   exactly at a given timestamp.
-//! - Stateful operations keep their state in `MathRuntimeState` and are updated only for
-//!   the newly appended input samples to avoid reprocessing the full buffer on every UI
-//!   refresh. Stateless operations (Add/Multiply/Divide/Differentiate) recompute fully on
-//!   the union grid.
+//! - Stateful operations resume from the previously computed output (passed back in
+//!   via `sources` under the trace's own name) so that only newly appended input
+//!   samples are processed on every UI refresh. Stateless operations
+//!   (Add/Multiply/Divide/Differentiate) recompute fully on the union grid.
 //!
 //! Numerical notes and conventions:
 //! - Small epsilons (1e-9 .. 1e-15 depending on context) are used to avoid division by
@@ -124,99 +124,23 @@ pub enum MathKind {
 pub struct MathTrace {
     pub name: TraceRef,
     pub kind: MathKind,
-    // #[serde(skip)]
-    // runtime_state: MathRuntimeState,
 }
 
-/// Runtime state for stateful math traces.
-///
-/// Integrators, IIR filters and min/max trackers need to persist a small amount
-/// of state between successive recomputations so that they can be updated
-/// incrementally when new samples arrive. This struct holds that state and is
-/// stored per-math-trace in `LivePlotApp::math_states`.
-// #[derive(Debug, Clone)]
-// struct MathRuntimeState {
-//     /// Timestamp of the last processed input sample (or None if no samples yet).
-//     pub last_t: Option<f64>,
-//     /// Accumulator for the integrator (running integral value).
-//     //pub accum: f64,
-//     // For biquad: previous two input samples x[n-1], x[n-2] and previous two
-//     // output samples y[n-1], y[n-2]. These are used to implement Direct Form I.
-//     pub x1: f64,
-//     pub x2: f64,
-//     pub y1: f64,
-//     pub y2: f64,
-//     // Secondary section for cascade filters (used by Bandpass implementation).
-//     pub x1b: f64,
-//     pub x2b: f64,
-//     pub y1b: f64,
-//     pub y2b: f64,
-//     // For MinMax tracker: running min and max. Initialized to infinities so the
-//     // first real sample sets them properly.
-//     // pub min_val: f64,
-//     // pub max_val: f64,
-//     // /// Timestamp where decay was last applied for the min/max exponential decay.
-//     // pub last_decay_t: Option<f64>,
-//     // Previous input sample used for incremental algorithms like integrate.
-//     pub prev_in_t: Option<f64>,
-//     pub prev_in_v: f64,
-// }
-
-// impl Default for MathRuntimeState {
-//     fn default() -> Self {
-//         Self {
-//             last_t: None,
-//             //accum: 0.0,
-//             x1: 0.0,
-//             x2: 0.0,
-//             y1: 0.0,
-//             y2: 0.0,
-//             x1b: 0.0,
-//             x2b: 0.0,
-//             y1b: 0.0,
-//             y2b: 0.0,
-//             // min_val: f64::INFINITY,
-//             // max_val: f64::NEG_INFINITY,
-//             // last_decay_t: None,
-//             prev_in_t: None,
-//             prev_in_v: 0.0,
-//         }
-//     }
-// }
-
-/// Compute a math trace given source traces. Each source trace is provided as a slice of
-/// monotonically increasing [t, y]. The result is densely sampled at the union of timestamps
-/// across inputs, using last-sample hold for absent channels at a time.
 /// Compute a math trace from the provided `sources`.
 ///
-/// Arguments:
-/// - `def`: math trace definition describing name and operation.
-/// - `sources`: mapping from trace name to a slice of `[t, y]` pairs. Timestamps must
-///   be monotone non-decreasing per trace.
-/// - `prev_output`: optional reference to previously computed output points for this
-///   math trace; used to keep previously computed values when only appending new
-///   samples for stateful operations.
-/// - `prune_before`: optional timestamp cutoff; output points strictly earlier than
-///   this value should be discarded. This is used to cap memory usage when the
-///   display window slides forward.
-/// - `state`: mutable runtime state for stateful math kinds (filters, integrators,
-///   min/max). The function will update this state to reflect processed inputs.
+/// Each source trace is provided as a map entry of `[t, y]` pairs with
+/// monotonically increasing timestamps. The result is densely sampled at the
+/// union of timestamps across inputs, using last-sample hold for absent
+/// channels at a time.
 ///
-/// Behavior summary:
-/// - Stateless operations (Add/Multiply/Divide/Differentiate) are computed on the
-///   union of timestamps from relevant inputs and recomputed fully each call.
-/// - Stateful operations (Filter/Integrate/MinMax) will attempt to process only new
-///   samples since `state.prev_in_t` to avoid reprocessing older data. To force a
-///   complete reset, call `MathRuntimeState::new()` for the trace and clear the
-///   associated output buffer.
-///
+/// If `sources` contains an entry under this trace's own name it is used as the
+/// previously computed output: stateful operations (Filter/Integrate/MinMax)
+/// reconstruct their state from it so that only newly appended input samples
+/// are processed. Stateless operations (Add/Multiply/Divide/Differentiate) are
+/// recomputed fully on the union of timestamps each call.
 impl MathTrace {
     pub fn new(name: TraceRef, kind: MathKind) -> Self {
-        Self {
-            name,
-            kind,
-            // runtime_state: MathRuntimeState::default(),
-        }
+        Self { name, kind }
     }
 
     pub fn compute_math_trace(
@@ -897,7 +821,6 @@ impl MathTrace {
     /// Produces coefficients that implement a band-pass with center frequency `fc`
     /// and quality factor `q` (constant skirt gain, peak gain = Q). As with the
     /// other biquad generators the caller should normalize the coefficients by a0.
-
     #[inline]
     fn biquad_bandpass(fc: f64, q: f64, dt: f64) -> BiquadParams {
         let fs = (1.0 / dt).max(1.0);

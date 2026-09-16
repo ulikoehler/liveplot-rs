@@ -8,22 +8,17 @@ use std::collections::VecDeque;
 use crate::data::traces::{TraceData, TraceRef};
 
 /// Supported FFT window functions for spectral analysis.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum FFTWindow {
     /// Rectangular (no windowing)
     Rect,
     /// Hann window
+    #[default]
     Hann,
     /// Hamming window
     Hamming,
     /// Blackman window
     Blackman,
-}
-
-impl Default for FFTWindow {
-    fn default() -> Self {
-        FFTWindow::Hann
-    }
 }
 
 impl FFTWindow {
@@ -204,7 +199,7 @@ impl FftData {
         let start = len - fft_size;
         let t0 = buf.get(start)?[0];
         let t1 = buf.back()?[0];
-        if !(t1 > t0) {
+        if !matches!(t1.partial_cmp(&t0), Some(std::cmp::Ordering::Greater)) {
             return None;
         }
         let dt_est = (t1 - t0) / (fft_size as f64 - 1.0);
@@ -477,13 +472,16 @@ fn fft_worker_loop(
     let mut cached_plan_size: usize = 0;
 
     while let Ok(job) = job_receiver.recv() {
-        let plan = if cached_plan_size != job.padded_size || cached_plan.is_none() {
+        let plan = if let Some(p) = cached_plan
+            .as_ref()
+            .filter(|_| cached_plan_size == job.padded_size)
+        {
+            p.clone()
+        } else {
             let plan = planner.plan_fft_forward(job.padded_size);
             cached_plan = Some(plan.clone());
             cached_plan_size = job.padded_size;
             plan
-        } else {
-            cached_plan.as_ref().unwrap().clone()
         };
 
         // Apply window function and zero-pad

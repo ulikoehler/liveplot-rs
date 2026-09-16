@@ -6,11 +6,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Formatting options for the x-value (time) shown in point labels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimeFormat {
     /// Local time with date and milliseconds: YYYY-MM-DD HH:MM:SS.mmm
     Iso8601WithDate,
     /// Local time, time-of-day with milliseconds: HH:MM:SS.mmm
+    #[default]
     Iso8601Time,
     /// Local time minute and second with fractional part: MM:SS.mmm
     MinuteSecondMillis,
@@ -18,12 +19,6 @@ pub enum TimeFormat {
     SecondMillis,
     /// Milliseconds/fractional second only: mmm
     MillisOnly,
-}
-
-impl Default for TimeFormat {
-    fn default() -> Self {
-        TimeFormat::Iso8601Time
-    }
 }
 
 impl TimeFormat {
@@ -523,16 +518,16 @@ impl ScopeData {
                 self.x_axis.bounds = (min_x, max_x);
             }
             self.time_window = self.x_axis.bounds.1 - self.x_axis.bounds.0;
-        } else if min_x == min_x {
+        } else if min_x == max_x {
             if min_x < 0.0 {
-                self.y_axis.bounds = (min_x, 0.0);
+                self.x_axis.bounds = (min_x, 0.0);
                 self.time_window = -min_x;
             } else if min_x > 0.0 {
-                self.y_axis.bounds = (0.0, min_x);
+                self.x_axis.bounds = (0.0, min_x);
                 self.time_window = min_x;
             } else {
                 // Both min and max are zero; set to -1.0 to 1.0
-                self.y_axis.bounds = (-1.0, 1.0);
+                self.x_axis.bounds = (-1.0, 1.0);
                 self.time_window = 2.0;
             }
         }

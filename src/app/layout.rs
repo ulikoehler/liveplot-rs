@@ -464,7 +464,7 @@ impl LivePlotPanel {
         let scope_states = self.liveplot_panel.scope_states();
 
         let mut panels_state: Vec<crate::persistence::PanelVisSerde> = Vec::new();
-        let mut push_panel = |p: &Box<dyn Panel>| {
+        let mut push_panel = |p: &dyn Panel| {
             let st = p.state();
             panels_state.push(crate::persistence::PanelVisSerde {
                 title: st.title.to_string(),
@@ -475,19 +475,19 @@ impl LivePlotPanel {
             });
         };
         for p in &self.left_side_panels {
-            push_panel(p);
+            push_panel(p.as_ref());
         }
         for p in &self.right_side_panels {
-            push_panel(p);
+            push_panel(p.as_ref());
         }
         for p in &self.bottom_panels {
-            push_panel(p);
+            push_panel(p.as_ref());
         }
         for p in &self.detached_panels {
-            push_panel(p);
+            push_panel(p.as_ref());
         }
         for p in &self.empty_panels {
-            push_panel(p);
+            push_panel(p.as_ref());
         }
 
         // Trace styles from all scopes.
@@ -559,12 +559,12 @@ impl LivePlotPanel {
         {
             let any: &dyn Panel = &**p;
             if let Some(tp) = any.downcast_ref::<crate::panels::thresholds_ui::ThresholdsPanel>() {
-                for (_n, d) in tp.thresholds.iter() {
+                for d in tp.thresholds.values() {
                     thresholds_ser.push(crate::persistence::ThresholdSerde::from_threshold(d));
                 }
             }
             if let Some(trg) = any.downcast_ref::<crate::panels::triggers_ui::TriggersPanel>() {
-                for (_n, t) in trg.triggers.iter() {
+                for t in trg.triggers.values() {
                     triggers_ser.push(crate::persistence::TriggerSerde::from_trigger(t));
                 }
             }
@@ -636,7 +636,7 @@ impl LivePlotPanel {
     pub fn build_full_state_snapshot(&self) -> crate::persistence::AppStateSerde {
         let mut state = self.build_state_snapshot();
         let mut panels_state: Vec<crate::persistence::PanelVisSerde> = Vec::new();
-        let mut push_panel = |p: &Box<dyn Panel>| {
+        let mut push_panel = |p: &dyn Panel| {
             let st = p.state();
             panels_state.push(crate::persistence::PanelVisSerde {
                 title: st.title.to_string(),
@@ -647,19 +647,19 @@ impl LivePlotPanel {
             });
         };
         for p in &self.left_side_panels {
-            push_panel(p);
+            push_panel(p.as_ref());
         }
         for p in &self.right_side_panels {
-            push_panel(p);
+            push_panel(p.as_ref());
         }
         for p in &self.bottom_panels {
-            push_panel(p);
+            push_panel(p.as_ref());
         }
         for p in &self.detached_panels {
-            push_panel(p);
+            push_panel(p.as_ref());
         }
         for p in &self.empty_panels {
-            push_panel(p);
+            push_panel(p.as_ref());
         }
         state.panels = panels_state;
         state
@@ -1058,8 +1058,8 @@ impl LivePlotPanel {
 
         if show_left {
             let total_w = self.last_plot_size.x;
-            let sidebar_min = (total_w * 0.20).min(160.0).max(50.0);
-            let sidebar_default = (total_w * 0.30).min(280.0).max(80.0);
+            let sidebar_min = (total_w * 0.20).clamp(50.0, 160.0);
+            let sidebar_default = (total_w * 0.30).clamp(80.0, 280.0);
             let mut list = std::mem::take(&mut self.left_side_panels);
             egui::Panel::left(format!("left_sidebar_{}", self.panel_id))
                 .resizable(true)
@@ -1131,8 +1131,8 @@ impl LivePlotPanel {
 
         if show_right {
             let total_w = self.last_plot_size.x;
-            let sidebar_min = (total_w * 0.25).min(200.0).max(60.0);
-            let sidebar_default = (total_w * 0.35).min(320.0).max(100.0);
+            let sidebar_min = (total_w * 0.25).clamp(60.0, 200.0);
+            let sidebar_default = (total_w * 0.35).clamp(100.0, 320.0);
             let mut list = std::mem::take(&mut self.right_side_panels);
             egui::Panel::right(format!("right_sidebar_{}", self.panel_id))
                 .resizable(true)
@@ -1196,9 +1196,9 @@ impl LivePlotPanel {
 
         if show_bottom {
             let total_h = self.last_plot_size.y;
-            let bar_min = (total_h * 0.20).min(120.0).max(40.0);
-            let bar_default = (total_h * 0.30).min(220.0).max(80.0);
-            let bar_max = (total_h * 0.80).min(600.0).max(60.0);
+            let bar_min = (total_h * 0.20).clamp(40.0, 120.0);
+            let bar_default = (total_h * 0.30).clamp(80.0, 220.0);
+            let bar_max = (total_h * 0.80).clamp(60.0, 600.0);
             let mut list = std::mem::take(&mut self.bottom_panels);
             egui::Panel::bottom(format!("bottom_bar_{}", self.panel_id))
                 .resizable(true)
