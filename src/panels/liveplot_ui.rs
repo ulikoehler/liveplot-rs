@@ -696,6 +696,22 @@ impl LiveplotPanel {
         None
     }
 
+    /// Collect and return the first pending pause request from any scope panel.
+    ///
+    /// Each `ScopePanel` stores a `pending_pause` when a click pauses the scope
+    /// while a measurement or marker is active.  This method drains all panels
+    /// and returns the first request found (if any).
+    pub fn collect_pause_change(&mut self) -> Option<bool> {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                if let Some(paused) = pane.take_pause_change() {
+                    return Some(paused);
+                }
+            }
+        }
+        None
+    }
+
     /// Returns true if any scope panel had a user-initiated setting change
     /// or if the scope structure changed (add/remove). Resets the flags.
     pub fn take_settings_changed(&mut self) -> bool {

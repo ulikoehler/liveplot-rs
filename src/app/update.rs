@@ -463,6 +463,12 @@ impl LivePlotPanel {
                 self.pending_view_change = Some(vc);
             }
 
+            // Collect pause requests raised by measurement/marker clicks so
+            // hosts can propagate the pause to other plots (BroadcastPause).
+            if let Some(paused) = self.liveplot_panel.collect_pause_change() {
+                self.pending_explicit_pause = Some(paused);
+            }
+
             // Collect any pending marker-list change from the measurement panel
             // so hosts can sync markers externally (e.g. across plot tabs).
             if let Some(mp) = self.measurement_panel_mut() {

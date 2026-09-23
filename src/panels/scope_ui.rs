@@ -146,6 +146,11 @@ pub struct ScopePanel {
     /// Pending view change (zoom/pan/slider/fit) to be collected by the parent.
     pub(crate) pending_view_change: Option<crate::events::ViewChangeMeta>,
 
+    /// Pending pause request raised when a click pauses this scope while a
+    /// measurement/marker is active.  Collected by the parent so hosts can
+    /// propagate the pause to other plots.
+    pub(crate) pending_pause: Option<bool>,
+
     /// Set to true when a user-initiated setting change occurs during rendering.
     /// Collected by the parent for undo tracking.
     pub(crate) settings_changed: bool,
@@ -175,6 +180,7 @@ impl Default for ScopePanel {
             last_y_fit_width: 132.1,
             last_zoom_width: 164.0,
             pending_view_change: None,
+            pending_pause: None,
             settings_changed: false,
             box_zoom_start: None,
         }
@@ -381,6 +387,12 @@ impl ScopePanel {
     /// Consume and return any pending view change (zoom/pan/slider/fit).
     pub fn take_view_change(&mut self) -> Option<crate::events::ViewChangeMeta> {
         self.pending_view_change.take()
+    }
+
+    /// Consume and return any pending pause request raised by a
+    /// measurement/marker click.
+    pub fn take_pause_change(&mut self) -> Option<bool> {
+        self.pending_pause.take()
     }
 
     /// Returns current value of the `pause_on_click` flag.
@@ -1885,6 +1897,8 @@ impl ScopePanel {
                     if !self.data.paused {
                         self.data.paused = true;
                         traces.take_snapshot();
+                        // Propagate the pause so hosts can sync it to other plots.
+                        self.pending_pause = Some(true);
                     }
                     self.capture_clicked_plot_point(plot_response);
                     if let Some(ctrl) = &self.event_ctrl {
@@ -1992,6 +2006,11 @@ impl ScopePanel {
             } else {
                 self.data.paused = true;
                 traces.take_snapshot();
+                if self.data.measurement_active {
+                    // A measurement/marker click paused the scope – propagate
+                    // so hosts can sync the pause to other plots.
+                    self.pending_pause = Some(true);
+                }
 
                 if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
                     self.capture_clicked_plot_point(plot_response);
