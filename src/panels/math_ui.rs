@@ -140,9 +140,14 @@ impl Panel for MathPanel {
         // any math trace definition, plus the math traces' own previous output.
         let mut needed: std::collections::HashSet<TraceRef> = std::collections::HashSet::new();
         for def in &self.math_traces {
-            for name in def.input_trace_names() {
-                needed.insert(name.clone());
+            let inputs = def.input_trace_names();
+            // A formula without trace references (e.g. `sin(2*pi*t)`) still
+            // needs a time grid — feed every existing trace into the sources
+            // map so the union of timestamps spans the timeline.
+            if inputs.is_empty() && matches!(def.kind, MathKind::Formula { .. }) {
+                needed.extend(data.traces.all_trace_names());
             }
+            needed.extend(inputs);
             needed.insert(def.name.clone());
         }
 
@@ -398,6 +403,7 @@ impl Panel for MathPanel {
                 "Filter",
                 "Min",
                 "Max",
+                "Formula",
             ];
             let mut kind_idx: usize = match &self.builder.kind {
                 MathKind::Add { .. } => 0,
@@ -410,6 +416,7 @@ impl Panel for MathPanel {
                     MinMaxMode::Min => 6,
                     MinMaxMode::Max => 7,
                 },
+                MathKind::Formula { .. } => 8,
             };
 
             let prev_kind_idx = kind_idx;
@@ -465,6 +472,9 @@ impl Panel for MathPanel {
                         input: first.clone(),
                         decay_per_sec: Some(0.0),
                         mode: MinMaxMode::Max,
+                    },
+                    8 => MathKind::Formula {
+                        expr: String::new(),
                     },
                     _ => MathKind::Add { inputs: vec![] },
                 };
@@ -696,6 +706,103 @@ impl Panel for MathPanel {
                         *decay_per_sec = Some(decay);
                     });
                 }
+                MathKind::Formula { expr } => {
+                    // Insert chips: one per available trace (in trace color),
+                    // plus t / pi / e and a function menu. Clicking inserts at
+                    // the text cursor of the formula edit below.
+                    let edit_id = egui::Id::new("math_formula_edit");
+                    let mut pending_insert: Option<(String, usize)> = None;
+                    ui.horizontal_wrapped(|ui| {
+                        for n in &trace_names {
+                            let color = data
+                                .traces
+                                .get_trace(n)
+                                .map(|t| t.look.color)
+                                .unwrap_or_else(|| ui.visuals().text_color());
+                            if ui
+                                .button(egui::RichText::new(n.0.clone()).color(color))
+                                .on_hover_text(format!("Insert {{{}}}", n.0))
+                                .clicked()
+                            {
+                                pending_insert = Some((format!("{{{}}}", n.0), 0));
+                            }
+                        }
+                        for (label, snip) in [("t", "t"), ("π", "pi"), ("e", "e")] {
+                            if ui
+                                .button(label)
+                                .on_hover_text(format!("Insert {snip}"))
+                                .clicked()
+                            {
+                                pending_insert = Some((snip.to_string(), 0));
+                            }
+                        }
+                        let menu_cfg = egui::containers::menu::MenuConfig::new()
+                            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+                        let mb = egui::containers::menu::MenuButton::new("ƒx")
+                            .config(menu_cfg)
+                            .ui(ui, |ui| {
+                                for f in crate::data::expr::Func::ALL {
+                                    if ui.button(f.name()).clicked() {
+                                        // `name()` with the cursor between the
+                                        // parens (one char back from the end).
+                                        pending_insert = Some((format!("{}()", f.name()), 1));
+                                        ui.close();
+                                    }
+                                }
+                            });
+                        mb.0.on_hover_text("Insert function");
+                    });
+
+                    let output = egui::TextEdit::multiline(expr)
+                        .id(edit_id)
+                        .desired_rows(2)
+                        .desired_width(f32::INFINITY)
+                        .hint_text("e.g. sqrt({a}^2 + {b}^2)")
+                        .show(ui);
+                    if let Some((snippet, back)) = pending_insert.take() {
+                        insert_snippet(ui.ctx(), edit_id, expr, &snippet, back);
+                        output.response.request_focus();
+                    }
+
+                    // Live preview / error display
+                    if !expr.trim().is_empty() {
+                        match crate::data::expr::parse(expr) {
+                            Ok(ast) => {
+                                let color_map: HashMap<TraceRef, Color32> = data
+                                    .traces
+                                    .traces_iter()
+                                    .map(|(n, tr)| (n.clone(), tr.look.color))
+                                    .collect();
+                                egui::Frame::default()
+                                    .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+                                    .inner_margin(egui::Margin::same(4))
+                                    .show(ui, |ui| {
+                                        crate::panels::formula_render::show_formula(
+                                            ui,
+                                            &ast,
+                                            &color_map,
+                                            ui.visuals().text_color(),
+                                        );
+                                    });
+                                let unknown: Vec<String> = ast
+                                    .referenced_traces()
+                                    .into_iter()
+                                    .filter(|n| !data.traces.contains_key(n))
+                                    .map(|n| n.0)
+                                    .collect();
+                                if !unknown.is_empty() {
+                                    ui.colored_label(
+                                        Color32::YELLOW,
+                                        format!("unknown trace(s): {}", unknown.join(", ")),
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                ui.colored_label(Color32::LIGHT_RED, e.to_string());
+                            }
+                        }
+                    }
+                }
             }
 
             // Unified Style and Save section
@@ -722,8 +829,22 @@ impl Panel for MathPanel {
                 } else {
                     format!("{} Add trace", PLUS.as_str())
                 };
-                let can_save = !self.builder.name.0.is_empty() && !duplicate_name;
-                let enter_pressed = can_save && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
+                let formula_ok = match &self.builder.kind {
+                    MathKind::Formula { expr } => {
+                        !expr.trim().is_empty() && crate::data::expr::parse(expr).is_ok()
+                    }
+                    _ => true,
+                };
+                let can_save = !self.builder.name.0.is_empty() && !duplicate_name && formula_ok;
+                // Don't treat Enter as Save while typing a multiline formula —
+                // it should insert a newline instead.
+                let formula_has_focus = matches!(self.builder.kind, MathKind::Formula { .. })
+                    && ui
+                        .ctx()
+                        .memory(|m| m.has_focus(egui::Id::new("math_formula_edit")));
+                let enter_pressed = can_save
+                    && !formula_has_focus
+                    && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
                 if ui
                     .add_enabled(can_save, egui::Button::new(save_label))
                     .clicked()
@@ -837,4 +958,42 @@ impl MathPanel {
     pub fn set_math_traces(&mut self, v: Vec<crate::data::math::MathTrace>) {
         self.math_traces = v;
     }
+}
+
+/// Insert `snippet` into `expr` at the cursor of the `TextEdit` identified by
+/// `edit_id`, replacing any active selection. The cursor is placed `back`
+/// characters before the end of the inserted text (e.g. `back = 1` lands inside
+/// the parens of an inserted `f()`).
+fn insert_snippet(
+    ctx: &egui::Context,
+    edit_id: egui::Id,
+    expr: &mut String,
+    snippet: &str,
+    back: usize,
+) {
+    let char_to_byte = |ci: usize| -> usize {
+        expr.char_indices()
+            .nth(ci)
+            .map(|(i, _)| i)
+            .unwrap_or(expr.len())
+    };
+    let mut state = egui::TextEdit::load_state(ctx, edit_id).unwrap_or_default();
+    let end = expr.chars().count();
+    let (lo, hi) = state
+        .cursor
+        .char_range()
+        .map(|r| {
+            (
+                r.primary.index.0.min(r.secondary.index.0).min(end),
+                r.primary.index.0.max(r.secondary.index.0).min(end),
+            )
+        })
+        .unwrap_or((end, end));
+    expr.replace_range(char_to_byte(lo)..char_to_byte(hi), snippet);
+    let new_pos = lo + snippet.chars().count().saturating_sub(back);
+    let c = egui::text::CCursor::new(new_pos);
+    state
+        .cursor
+        .set_char_range(Some(egui::text::CCursorRange::two(c, c)));
+    egui::TextEdit::store_state(ctx, edit_id, state);
 }

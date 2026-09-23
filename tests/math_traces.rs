@@ -245,6 +245,79 @@ fn test_input_trace_names() {
     );
     let names = trace.input_trace_names();
     assert_eq!(names.len(), 2);
-    assert!(names.contains(&&TraceRef::new("a")));
-    assert!(names.contains(&&TraceRef::new("b")));
+    assert!(names.contains(&TraceRef::new("a")));
+    assert!(names.contains(&TraceRef::new("b")));
+}
+
+#[test]
+fn test_formula_trace() {
+    let mut trace = MathTrace::new(
+        TraceRef::new("f"),
+        MathKind::Formula {
+            expr: "{a} * 2 + {b}".to_string(),
+        },
+    );
+    let sources = make_sources(&[
+        ("a", vec![[0.0, 1.0], [1.0, 2.0], [2.0, 3.0]]),
+        ("b", vec![[0.0, 10.0], [2.0, 30.0]]),
+        ("f", vec![]),
+    ]);
+    let out = trace.compute_math_trace(&sources);
+    // Union grid of a and b: t = 0,1,2; b interpolates to 20 at t=1.
+    assert_eq!(out, vec![[0.0, 12.0], [1.0, 24.0], [2.0, 36.0]]);
+}
+
+#[test]
+fn test_formula_time_only() {
+    // Pure f(t) formula: evaluates on the union of all source timestamps.
+    let mut trace = MathTrace::new(
+        TraceRef::new("ramp"),
+        MathKind::Formula {
+            expr: "2 * t".to_string(),
+        },
+    );
+    let sources = make_sources(&[
+        ("a", vec![[0.0, 1.0], [1.0, 2.0], [2.0, 3.0]]),
+        ("ramp", vec![]),
+    ]);
+    let out = trace.compute_math_trace(&sources);
+    assert_eq!(out, vec![[0.0, 0.0], [1.0, 2.0], [2.0, 4.0]]);
+}
+
+#[test]
+fn test_formula_invalid_keeps_old_output() {
+    let mut trace = MathTrace::new(
+        TraceRef::new("bad"),
+        MathKind::Formula {
+            expr: "sqrt(".to_string(),
+        },
+    );
+    let sources = make_sources(&[("a", vec![[0.0, 1.0]]), ("bad", vec![[5.0, 9.0]])]);
+    let out = trace.compute_math_trace(&sources);
+    assert_eq!(out, vec![[5.0, 9.0]]);
+}
+
+#[test]
+fn test_formula_input_trace_names() {
+    let trace = MathTrace::new(
+        TraceRef::new("f"),
+        MathKind::Formula {
+            expr: "{sig 1} + t * sin({sig.2}) + {sig 1}".to_string(),
+        },
+    );
+    let names = trace.input_trace_names();
+    assert_eq!(names, vec![TraceRef::new("sig 1"), TraceRef::new("sig.2")]);
+}
+
+#[test]
+fn test_formula_serde_roundtrip() {
+    let trace = MathTrace::new(
+        TraceRef::new("f"),
+        MathKind::Formula {
+            expr: "log({a}, 2) ^ 2".to_string(),
+        },
+    );
+    let s = serde_json::to_string(&trace).unwrap();
+    let back: MathTrace = serde_json::from_str(&s).unwrap();
+    assert!(matches!(back.kind, MathKind::Formula { .. }));
 }

@@ -113,6 +113,9 @@ pub enum MathKind {
         decay_per_sec: Option<f64>,
         mode: MinMaxMode,
     },
+    /// Free-form expression over traces (`{name}`), `t`, `pi`, `e` and
+    /// functions; see [`crate::data::expr`].
+    Formula { expr: String },
 }
 
 /// Fully-defined math trace configuration.
@@ -530,6 +533,58 @@ impl MathTrace {
                     return out;
                 }
             }
+            MathKind::Formula { expr } => {
+                let ast = match crate::data::expr::parse(expr) {
+                    Ok(ast) => ast,
+                    // Invalid formulas produce no output; the panel surfaces
+                    // the parse error while editing.
+                    Err(_) => return out,
+                };
+                let refs = ast.referenced_traces();
+
+                // Sample on the union of the referenced traces' timestamps.
+                // For formulas without trace references (e.g. `sin(2*pi*t)`),
+                // fall back to the union of all provided sources so pure f(t)
+                // expressions still produce a meaningful grid.
+                let grid: Vec<f64> = if refs.is_empty() {
+                    let slices: Vec<&[[f64; 2]]> = sources
+                        .iter()
+                        .filter(|(k, _)| **k != self.name)
+                        .map(|(_, v)| v.as_slice())
+                        .collect();
+                    if slices.is_empty() {
+                        return out;
+                    }
+                    MathTrace::union_times(&slices)
+                } else {
+                    let slices: Vec<&[[f64; 2]]> = refs
+                        .iter()
+                        .filter_map(|r| sources.get(r).map(|v| v.as_slice()))
+                        .collect();
+                    if slices.is_empty() {
+                        return out;
+                    }
+                    MathTrace::union_times(&slices)
+                };
+
+                let start = if let Some(last) = out.last() {
+                    grid.partition_point(|&t| t <= last[0])
+                } else {
+                    0
+                };
+
+                let mut idx_map: std::collections::HashMap<TraceRef, usize> = HashMap::new();
+                for &t in &grid[start..] {
+                    let v = ast.eval(t, &mut |name: &TraceRef| {
+                        let src = sources.get(name)?;
+                        let idx = idx_map.entry(name.clone()).or_insert(0);
+                        MathTrace::interpolate_value_at(t, src.as_slice(), idx)
+                    });
+                    if v.is_finite() {
+                        out.push([t, v]);
+                    }
+                }
+            }
         }
 
         out
@@ -635,15 +690,18 @@ impl MathTrace {
     }
 
     /// Return the names of all source traces referenced by this math trace.
-    pub fn input_trace_names(&self) -> Vec<&TraceRef> {
+    pub fn input_trace_names(&self) -> Vec<TraceRef> {
         match &self.kind {
-            MathKind::Add { inputs } => inputs.iter().map(|(r, _)| r).collect(),
-            MathKind::Multiply { a, b } => vec![a, b],
-            MathKind::Divide { a, b } => vec![a, b],
-            MathKind::Differentiate { input } => vec![input],
-            MathKind::Integrate { input, .. } => vec![input],
-            MathKind::Filter { input, .. } => vec![input],
-            MathKind::MinMax { input, .. } => vec![input],
+            MathKind::Add { inputs } => inputs.iter().map(|(r, _)| r.clone()).collect(),
+            MathKind::Multiply { a, b } => vec![a.clone(), b.clone()],
+            MathKind::Divide { a, b } => vec![a.clone(), b.clone()],
+            MathKind::Differentiate { input } => vec![input.clone()],
+            MathKind::Integrate { input, .. } => vec![input.clone()],
+            MathKind::Filter { input, .. } => vec![input.clone()],
+            MathKind::MinMax { input, .. } => vec![input.clone()],
+            MathKind::Formula { expr } => crate::data::expr::parse(expr)
+                .map(|ast| ast.referenced_traces())
+                .unwrap_or_default(),
         }
     }
 
@@ -707,6 +765,7 @@ impl MathTrace {
                     None => format!("{}({})", mm, input.0),
                 }
             }
+            MathKind::Formula { expr } => expr.clone(),
         }
     }
 

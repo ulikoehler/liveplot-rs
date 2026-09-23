@@ -2,6 +2,7 @@ pub mod liveplot_data;
 pub use liveplot_data as data;
 pub mod density_render;
 pub mod export;
+pub mod expr;
 pub mod hotkeys;
 pub mod marker;
 pub mod math;

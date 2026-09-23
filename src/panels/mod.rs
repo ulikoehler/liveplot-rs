@@ -1,6 +1,7 @@
 pub mod color_scheme_ui;
 pub mod edge_icons;
 pub mod export_ui;
+pub mod formula_render;
 pub mod hotkeys_ui;
 pub mod liveplot_ui;
 pub mod math_ui;
