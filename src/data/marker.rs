@@ -47,7 +47,7 @@ impl Marker {
             visible: true,
             show_point: true,
             show_hline: false,
-            show_vline: false,
+            show_vline: true,
             shape: MarkerShape::Circle,
             catch_trace: None,
             scope_id: None,
