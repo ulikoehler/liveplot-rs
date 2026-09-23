@@ -178,7 +178,7 @@ impl ScopeSettingsUiPanel {
                     .unwrap_or("Left Top");
                 ui.horizontal(|ui| {
                     ui.label("Position");
-                    let _ = egui::ComboBox::from_id_salt("legend_position")
+                    let _ = egui::ComboBox::from_id_salt(("legend_position", scope_id))
                         .selected_text(selected_label)
                         .show_ui(ui, |ui| {
                             for (pos, label) in positions {

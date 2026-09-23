@@ -144,6 +144,95 @@ fn set_markers_does_not_mark_dirty() {
 }
 
 #[test]
+fn adding_measurement_disarms_marker() {
+    // A selected marker receives plot clicks. Adding a measurement must
+    // disarm it so the click goes to the new measurement instead.
+    let mut panel = MeasurementPanel::default();
+    panel.restore_markers(vec![Marker::new("K1", 0)], Some(0));
+    assert_eq!(panel.selected_marker_index(), Some(0));
+
+    panel.add_measurement();
+
+    assert!(panel.selected_marker_index().is_none());
+    assert_eq!(panel.selected_measurement_index(), Some(0));
+
+    // And a subsequent click must land on the measurement, not the marker.
+    let mut scope = ScopeData::default();
+    scope.clicked_point = Some([2.0, 3.0]);
+    let mut traces = TracesCollection::default();
+    let mut requests = LivePlotRequests::default();
+    {
+        let mut live = make_live(vec![&mut scope], &mut traces, &mut requests);
+        panel.update_data(&mut live);
+    }
+    let (p1, _) = panel.measurements()[0].get_points();
+    assert_eq!(p1, Some([2.0, 3.0]));
+    assert!(panel.markers()[0].point.is_none());
+}
+
+#[test]
+fn invisible_marker_excluded_from_x_range() {
+    let mut panel = MeasurementPanel::default();
+    let mut marker = Marker::new("K1", 0);
+    marker.point = Some([-50.0, 1.0]);
+    marker.visible = false;
+    panel.restore_markers(vec![marker], None);
+
+    let mut scope = ScopeData::default();
+    let mut traces = TracesCollection::default();
+    let mut requests = LivePlotRequests::default();
+    {
+        let mut live = make_live(vec![&mut scope], &mut traces, &mut requests);
+        panel.update_data(&mut live);
+    }
+    assert!(scope.measurement_x_range.is_none());
+
+    // Control: a visible marker at the same point is included.
+    let mut marker = Marker::new("K1", 0);
+    marker.point = Some([-50.0, 1.0]);
+    panel.restore_markers(vec![marker], None);
+    {
+        let mut live = make_live(vec![&mut scope], &mut traces, &mut requests);
+        panel.update_data(&mut live);
+    }
+    assert_eq!(scope.measurement_x_range, Some((-50.0, -50.0)));
+}
+
+#[test]
+fn legend_hidden_overlays_excluded_from_x_range() {
+    let mut panel = MeasurementPanel::default();
+
+    let mut measurement = Measurement::new("M1");
+    measurement.p1 = Some([-40.0, 0.0]);
+    measurement.scope_id = Some(0);
+    panel.restore_measurements(vec![measurement], None);
+
+    let mut marker = Marker::new("K1", 0);
+    marker.point = Some([-50.0, 1.0]);
+    panel.restore_markers(vec![marker], None);
+
+    // Both hidden via legend clicks on this scope.
+    let mut scope = ScopeData::default();
+    scope.legend_hidden_items.insert(egui::Id::new("M1"));
+    scope.legend_hidden_items.insert(egui::Id::new("K1"));
+    let mut traces = TracesCollection::default();
+    let mut requests = LivePlotRequests::default();
+    {
+        let mut live = make_live(vec![&mut scope], &mut traces, &mut requests);
+        panel.update_data(&mut live);
+    }
+    assert_eq!(scope.measurement_x_range, None);
+
+    // Unhide the measurement: its point must extend the range again.
+    scope.legend_hidden_items.remove(&egui::Id::new("M1"));
+    {
+        let mut live = make_live(vec![&mut scope], &mut traces, &mut requests);
+        panel.update_data(&mut live);
+    }
+    assert_eq!(scope.measurement_x_range, Some((-40.0, -40.0)));
+}
+
+#[test]
 fn marker_serde_roundtrip() {
     let mut marker = Marker::new("K7", 3);
     marker.point = Some([4.0, 5.0]);

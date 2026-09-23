@@ -221,9 +221,7 @@ impl Panel for MeasurementPanel {
                 ui.separator();
 
                 if ui.button(format!("{} New", PLUS.as_str())).clicked() {
-                    let idx = self.measurements.len() + 1;
-                    self.measurements
-                        .push(Measurement::new(&format!("M{}", idx)));
+                    self.add_measurement();
                     // Focus this panel
                     let st = self.state_mut();
                     st.visible = true;
@@ -337,22 +335,31 @@ impl Panel for MeasurementPanel {
             let mut x_max = f64::NEG_INFINITY;
             let mut found = false;
             for m in &self.measurements {
-                if m.scope_id == Some(scope_id) {
-                    if let Some(p) = m.p1 {
-                        x_min = x_min.min(p[0]);
-                        x_max = x_max.max(p[0]);
-                        found = true;
-                    }
-                    if let Some(p) = m.p2 {
-                        x_min = x_min.min(p[0]);
-                        x_max = x_max.max(p[0]);
-                        found = true;
-                    }
+                if m.scope_id != Some(scope_id) {
+                    continue;
+                }
+                // Skip overlays hidden via the scope's legend.
+                if scope.legend_hidden_items.contains(&egui::Id::new(&m.name)) {
+                    continue;
+                }
+                if let Some(p) = m.p1 {
+                    x_min = x_min.min(p[0]);
+                    x_max = x_max.max(p[0]);
+                    found = true;
+                }
+                if let Some(p) = m.p2 {
+                    x_min = x_min.min(p[0]);
+                    x_max = x_max.max(p[0]);
+                    found = true;
                 }
             }
             // Markers are drawn on every scope (internal sync), so include
-            // their x positions in every scope's range.
+            // their x positions in every scope's range. Skip markers hidden
+            // via the eye toggle or the scope's legend.
             for m in &self.markers {
+                if !m.visible || scope.legend_hidden_items.contains(&egui::Id::new(&m.name)) {
+                    continue;
+                }
                 if let Some(p) = m.point {
                     x_min = x_min.min(p[0]);
                     x_max = x_max.max(p[0]);
@@ -801,7 +808,14 @@ impl Panel for MeasurementPanel {
                     egui::Align::LEFT,
                 );
             let base = PlotPoint::new(p[0] + ox, p[1] - oy);
-            plot_ui.text(Text::new(&name, base, job).anchor(Align2::LEFT_TOP));
+            // Setting the item color to the marker color is required so all
+            // items sharing this legend name agree on a color — otherwise the
+            // legend swatch falls back to gray (ColorConflictHandling).
+            plot_ui.text(
+                Text::new(&name, base, job)
+                    .anchor(Align2::LEFT_TOP)
+                    .color(c),
+            );
         }
     }
 
@@ -809,11 +823,7 @@ impl Panel for MeasurementPanel {
         ui.label("Pick points on the plot and compute deltas.");
         ui.horizontal(|ui| {
             if ui.button(format!("{} Add", PLUS.as_str())).clicked() {
-                let idx = self.measurements.len() + 1;
-                self.measurements
-                    .push(Measurement::new(&format!("M{}", idx)));
-                self.selected_measurement = Some(self.measurements.len() - 1);
-                self.selected_point_index = None;
+                self.add_measurement();
             }
             if ui.button(format!("{} Clear All", BROOM.as_str())).clicked() {
                 for m in &mut self.measurements {
@@ -1298,6 +1308,17 @@ impl MeasurementPanel {
         self.selected_point_index = None;
         self.last_clicked_point = None;
         self.hovered_measurement = None;
+    }
+
+    /// Create a new measurement, select it for the next click, and disarm
+    /// any currently selected marker (selection is mutually exclusive).
+    pub fn add_measurement(&mut self) {
+        let idx = self.measurements.len() + 1;
+        self.measurements
+            .push(Measurement::new(&format!("M{}", idx)));
+        self.selected_measurement = Some(self.measurements.len() - 1);
+        self.selected_point_index = None;
+        self.selected_marker = None;
     }
 
     /// All markers currently managed by this panel.

@@ -3,7 +3,7 @@
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::{TraceRef, TracesCollection};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Formatting options for the x-value (time) shown in point labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -277,6 +277,10 @@ pub struct ScopeData {
     /// extend `x_axis.bounds` to keep measurement markers in view after
     /// the scope is resumed.
     pub measurement_x_range: Option<(f64, f64)>,
+    /// Legend item ids hidden via legend clicks on this scope, refreshed each
+    /// frame by the scope renderer. Transient — used by overlays (measurements,
+    /// markers) to exclude hidden points from bounds calculations.
+    pub legend_hidden_items: HashSet<egui::Id>,
     pub last_plot_bounds: Option<([f64; 2], [f64; 2])>,
     pub last_plot_screen_rect: Option<[f32; 4]>,
     pub rendered_this_frame: bool,
@@ -309,6 +313,7 @@ impl Default for ScopeData {
             measurement_active: false,
             pause_on_click: false,
             measurement_x_range: None,
+            legend_hidden_items: HashSet::new(),
             last_plot_bounds: None,
             last_plot_screen_rect: None,
             rendered_this_frame: false,

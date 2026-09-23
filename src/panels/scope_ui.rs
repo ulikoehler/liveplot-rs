@@ -1661,6 +1661,16 @@ impl ScopePanel {
             }
         }
 
+        // Publish the set of legend-hidden item ids so other systems
+        // (measurements, markers) can exclude hidden overlays from bounds.
+        // Kept in sync even when the legend is off so hidden items still
+        // match what is actually drawn.
+        let plot_id =
+            ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.data.name)));
+        if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
+            self.data.legend_hidden_items = mem.hidden_items.iter().copied().collect();
+        }
+
         // Draw box zoom selection rectangle if active
         if let Some(start) = self.box_zoom_start {
             // Prefer the interact pointer position so the rectangle keeps tracking
