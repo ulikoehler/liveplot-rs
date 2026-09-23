@@ -463,6 +463,14 @@ impl LivePlotPanel {
                 self.pending_view_change = Some(vc);
             }
 
+            // Collect any pending marker-list change from the measurement panel
+            // so hosts can sync markers externally (e.g. across plot tabs).
+            if let Some(mp) = self.measurement_panel_mut() {
+                if mp.take_markers_dirty() {
+                    self.pending_marker_change = Some(mp.markers().to_vec());
+                }
+            }
+
             let screenshot_request = self
                 .liveplot_panel
                 .take_scope_screenshot_request()

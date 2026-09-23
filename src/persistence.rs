@@ -175,6 +175,42 @@ pub enum SerMarkerShape {
     Right,
 }
 
+impl From<egui_plot::MarkerShape> for SerMarkerShape {
+    fn from(m: egui_plot::MarkerShape) -> Self {
+        use egui_plot::MarkerShape;
+        match m {
+            MarkerShape::Circle => SerMarkerShape::Circle,
+            MarkerShape::Square => SerMarkerShape::Square,
+            MarkerShape::Diamond => SerMarkerShape::Diamond,
+            MarkerShape::Cross => SerMarkerShape::Cross,
+            MarkerShape::Plus => SerMarkerShape::Plus,
+            MarkerShape::Asterisk => SerMarkerShape::Asterisk,
+            MarkerShape::Up => SerMarkerShape::Up,
+            MarkerShape::Down => SerMarkerShape::Down,
+            MarkerShape::Left => SerMarkerShape::Left,
+            MarkerShape::Right => SerMarkerShape::Right,
+        }
+    }
+}
+
+impl From<SerMarkerShape> for egui_plot::MarkerShape {
+    fn from(m: SerMarkerShape) -> Self {
+        use egui_plot::MarkerShape;
+        match m {
+            SerMarkerShape::Circle => MarkerShape::Circle,
+            SerMarkerShape::Square => MarkerShape::Square,
+            SerMarkerShape::Diamond => MarkerShape::Diamond,
+            SerMarkerShape::Cross => MarkerShape::Cross,
+            SerMarkerShape::Plus => MarkerShape::Plus,
+            SerMarkerShape::Asterisk => MarkerShape::Asterisk,
+            SerMarkerShape::Up => MarkerShape::Up,
+            SerMarkerShape::Down => MarkerShape::Down,
+            SerMarkerShape::Left => MarkerShape::Left,
+            SerMarkerShape::Right => MarkerShape::Right,
+        }
+    }
+}
+
 /// Serializable version of RenderMode.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -237,24 +273,12 @@ fn default_brightness_gain() -> f32 {
 impl From<&TraceLook> for TraceLookSerde {
     fn from(l: &TraceLook) -> Self {
         use egui_plot::LineStyle;
-        use egui_plot::MarkerShape;
         let style = match l.style {
             LineStyle::Solid => SerLineStyle::Solid,
             LineStyle::Dashed { length } => SerLineStyle::Dashed { length },
             LineStyle::Dotted { spacing } => SerLineStyle::Dotted { spacing },
         };
-        let marker = match l.marker {
-            MarkerShape::Circle => SerMarkerShape::Circle,
-            MarkerShape::Square => SerMarkerShape::Square,
-            MarkerShape::Diamond => SerMarkerShape::Diamond,
-            MarkerShape::Cross => SerMarkerShape::Cross,
-            MarkerShape::Plus => SerMarkerShape::Plus,
-            MarkerShape::Asterisk => SerMarkerShape::Asterisk,
-            MarkerShape::Up => SerMarkerShape::Up,
-            MarkerShape::Down => SerMarkerShape::Down,
-            MarkerShape::Left => SerMarkerShape::Left,
-            MarkerShape::Right => SerMarkerShape::Right,
-        };
+        let marker = l.marker.into();
         Self {
             color_rgba: [l.color.r(), l.color.g(), l.color.b(), l.color.a()],
             visible: l.visible,
@@ -275,24 +299,12 @@ impl TraceLookSerde {
     pub fn into_look(self) -> TraceLook {
         use egui::Color32;
         use egui_plot::LineStyle;
-        use egui_plot::MarkerShape;
         let style = match self.style {
             SerLineStyle::Solid => LineStyle::Solid,
             SerLineStyle::Dashed { length } => LineStyle::Dashed { length },
             SerLineStyle::Dotted { spacing } => LineStyle::Dotted { spacing },
         };
-        let marker = match self.marker {
-            SerMarkerShape::Circle => MarkerShape::Circle,
-            SerMarkerShape::Square => MarkerShape::Square,
-            SerMarkerShape::Diamond => MarkerShape::Diamond,
-            SerMarkerShape::Cross => MarkerShape::Cross,
-            SerMarkerShape::Plus => MarkerShape::Plus,
-            SerMarkerShape::Asterisk => MarkerShape::Asterisk,
-            SerMarkerShape::Up => MarkerShape::Up,
-            SerMarkerShape::Down => MarkerShape::Down,
-            SerMarkerShape::Left => MarkerShape::Left,
-            SerMarkerShape::Right => MarkerShape::Right,
-        };
+        let marker = self.marker.into();
         TraceLook {
             color: Color32::from_rgba_unmultiplied(
                 self.color_rgba[0],
@@ -652,12 +664,87 @@ pub struct PanelVisSerde {
     pub window_size: Option<[f32; 2]>,
 }
 
+/// Serializable version of a [`Marker`](crate::data::marker::Marker).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarkerSerde {
+    pub name: String,
+    #[serde(default)]
+    pub point: Option<[f64; 2]>,
+    pub color_rgba: [u8; 4],
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default = "default_true")]
+    pub show_point: bool,
+    #[serde(default)]
+    pub show_hline: bool,
+    #[serde(default)]
+    pub show_vline: bool,
+    #[serde(default = "default_ser_marker_shape")]
+    pub shape: SerMarkerShape,
+    #[serde(default)]
+    pub catch_trace: Option<crate::TraceRef>,
+    #[serde(default)]
+    pub scope_id: Option<usize>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_ser_marker_shape() -> SerMarkerShape {
+    SerMarkerShape::Circle
+}
+
+impl From<&crate::data::marker::Marker> for MarkerSerde {
+    fn from(m: &crate::data::marker::Marker) -> Self {
+        Self {
+            name: m.name.clone(),
+            point: m.point,
+            color_rgba: [m.color.r(), m.color.g(), m.color.b(), m.color.a()],
+            visible: m.visible,
+            show_point: m.show_point,
+            show_hline: m.show_hline,
+            show_vline: m.show_vline,
+            shape: m.shape.into(),
+            catch_trace: m.catch_trace.clone(),
+            scope_id: m.scope_id,
+        }
+    }
+}
+
+impl MarkerSerde {
+    /// Convert back to a runtime [`Marker`](crate::data::marker::Marker).
+    pub fn into_marker(self) -> crate::data::marker::Marker {
+        crate::data::marker::Marker {
+            name: self.name,
+            point: self.point,
+            color: egui::Color32::from_rgba_unmultiplied(
+                self.color_rgba[0],
+                self.color_rgba[1],
+                self.color_rgba[2],
+                self.color_rgba[3],
+            ),
+            visible: self.visible,
+            show_point: self.show_point,
+            show_hline: self.show_hline,
+            show_vline: self.show_vline,
+            shape: self.shape.into(),
+            catch_trace: self.catch_trace,
+            scope_id: self.scope_id,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeasurementPanelStateSerde {
     #[serde(default)]
     pub measurements: Vec<Measurement>,
     #[serde(default)]
     pub selected_measurement: Option<usize>,
+    #[serde(default)]
+    pub markers: Vec<MarkerSerde>,
+    #[serde(default)]
+    pub selected_marker: Option<usize>,
 }
 
 impl MeasurementPanelStateSerde {
@@ -665,11 +752,21 @@ impl MeasurementPanelStateSerde {
         Self {
             measurements: panel.measurements().to_vec(),
             selected_measurement: panel.selected_measurement_index(),
+            markers: panel.markers().iter().map(MarkerSerde::from).collect(),
+            selected_marker: panel.selected_marker_index(),
         }
     }
 
     pub fn apply_to_panel(&self, panel: &mut crate::panels::measurment_ui::MeasurementPanel) {
         panel.restore_measurements(self.measurements.clone(), self.selected_measurement);
+        panel.restore_markers(
+            self.markers
+                .iter()
+                .cloned()
+                .map(MarkerSerde::into_marker)
+                .collect(),
+            self.selected_marker,
+        );
     }
 }
 

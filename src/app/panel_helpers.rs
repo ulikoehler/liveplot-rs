@@ -5,6 +5,7 @@
 //! They are used by the controller modules and the layout/rendering code.
 
 use crate::panels::hotkeys_ui::HotkeysPanel;
+use crate::panels::measurment_ui::MeasurementPanel;
 use crate::panels::panel_trait::Panel;
 use crate::panels::thresholds_ui::ThresholdsPanel;
 use crate::panels::traces_ui::TracesPanel;
@@ -12,6 +13,25 @@ use crate::panels::traces_ui::TracesPanel;
 use super::LivePlotPanel;
 
 impl LivePlotPanel {
+    /// Return a mutable reference to the [`MeasurementPanel`], if one exists in any panel list.
+    ///
+    /// Searches left → right → bottom → detached → empty panels in order.
+    pub(crate) fn measurement_panel_mut(&mut self) -> Option<&mut MeasurementPanel> {
+        for p in self
+            .left_side_panels
+            .iter_mut()
+            .chain(self.right_side_panels.iter_mut())
+            .chain(self.bottom_panels.iter_mut())
+            .chain(self.detached_panels.iter_mut())
+            .chain(self.empty_panels.iter_mut())
+        {
+            if let Some(mp) = p.downcast_mut::<MeasurementPanel>() {
+                return Some(mp);
+            }
+        }
+        None
+    }
+
     /// Return a mutable reference to the [`ThresholdsPanel`], if one exists in any panel list.
     ///
     /// Searches left → right → bottom → detached → empty panels in order.

@@ -35,6 +35,7 @@ pub struct LivePlotRequests {
     pub remove_scope: Option<usize>,
     pub clear_math: bool,
     pub clear_measurements: bool,
+    pub clear_markers: bool,
     pub clear_thresholds: bool,
     pub clear_triggers: bool,
 }
@@ -75,6 +76,7 @@ impl<'a> LivePlotData<'a> {
             scope.clicked_point = None;
         }
         self.pending_requests.clear_measurements = true;
+        self.pending_requests.clear_markers = true;
         self.pending_requests.clear_thresholds = true;
         self.pending_requests.clear_triggers = true;
         self.pending_requests.clear_math = true;

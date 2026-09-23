@@ -1,3 +1,11 @@
+## Unreleased
+
+* Added Markers to the Measurement panel: multiple named, colored single-point
+  markers with optional horizontal/vertical lines and selectable dot shape,
+  catch-trace snapping, per-marker visibility, drawn on all scopes, plus a
+  Clear All action, `MARKER_*` events, and a `take_marker_change()` /
+  `set_markers()` API for external synchronization across panes/tabs.
+
 ## v0.3.0
 
 * Added threshold events

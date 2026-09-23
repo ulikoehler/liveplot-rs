@@ -119,6 +119,16 @@ impl EventKind {
     /// Y-axis unit was changed.
     pub const Y_UNIT_CHANGED: Self = Self(1 << 30);
 
+    // ── Markers ─────────────────────────────────────────────────────────
+    /// A marker point was set or moved.
+    pub const MARKER_SET: Self = Self(1 << 31);
+    /// A marker was added.
+    pub const MARKER_ADDED: Self = Self(1 << 32);
+    /// A marker was removed.
+    pub const MARKER_REMOVED: Self = Self(1 << 33);
+    /// All markers were cleared.
+    pub const MARKER_CLEARED: Self = Self(1 << 34);
+
     /// Wildcard: matches *every* event kind.
     pub const ALL: Self = Self(u64::MAX);
 
@@ -226,6 +236,10 @@ impl std::fmt::Display for EventKind {
             (EventKind::TRACE_OFFSET_CHANGED, "TRACE_OFFSET_CHANGED"),
             (EventKind::Y_LOG_CHANGED, "Y_LOG_CHANGED"),
             (EventKind::Y_UNIT_CHANGED, "Y_UNIT_CHANGED"),
+            (EventKind::MARKER_SET, "MARKER_SET"),
+            (EventKind::MARKER_ADDED, "MARKER_ADDED"),
+            (EventKind::MARKER_REMOVED, "MARKER_REMOVED"),
+            (EventKind::MARKER_CLEARED, "MARKER_CLEARED"),
         ];
 
         let mut names = Vec::new();
@@ -440,6 +454,23 @@ pub struct PauseMeta {
     pub scope_id: Option<usize>,
 }
 
+/// Metadata for marker events.
+#[derive(Debug, Clone)]
+pub struct MarkerMeta {
+    /// Name of the marker.
+    pub name: String,
+    /// Marker position in plot coordinates (None when cleared/unplaced).
+    pub point: Option<[f64; 2]>,
+    /// Scope the marker was placed on (if any).
+    pub scope_id: Option<usize>,
+    /// Trace the marker snaps to (if any).
+    pub trace: Option<TraceRef>,
+    /// Marker color (RGBA) for add/set events.
+    pub color_rgba: Option<[u8; 4]>,
+    /// Marker visibility (for visibility-toggle events).
+    pub visible: Option<bool>,
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PlotEvent – the top-level event type
 // ─────────────────────────────────────────────────────────────────────────────
@@ -470,6 +501,7 @@ pub struct PlotEvent {
     pub trigger: Option<TriggerMeta>,
     pub y_axis: Option<YAxisMeta>,
     pub pause: Option<PauseMeta>,
+    pub marker: Option<MarkerMeta>,
 }
 
 impl PlotEvent {
@@ -492,6 +524,7 @@ impl PlotEvent {
             trigger: None,
             y_axis: None,
             pause: None,
+            marker: None,
         }
     }
 }

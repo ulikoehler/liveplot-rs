@@ -195,6 +195,16 @@ pub struct LivePlotPanel {
     /// loops when the app synchronises the time window across tabs externally.
     pub(crate) suppress_next_view_change_emit: bool,
 
+    /// Pending marker-list change collected from the measurement panel during
+    /// the last frame.  The caller can consume this via
+    /// [`take_marker_change`](Self::take_marker_change) to sync markers across
+    /// tabs / external apps.
+    pub(crate) pending_marker_change: Option<Vec<crate::data::marker::Marker>>,
+
+    /// When `true`, suppresses the next `take_marker_change()` result to avoid
+    /// loops when markers are synchronised externally.
+    pub(crate) suppress_next_marker_emit: bool,
+
     /// Per-threshold event cursor: tracks how many events we have already forwarded
     /// to controller listeners so that only *new* events are published.
     pub(crate) threshold_event_cursors: HashMap<String, usize>,
@@ -306,6 +316,8 @@ impl LivePlotPanel {
             pending_explicit_pause: None,
             pending_view_change: None,
             suppress_next_view_change_emit: false,
+            pending_marker_change: None,
+            suppress_next_marker_emit: false,
             threshold_event_cursors: HashMap::new(),
             pending_requests: LivePlotRequests::default(),
             pending_screenshot_capture: None,
@@ -465,5 +477,43 @@ impl LivePlotPanel {
                 scope.time_window = x_range.1 - x_range.0;
             }
         }
+    }
+
+    /// Consume any pending marker-list change collected from the measurement
+    /// panel during the last frame.
+    ///
+    /// Returns `Some(Vec<Marker>)` with the complete marker list when markers
+    /// changed (add/remove/edit/placement/visibility/clear), `None` otherwise.
+    /// The change is cleared on read so it is reported only once.  When
+    /// `suppress_next_marker_emit` is `true` (set by
+    /// [`set_markers`](Self::set_markers)), the change is discarded to avoid
+    /// feedback loops during cross-tab synchronisation.
+    pub fn take_marker_change(&mut self) -> Option<Vec<crate::data::marker::Marker>> {
+        if self.suppress_next_marker_emit {
+            self.suppress_next_marker_emit = false;
+            self.pending_marker_change.take();
+            return None;
+        }
+        self.pending_marker_change.take()
+    }
+
+    /// Replace the marker list (e.g. with one synchronised from another
+    /// LivePlotPanel or tab) and suppress the next marker-change emission to
+    /// avoid feedback loops.
+    ///
+    /// Does nothing when no measurement panel exists.
+    pub fn set_markers(&mut self, markers: Vec<crate::data::marker::Marker>) {
+        self.suppress_next_marker_emit = true;
+        if let Some(mp) = self.measurement_panel_mut() {
+            mp.set_markers(markers);
+        }
+    }
+
+    /// Return a snapshot of the current marker list (empty when no
+    /// measurement panel exists).
+    pub fn get_markers(&mut self) -> Vec<crate::data::marker::Marker> {
+        self.measurement_panel_mut()
+            .map(|mp| mp.markers().to_vec())
+            .unwrap_or_default()
     }
 }
