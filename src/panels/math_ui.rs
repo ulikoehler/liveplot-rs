@@ -1,5 +1,5 @@
 use crate::data::data::LivePlotData;
-use crate::data::math::{FilterKind, MathKind, MathTrace, MinMaxMode};
+use crate::data::math::{FilterKind, FormulaTimeMode, MathKind, MathTrace, MinMaxMode};
 use crate::data::traces::TraceRef;
 use eframe::egui;
 use egui::{Color32, Ui};
@@ -92,8 +92,9 @@ impl Panel for MathPanel {
                     .button(format!("{} Reset All Storage", RECYCLE.as_str()))
                     .clicked()
                 {
-                    for def in self.math_traces.iter() {
+                    for def in self.math_traces.iter_mut() {
                         data.traces.clear_trace(&def.name);
+                        def.reset_runtime_state();
                     }
                     ui.close();
                 }
@@ -126,8 +127,9 @@ impl Panel for MathPanel {
 
     fn update_data(&mut self, data: &mut LivePlotData<'_>) {
         if data.pending_requests.clear_math {
-            for def in self.math_traces.iter() {
+            for def in self.math_traces.iter_mut() {
                 data.traces.clear_trace(&def.name);
+                def.reset_runtime_state();
             }
             data.pending_requests.clear_math = false;
         }
@@ -212,8 +214,8 @@ impl Panel for MathPanel {
                 .clicked()
             {
                 for def in self.math_traces.iter_mut() {
-                    // def.reset_math_storage();
                     data.traces.clear_trace(&def.name);
+                    def.reset_runtime_state();
                 }
             }
         });
@@ -222,6 +224,9 @@ impl Panel for MathPanel {
         // Reset hover before drawing; rows will set it when hovered
 
         let mut hover_trace_intern: Option<Vec<TraceRef>> = None;
+        // Set when a formula trace's reset button is clicked — the def being
+        // iterated is a clone, so the origin update is applied afterwards.
+        let mut pending_t_reset: Option<TraceRef> = None;
         for def in self.math_traces.clone().iter_mut() {
             let row = ui.horizontal(|ui| {
                 // Color editor like in traces_ui
@@ -313,22 +318,32 @@ impl Panel for MathPanel {
                             self.error = None;
                         }
                     }
-                    // Show Reset for kinds that have internal storage
+                    // Show Reset for kinds that have internal storage, and for
+                    // formula traces in resettable-t mode (moves t=0 to the
+                    // newest sample, like the integrator reset).
                     let is_stateful = matches!(
                         def.kind,
                         MathKind::Integrate { .. }
                             | MathKind::Filter { .. }
                             | MathKind::MinMax { .. }
                     );
-                    if is_stateful {
+                    let resettable_t = matches!(def.kind, MathKind::Formula { .. })
+                        && matches!(def.time_mode, FormulaTimeMode::Resettable);
+                    if is_stateful || resettable_t {
                         let reset_resp = ui
                             .button(egui_phosphor_icons::icons::ARROW_CLOCKWISE)
-                            .on_hover_text("Reset integrator/filter/min/max state for this trace");
+                            .on_hover_text(if resettable_t {
+                                "Reset t to 0 at the newest sample"
+                            } else {
+                                "Reset integrator/filter/min/max state for this trace"
+                            });
                         if reset_resp.hovered() {
                             hover_trace_intern = Some(vec![def.name.clone()]);
                         }
                         if reset_resp.clicked() {
-                            // def.reset_math_storage();
+                            if resettable_t {
+                                pending_t_reset = Some(def.name.clone());
+                            }
                             data.traces.clear_trace(&def.name);
                         }
                     }
@@ -340,6 +355,17 @@ impl Panel for MathPanel {
         }
         if let Some(nm) = hover_trace_intern {
             data.traces.hover_trace = Some(nm);
+        }
+        // Apply a formula trace's t-reset: origin moves to the newest sample
+        // (or None → auto-init at the first sample when no data exists).
+        if let Some(name) = pending_t_reset {
+            if let Some(d) = self.math_traces.iter_mut().find(|d| d.name == name) {
+                d.t_origin = data
+                    .traces
+                    .traces_iter()
+                    .filter_map(|(_, tr)| tr.live.back().map(|p| p[0]))
+                    .reduce(f64::max);
+            }
         }
 
         // Style popup removed; the editor is part of the new/edit dialog above
@@ -715,7 +741,7 @@ impl Panel for MathPanel {
                 }
                 MathKind::Formula { expr } => {
                     // Insert chips: one per available trace (in trace color),
-                    // plus pi / e and a function menu. Clicking inserts at
+                    // plus t / pi / e and a function menu. Clicking inserts at
                     // the text cursor of the formula edit below.
                     let edit_id = egui::Id::new("math_formula_edit");
                     let mut pending_insert: Option<(String, usize)> = None;
@@ -734,7 +760,7 @@ impl Panel for MathPanel {
                                 pending_insert = Some((format!("{{{}}}", n.0), 0));
                             }
                         }
-                        for (label, snip) in [("π", "pi"), ("e", "e")] {
+                        for (label, snip) in [("t", "t"), ("π", "pi"), ("e", "e")] {
                             if ui
                                 .button(label)
                                 .on_hover_text(format!("Insert {snip}"))
@@ -758,6 +784,25 @@ impl Panel for MathPanel {
                                 }
                             });
                         mb.0.on_hover_text("Insert function");
+                    });
+
+                    // `t` semantics for this formula: absolute timestamp vs.
+                    // seconds since a resettable origin (per-trace state on
+                    // the builder; applied to the trace on save).
+                    ui.horizontal(|ui| {
+                        ui.label("t:");
+                        ui.selectable_value(
+                            &mut self.builder.time_mode,
+                            FormulaTimeMode::Absolute,
+                            "absolute",
+                        )
+                        .on_hover_text("t = absolute timestamp in seconds");
+                        ui.selectable_value(
+                            &mut self.builder.time_mode,
+                            FormulaTimeMode::Resettable,
+                            "since reset",
+                        )
+                        .on_hover_text("t = seconds since reset (auto-starts at the first sample)");
                     });
 
                     // Syntax-highlight {trace} refs in the trace's color.

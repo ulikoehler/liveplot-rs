@@ -401,3 +401,48 @@ fn test_set_snap_points_noop_when_unchanged() {
     tr.set_snap_points(&[[0.0, 1.0], [1.0, 3.0]]);
     assert!(tr.envelope_cache.is_none());
 }
+
+#[test]
+fn test_formula_time_offset() {
+    use liveplot::data::math::FormulaTimeMode;
+
+    // Resettable mode: `t` evaluates to `timestamp - t_origin` (seconds since
+    // the origin); output timestamps stay absolute.
+    let mut trace = MathTrace {
+        time_mode: FormulaTimeMode::Resettable,
+        t_origin: Some(10.0),
+        ..MathTrace::new(
+            TraceRef::new("f"),
+            MathKind::Formula {
+                expr: "t".to_string(),
+            },
+        )
+    };
+    let sources = make_sources(&[("a", vec![[10.0, 0.0], [11.0, 0.0], [12.0, 0.0]])]);
+    let out = trace.compute_math_trace(&sources);
+    assert_eq!(out, vec![[10.0, 0.0], [11.0, 1.0], [12.0, 2.0]]);
+
+    // Resettable with no origin auto-initializes at the first grid timestamp.
+    let mut trace_auto = MathTrace {
+        time_mode: FormulaTimeMode::Resettable,
+        ..MathTrace::new(
+            TraceRef::new("h"),
+            MathKind::Formula {
+                expr: "t".to_string(),
+            },
+        )
+    };
+    let out_auto = trace_auto.compute_math_trace(&sources);
+    assert_eq!(out_auto, vec![[10.0, 0.0], [11.0, 1.0], [12.0, 2.0]]);
+    assert_eq!(trace_auto.t_origin, Some(10.0));
+
+    // Absolute mode: `t` is the timestamp itself.
+    let mut trace2 = MathTrace::new(
+        TraceRef::new("g"),
+        MathKind::Formula {
+            expr: "t".to_string(),
+        },
+    );
+    let out2 = trace2.compute_math_trace(&sources);
+    assert_eq!(out2, vec![[10.0, 10.0], [11.0, 11.0], [12.0, 12.0]]);
+}

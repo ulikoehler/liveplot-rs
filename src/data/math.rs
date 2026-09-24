@@ -118,6 +118,17 @@ pub enum MathKind {
     Formula { expr: String },
 }
 
+/// How the `t` variable in [`MathKind::Formula`] expressions is evaluated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum FormulaTimeMode {
+    /// `t` is the absolute timestamp in seconds (the sample's x value).
+    #[default]
+    Absolute,
+    /// `t` is seconds since a resettable origin — auto-initialized to the
+    /// first buffered timestamp and moved to the newest sample by reset.
+    Resettable,
+}
+
 /// Fully-defined math trace configuration.
 ///
 /// This is the serializable description exposed to UI and persisted state. It
@@ -127,6 +138,14 @@ pub enum MathKind {
 pub struct MathTrace {
     pub name: TraceRef,
     pub kind: MathKind,
+    /// `t` semantics for [`MathKind::Formula`] (ignored by other kinds).
+    #[serde(default)]
+    pub time_mode: FormulaTimeMode,
+    /// Runtime origin for [`FormulaTimeMode::Resettable`]: `t` evaluates to
+    /// `timestamp - t_origin`. `None` auto-initializes to the first grid
+    /// timestamp on the next compute. Not persisted.
+    #[serde(skip)]
+    pub t_origin: Option<f64>,
 }
 
 /// Compute a math trace from the provided `sources`.
@@ -143,7 +162,18 @@ pub struct MathTrace {
 /// recomputed fully on the union of timestamps each call.
 impl MathTrace {
     pub fn new(name: TraceRef, kind: MathKind) -> Self {
-        Self { name, kind }
+        Self {
+            name,
+            kind,
+            time_mode: FormulaTimeMode::Absolute,
+            t_origin: None,
+        }
+    }
+
+    /// Reset the runtime state that isn't part of the persisted definition:
+    /// the resettable-`t` origin (restarts `t` at 0 on next compute).
+    pub fn reset_runtime_state(&mut self) {
+        self.t_origin = None;
     }
 
     pub fn compute_math_trace(
@@ -567,6 +597,22 @@ impl MathTrace {
                     MathTrace::union_times(&slices)
                 };
 
+                // `t` is either the absolute timestamp (mode Absolute) or
+                // seconds since `t_origin` (mode Resettable). A missing origin
+                // lazily initializes to the first grid timestamp so t starts
+                // at 0; "reset" moves it to the newest sample.
+                let t_offset = match self.time_mode {
+                    FormulaTimeMode::Absolute => 0.0,
+                    FormulaTimeMode::Resettable => match self.t_origin {
+                        Some(o) => o,
+                        None => {
+                            let o = grid.first().copied().unwrap_or(0.0);
+                            self.t_origin = Some(o);
+                            o
+                        }
+                    },
+                };
+
                 let start = if let Some(last) = out.last() {
                     grid.partition_point(|&t| t <= last[0])
                 } else {
@@ -575,7 +621,7 @@ impl MathTrace {
 
                 let mut idx_map: std::collections::HashMap<TraceRef, usize> = HashMap::new();
                 for &t in &grid[start..] {
-                    let v = ast.eval(t, &mut |name: &TraceRef| {
+                    let v = ast.eval(t - t_offset, &mut |name: &TraceRef| {
                         let src = sources.get(name)?;
                         let idx = idx_map.entry(name.clone()).or_insert(0);
                         MathTrace::interpolate_value_at(t, src.as_slice(), idx)
