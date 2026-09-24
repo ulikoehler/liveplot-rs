@@ -636,14 +636,38 @@ impl MathTrace {
         out
     }
 
+    /// Union of the timestamps of `sources`, sorted ascending.
+    ///
+    /// Each input is individually sorted by x, so this is a k-way merge —
+    /// O(total_points × num_sources) instead of the previous
+    /// collect+sort+dedup (O(total log total) plus a large allocation churn),
+    /// which ran every frame for stateless math traces.
+    /// Timestamps closer than 1e-15 are treated as equal (first wins).
     fn union_times(sources: &[&[[f64; 2]]]) -> Vec<f64> {
-        let mut v = Vec::new();
-        for s in sources {
-            v.extend(s.iter().map(|p| p[0]));
+        let mut idxs = vec![0usize; sources.len()];
+        let total: usize = sources.iter().map(|s| s.len()).sum();
+        let mut v = Vec::with_capacity(total);
+        loop {
+            let mut min_t = f64::INFINITY;
+            let mut min_i = usize::MAX;
+            for (i, s) in sources.iter().enumerate() {
+                let idx = idxs[i];
+                if idx < s.len() && s[idx][0] < min_t {
+                    min_t = s[idx][0];
+                    min_i = i;
+                }
+            }
+            if min_i == usize::MAX {
+                break;
+            }
+            idxs[min_i] += 1;
+            if v
+                .last()
+                .is_none_or(|&last: &f64| (min_t - last).abs() >= 1e-15)
+            {
+                v.push(min_t);
+            }
         }
-        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        // Consider timestamps equal if they differ by < 1e-15.
-        v.dedup_by(|a, b| (*a - *b).abs() < 1e-15);
         v
     }
 

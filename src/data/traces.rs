@@ -1585,7 +1585,8 @@ impl TraceData {
     }
 
     /// Incremental update on point remove — O(1) typical, O(bucket_size) worst case.
-    /// Only recomputes the bucket if the removed point was its min or max.
+    /// Only recomputes the bucket if the removed point was one of its tracked
+    /// extremes (min/max/first/last) — otherwise only the count changes.
     pub fn envelope_remove_point(&mut self, point: [f64; 2]) {
         let origin_x = match &self.envelope_cache {
             Some(c) => c.origin_x,
@@ -1612,6 +1613,7 @@ impl TraceData {
             b.count -= 1;
         }
 
+        let mut bucket_emptied = false;
         if b.count == 0 {
             // Bucket is now empty — reset it
             b.y_min = 0.0;
@@ -1622,70 +1624,89 @@ impl TraceData {
             b.y_first = 0.0;
             b.x_last = 0.0;
             b.y_last = 0.0;
+            bucket_emptied = true;
             // Don't remove the bucket from the middle — just leave it empty.
             // Edge buckets will be handled by rebalance check.
         } else {
-            // Need to rescan this bucket to find new min/max and first/last
-            let bucket_x_min = b.x_min;
-            let bucket_x_max = b.x_max;
-            // Search the live VecDeque for points in this bucket's x-range
-            let mut new_min = f64::INFINITY;
-            let mut new_max = f64::NEG_INFINITY;
-            let mut x_at_min = 0.0;
-            let mut x_at_max = 0.0;
-            let mut first_x = 0.0;
-            let mut first_y = 0.0;
-            let mut last_x = 0.0;
-            let mut last_y = 0.0;
-            let mut found = false;
-            // Determine the correct data source to rescan
-            let source: &VecDeque<[f64; 2]> = self.snap.as_ref().unwrap_or(&self.live);
-            for &p in source {
-                if p[0] >= bucket_x_min && p[0] < bucket_x_max {
-                    if p[1] < new_min {
-                        new_min = p[1];
-                        x_at_min = p[0];
+            // Rescan only when the removed point was one of the tracked
+            // extremes — otherwise min/max/first/last are unchanged.
+            let was_extreme = point[0] == b.x_first
+                || point[0] == b.x_last
+                || point[1] == b.y_min
+                || point[1] == b.y_max;
+            if was_extreme {
+                let bucket_x_min = b.x_min;
+                let bucket_x_max = b.x_max;
+                // Search the live VecDeque for points in this bucket's x-range.
+                // Points are sorted by x, so stop once past the bucket — for
+                // front-evicted points (the common case) this is O(bucket_size).
+                let mut new_min = f64::INFINITY;
+                let mut new_max = f64::NEG_INFINITY;
+                let mut x_at_min = 0.0;
+                let mut x_at_max = 0.0;
+                let mut first_x = 0.0;
+                let mut first_y = 0.0;
+                let mut last_x = 0.0;
+                let mut last_y = 0.0;
+                let mut found = false;
+                // Determine the correct data source to rescan
+                let source: &VecDeque<[f64; 2]> = self.snap.as_ref().unwrap_or(&self.live);
+                for &p in source {
+                    if p[0] >= bucket_x_max {
+                        break;
                     }
-                    if p[1] > new_max {
-                        new_max = p[1];
-                        x_at_max = p[0];
+                    if p[0] >= bucket_x_min {
+                        if p[1] < new_min {
+                            new_min = p[1];
+                            x_at_min = p[0];
+                        }
+                        if p[1] > new_max {
+                            new_max = p[1];
+                            x_at_max = p[0];
+                        }
+                        if !found {
+                            first_x = p[0];
+                            first_y = p[1];
+                        }
+                        last_x = p[0];
+                        last_y = p[1];
+                        found = true;
                     }
-                    if !found {
-                        first_x = p[0];
-                        first_y = p[1];
-                    }
-                    last_x = p[0];
-                    last_y = p[1];
-                    found = true;
                 }
-            }
-            if found {
-                b.y_min = new_min;
-                b.y_max = new_max;
-                b.x_at_ymin = x_at_min;
-                b.x_at_ymax = x_at_max;
-                b.x_first = first_x;
-                b.y_first = first_y;
-                b.x_last = last_x;
-                b.y_last = last_y;
+                if found {
+                    b.y_min = new_min;
+                    b.y_max = new_max;
+                    b.x_at_ymin = x_at_min;
+                    b.x_at_ymax = x_at_max;
+                    b.x_first = first_x;
+                    b.y_first = first_y;
+                    b.x_last = last_x;
+                    b.y_last = last_y;
+                }
             }
         }
 
         // Pop empty buckets from the front of the cache
+        let mut popped_any = false;
         while let Some(b) = cache.buckets.front() {
             if b.count == 0 {
                 cache.buckets.pop_front();
                 cache.origin_x += cache.bucket_width;
+                popped_any = true;
             } else {
                 break;
             }
         }
 
-        // Rebalance check: if more than half the buckets are empty, mark for recompute
-        let total_buckets = cache.buckets.len();
-        let non_empty_count = cache.buckets.iter().filter(|b| b.count > 0).count();
-        if total_buckets > 0 && non_empty_count < total_buckets / 2 {
-            self.envelope_cache = None;
+        // Rebalance check: if more than half the buckets are empty, mark for
+        // recompute. Only worth counting when the non-empty total could have
+        // changed — i.e. a bucket just emptied or leading buckets were popped.
+        if bucket_emptied || popped_any {
+            let total_buckets = cache.buckets.len();
+            let non_empty_count = cache.buckets.iter().filter(|b| b.count > 0).count();
+            if total_buckets > 0 && non_empty_count < total_buckets / 2 {
+                self.envelope_cache = None;
+            }
         }
     }
 
