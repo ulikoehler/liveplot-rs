@@ -1171,6 +1171,64 @@ impl TraceData {
         self.density_cache = None;
     }
 
+    /// Replace the live buffer with `points`, keeping the render caches
+    /// (envelope / decimation / density) consistent.
+    ///
+    /// Used by math traces, which recompute their output each frame:
+    /// `compute_math_trace` only ever appends to the existing output, so the
+    /// common case is a pure tail extension — the new points are pushed
+    /// through the incremental cache updaters (`*_add_point`) instead of
+    /// rebuilding the caches. If `points` is not an extension of the current
+    /// buffer, it is replaced wholesale and the caches are invalidated.
+    ///
+    /// While paused (`snap.is_some()`) the render caches track the snapshot
+    /// buffer, so live writes only update the data — same convention as
+    /// `process_command` / `prune_by_points`.
+    pub fn set_live_points(&mut self, points: &[[f64; 2]]) {
+        let old_len = self.live.len();
+        let is_extension = old_len <= points.len()
+            && (old_len == 0
+                || (self.live[0] == points[0] && self.live[old_len - 1] == points[old_len - 1]));
+        if is_extension {
+            let track_caches = self.snap.is_none();
+            for &p in &points[old_len..] {
+                self.live.push_back(p);
+                if track_caches {
+                    self.envelope_add_point(p);
+                    self.decimation_add_point(p);
+                    self.density_add_point(p);
+                }
+            }
+        } else {
+            self.live = points.iter().copied().collect();
+            if self.snap.is_none() {
+                self.envelope_cache = None;
+                self.decimation_cache = None;
+                self.density_cache = None;
+            }
+        }
+    }
+
+    /// Replace the snapshot buffer with `points`, invalidating the render
+    /// caches when the contents actually changed.
+    ///
+    /// Called by the math panel while paused: snapshot inputs are frozen, so
+    /// the recomputed output is usually identical to the previous snapshot —
+    /// in that case this is a no-op and the caches stay valid.
+    pub fn set_snap_points(&mut self, points: &[[f64; 2]]) {
+        if self
+            .snap
+            .as_ref()
+            .is_some_and(|s| s.iter().eq(points.iter()))
+        {
+            return;
+        }
+        self.snap = Some(points.iter().copied().collect());
+        self.envelope_cache = None;
+        self.decimation_cache = None;
+        self.density_cache = None;
+    }
+
     // ── Decimation cache methods ────────────────────────────────────────
 
     /// Check if the decimation cache needs to be rebuilt.

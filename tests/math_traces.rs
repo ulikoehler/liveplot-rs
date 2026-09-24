@@ -321,3 +321,83 @@ fn test_formula_serde_roundtrip() {
     let back: MathTrace = serde_json::from_str(&s).unwrap();
     assert!(matches!(back.kind, MathKind::Formula { .. }));
 }
+
+#[test]
+fn test_set_live_points_updates_render_caches() {
+    use liveplot::data::traces::TraceData;
+
+    let mut tr = TraceData::default();
+    for i in 0..100 {
+        tr.live.push_back([i as f64, i as f64]);
+    }
+    // Build the render caches like a zoomed-out render would (len > screen
+    // width / max_pts).
+    let live = tr.live.clone();
+    tr.recompute_envelope_from(&live, 10, 100.0, Some((0.0, 100.0)));
+    tr.recompute_decimation_from(false, 10);
+    assert!(!tr.envelope_needs_recompute(10, 100.0, (0.0, 100.0)));
+
+    // A math-trace update is a pure tail extension — the caches must be
+    // updated incrementally, otherwise the drawn trace freezes once the
+    // point count exceeds the screen width.
+    let mut next: Vec<[f64; 2]> = tr.live.iter().copied().collect();
+    next.push([100.0, 5.0]);
+    next.push([101.0, 999.0]);
+    tr.set_live_points(&next);
+
+    assert_eq!(tr.live.len(), 102);
+    assert!(!tr.envelope_needs_recompute(10, 100.0, (0.0, 100.0)));
+    let cache = tr.envelope_cache.as_ref().unwrap();
+    let total: usize = cache.buckets.iter().map(|b| b.count).sum();
+    assert_eq!(total, 102);
+    let last = cache.buckets.iter().rev().find(|b| b.count > 0).unwrap();
+    assert_eq!(last.y_max, 999.0);
+    assert_eq!(tr.decimation_cache.as_ref().unwrap().add_counter, 102);
+}
+
+#[test]
+fn test_set_live_points_rewrite_invalidates_caches() {
+    use liveplot::data::traces::TraceData;
+
+    let mut tr = TraceData::default();
+    for i in 0..100 {
+        tr.live.push_back([i as f64, i as f64]);
+    }
+    let live = tr.live.clone();
+    tr.recompute_envelope_from(&live, 10, 100.0, Some((0.0, 100.0)));
+    tr.recompute_decimation_from(false, 10);
+
+    // Rewritten history is not a tail extension → caches are invalidated so
+    // the next render rebuilds them.
+    let different: Vec<[f64; 2]> = (0..100).map(|i| [i as f64, -(i as f64)]).collect();
+    tr.set_live_points(&different);
+
+    assert!(tr.envelope_cache.is_none());
+    assert!(tr.decimation_cache.is_none());
+    assert!(tr.density_cache.is_none());
+}
+
+#[test]
+fn test_set_snap_points_noop_when_unchanged() {
+    use liveplot::data::traces::TraceData;
+
+    let mut tr = TraceData {
+        snap: Some([[0.0, 1.0], [1.0, 2.0]].into_iter().collect()),
+        ..Default::default()
+    };
+    let mut sentinel = TraceData::default();
+    for i in 0..100 {
+        sentinel.live.push_back([i as f64, i as f64]);
+    }
+    let live = sentinel.live.clone();
+    sentinel.recompute_envelope_from(&live, 10, 100.0, Some((0.0, 100.0)));
+    tr.envelope_cache = sentinel.envelope_cache.take();
+
+    // Identical rewrite → no cache invalidation (steady state while paused).
+    tr.set_snap_points(&[[0.0, 1.0], [1.0, 2.0]]);
+    assert!(tr.envelope_cache.is_some());
+
+    // Changed content → caches invalidated.
+    tr.set_snap_points(&[[0.0, 1.0], [1.0, 3.0]]);
+    assert!(tr.envelope_cache.is_none());
+}

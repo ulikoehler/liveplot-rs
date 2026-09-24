@@ -163,13 +163,20 @@ impl Panel for MathPanel {
             let out = def.compute_math_trace(&sources);
 
             let tr = data.get_trace_or_new(&def.name);
-            tr.live = out.iter().copied().collect();
+            tr.set_live_points(&out);
             tr.info = def.math_formula_string();
 
             sources.insert(def.name.clone(), out);
         }
 
         // ── Snapshot data pass ───────────────────────────────────────────
+        // Only run while a snapshot exists (i.e. a scope is paused). Writing
+        // `snap` unconditionally would keep `TracesCollection::has_snapshot`
+        // permanently true for math traces and make the render caches track a
+        // stale buffer instead of `live`.
+        if !data.traces.has_snapshot() {
+            return;
+        }
         sources.clear();
         for (name, tr) in data.traces.traces_iter() {
             if needed.contains(name) {
@@ -183,7 +190,7 @@ impl Panel for MathPanel {
             let out = def.compute_math_trace(&sources);
 
             let tr = data.get_trace_or_new(&def.name);
-            tr.snap = Some(out.iter().copied().collect());
+            tr.set_snap_points(&out);
             tr.info = def.math_formula_string();
 
             sources.insert(def.name.clone(), out);
@@ -708,7 +715,7 @@ impl Panel for MathPanel {
                 }
                 MathKind::Formula { expr } => {
                     // Insert chips: one per available trace (in trace color),
-                    // plus t / pi / e and a function menu. Clicking inserts at
+                    // plus pi / e and a function menu. Clicking inserts at
                     // the text cursor of the formula edit below.
                     let edit_id = egui::Id::new("math_formula_edit");
                     let mut pending_insert: Option<(String, usize)> = None;
@@ -727,7 +734,7 @@ impl Panel for MathPanel {
                                 pending_insert = Some((format!("{{{}}}", n.0), 0));
                             }
                         }
-                        for (label, snip) in [("t", "t"), ("π", "pi"), ("e", "e")] {
+                        for (label, snip) in [("π", "pi"), ("e", "e")] {
                             if ui
                                 .button(label)
                                 .on_hover_text(format!("Insert {snip}"))
@@ -753,11 +760,31 @@ impl Panel for MathPanel {
                         mb.0.on_hover_text("Insert function");
                     });
 
+                    // Syntax-highlight {trace} refs in the trace's color.
+                    let edit_colors: HashMap<String, Color32> = data
+                        .traces
+                        .traces_iter()
+                        .map(|(n, tr)| (n.0.clone(), tr.look.color))
+                        .collect();
+                    let edit_font = egui::FontSelection::Default.resolve(ui.style());
+                    let edit_text_color = ui
+                        .visuals()
+                        .override_text_color
+                        .unwrap_or_else(|| ui.visuals().widgets.inactive.text_color());
+                    let edit_line_height = ui.fonts_mut(|f| f.row_height(&edit_font))
+                        + ui.spacing().extra_text_line_spacing;
+                    let mut layouter = formula_layouter(
+                        &edit_colors,
+                        edit_font,
+                        edit_text_color,
+                        edit_line_height,
+                    );
                     let output = egui::TextEdit::multiline(expr)
                         .id(edit_id)
                         .desired_rows(2)
                         .desired_width(f32::INFINITY)
                         .hint_text("e.g. sqrt({a}^2 + {b}^2)")
+                        .layouter(&mut layouter)
                         .show(ui);
                     if let Some((snippet, back)) = pending_insert.take() {
                         insert_snippet(ui.ctx(), edit_id, expr, &snippet, back);
@@ -996,4 +1023,53 @@ fn insert_snippet(
         .cursor
         .set_char_range(Some(egui::text::CCursorRange::two(c, c)));
     egui::TextEdit::store_state(ctx, edit_id, state);
+}
+
+/// Custom [`egui::TextEdit`] layouter for the formula editor: renders
+/// `{trace}` references in the trace's color, everything else in the default
+/// text color. Mirrors `TextEdit`'s default multiline layouter (font,
+/// `line_height`, wrapping) so the text looks identical apart from colors.
+fn formula_layouter<'a>(
+    trace_colors: &'a HashMap<String, Color32>,
+    font_id: egui::FontId,
+    text_color: Color32,
+    line_height: f32,
+) -> impl FnMut(&Ui, &dyn egui::TextBuffer, f32) -> std::sync::Arc<egui::Galley> + 'a {
+    move |ui, buf, wrap_width| {
+        let text = buf.as_str();
+        let mut job = egui::text::LayoutJob::default();
+        job.wrap.max_width = wrap_width;
+        job.break_on_newline = true;
+        job.keep_trailing_whitespace = true;
+        let format = |color: Color32| {
+            let mut f = egui::text::TextFormat::simple(font_id.clone(), color);
+            f.line_height = Some(line_height);
+            f
+        };
+        let mut rest = text;
+        while let Some(open) = rest.find('{') {
+            let (plain, after_open) = rest.split_at(open);
+            if !plain.is_empty() {
+                job.append(plain, 0.0, format(text_color));
+            }
+            match after_open.find('}') {
+                Some(close) => {
+                    let (tok, tail) = after_open.split_at(close + 1);
+                    let name = &tok[1..tok.len() - 1];
+                    let color = trace_colors.get(name).copied().unwrap_or(text_color);
+                    job.append(tok, 0.0, format(color));
+                    rest = tail;
+                }
+                None => {
+                    // Unterminated `{` — leave as plain text.
+                    job.append(after_open, 0.0, format(text_color));
+                    rest = "";
+                }
+            }
+        }
+        if !rest.is_empty() {
+            job.append(rest, 0.0, format(text_color));
+        }
+        ui.fonts_mut(|f| f.layout_job(job))
+    }
 }
