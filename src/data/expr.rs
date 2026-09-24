@@ -58,6 +58,15 @@ pub enum Func {
     Log10,
     Log2,
     Log,
+    /// `min(a, b, …)` — per-sample minimum over all arguments.
+    Min,
+    /// `max(a, b, …)` — per-sample maximum over all arguments.
+    Max,
+    /// `minh(a, b, …)` — running minimum over the evaluation history
+    /// (stateful; the accumulator lives on the `MathTrace`).
+    MinH,
+    /// `maxh(a, b, …)` — running maximum over the evaluation history.
+    MaxH,
 }
 
 impl Func {
@@ -84,6 +93,10 @@ impl Func {
         Func::Log10,
         Func::Log2,
         Func::Log,
+        Func::Min,
+        Func::Max,
+        Func::MinH,
+        Func::MaxH,
     ];
 
     /// Look up a function by name.
@@ -110,6 +123,10 @@ impl Func {
             "log10" => Func::Log10,
             "log2" => Func::Log2,
             "log" => Func::Log,
+            "min" => Func::Min,
+            "max" => Func::Max,
+            "minh" => Func::MinH,
+            "maxh" => Func::MaxH,
             _ => return None,
         })
     }
@@ -138,15 +155,30 @@ impl Func {
             Func::Log10 => "log10",
             Func::Log2 => "log2",
             Func::Log => "log",
+            Func::Min => "min",
+            Func::Max => "max",
+            Func::MinH => "minh",
+            Func::MaxH => "maxh",
         }
     }
 
-    /// Accepted argument counts.
-    fn arity(self) -> &'static [usize] {
+    /// Whether `n` is an accepted argument count for this function.
+    fn arity_ok(self, n: usize) -> bool {
         match self {
-            Func::Root | Func::Atan2 => &[2],
-            Func::Log => &[1, 2],
-            _ => &[1],
+            Func::Root | Func::Atan2 => n == 2,
+            Func::Log => n == 1 || n == 2,
+            Func::Min | Func::Max | Func::MinH | Func::MaxH => n >= 1,
+            _ => n == 1,
+        }
+    }
+
+    /// Human-readable accepted-argument-count description for error messages.
+    fn arity_desc(self) -> &'static str {
+        match self {
+            Func::Root | Func::Atan2 => "2",
+            Func::Log => "1 or 2",
+            Func::Min | Func::Max | Func::MinH | Func::MaxH => "1 or more",
+            _ => "1",
         }
     }
 
@@ -187,8 +219,36 @@ impl Func {
                     args[0].log10()
                 }
             }
+            // NaN-propagating extremes: a missing input makes the whole call
+            // NaN so the caller can skip the point (same as binary ops).
+            // `MinH`/`MaxH` get the same stateless fold here — the real
+            // running accumulation happens in `Expr::eval_rec` where the
+            // `HistState` accumulators live.
+            Func::Min | Func::MinH => extremum(args, f64::INFINITY, f64::min),
+            Func::Max | Func::MaxH => extremum(args, f64::NEG_INFINITY, f64::max),
         }
     }
+}
+
+/// Extreme of `args` with NaN propagation: any NaN argument yields NaN.
+fn extremum(args: &[f64], init: f64, f: fn(f64, f64) -> f64) -> f64 {
+    if args.iter().any(|v| v.is_nan()) {
+        f64::NAN
+    } else {
+        args.iter().copied().fold(init, f)
+    }
+}
+
+/// Running accumulators for `minh`/`maxh` call sites.
+///
+/// One `f64` slot per history-function call site in pre-order AST traversal
+/// (the slot index is assigned deterministically during evaluation). Stored on
+/// `MathTrace` so incremental `compute_math_trace` calls continue the running
+/// extreme instead of restarting it. `NaN` means "no valid sample yet".
+#[derive(Debug, Clone, Default)]
+pub struct HistState {
+    /// Running extreme per `minh`/`maxh` call site, in pre-order traversal.
+    pub slots: Vec<f64>,
 }
 
 /// Parsed expression AST.
@@ -258,14 +318,44 @@ impl Expr {
     /// through the whole expression so callers can simply skip non-finite
     /// results.
     pub fn eval(&self, t: f64, get: &mut dyn FnMut(&TraceRef) -> Option<f64>) -> f64 {
+        self.eval_ctx(t, get, &mut HistState::default())
+    }
+
+    /// Evaluate with persistent history state.
+    ///
+    /// `state` carries the `minh`/`maxh` accumulators across calls — the
+    /// `MathTrace` keeps one and passes it in on every grid point and every
+    /// incremental compute, so the running extreme spans the whole history.
+    /// Accumulation is idempotent: re-evaluating the same inputs (snapshot
+    /// pass, full recompute) leaves the accumulators unchanged.
+    pub fn eval_ctx(
+        &self,
+        t: f64,
+        get: &mut dyn FnMut(&TraceRef) -> Option<f64>,
+        state: &mut HistState,
+    ) -> f64 {
+        let mut slot = 0usize;
+        self.eval_rec(t, get, state, &mut slot)
+    }
+
+    fn eval_rec(
+        &self,
+        t: f64,
+        get: &mut dyn FnMut(&TraceRef) -> Option<f64>,
+        state: &mut HistState,
+        slot: &mut usize,
+    ) -> f64 {
         match self {
             Expr::Num(v) => *v,
             Expr::Time => t,
             Expr::Const(_, v) => *v,
             Expr::Trace(name) => get(name).unwrap_or(f64::NAN),
-            Expr::Neg(inner) => -inner.eval(t, get),
+            Expr::Neg(inner) => -inner.eval_rec(t, get, state, slot),
             Expr::Bin(op, l, r) => {
-                let (a, b) = (l.eval(t, get), r.eval(t, get));
+                let (a, b) = (
+                    l.eval_rec(t, get, state, slot),
+                    r.eval_rec(t, get, state, slot),
+                );
                 match op {
                     BinOp::Add => a + b,
                     BinOp::Sub => a - b,
@@ -275,10 +365,54 @@ impl Expr {
                 }
             }
             Expr::Call(f, args) => {
-                let vals: Vec<f64> = args.iter().map(|a| a.eval(t, get)).collect();
-                f.eval(&vals)
+                if matches!(f, Func::MinH | Func::MaxH) {
+                    // Claim the accumulator slot before evaluating args so the
+                    // mapping is a stable pre-order traversal index — nested
+                    // `minh`/`maxh` in the args get later slots.
+                    let idx = *slot;
+                    *slot += 1;
+                    if state.slots.len() <= idx {
+                        state.slots.resize(idx + 1, f64::NAN);
+                    }
+                    let vals: Vec<f64> = args
+                        .iter()
+                        .map(|a| a.eval_rec(t, get, state, slot))
+                        .collect();
+                    let cur = f.eval(&vals);
+                    if cur.is_nan() {
+                        // Missing input → skip the point, keep the extreme.
+                        return f64::NAN;
+                    }
+                    let acc = &mut state.slots[idx];
+                    *acc = if acc.is_nan() {
+                        cur
+                    } else if *f == Func::MinH {
+                        acc.min(cur)
+                    } else {
+                        acc.max(cur)
+                    };
+                    *acc
+                } else {
+                    let vals: Vec<f64> = args
+                        .iter()
+                        .map(|a| a.eval_rec(t, get, state, slot))
+                        .collect();
+                    f.eval(&vals)
+                }
             }
-            Expr::Group(inner) => inner.eval(t, get),
+            Expr::Group(inner) => inner.eval_rec(t, get, state, slot),
+        }
+    }
+
+    /// Whether the expression contains a history function (`minh`/`maxh`).
+    pub fn uses_history(&self) -> bool {
+        match self {
+            Expr::Call(f, args) => {
+                matches!(f, Func::MinH | Func::MaxH) || args.iter().any(Expr::uses_history)
+            }
+            Expr::Neg(inner) | Expr::Group(inner) => inner.uses_history(),
+            Expr::Bin(_, l, r) => l.uses_history() || r.uses_history(),
+            _ => false,
         }
     }
 
@@ -628,17 +762,13 @@ impl Parser {
                 }
             }
         }
-        let ok = f.arity().contains(&args.len());
-        if !ok {
-            let want = match f {
-                Func::Log => "1 or 2".to_string(),
-                _ => f.arity()[0].to_string(),
-            };
+        if !f.arity_ok(args.len()) {
             return Err(ParseError {
                 pos: start,
                 msg: format!(
-                    "`{}` expects {want} argument(s), got {}",
+                    "`{}` expects {} argument(s), got {}",
                     f.name(),
+                    f.arity_desc(),
                     args.len()
                 ),
             });

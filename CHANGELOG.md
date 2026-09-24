@@ -12,7 +12,13 @@
   appear as stacked fractions with a horizontal line. Formula math traces are
   stateless, evaluate on the union of the referenced traces' timestamps
   (linear interpolation), and skip non-finite results as gaps. Pure `f(t)`
-  formulas like `sin(2*pi*t)` work without any input trace.
+  formulas like `sin(2*pi*t)` work without any input trace. `t` evaluates in
+  seconds, either as the absolute timestamp or relative to a per-trace
+  resettable origin (the math row's ↻ button re-anchors `t` to the newest
+  sample). Formulas additionally support `min(a,b,…)`/`max(a,b,…)` —
+  per-sample extremes over any number of constants/traces — and
+  `minh(a,b,…)`/`maxh(a,b,…)` — running extremes over the trace history
+  (stateful like the Min/Max operation; the ↻ button clears them).
 * `MathTrace::input_trace_names` now returns owned `Vec<TraceRef>` instead of
   `Vec<&TraceRef>` (needed to report formula-referenced traces).
 * Added Markers to the Measurement panel: multiple named, colored single-point

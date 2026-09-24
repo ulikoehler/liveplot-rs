@@ -20,6 +20,43 @@ pub struct MathPanel {
     creating: bool,
 
     math_traces: Vec<MathTrace>,
+    /// Persistent copies of the traces referenced by math defs (live pass).
+    /// Kept in sync by tail-extension so `update_data` doesn't clone whole
+    /// buffers every frame.
+    sources: HashMap<TraceRef, Vec<[f64; 2]>>,
+    /// Same as [`Self::sources`] but for the snapshot pass while paused.
+    snap_sources: HashMap<TraceRef, Vec<[f64; 2]>>,
+}
+
+/// Sync `buf` to mirror `data` (an x-sorted point buffer), assuming `buf`
+/// previously mirrored `data` and `data` only changed by front-pops (pruning)
+/// and back-pushes (streaming). Costs O(popped + appended) instead of a full
+/// clone; falls back to a full rebuild when the cheap path can't apply
+/// (e.g. wholesale data replacement).
+fn sync_source_buffer(buf: &mut Vec<[f64; 2]>, data: &std::collections::VecDeque<[f64; 2]>) {
+    if buf.len() == data.len() && buf.first() == data.front() && buf.last() == data.back() {
+        return;
+    }
+    // Index of the first point in `data` not yet mirrored into `buf`.
+    let tail_start = match buf.last() {
+        Some(&last) => data.partition_point(|p| p[0] <= last[0]),
+        None => 0,
+    };
+    let tail_len = data.len() - tail_start;
+    // `data = buf[dropped..] + data[tail_start..]`  ⇒  dropped = buf + tail - data
+    let dropped = buf.len() as isize + tail_len as isize - data.len() as isize;
+    if dropped >= 0 {
+        buf.drain(..dropped as usize);
+        buf.extend(data.iter().skip(tail_start).copied());
+        // Sanity-check the cheap sync: ends must match. If data changed in a
+        // way that isn't "pop front / push back" (SetData, clear+refill),
+        // fall back to a full copy.
+        if buf.first() == data.front() && buf.last() == data.back() {
+            return;
+        }
+    }
+    buf.clear();
+    buf.extend(data.iter().copied());
 }
 
 impl Default for MathPanel {
@@ -33,6 +70,8 @@ impl Default for MathPanel {
             creating: false,
 
             math_traces: Vec::new(),
+            sources: HashMap::new(),
+            snap_sources: HashMap::new(),
         }
     }
 }
@@ -135,6 +174,11 @@ impl Panel for MathPanel {
         }
 
         if self.math_traces.is_empty() {
+            // No defs → the persistent buffers will never be read; free them.
+            if !self.sources.is_empty() || !self.snap_sources.is_empty() {
+                self.sources.clear();
+                self.snap_sources.clear();
+            }
             return;
         }
 
@@ -154,21 +198,25 @@ impl Panel for MathPanel {
         }
 
         // ── Live data pass ───────────────────────────────────────────────
-        let mut sources: HashMap<TraceRef, Vec<[f64; 2]>> = HashMap::new();
+        // Sync the persistent source copies instead of cloning whole buffers
+        // every frame; `sync_source_buffer` only touches points that were
+        // pruned at the front or appended at the back.
+        self.sources.retain(|name, _| needed.contains(name));
         for (name, tr) in data.traces.traces_iter() {
             if needed.contains(name) {
-                sources.insert(name.clone(), tr.live.iter().copied().collect());
+                let buf = self.sources.entry(name.clone()).or_default();
+                sync_source_buffer(buf, &tr.live);
             }
         }
 
         for def in self.math_traces.iter_mut() {
-            let out = def.compute_math_trace(&sources);
+            let out = def.compute_math_trace(&self.sources);
 
             let tr = data.get_trace_or_new(&def.name);
             tr.set_live_points(&out);
             tr.info = def.math_formula_string();
 
-            sources.insert(def.name.clone(), out);
+            self.sources.insert(def.name.clone(), out);
         }
 
         // ── Snapshot data pass ───────────────────────────────────────────
@@ -179,23 +227,26 @@ impl Panel for MathPanel {
         if !data.traces.has_snapshot() {
             return;
         }
-        sources.clear();
+        self.snap_sources.retain(|name, _| needed.contains(name));
         for (name, tr) in data.traces.traces_iter() {
             if needed.contains(name) {
-                if let Some(d) = tr.snap.clone() {
-                    sources.insert(name.clone(), d.iter().copied().collect());
+                if let Some(d) = tr.snap.as_ref() {
+                    let buf = self.snap_sources.entry(name.clone()).or_default();
+                    sync_source_buffer(buf, d);
+                } else {
+                    self.snap_sources.remove(name);
                 }
             }
         }
 
         for def in self.math_traces.iter_mut() {
-            let out = def.compute_math_trace(&sources);
+            let out = def.compute_math_trace(&self.snap_sources);
 
             let tr = data.get_trace_or_new(&def.name);
             tr.set_snap_points(&out);
             tr.info = def.math_formula_string();
 
-            sources.insert(def.name.clone(), out);
+            self.snap_sources.insert(def.name.clone(), out);
         }
     }
 
@@ -226,7 +277,7 @@ impl Panel for MathPanel {
         let mut hover_trace_intern: Option<Vec<TraceRef>> = None;
         // Set when a formula trace's reset button is clicked — the def being
         // iterated is a clone, so the origin update is applied afterwards.
-        let mut pending_t_reset: Option<TraceRef> = None;
+        let mut pending_formula_reset: Option<TraceRef> = None;
         for def in self.math_traces.clone().iter_mut() {
             let row = ui.horizontal(|ui| {
                 // Color editor like in traces_ui
@@ -318,9 +369,11 @@ impl Panel for MathPanel {
                             self.error = None;
                         }
                     }
-                    // Show Reset for kinds that have internal storage, and for
+                    // Show Reset for kinds that have internal storage, for
                     // formula traces in resettable-t mode (moves t=0 to the
-                    // newest sample, like the integrator reset).
+                    // newest sample, like the integrator reset), and for
+                    // formulas using `minh`/`maxh` (running extremes, like the
+                    // MinMax kind).
                     let is_stateful = matches!(
                         def.kind,
                         MathKind::Integrate { .. }
@@ -329,11 +382,18 @@ impl Panel for MathPanel {
                     );
                     let resettable_t = matches!(def.kind, MathKind::Formula { .. })
                         && matches!(def.time_mode, FormulaTimeMode::Resettable);
-                    if is_stateful || resettable_t {
+                    let formula_hist = matches!(&def.kind, MathKind::Formula { expr } if {
+                        crate::data::expr::parse(expr)
+                            .map(|ast| ast.uses_history())
+                            .unwrap_or(false)
+                    });
+                    if is_stateful || resettable_t || formula_hist {
                         let reset_resp = ui
                             .button(egui_phosphor_icons::icons::ARROW_CLOCKWISE)
                             .on_hover_text(if resettable_t {
-                                "Reset t to 0 at the newest sample"
+                                "Reset t to 0 at the newest sample and clear running min/max history"
+                            } else if formula_hist {
+                                "Reset running min/max history for this trace"
                             } else {
                                 "Reset integrator/filter/min/max state for this trace"
                             });
@@ -341,8 +401,8 @@ impl Panel for MathPanel {
                             hover_trace_intern = Some(vec![def.name.clone()]);
                         }
                         if reset_resp.clicked() {
-                            if resettable_t {
-                                pending_t_reset = Some(def.name.clone());
+                            if resettable_t || formula_hist {
+                                pending_formula_reset = Some(def.name.clone());
                             }
                             data.traces.clear_trace(&def.name);
                         }
@@ -356,15 +416,20 @@ impl Panel for MathPanel {
         if let Some(nm) = hover_trace_intern {
             data.traces.hover_trace = Some(nm);
         }
-        // Apply a formula trace's t-reset: origin moves to the newest sample
-        // (or None → auto-init at the first sample when no data exists).
-        if let Some(name) = pending_t_reset {
+        // Apply a formula trace reset: clear the runtime state (minh/maxh
+        // accumulators + t origin), then — for resettable-t formulas — move
+        // the origin to the newest sample (or leave None → auto-init at the
+        // first sample when no data exists).
+        if let Some(name) = pending_formula_reset {
             if let Some(d) = self.math_traces.iter_mut().find(|d| d.name == name) {
-                d.t_origin = data
-                    .traces
-                    .traces_iter()
-                    .filter_map(|(_, tr)| tr.live.back().map(|p| p[0]))
-                    .reduce(f64::max);
+                d.reset_runtime_state();
+                if matches!(d.time_mode, FormulaTimeMode::Resettable) {
+                    d.t_origin = data
+                        .traces
+                        .traces_iter()
+                        .filter_map(|(_, tr)| tr.live.back().map(|p| p[0]))
+                        .reduce(f64::max);
+                }
             }
         }
 
@@ -923,7 +988,7 @@ impl Panel for MathPanel {
                     || enter_pressed
                 {
                     // Handle save: builder already holds the full MathTrace
-                    let tr = self.builder.clone();
+                    let mut tr = self.builder.clone();
                     if self.error.is_none() {
                         if !is_creating {
                             // Preserve look if renaming and replace in-place to keep position
@@ -932,6 +997,22 @@ impl Panel for MathPanel {
 
                             if let Some(orig) = self.editing.clone() {
                                 replace_idx = self.math_traces.iter().position(|d| d.name == orig);
+
+                                // A changed formula invalidates the runtime
+                                // state (t origin, `minh`/`maxh` accumulator
+                                // slots are indexed by AST position) — reset it
+                                // on the saved copy. Look-only edits keep it.
+                                if let Some(i) = replace_idx {
+                                    if let (
+                                        MathKind::Formula { expr: old },
+                                        MathKind::Formula { expr: new },
+                                    ) = (&self.math_traces[i].kind, &tr.kind)
+                                    {
+                                        if old != new {
+                                            tr.reset_runtime_state();
+                                        }
+                                    }
+                                }
 
                                 if orig != tr.name {
                                     // Grab previous look, then remove the old backing trace

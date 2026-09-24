@@ -446,3 +446,73 @@ fn test_formula_time_offset() {
     let out2 = trace2.compute_math_trace(&sources);
     assert_eq!(out2, vec![[10.0, 10.0], [11.0, 11.0], [12.0, 12.0]]);
 }
+
+#[test]
+fn test_formula_min_max_variadic() {
+    // `min`/`max` evaluate the extreme of all arguments per grid point.
+    let mut trace = MathTrace::new(
+        TraceRef::new("m"),
+        MathKind::Formula {
+            expr: "min({a}, {b}, 0)".to_string(),
+        },
+    );
+    let sources = make_sources(&[
+        ("a", vec![[0.0, 1.0], [1.0, -2.0], [2.0, 3.0]]),
+        ("b", vec![[0.0, 5.0], [2.0, 4.0]]),
+        ("m", vec![]),
+    ]);
+    let out = trace.compute_math_trace(&sources);
+    // t=0: min(1, 5, 0)=0; t=1: min(-2, interp b=4.5, 0)=-2; t=2: min(3, 4, 0)=0
+    assert_eq!(out, vec![[0.0, 0.0], [1.0, -2.0], [2.0, 0.0]]);
+}
+
+#[test]
+fn test_formula_history_maxh() {
+    // `maxh` keeps the running maximum across the whole evaluated history,
+    // including across incremental compute calls.
+    let mut trace = MathTrace::new(
+        TraceRef::new("h"),
+        MathKind::Formula {
+            expr: "maxh({a})".to_string(),
+        },
+    );
+    let sources = make_sources(&[("a", vec![[0.0, 3.0], [1.0, 1.0]]), ("h", vec![])]);
+    let out = trace.compute_math_trace(&sources);
+    assert_eq!(out, vec![[0.0, 3.0], [1.0, 3.0]]);
+
+    // A second compute with more input continues the running extreme — the
+    // accumulator carries over through `hist_state`, so old points aren't
+    // re-evaluated but the extreme persists.
+    let sources2 = make_sources(&[
+        ("a", vec![[0.0, 3.0], [1.0, 1.0], [2.0, 2.0], [3.0, 7.0]]),
+        ("h", out.clone()),
+    ]);
+    let out2 = trace.compute_math_trace(&sources2);
+    assert_eq!(out2, vec![[0.0, 3.0], [1.0, 3.0], [2.0, 3.0], [3.0, 7.0]]);
+
+    // reset_runtime_state clears the accumulators: recompute restarts the
+    // running extreme.
+    trace.reset_runtime_state();
+    let sources3 = make_sources(&[("a", vec![[0.0, 3.0], [1.0, 1.0], [2.0, 2.0], [3.0, 7.0]])]);
+    let out3 = trace.compute_math_trace(&sources3);
+    assert_eq!(out3, vec![[0.0, 3.0], [1.0, 3.0], [2.0, 3.0], [3.0, 7.0]]);
+}
+
+#[test]
+fn test_formula_minh_multi_arg() {
+    // `minh` with several args: running min of the per-sample minimum.
+    let mut trace = MathTrace::new(
+        TraceRef::new("m"),
+        MathKind::Formula {
+            expr: "minh({a}, {b})".to_string(),
+        },
+    );
+    let sources = make_sources(&[
+        ("a", vec![[0.0, 5.0], [1.0, 4.0], [2.0, 6.0]]),
+        ("b", vec![[0.0, 3.0], [1.0, 2.0], [2.0, 8.0]]),
+        ("m", vec![]),
+    ]);
+    let out = trace.compute_math_trace(&sources);
+    // per-sample min: 3, 2, 6 → running min: 3, 2, 2
+    assert_eq!(out, vec![[0.0, 3.0], [1.0, 2.0], [2.0, 2.0]]);
+}

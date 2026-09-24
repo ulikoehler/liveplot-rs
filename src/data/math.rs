@@ -146,6 +146,11 @@ pub struct MathTrace {
     /// timestamp on the next compute. Not persisted.
     #[serde(skip)]
     pub t_origin: Option<f64>,
+    /// Runtime accumulators for `minh`/`maxh` call sites in
+    /// [`MathKind::Formula`] expressions (running extremes over the whole
+    /// evaluated history). Not persisted.
+    #[serde(skip)]
+    pub hist_state: crate::data::expr::HistState,
 }
 
 /// Compute a math trace from the provided `sources`.
@@ -167,13 +172,16 @@ impl MathTrace {
             kind,
             time_mode: FormulaTimeMode::Absolute,
             t_origin: None,
+            hist_state: crate::data::expr::HistState::default(),
         }
     }
 
     /// Reset the runtime state that isn't part of the persisted definition:
-    /// the resettable-`t` origin (restarts `t` at 0 on next compute).
+    /// the resettable-`t` origin (restarts `t` at 0 on next compute) and the
+    /// `minh`/`maxh` accumulators.
     pub fn reset_runtime_state(&mut self) {
         self.t_origin = None;
+        self.hist_state.slots.clear();
     }
 
     pub fn compute_math_trace(
@@ -620,12 +628,17 @@ impl MathTrace {
                 };
 
                 let mut idx_map: std::collections::HashMap<TraceRef, usize> = HashMap::new();
+                let hist = &mut self.hist_state;
                 for &t in &grid[start..] {
-                    let v = ast.eval(t - t_offset, &mut |name: &TraceRef| {
-                        let src = sources.get(name)?;
-                        let idx = idx_map.entry(name.clone()).or_insert(0);
-                        MathTrace::interpolate_value_at(t, src.as_slice(), idx)
-                    });
+                    let v = ast.eval_ctx(
+                        t - t_offset,
+                        &mut |name: &TraceRef| {
+                            let src = sources.get(name)?;
+                            let idx = idx_map.entry(name.clone()).or_insert(0);
+                            MathTrace::interpolate_value_at(t, src.as_slice(), idx)
+                        },
+                        hist,
+                    );
                     if v.is_finite() {
                         out.push([t, v]);
                     }
@@ -661,8 +674,7 @@ impl MathTrace {
                 break;
             }
             idxs[min_i] += 1;
-            if v
-                .last()
+            if v.last()
                 .is_none_or(|&last: &f64| (min_t - last).abs() >= 1e-15)
             {
                 v.push(min_t);

@@ -1,4 +1,4 @@
-use liveplot::data::expr::{parse, BinOp, Expr, Func};
+use liveplot::data::expr::{parse, BinOp, Expr, Func, HistState};
 use liveplot::data::traces::TraceRef;
 use std::collections::HashMap;
 
@@ -147,6 +147,60 @@ fn test_ast_shape_for_rendering() {
     // Function node kinds
     let ast = parse("atan2({y}, {x})").unwrap();
     assert!(matches!(ast, Expr::Call(Func::Atan2, _)));
+}
+
+#[test]
+fn test_min_max_variadic() {
+    // Constants only
+    assert_eq!(eval_str("min(3, 1, 2)", 0.0, &[]), 1.0);
+    assert_eq!(eval_str("max(3, 1, 2)", 0.0, &[]), 3.0);
+    // Single argument is allowed
+    assert_eq!(eval_str("min(5)", 0.0, &[]), 5.0);
+    // Mixed traces and constants
+    assert_eq!(
+        eval_str("min({a}, {b}, 0)", 0.0, &[("a", 2.0), ("b", -3.0)]),
+        -3.0
+    );
+    assert_eq!(
+        eval_str("max({a}, 4, {b})", 0.0, &[("a", 2.0), ("b", -3.0)]),
+        4.0
+    );
+    // Missing input -> NaN (point skipped), not ignored
+    assert!(eval_str("min({a}, {missing})", 0.0, &[("a", 1.0)]).is_nan());
+    assert!(eval_str("max({a}, {missing})", 0.0, &[("a", 1.0)]).is_nan());
+    // Arity: zero args rejected
+    assert!(parse("min()").is_err());
+    assert!(parse("maxh()").is_err());
+}
+
+#[test]
+fn test_history_min_max() {
+    // `minh`/`maxh` accumulate across eval_ctx calls via HistState.
+    let ast = parse("maxh({a})").unwrap();
+    assert!(ast.uses_history());
+    let map: HashMap<TraceRef, f64> = [(TraceRef::new("a"), 5.0)].into_iter().collect();
+    let mut st = HistState::default();
+    assert_eq!(
+        ast.eval_ctx(0.0, &mut |n: &TraceRef| map.get(n).copied(), &mut st),
+        5.0
+    );
+    let map: HashMap<TraceRef, f64> = [(TraceRef::new("a"), 2.0)].into_iter().collect();
+    // Later lower value keeps the running maximum
+    assert_eq!(
+        ast.eval_ctx(1.0, &mut |n: &TraceRef| map.get(n).copied(), &mut st),
+        5.0
+    );
+    // Missing input -> NaN, accumulator untouched
+    let empty: HashMap<TraceRef, f64> = HashMap::new();
+    assert!(ast
+        .eval_ctx(2.0, &mut |n: &TraceRef| empty.get(n).copied(), &mut st)
+        .is_nan());
+    // And a bare `eval` (fresh state) behaves like current-value `max`
+    assert_eq!(ast.eval(0.0, &mut |n: &TraceRef| map.get(n).copied()), 2.0);
+    // Non-history expressions report false
+    assert!(!parse("min({a}, {b})").unwrap().uses_history());
+    // Nested history calls also count
+    assert!(parse("minh(maxh({a}), {b})").unwrap().uses_history());
 }
 
 #[test]
