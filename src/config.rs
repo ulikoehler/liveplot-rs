@@ -272,6 +272,11 @@ pub struct LivePlotConfig {
     pub subheadline: Option<String>,
     /// Optional eframe native-window options.
     pub native_options: Option<eframe::NativeOptions>,
+    /// Maximum UI repaint rate in frames per second while the plot is live.
+    /// Lower values reduce CPU/GPU usage at the cost of display smoothness.
+    /// `None` uses the default of ~60 fps. Input events still repaint
+    /// immediately; this only caps the periodic repaint interval.
+    pub max_fps: Option<f64>,
 
     // ── Feature flags ────────────────────────────────────────────────────────
     /// Toggle individual UI features on/off.
@@ -315,6 +320,7 @@ impl Clone for LivePlotConfig {
             headline: self.headline.clone(),
             subheadline: self.subheadline.clone(),
             native_options: self.native_options.clone(),
+            max_fps: self.max_fps,
             features: self.features.clone(),
             layout: self.layout.clone(),
             color_scheme: self.color_scheme.clone(),
@@ -339,6 +345,7 @@ impl Default for LivePlotConfig {
             headline: None,
             subheadline: None,
             native_options: None,
+            max_fps: None,
 
             features: FeatureFlags::default(),
             layout: ResponsiveLayout::default(),

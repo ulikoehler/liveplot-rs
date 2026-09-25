@@ -281,10 +281,15 @@ impl Panel for ThresholdsPanel {
             data.pending_requests.clear_thresholds = false;
         }
 
+        // Skip the full per-trace decimation when there is nothing to evaluate.
+        if self.thresholds.is_empty() {
+            return;
+        }
+
         let sources = data.get_all_drawn_points();
 
         for def in self.thresholds.values_mut() {
-            def.process_threshold(sources.clone());
+            def.process_threshold(&sources);
         }
     }
 

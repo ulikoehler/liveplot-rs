@@ -214,17 +214,13 @@ impl MathTrace {
                     return out;
                 }
 
-                let grid: Vec<f64> = MathTrace::union_times(&used_sources);
-
-                // Binary search to find the first grid point after the last output timestamp.
-                let start = if let Some(last) = out.last() {
-                    grid.partition_point(|&t| t <= last[0])
-                } else {
-                    0
-                };
+                // Merge only timestamps after the last output point — the
+                // incremental tail, not the whole history.
+                let grid: Vec<f64> =
+                    MathTrace::union_times(&used_sources, out.last().map(|p| p[0]));
 
                 let mut idx_map: std::collections::HashMap<TraceRef, usize> = HashMap::new();
-                for &t in &grid[start..] {
+                for &t in &grid {
                     let mut sum = 0.0;
                     let mut all = true;
                     for (r, k) in inputs {
@@ -252,18 +248,14 @@ impl MathTrace {
             }
             MathKind::Multiply { a, b } => {
                 if let (Some(src_a), Some(src_b)) = (sources.get(a), sources.get(b)) {
-                    let grid: Vec<f64> =
-                        MathTrace::union_times(&[src_a.as_slice(), src_b.as_slice()]);
-
-                    let start = if let Some(last) = out.last() {
-                        grid.partition_point(|&t| t <= last[0])
-                    } else {
-                        0
-                    };
+                    let grid: Vec<f64> = MathTrace::union_times(
+                        &[src_a.as_slice(), src_b.as_slice()],
+                        out.last().map(|p| p[0]),
+                    );
 
                     let mut idx_a = 0usize;
                     let mut idx_b = 0usize;
-                    for &t in &grid[start..] {
+                    for &t in &grid {
                         if let (Some(va), Some(vb)) = (
                             MathTrace::interpolate_value_at(t, src_a.as_slice(), &mut idx_a),
                             MathTrace::interpolate_value_at(t, src_b.as_slice(), &mut idx_b),
@@ -277,18 +269,14 @@ impl MathTrace {
             }
             MathKind::Divide { a, b } => {
                 if let (Some(src_a), Some(src_b)) = (sources.get(a), sources.get(b)) {
-                    let grid: Vec<f64> =
-                        MathTrace::union_times(&[src_a.as_slice(), src_b.as_slice()]);
-
-                    let start = if let Some(last) = out.last() {
-                        grid.partition_point(|&t| t <= last[0])
-                    } else {
-                        0
-                    };
+                    let grid: Vec<f64> = MathTrace::union_times(
+                        &[src_a.as_slice(), src_b.as_slice()],
+                        out.last().map(|p| p[0]),
+                    );
 
                     let mut idx_a = 0usize;
                     let mut idx_b = 0usize;
-                    for &t in &grid[start..] {
+                    for &t in &grid {
                         if let (Some(va), Some(vb)) = (
                             MathTrace::interpolate_value_at(t, src_a.as_slice(), &mut idx_a),
                             MathTrace::interpolate_value_at(t, src_b.as_slice(), &mut idx_b),
@@ -583,53 +571,55 @@ impl MathTrace {
                 // Sample on the union of the referenced traces' timestamps.
                 // For formulas without trace references (e.g. `sin(2*pi*t)`),
                 // fall back to the union of all provided sources so pure f(t)
-                // expressions still produce a meaningful grid.
-                let grid: Vec<f64> = if refs.is_empty() {
-                    let slices: Vec<&[[f64; 2]]> = sources
+                // expressions still produce a meaningful grid. Only
+                // timestamps after the last output point are merged — the
+                // incremental tail, not the whole history.
+                let slices: Vec<&[[f64; 2]]> = if refs.is_empty() {
+                    let s: Vec<_> = sources
                         .iter()
                         .filter(|(k, _)| **k != self.name)
                         .map(|(_, v)| v.as_slice())
                         .collect();
-                    if slices.is_empty() {
+                    if s.is_empty() {
                         return out;
                     }
-                    MathTrace::union_times(&slices)
+                    s
                 } else {
-                    let slices: Vec<&[[f64; 2]]> = refs
+                    let s: Vec<_> = refs
                         .iter()
                         .filter_map(|r| sources.get(r).map(|v| v.as_slice()))
                         .collect();
-                    if slices.is_empty() {
+                    if s.is_empty() {
                         return out;
                     }
-                    MathTrace::union_times(&slices)
+                    s
                 };
+                let grid: Vec<f64> =
+                    MathTrace::union_times(&slices, out.last().map(|p| p[0]));
 
                 // `t` is either the absolute timestamp (mode Absolute) or
                 // seconds since `t_origin` (mode Resettable). A missing origin
-                // lazily initializes to the first grid timestamp so t starts
-                // at 0; "reset" moves it to the newest sample.
+                // lazily initializes to the first source timestamp so t
+                // starts at 0; "reset" moves it to the newest sample.
                 let t_offset = match self.time_mode {
                     FormulaTimeMode::Absolute => 0.0,
                     FormulaTimeMode::Resettable => match self.t_origin {
                         Some(o) => o,
                         None => {
-                            let o = grid.first().copied().unwrap_or(0.0);
+                            let first = slices
+                                .iter()
+                                .filter_map(|s| s.first().map(|p| p[0]))
+                                .fold(f64::INFINITY, f64::min);
+                            let o = if first.is_finite() { first } else { 0.0 };
                             self.t_origin = Some(o);
                             o
                         }
                     },
                 };
 
-                let start = if let Some(last) = out.last() {
-                    grid.partition_point(|&t| t <= last[0])
-                } else {
-                    0
-                };
-
                 let mut idx_map: std::collections::HashMap<TraceRef, usize> = HashMap::new();
                 let hist = &mut self.hist_state;
-                for &t in &grid[start..] {
+                for &t in &grid {
                     let v = ast.eval_ctx(
                         t - t_offset,
                         &mut |name: &TraceRef| {
@@ -649,16 +639,29 @@ impl MathTrace {
         out
     }
 
-    /// Union of the timestamps of `sources`, sorted ascending.
+    /// Union of the timestamps of `sources` that are `> after`, sorted
+    /// ascending. `None` merges all timestamps.
     ///
     /// Each input is individually sorted by x, so this is a k-way merge —
     /// O(total_points × num_sources) instead of the previous
     /// collect+sort+dedup (O(total log total) plus a large allocation churn),
-    /// which ran every frame for stateless math traces.
+    /// which ran every frame for stateless math traces. Passing the last
+    /// output timestamp as `after` skips straight to the new tail via
+    /// binary search — incremental computes stay O(new_points × num_sources).
     /// Timestamps closer than 1e-15 are treated as equal (first wins).
-    fn union_times(sources: &[&[[f64; 2]]]) -> Vec<f64> {
+    fn union_times(sources: &[&[[f64; 2]]], after: Option<f64>) -> Vec<f64> {
         let mut idxs = vec![0usize; sources.len()];
-        let total: usize = sources.iter().map(|s| s.len()).sum();
+        // Skip straight to the tail beyond `after` — inputs are sorted.
+        if let Some(after) = after {
+            for (i, s) in sources.iter().enumerate() {
+                idxs[i] = s.partition_point(|p| p[0] <= after);
+            }
+        }
+        let total: usize = sources
+            .iter()
+            .enumerate()
+            .map(|(i, s)| s.len() - idxs[i])
+            .sum();
         let mut v = Vec::with_capacity(total);
         loop {
             let mut min_t = f64::INFINITY;

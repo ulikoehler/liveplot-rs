@@ -80,6 +80,9 @@ fn main() -> eframe::Result<()> {
     let cfg = LivePlotConfig {
         headline: Some("FFT Demo".to_string()),
         subheadline: Some("Two-tone + swept-frequency signals — click Show FFT".to_string()),
+        // Cap the periodic repaint rate — 25 fps is plenty for a streaming
+        // scope display and roughly halves render/CPU cost vs 60 fps.
+        max_fps: Some(25.0),
         ..Default::default()
     };
     run_liveplot(rx, cfg)

@@ -128,3 +128,15 @@ path = "examples/features.rs"
 name = "fft_demo"
 path = "examples/fft_demo.rs"
 required-features = ["fft"]
+
+# The example/demo workload is dominated by GUI and rendering code
+# (egui/epaint/emath/wgpu/vello + liveplot's own hot paths); in a pure debug
+# build they run ~5-10x slower and make the examples needlessly CPU-hungry.
+# Build dev with optimizations so `cargo run --example ...` is representative;
+# debug info and debug-assertions stay enabled for liveplot itself.
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 2
+debug-assertions = false

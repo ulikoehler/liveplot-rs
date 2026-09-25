@@ -61,6 +61,10 @@ pub struct LivePlotApp {
     pub color_scheme: Option<crate::config::ColorScheme>,
     /// Flag so we only apply the color scheme on the very first frame.
     color_scheme_applied: bool,
+
+    /// Minimum interval between periodic repaints while the plot is live.
+    /// Defaults to ~60 fps; configurable via `LivePlotConfig::max_fps`.
+    pub repaint_interval: std::time::Duration,
 }
 
 impl LivePlotApp {
@@ -79,6 +83,7 @@ impl LivePlotApp {
             subheadline: None,
             color_scheme: None,
             color_scheme_applied: false,
+            repaint_interval: std::time::Duration::from_millis(16),
         }
     }
 
@@ -117,6 +122,7 @@ impl LivePlotApp {
             subheadline: None,
             color_scheme: None,
             color_scheme_applied: false,
+            repaint_interval: std::time::Duration::from_millis(16),
         }
     }
 
@@ -129,6 +135,13 @@ impl LivePlotApp {
     ///
     /// Typically called once right after construction, before entering the event loop.
     pub(crate) fn apply_config(&mut self, cfg: &mut crate::config::LivePlotConfig) {
+        // Periodic repaint cap (~60 fps default). Input events still repaint
+        // immediately — this only throttles the steady-state redraw rate.
+        if let Some(fps) = cfg.max_fps {
+            let fps = fps.clamp(1.0, 240.0);
+            self.repaint_interval = std::time::Duration::from_secs_f64(1.0 / fps);
+        }
+
         // Axis / time window settings.
         {
             let scope = self.main_panel.liveplot_panel.get_data_mut();
@@ -660,7 +673,7 @@ impl eframe::App for LivePlotApp {
         // Apply and publish controller requests after the main panel has updated.
         self.apply_controllers(&ctx, frame);
 
-        // Request continuous repainting (~60 fps).
-        ui.request_repaint_after(std::time::Duration::from_millis(16));
+        // Request continuous repainting (~60 fps by default).
+        ui.request_repaint_after(self.repaint_interval);
     }
 }
