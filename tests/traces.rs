@@ -413,6 +413,51 @@ fn envelope_buckets_cover_all_data() {
     assert!(last.x_max >= data_max_x || (last.x_min - data_max_x).abs() < cache.bucket_width);
 }
 
+/// A bucket straddling the right bound may hold its extreme(s) just past
+/// `bounds.1`. Emitted points must still be clipped to the bounds —
+/// otherwise one or two stray points render inside the frame's margin
+/// (the frame shows bounds ±5%).
+#[test]
+fn envelope_emitted_points_respect_bounds() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut col = TracesCollection::new(rx);
+    let _ = tx.send(PlotCommand::RegisterTrace {
+        id: 1,
+        name: "t".to_string(),
+        info: None,
+    });
+    let _ = col.update();
+    let name = TraceRef("t".to_string());
+    {
+        let tr = col.get_trace_mut(&name).unwrap();
+        for i in 0..10_000usize {
+            let x = i as f64 * 0.001; // 1 kHz over 0..10s
+            tr.live.push_back([x, 0.0]);
+        }
+        // Spike just past the right bound inside the straddling bucket.
+        tr.live[5005] = [5.005, 99.0];
+    }
+    let bounds = (2.0, 5.0);
+    let screen_width = 100usize;
+    let visible_width = bounds.1 - bounds.0;
+
+    for pts in [
+        col.get_drawn_points_minmax_envelope(&name, false, bounds, visible_width, screen_width),
+        col.get_drawn_points_envelope(&name, false, bounds, visible_width, screen_width),
+        col.get_drawn_points_decimated(&name, false, bounds, 2000),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        assert!(
+            pts.iter().all(|p| p[0] >= bounds.0 && p[0] <= bounds.1),
+            "emitted points must be within bounds {:?}, got {:?}",
+            bounds,
+            pts.iter().map(|p| p[0]).collect::<Vec<_>>()
+        );
+    }
+}
+
 // ── Density cache tests ───────────────────────────────────────────────
 
 #[test]

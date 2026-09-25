@@ -728,9 +728,18 @@ impl TracesCollection {
             if b.x_max < bounds.0 || b.x_min > bounds.1 {
                 continue;
             }
-            // Emit first point always; emit last point only if not the final bucket
-            out.push([b.x_first, b.y_first]);
-            if b.count > 1 && Some(idx) != last_visible_idx {
+            // A bucket overlapping the edge can hold first/last points past
+            // the bounds — the plot frame shows bounds ±5%, so emitting them
+            // would draw stray stubs inside the margin. Clip strictly like
+            // the decimated path does.
+            if b.x_first >= bounds.0 && b.x_first <= bounds.1 {
+                out.push([b.x_first, b.y_first]);
+            }
+            if b.count > 1
+                && Some(idx) != last_visible_idx
+                && b.x_last >= bounds.0
+                && b.x_last <= bounds.1
+            {
                 out.push([b.x_last, b.y_last]);
             }
         }
@@ -797,8 +806,14 @@ impl TracesCollection {
             if b.x_max < bounds.0 || b.x_min > bounds.1 {
                 continue;
             }
-            out.push([b.x_at_ymin, b.y_min]);
-            if b.count > 1 {
+            // Edge buckets overlapping the bounds can hold extreme points
+            // past the boundary — the frame shows bounds ±5%, so emitting
+            // them draws one or two stray points inside the margin. Clip the
+            // emitted extremes strictly to the bounds.
+            if b.x_at_ymin >= bounds.0 && b.x_at_ymin <= bounds.1 {
+                out.push([b.x_at_ymin, b.y_min]);
+            }
+            if b.count > 1 && b.x_at_ymax >= bounds.0 && b.x_at_ymax <= bounds.1 {
                 out.push([b.x_at_ymax, b.y_max]);
             }
         }

@@ -594,8 +594,7 @@ impl MathTrace {
                     }
                     s
                 };
-                let grid: Vec<f64> =
-                    MathTrace::union_times(&slices, out.last().map(|p| p[0]));
+                let grid: Vec<f64> = MathTrace::union_times(&slices, out.last().map(|p| p[0]));
 
                 // `t` is either the absolute timestamp (mode Absolute) or
                 // seconds since `t_origin` (mode Resettable). A missing origin
