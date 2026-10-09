@@ -187,6 +187,20 @@ impl Default for ScopePanel {
     }
 }
 
+/// Power-of-10 step sizes for `egui_plot::uniform_grid_spacer`, matching the
+/// step selection of `egui_plot::log_grid_spacer(10)` without its
+/// `base_step_size < f64::EPSILON` early-out (which drops all marks — and thus
+/// tick labels — once the visible axis span falls below ~1e-14).
+pub fn grid_step_sizes(input: egui_plot::GridInput) -> [f64; 3] {
+    if !input.base_step_size.is_finite() || input.base_step_size <= 0.0 {
+        // Degenerate span: infinite steps produce no marks (and avoid the
+        // huge `i64::MIN..i64::MAX` iteration a zero step would cause).
+        return [f64::INFINITY; 3];
+    }
+    let smallest = 10f64.powi(input.base_step_size.abs().log10().ceil() as i32);
+    [smallest, smallest * 10.0, smallest * 100.0]
+}
+
 impl ScopePanel {
     pub fn new(id: usize) -> Self {
         let mut pane = Self::default();
@@ -1032,6 +1046,15 @@ impl ScopePanel {
             .allow_scroll(false)
             .allow_zoom(false)
             .allow_boxed_zoom(false)
+            // egui_plot's default `log_grid_spacer(10)` returns no marks once
+            // `base_step_size` (axis_span / frame_px * grid_spacing.min) drops
+            // below `f64::EPSILON` — i.e. a visible span of ~1e-14 at typical
+            // plot heights — which makes all tick labels and grid lines
+            // disappear at deep zoom. `uniform_grid_spacer` runs the same mark
+            // generation without that early-out; `grid_step_sizes` mirrors the
+            // built-in power-of-10 step selection.
+            .x_grid_spacer(egui_plot::uniform_grid_spacer(grid_step_sizes))
+            .y_grid_spacer(egui_plot::uniform_grid_spacer(grid_step_sizes))
             .show_grid(egui::Vec2b::new(show_grid, show_grid))
             // When tick labels are hidden (thresholds set above available size), also
             // suppress the egui_plot axis space reservation so the plot fills the full
