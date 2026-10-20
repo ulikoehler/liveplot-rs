@@ -235,6 +235,11 @@ pub struct ScopeSettingsUiPanel {
     rename_buffer: String,
     rename_focus_scope: Option<usize>,
     sort_ascending: bool,
+    /// Last width recorded while each scope rendered in time mode.  The XY
+    /// pair list pins itself to `min(this, available_width)` so its content
+    /// can't widen the panel in a feedback loop (row overflow → wider
+    /// `available_width` → wider cells → repeat).
+    last_time_scope_width: HashMap<usize, f32>,
 }
 
 fn trace_tooltip(traces_collection: &TracesCollection, trace: &TraceRef) -> String {
@@ -1025,6 +1030,7 @@ impl ScopeSettingsUiPanel {
         selection: &mut TraceSelection,
         list_key: TraceListKey,
         open_pair_editor: &mut usize,
+        list_width: f32,
     ) -> (bool, Option<(usize, DragPayload)>) {
         let before: Vec<(Option<TraceRef>, Option<TraceRef>)> = pairs
             .iter()
@@ -1043,8 +1049,9 @@ impl ScopeSettingsUiPanel {
 
         // Pin the list width: rows are sized from `available_width`, so without
         // a fixed bound any slight overflow grows the panel, which grows
-        // `available_width` again — an unbounded feedback loop.
-        let target_w = ui.available_width();
+        // `available_width` again — an unbounded feedback loop.  `list_width`
+        // comes from the caller's cached (monotonically shrinking) width.
+        let target_w = list_width.min(ui.available_width());
         ui.allocate_ui(egui::vec2(target_w, 0.0), |ui| {
             ui.set_width(target_w);
             ui.vertical(|ui| {
@@ -1202,7 +1209,7 @@ impl ScopeSettingsUiPanel {
                                                                 ("pair_slot_x", &id_salt, idx),
                                                                 dragging_payload.as_ref(),
                                                                 drag_active,
-                                                                "X",
+                                                                "Drop X here",
                                                             )
                                                         {
                                                             pending_drop = Some((
@@ -1262,7 +1269,7 @@ impl ScopeSettingsUiPanel {
                                                                 ("pair_slot_y", &id_salt, idx),
                                                                 dragging_payload.as_ref(),
                                                                 drag_active,
-                                                                "Y",
+                                                                "Drop Y here",
                                                             )
                                                         {
                                                             pending_drop = Some((
@@ -1493,6 +1500,10 @@ impl ScopeSettingsUiPanel {
 
         match scope.scope_type {
             ScopeType::TimeScope => {
+                // Remember the sane (non-inflated) width for the XY pin below.
+                self.last_time_scope_width
+                    .insert(scope.id, ui.available_width());
+
                 let mut tmp: Vec<Option<TraceRef>> =
                     scope.trace_order.iter().cloned().map(Some).collect();
 
@@ -1583,6 +1594,19 @@ impl ScopeSettingsUiPanel {
                 }
             }
             ScopeType::XYScope => {
+                // Pin to the width last recorded in time mode (falling back
+                // to the current width, and only ever shrinking): the row
+                // widths below derive from `available_width`, so an unclamped
+                // value would feed back into itself and grow the panel
+                // unbounded.
+                let target_w = self
+                    .last_time_scope_width
+                    .get(&scope.id)
+                    .copied()
+                    .unwrap_or_else(|| ui.available_width())
+                    .min(ui.available_width());
+                self.last_time_scope_width.insert(scope.id, target_w);
+
                 // Merged pair list: one row per XY pair; reorder and multi-drag
                 // move whole pairs (members + pair look travel together).
                 let mut open_editor_idx = usize::MAX;
@@ -1596,6 +1620,7 @@ impl ScopeSettingsUiPanel {
                     selection,
                     TraceListKey::ScopePairs(scope.id),
                     &mut open_editor_idx,
+                    target_w,
                 );
                 scope_changed |= changed;
 
