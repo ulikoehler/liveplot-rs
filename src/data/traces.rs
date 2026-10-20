@@ -131,6 +131,8 @@ pub struct TracesCollection {
     /// When a trace is loaded from a saved state, the style is stored here
     /// until the trace is created from incoming data.
     pending_styles: HashMap<String, (TraceLook, f64)>,
+    /// Pending display aliases for traces that haven't been created yet.
+    pending_display_names: HashMap<String, String>,
 }
 
 impl Default for TracesCollection {
@@ -145,6 +147,7 @@ impl Default for TracesCollection {
             rx: None,
             id_to_name: HashMap::new(),
             pending_styles: HashMap::new(),
+            pending_display_names: HashMap::new(),
         }
     }
 }
@@ -158,6 +161,51 @@ impl TracesCollection {
 
     pub fn set_rx(&mut self, rx: std::sync::mpsc::Receiver<PlotCommand>) {
         self.rx = Some(rx);
+    }
+
+    /// Return `true` when a trace with this name is expected to be created
+    /// soon — a pending style was registered before creation (e.g. from a
+    /// restored session state).  Used to keep restored scope trace orders
+    /// alive until the trace actually arrives.
+    pub fn is_pending(&self, name: &TraceRef) -> bool {
+        self.pending_styles.contains_key(name.as_str())
+            || self.pending_display_names.contains_key(name.as_str())
+    }
+
+    /// Drop any pending style for the given trace name.  Use this when a
+    /// restored trace will never be created (e.g. its source field was
+    /// removed) so its name does not linger in scope trace orders forever.
+    pub fn clear_pending_style(&mut self, name: &str) {
+        self.pending_styles.remove(name);
+        self.pending_display_names.remove(name);
+    }
+
+    /// Set or clear a display alias for a trace (`None` restores the
+    /// canonical name).  Works for traces that don't exist yet — the alias
+    /// is applied when the trace is created.
+    pub fn set_display_name(&mut self, name: &TraceRef, alias: Option<String>) {
+        if let Some(tr) = self.traces.get_mut(name) {
+            tr.display_name = alias;
+        } else {
+            match alias {
+                Some(a) if !a.is_empty() => {
+                    self.pending_display_names.insert(name.0.clone(), a);
+                }
+                _ => {
+                    self.pending_display_names.remove(name.as_str());
+                }
+            }
+        }
+    }
+
+    /// The label shown in legends and lists: the alias when set, else the
+    /// canonical trace name.
+    pub fn display_label(&self, name: &TraceRef) -> String {
+        self.traces
+            .get(name)
+            .and_then(|t| t.display_name.clone())
+            .or_else(|| self.pending_display_names.get(name.as_str()).cloned())
+            .unwrap_or_else(|| name.0.clone())
     }
 
     /// Store a pending style for a trace that may not exist yet.
@@ -184,6 +232,7 @@ impl TracesCollection {
                         let tref = TraceRef(name.clone());
                         let new_index = self.next_color_index();
                         let pending = self.pending_styles.remove(name.as_str());
+                        let pending_name = self.pending_display_names.remove(name.as_str());
                         let entry = match self.traces.entry(tref.clone()) {
                             Entry::Occupied(entry) => entry.into_mut(),
                             Entry::Vacant(entry) => {
@@ -196,6 +245,7 @@ impl TracesCollection {
                                     live: VecDeque::new(),
                                     snap: None,
                                     info: String::new(),
+                                    display_name: pending_name,
                                     creation_index: new_index,
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
@@ -222,6 +272,7 @@ impl TracesCollection {
                             let tref = TraceRef(name.clone());
                             let new_index = self.next_color_index();
                             let pending = self.pending_styles.remove(name.as_str());
+                            let pending_name = self.pending_display_names.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
                                 Entry::Vacant(entry) => {
@@ -234,6 +285,7 @@ impl TracesCollection {
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
+                                        display_name: pending_name,
                                         creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
@@ -265,6 +317,7 @@ impl TracesCollection {
                             let tref = TraceRef(name.clone());
                             let new_index = self.next_color_index();
                             let pending = self.pending_styles.remove(name.as_str());
+                            let pending_name = self.pending_display_names.remove(name.as_str());
                             let entry = self.traces.entry(tref.clone()).or_insert_with(|| {
                                 new_traces.push(tref.clone());
                                 let (look, offset) =
@@ -275,6 +328,7 @@ impl TracesCollection {
                                     live: VecDeque::new(),
                                     snap: None,
                                     info: String::new(),
+                                    display_name: pending_name,
                                     creation_index: new_index,
                                     #[cfg(feature = "fft")]
                                     last_fft: None,
@@ -296,6 +350,7 @@ impl TracesCollection {
                             let tref = TraceRef(name.clone());
                             let new_index = self.next_color_index();
                             let pending = self.pending_styles.remove(name.as_str());
+                            let pending_name = self.pending_display_names.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
                                 Entry::Vacant(entry) => {
@@ -308,6 +363,7 @@ impl TracesCollection {
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
+                                        display_name: pending_name,
                                         creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
@@ -341,6 +397,7 @@ impl TracesCollection {
                             let tref = TraceRef(name.clone());
                             let new_index = self.next_color_index();
                             let pending = self.pending_styles.remove(name.as_str());
+                            let pending_name = self.pending_display_names.remove(name.as_str());
                             let entry = match self.traces.entry(tref.clone()) {
                                 Entry::Occupied(entry) => entry.into_mut(),
                                 Entry::Vacant(entry) => {
@@ -353,6 +410,7 @@ impl TracesCollection {
                                         live: VecDeque::new(),
                                         snap: None,
                                         info: String::new(),
+                                        display_name: pending_name,
                                         creation_index: new_index,
                                         #[cfg(feature = "fft")]
                                         last_fft: None,
@@ -499,6 +557,7 @@ impl TracesCollection {
         if !self.traces.contains_key(name) {
             let new_index = self.next_color_index();
             let pending = self.pending_styles.remove(name.as_ref());
+            let pending_name = self.pending_display_names.remove(name.as_ref());
             let (look, offset) = pending.unwrap_or((TraceLook::new(new_index), 0.0));
             // note: later when the TraceData is created the `creation_index` is set
             // appropriately (see above insertion sites)
@@ -510,6 +569,7 @@ impl TracesCollection {
                     live: VecDeque::new(),
                     snap: None,
                     info: String::new(),
+                    display_name: pending_name,
                     creation_index: new_index,
                     #[cfg(feature = "fft")]
                     last_fft: None,
@@ -1086,6 +1146,9 @@ pub struct TraceData {
     pub live: VecDeque<[f64; 2]>,
     pub snap: Option<VecDeque<[f64; 2]>>,
     pub info: String,
+    /// Optional display alias shown in legends and labels.  The canonical
+    /// trace name (the `TraceRef` key) is unchanged by the alias.
+    pub display_name: Option<String>,
     /// Index assigned when the trace was created.  Used for deterministic
     /// colour allocation so that recolouring after a scheme change keeps the
     /// same order.

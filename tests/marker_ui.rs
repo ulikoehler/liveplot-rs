@@ -213,8 +213,12 @@ fn legend_hidden_overlays_excluded_from_x_range() {
 
     // Both hidden via legend clicks on this scope.
     let mut scope = ScopeData::default();
-    scope.legend_hidden_items.insert(egui::Id::new("M1"));
-    scope.legend_hidden_items.insert(egui::Id::new("K1"));
+    scope
+        .legend_hidden_items
+        .insert(liveplot::panels::scope_legend::measurement_item_id("M1"));
+    scope
+        .legend_hidden_items
+        .insert(liveplot::panels::scope_legend::marker_item_id("K1"));
     let mut traces = TracesCollection::default();
     let mut requests = LivePlotRequests::default();
     {
@@ -224,7 +228,9 @@ fn legend_hidden_overlays_excluded_from_x_range() {
     assert_eq!(scope.measurement_x_range, None);
 
     // Unhide the measurement: its point must extend the range again.
-    scope.legend_hidden_items.remove(&egui::Id::new("M1"));
+    scope
+        .legend_hidden_items
+        .remove(&liveplot::panels::scope_legend::measurement_item_id("M1"));
     {
         let mut live = make_live(vec![&mut scope], &mut traces, &mut requests);
         panel.update_data(&mut live);

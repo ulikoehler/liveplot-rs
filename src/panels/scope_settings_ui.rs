@@ -10,16 +10,175 @@ use egui_phosphor_icons::icons::{CARET_DOWN, CARET_UP, DOTS_SIX_VERTICAL, PALETT
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
+/// One draggable unit: either a single trace (time scope / traces table) or a
+/// complete XY pair (XY scope).  Pairs move as a unit so X/Y association and
+/// the pair look are preserved across scopes.
+#[derive(Clone, Debug)]
+pub enum DragItem {
+    Trace(TraceRef),
+    XyPair {
+        x: Option<TraceRef>,
+        y: Option<TraceRef>,
+        look: TraceLook,
+    },
+}
+
+impl DragItem {
+    /// Member traces of this item (x then y for pairs; empty for empty pairs).
+    pub fn trace_refs(&self) -> Vec<TraceRef> {
+        match self {
+            DragItem::Trace(t) => vec![t.clone()],
+            DragItem::XyPair { x, y, .. } => x.iter().chain(y.iter()).cloned().collect(),
+        }
+    }
+
+    pub fn label(&self) -> String {
+        match self {
+            DragItem::Trace(t) => t.0.clone(),
+            DragItem::XyPair { x, y, .. } => match (x, y) {
+                (Some(x), Some(y)) => format!("{} vs {}", y.0, x.0),
+                (Some(x), None) => format!("(empty) vs {}", x.0),
+                (None, Some(y)) => format!("{} vs (empty)", y.0),
+                (None, None) => "(empty pair)".to_string(),
+            },
+        }
+    }
+}
+
+/// Drag payload carrying one or more items (from a multi-selection).
 #[derive(Clone, Debug)]
 pub struct DragPayload {
-    pub trace: TraceRef,
+    pub items: Vec<DragItem>,
+    /// Scope the drag originated from, if dragged out of a scope list.
+    /// `None` for drags from the main traces table (copy semantics).
     pub origin_scope_id: Option<usize>,
+}
+
+impl DragPayload {
+    pub fn single(trace: TraceRef, origin_scope_id: Option<usize>) -> Self {
+        Self {
+            items: vec![DragItem::Trace(trace)],
+            origin_scope_id,
+        }
+    }
+
+    /// All member traces of the payload (pairs contribute x and y).
+    pub fn trace_refs(&self) -> Vec<TraceRef> {
+        self.items
+            .iter()
+            .flat_map(|item| item.trace_refs())
+            .collect()
+    }
+
+    /// Short label for the drag preview (`name` or `name +N`).
+    pub fn preview_label(&self) -> String {
+        let first = self
+            .items
+            .first()
+            .map(|i| i.label())
+            .unwrap_or_else(|| "?".to_string());
+        if self.items.len() > 1 {
+            format!("{} +{} more", first, self.items.len() - 1)
+        } else {
+            first
+        }
+    }
+}
+
+/// Identifies which list a selection/anchor belongs to — Ctrl/Shift range
+/// selection only applies within one list.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum TraceListKey {
+    /// The main traces table.
+    Table,
+    /// A time scope's flat trace list (scope id).
+    ScopeTraces(usize),
+    /// An XY scope's pair list (scope id); both X and Y cells share it.
+    ScopePairs(usize),
+}
+
+/// Multi-selection state shared between the traces table and all scope
+/// assignment lists (owned by `TracesPanel`).
+#[derive(Default)]
+pub struct TraceSelection {
+    /// Selected trace names.  An XY pair counts as selected when either
+    /// member is in this set.
+    pub traces: HashSet<TraceRef>,
+    /// Shift-click anchor: the last non-shift-clicked item and its list.
+    pub anchor: Option<(TraceListKey, TraceRef)>,
+}
+
+impl TraceSelection {
+    pub fn clear(&mut self) {
+        self.traces.clear();
+        self.anchor = None;
+    }
+
+    pub fn contains(&self, t: &TraceRef) -> bool {
+        self.traces.contains(t)
+    }
+
+    /// Plain click: select only this item and set the anchor.
+    pub fn select_only(&mut self, key: TraceListKey, t: TraceRef) {
+        self.traces.clear();
+        self.traces.insert(t.clone());
+        self.anchor = Some((key, t));
+    }
+
+    /// Ctrl-click: toggle membership and set the anchor.
+    pub fn toggle(&mut self, key: TraceListKey, t: TraceRef) {
+        if !self.traces.remove(&t) {
+            self.traces.insert(t.clone());
+        }
+        self.anchor = Some((key, t));
+    }
+
+    /// Shift-click: select the contiguous range between the anchor and the
+    /// clicked item in `ordered` (the list's current order).  Falls back to a
+    /// plain select when the anchor is missing or belongs to another list.
+    /// `extend` (Ctrl+Shift) adds the range to the selection instead of
+    /// replacing it.
+    pub fn select_range(
+        &mut self,
+        key: TraceListKey,
+        clicked: &TraceRef,
+        ordered: &[TraceRef],
+        extend: bool,
+    ) {
+        let anchor_t = match &self.anchor {
+            Some((k, t)) if *k == key => t.clone(),
+            _ => {
+                self.select_only(key, clicked.clone());
+                return;
+            }
+        };
+        let a = ordered.iter().position(|t| t == &anchor_t);
+        let b = ordered.iter().position(|t| t == clicked);
+        let (Some(a), Some(b)) = (a, b) else {
+            self.select_only(key, clicked.clone());
+            return;
+        };
+        let (lo, hi) = (a.min(b), a.max(b));
+        if !extend {
+            self.traces.clear();
+        }
+        for t in &ordered[lo..=hi] {
+            self.traces.insert(t.clone());
+        }
+    }
+
+    /// Drop selected names that are no longer present in `valid`.
+    pub fn retain(&mut self, valid: &HashSet<TraceRef>) {
+        self.traces.retain(|t| valid.contains(t));
+    }
 }
 
 pub struct ScopeSettingsResponse {
     pub type_changed: bool,
     pub scope_changed: bool,
-    pub moved_from_scope: Option<(usize, TraceRef)>,
+    /// Traces that were dragged in from another scope and must be removed
+    /// there: (source scope id, moved trace refs).
+    pub moved_from_scope: Option<(usize, Vec<TraceRef>)>,
     pub recolor_requested: bool,
     pub sort_requested: bool,
     pub sort_ascending: bool,
@@ -36,6 +195,15 @@ struct TraceListArgs<'a, S: Hash + std::fmt::Debug> {
     preserve_slots: bool,
     color_chooser: Option<Vec<&'a mut Color32>>,
     open_look_editor: Option<&'a mut usize>,
+    selection: &'a mut TraceSelection,
+    list_key: TraceListKey,
+}
+
+/// Which cell of an XY pair row a drop landed on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PairCell {
+    X,
+    Y,
 }
 
 /// Bundled arguments for [`ScopeSettingsUiPanel::render_scope_assignment`].
@@ -47,6 +215,7 @@ pub struct ScopeAssignmentArgs<'a> {
     pub traces_collection: &'a mut TracesCollection,
     pub look_editor_out: &'a mut Option<TraceRef>,
     pub xy_pair_look_editor_out: &'a mut Option<(usize, usize)>,
+    pub selection: &'a mut TraceSelection,
 }
 
 #[derive(Default)]
@@ -267,60 +436,6 @@ impl ScopeSettingsUiPanel {
         scope.trace_order = ordered;
     }
 
-    fn rebuild_xy_pairs_from_trace_order(scope: &mut ScopeData, traces: &TracesCollection) {
-        let mut existing: HashMap<(TraceRef, TraceRef), TraceLook> = HashMap::new();
-        for (x, y, look) in scope.xy_pairs.iter() {
-            let (Some(x), Some(y)) = (x.as_ref(), y.as_ref()) else {
-                continue;
-            };
-            existing.insert((x.clone(), y.clone()), look.clone());
-        }
-
-        let traces_in_order = scope.trace_order.clone();
-        let mut rebuilt: Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)> = Vec::new();
-
-        let mut i = 0usize;
-        while i < traces_in_order.len() {
-            let x = traces_in_order[i].clone();
-            let y = traces_in_order.get(i + 1).cloned();
-
-            let look = if let Some(y) = y.as_ref() {
-                existing
-                    .get(&(x.clone(), y.clone()))
-                    .cloned()
-                    .or_else(|| traces.get_trace(&x).map(|t| t.look.clone()))
-                    .unwrap_or_else(TraceLook::default)
-            } else {
-                traces
-                    .get_trace(&x)
-                    .map(|t| t.look.clone())
-                    .unwrap_or_default()
-            };
-
-            rebuilt.push((Some(x), y, look));
-            i += 2;
-        }
-        scope.xy_pairs = rebuilt;
-    }
-
-    fn rebuild_trace_order_from_xy_pairs(scope: &mut ScopeData) {
-        let mut ordered: Vec<TraceRef> = Vec::new();
-        for (x, y, _look) in scope.xy_pairs.iter() {
-            if let Some(x) = x.as_ref() {
-                ordered.push(x.clone());
-            }
-            if let Some(y) = y.as_ref() {
-                ordered.push(y.clone());
-            }
-        }
-        for t in scope.trace_order.iter() {
-            if !ordered.contains(t) {
-                ordered.push(t.clone());
-            }
-        }
-        scope.trace_order = ordered;
-    }
-
     fn render_drop_slot(
         ui: &mut Ui,
         id_salt: impl Hash + std::fmt::Debug,
@@ -377,6 +492,132 @@ impl ScopeSettingsUiPanel {
         None
     }
 
+    /// After egui_dnd moved the dragged row to its drop index, pull the other
+    /// selected rows along so the whole group stays contiguous, preserving the
+    /// pre-drag relative order around the dragged item.
+    fn group_move(
+        list: &mut Vec<Option<TraceRef>>,
+        start: &[Option<TraceRef>],
+        dragged_idx: usize,
+        moved: &HashSet<TraceRef>,
+    ) {
+        let Some(dragged) = list.get(dragged_idx).and_then(|t| t.clone()) else {
+            return;
+        };
+        let orig_pos: HashMap<TraceRef, usize> = start
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| t.as_ref().map(|t| (t.clone(), i)))
+            .collect();
+        let Some(drag_orig) = orig_pos.get(&dragged).copied() else {
+            return;
+        };
+        let mut before_part = Vec::new();
+        let mut after_part = Vec::new();
+        for t in start.iter().flatten() {
+            if t == &dragged || !moved.contains(t) {
+                continue;
+            }
+            if orig_pos[t] < drag_orig {
+                before_part.push(t.clone());
+            } else {
+                after_part.push(t.clone());
+            }
+        }
+        if before_part.is_empty() && after_part.is_empty() {
+            return;
+        }
+        let others: HashSet<&TraceRef> = before_part.iter().chain(after_part.iter()).collect();
+        list.retain(|t| t.as_ref().is_none_or(|t| !others.contains(t)));
+        let Some(idx) = list.iter().position(|t| t.as_ref() == Some(&dragged)) else {
+            return;
+        };
+        for (i, t) in after_part.into_iter().enumerate() {
+            list.insert(idx + 1 + i, Some(t));
+        }
+        for (i, t) in before_part.into_iter().enumerate() {
+            list.insert(idx + i, Some(t));
+        }
+    }
+
+    /// Same grouped-move for XY pair rows, matching items by member identity.
+    fn group_move_pairs(
+        list: &mut Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)>,
+        start: &[(Option<TraceRef>, Option<TraceRef>, TraceLook)],
+        dragged_idx: usize,
+        moved: &HashSet<TraceRef>,
+    ) {
+        let is_moved = |p: &(Option<TraceRef>, Option<TraceRef>, TraceLook)| {
+            p.0.as_ref().is_some_and(|t| moved.contains(t))
+                || p.1.as_ref().is_some_and(|t| moved.contains(t))
+        };
+        let pair_eq = |a: &(Option<TraceRef>, Option<TraceRef>, TraceLook),
+                       b: &(Option<TraceRef>, Option<TraceRef>, TraceLook)| {
+            a.0 == b.0 && a.1 == b.1
+        };
+        let Some(dragged) = list.get(dragged_idx).cloned() else {
+            return;
+        };
+        let Some(drag_orig) = start.iter().position(|p| pair_eq(p, &dragged)) else {
+            return;
+        };
+        let mut before_part = Vec::new();
+        let mut after_part = Vec::new();
+        for (i, p) in start.iter().enumerate() {
+            if pair_eq(p, &dragged) || !is_moved(p) {
+                continue;
+            }
+            if i < drag_orig {
+                before_part.push(p.clone());
+            } else {
+                after_part.push(p.clone());
+            }
+        }
+        if before_part.is_empty() && after_part.is_empty() {
+            return;
+        }
+        list.retain(|p| !(is_moved(p) && !pair_eq(p, &dragged)));
+        let Some(idx) = list.iter().position(|p| pair_eq(p, &dragged)) else {
+            return;
+        };
+        for (i, p) in after_part.into_iter().enumerate() {
+            list.insert(idx + 1 + i, p);
+        }
+        for (i, p) in before_part.into_iter().enumerate() {
+            list.insert(idx + i, p);
+        }
+    }
+
+    /// Fill slot `idx` of a slotted list with the payload's first member trace,
+    /// then spill remaining members into following empty slots or the list end.
+    /// Moved members are removed from any other slot first (move semantics).
+    fn apply_slot_drop(traces: &mut Vec<Option<TraceRef>>, idx: usize, payload: &DragPayload) {
+        let flat = payload.trace_refs();
+        if flat.is_empty() {
+            return;
+        }
+        for (j, other) in traces.iter_mut().enumerate() {
+            if j != idx && flat.iter().any(|t| other.as_ref() == Some(t)) {
+                *other = None;
+            }
+        }
+        let mut it = flat.into_iter();
+        if let Some(first) = it.next() {
+            if idx < traces.len() {
+                traces[idx] = Some(first);
+            } else {
+                traces.push(Some(first));
+            }
+        }
+        for t in it {
+            if let Some(slot) = traces.iter_mut().skip(idx + 1).find(|s| s.is_none()) {
+                *slot = Some(t);
+            } else {
+                traces.push(Some(t));
+            }
+        }
+    }
+
     fn render_trace_list<S: Hash + std::fmt::Debug>(
         ui: &mut Ui,
         args: TraceListArgs<'_, S>,
@@ -392,11 +633,17 @@ impl ScopeSettingsUiPanel {
             preserve_slots,
             color_chooser,
             open_look_editor,
+            selection,
+            list_key,
         } = args;
         let before = traces.clone();
         let mut removed: HashSet<TraceRef> = HashSet::new();
         let mut pending_place: Option<(usize, DragPayload)> = None;
         let mut dropped_payload: Option<(usize, DragPayload)> = None;
+        let mut sel_click: Option<(TraceRef, usize, egui::Modifiers)> = None;
+        // Payload this list itself is dragging (subset of `dragging_payload`
+        // which may also come from the traces table or another list).
+        let mut own_drag: Option<DragPayload> = None;
 
         // We support dragging from two sources:
         // - the main traces table (sets `global_dragging`)
@@ -406,6 +653,7 @@ impl ScopeSettingsUiPanel {
 
         let mut color_chooser = color_chooser;
         let mut open_look_editor = open_look_editor;
+        let start_order_key = Id::new(("dnd_start_order", &id_salt));
 
         ui.vertical(|ui| {
             ui.strong(title);
@@ -426,10 +674,35 @@ impl ScopeSettingsUiPanel {
                         item_handle.ui(ui, |ui, handle, state| {
                             if state.dragged {
                                 if let Some(t) = tr.as_ref() {
+                                    // Dragging a selected row drags the whole
+                                    // selection (in list order); an unselected
+                                    // row drags alone.
+                                    let mut items: Vec<DragItem> = if selection.traces.contains(t) {
+                                        before
+                                            .iter()
+                                            .flatten()
+                                            .filter(|b| selection.traces.contains(*b))
+                                            .cloned()
+                                            .map(DragItem::Trace)
+                                            .collect()
+                                    } else {
+                                        Vec::new()
+                                    };
+                                    if items.is_empty() {
+                                        items.push(DragItem::Trace(t.clone()));
+                                    }
                                     let p = DragPayload {
-                                        trace: t.clone(),
+                                        items,
                                         origin_scope_id,
                                     };
+                                    ui.ctx().data_mut(|d| {
+                                        if d.get_temp::<Vec<Option<TraceRef>>>(start_order_key)
+                                            .is_none()
+                                        {
+                                            d.insert_temp(start_order_key, before.clone());
+                                        }
+                                    });
+                                    own_drag = Some(p.clone());
                                     dragging_payload = Some(p.clone());
                                     *global_dragging = Some(p);
                                     drag_active = true;
@@ -438,59 +711,77 @@ impl ScopeSettingsUiPanel {
 
                             match tr {
                                 Some(t) => {
-                                    ui.horizontal(|ui| {
-                                        handle.ui(ui, |ui| {
-                                            ui.label(DOTS_SIX_VERTICAL);
-                                        });
+                                    let selected = selection.traces.contains(t);
+                                    let frame = egui::Frame::new()
+                                        .inner_margin(egui::Margin::symmetric(2, 0))
+                                        .corner_radius(egui::CornerRadius::same(3));
+                                    let frame = if selected {
+                                        frame.fill(
+                                            ui.visuals().selection.bg_fill.linear_multiply(0.35),
+                                        )
+                                    } else {
+                                        frame
+                                    };
+                                    frame.show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            handle.ui(ui, |ui| {
+                                                ui.label(DOTS_SIX_VERTICAL);
+                                            });
 
-                                        if let Some(colors) = color_chooser.as_mut() {
-                                            if let Some(slot_color) = colors.get_mut(idx) {
-                                                ui.color_edit_button_srgba(slot_color)
-                                                    .on_hover_text("Change color");
-                                            }
-                                        }
-
-                                        let resp = ui
-                                            .add(
-                                                egui::Label::new(t.0.clone())
-                                                    .truncate()
-                                                    .show_tooltip_when_elided(true)
-                                                    .sense(egui::Sense::click()),
-                                            )
-                                            .on_hover_text(trace_tooltip(traces_collection, t));
-                                        if resp.hovered() {
-                                            traces_collection.hover_trace = Some(vec![t.clone()]);
-                                        }
-                                        if resp.clicked() && open_look_editor.is_some() {
-                                            if let Some(open_out) = open_look_editor.as_mut() {
-                                                **open_out = idx;
-                                            }
-                                        }
-
-                                        ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |ui| {
-                                                if ui
-                                                    .small_button(egui_phosphor_icons::icons::TRASH)
-                                                    .on_hover_text("Remove")
-                                                    .clicked()
-                                                {
-                                                    removed.insert(t.clone());
+                                            if let Some(colors) = color_chooser.as_mut() {
+                                                if let Some(slot_color) = colors.get_mut(idx) {
+                                                    ui.color_edit_button_srgba(slot_color)
+                                                        .on_hover_text("Change color");
                                                 }
-                                                if open_look_editor.is_some()
-                                                    && ui
-                                                        .small_button(PALETTE.as_str())
-                                                        .on_hover_text("Edit trace style")
+                                            }
+
+                                            let resp = ui
+                                                .add(
+                                                    egui::Label::new(t.0.clone())
+                                                        .truncate()
+                                                        .show_tooltip_when_elided(true)
+                                                        .sense(egui::Sense::click()),
+                                                )
+                                                .on_hover_text(trace_tooltip(traces_collection, t));
+                                            if resp.hovered() {
+                                                traces_collection.hover_trace =
+                                                    Some(vec![t.clone()]);
+                                            }
+                                            if resp.clicked() {
+                                                sel_click = Some((
+                                                    t.clone(),
+                                                    idx,
+                                                    ui.input(|i| i.modifiers),
+                                                ));
+                                            }
+
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    if ui
+                                                        .small_button(
+                                                            egui_phosphor_icons::icons::TRASH,
+                                                        )
+                                                        .on_hover_text("Remove")
                                                         .clicked()
-                                                {
-                                                    if let Some(open_out) =
-                                                        open_look_editor.as_mut()
                                                     {
-                                                        **open_out = idx;
+                                                        removed.insert(t.clone());
                                                     }
-                                                }
-                                            },
-                                        );
+                                                    if open_look_editor.is_some()
+                                                        && ui
+                                                            .small_button(PALETTE.as_str())
+                                                            .on_hover_text("Edit trace style")
+                                                            .clicked()
+                                                    {
+                                                        if let Some(open_out) =
+                                                            open_look_editor.as_mut()
+                                                        {
+                                                            **open_out = idx;
+                                                        }
+                                                    }
+                                                },
+                                            );
+                                        });
                                     });
                                 }
                                 None => {
@@ -505,7 +796,6 @@ impl ScopeSettingsUiPanel {
                                         pending_place = Some((idx, dropped.clone()));
                                         dropped_payload = Some((idx, dropped.clone()));
                                         *global_dragging = None;
-                                        *tr = Some(dropped.trace.clone());
                                     }
                                 }
                             }
@@ -517,6 +807,44 @@ impl ScopeSettingsUiPanel {
             if dnd_resp.is_dragging() {
                 ui.ctx().request_repaint();
                 drag_active = true;
+            } else {
+                ui.ctx()
+                    .data_mut(|d| d.remove::<Vec<Option<TraceRef>>>(start_order_key));
+            }
+
+            // Grouped in-list reorder: pull the other selected rows along once
+            // the drag finishes (slot drops handle placement themselves).
+            if pending_place.is_none() {
+                if let Some(update) = dnd_resp.final_update() {
+                    if let Some(p) = &own_drag {
+                        if p.items.len() > 1 {
+                            let start = ui
+                                .ctx()
+                                .data_mut(|d| d.get_temp::<Vec<Option<TraceRef>>>(start_order_key))
+                                .unwrap_or_else(|| before.clone());
+                            let moved: HashSet<TraceRef> = p.trace_refs().into_iter().collect();
+                            Self::group_move(traces, &start, update.to, &moved);
+                        }
+                    }
+                }
+            }
+
+            // Ctrl/Shift-aware selection clicks collected in the rows are
+            // resolved here where the full list order is available.
+            if let Some((t, idx, mods)) = sel_click {
+                if mods.shift {
+                    let ordered: Vec<TraceRef> = traces.iter().flatten().cloned().collect();
+                    selection.select_range(list_key, &t, &ordered, mods.command);
+                } else if mods.command {
+                    selection.toggle(list_key, t);
+                } else {
+                    selection.select_only(list_key, t);
+                    // Preserve the existing plain-click behavior of opening the
+                    // trace look editor.
+                    if let Some(open_out) = open_look_editor.as_mut() {
+                        **open_out = idx;
+                    }
+                }
             }
 
             let dragging = dragging_payload.as_ref();
@@ -531,12 +859,15 @@ impl ScopeSettingsUiPanel {
                 dropped_payload = Some((idx, t.clone()));
                 *global_dragging = None;
 
+                let flat = t.trace_refs();
                 for x in traces.iter_mut() {
-                    if x.as_ref() == Some(&t.trace) {
+                    if flat.iter().any(|f| x.as_ref() == Some(f)) {
                         *x = None;
                     }
                 }
-                traces.push(Some(t.trace.clone()));
+                for tref in flat {
+                    traces.push(Some(tref));
+                }
             }
         });
 
@@ -555,11 +886,7 @@ impl ScopeSettingsUiPanel {
         }
 
         if let Some((idx, dropped)) = pending_place {
-            for (j, other) in traces.iter_mut().enumerate() {
-                if j != idx && other.as_ref() == Some(&dropped.trace) {
-                    *other = None;
-                }
-            }
+            Self::apply_slot_drop(traces, idx, &dropped);
         }
 
         if drag_active {
@@ -569,6 +896,491 @@ impl ScopeSettingsUiPanel {
         }
 
         (*traces != before, dropped_payload)
+    }
+
+    /// Look for a newly-created pair slot from the dropped trace's own look.
+    fn look_of(traces_collection: &TracesCollection, t: &TraceRef) -> TraceLook {
+        traces_collection
+            .get_trace(t)
+            .map(|tr| tr.look.clone())
+            .unwrap_or_default()
+    }
+
+    /// Apply a payload dropped onto a pair-list cell or the list end.
+    /// `idx` is the pair row index (or `pairs.len()` for the end slot) and
+    /// `cell` is the target cell for `DragItem::Trace` items (`XyPair` items
+    /// always fill a whole row).
+    fn apply_pair_drop(
+        pairs: &mut Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)>,
+        idx: usize,
+        cell: PairCell,
+        payload: &DragPayload,
+        traces_collection: &TracesCollection,
+    ) {
+        let moved: Vec<TraceRef> = payload.trace_refs();
+        if moved.is_empty() {
+            return;
+        }
+
+        // Move semantics: clear the moved members from all other rows.
+        for (j, (x, y, _)) in pairs.iter_mut().enumerate() {
+            if j == idx {
+                continue;
+            }
+            if x.as_ref().is_some_and(|t| moved.contains(t)) {
+                *x = None;
+            }
+            if y.as_ref().is_some_and(|t| moved.contains(t)) {
+                *y = None;
+            }
+        }
+
+        let place = |pairs: &mut Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)>,
+                     row: usize,
+                     cell: PairCell,
+                     item: &DragItem| match item {
+            DragItem::XyPair { x, y, look } => {
+                if row < pairs.len() {
+                    pairs[row] = (x.clone(), y.clone(), look.clone());
+                } else {
+                    pairs.push((x.clone(), y.clone(), look.clone()));
+                }
+            }
+            DragItem::Trace(t) => {
+                if row < pairs.len() {
+                    let p = &mut pairs[row];
+                    let was_empty = p.0.is_none() && p.1.is_none();
+                    match cell {
+                        PairCell::X => p.0 = Some(t.clone()),
+                        PairCell::Y => p.1 = Some(t.clone()),
+                    }
+                    if was_empty {
+                        p.2 = Self::look_of(traces_collection, t);
+                    }
+                } else {
+                    // New rows: a lone trace lands on the dragged side so the
+                    // pair can be completed by a later drop on the other cell.
+                    let look = Self::look_of(traces_collection, t);
+                    match cell {
+                        PairCell::X => pairs.push((Some(t.clone()), None, look)),
+                        PairCell::Y => pairs.push((None, Some(t.clone()), look)),
+                    }
+                }
+            }
+        };
+
+        let mut row = idx;
+        for item in payload.items.iter() {
+            place(pairs, row, cell, item);
+            row += 1;
+        }
+    }
+
+    /// Render one merged row-per-pair list for XY scopes.  Reordering moves
+    /// whole pairs (X, Y and the pair look travel together); Ctrl/Shift
+    /// selection and multi-drag operate on pairs.
+    #[allow(clippy::too_many_arguments)]
+    fn render_pair_list<S: Hash + std::fmt::Debug>(
+        ui: &mut Ui,
+        id_salt: S,
+        global_dragging: &mut Option<DragPayload>,
+        origin_scope_id: usize,
+        traces_collection: &mut TracesCollection,
+        pairs: &mut Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)>,
+        selection: &mut TraceSelection,
+        list_key: TraceListKey,
+        open_pair_editor: &mut usize,
+    ) -> (bool, Option<(usize, DragPayload)>) {
+        let before: Vec<(Option<TraceRef>, Option<TraceRef>)> = pairs
+            .iter()
+            .map(|(x, y, _)| (x.clone(), y.clone()))
+            .collect();
+        let mut pending_drop: Option<(usize, PairCell, DragPayload)> = None;
+        let mut dropped_payload: Option<(usize, DragPayload)> = None;
+        let mut sel_click: Option<(usize, TraceRef, egui::Modifiers)> = None;
+        let mut own_drag: Option<DragPayload> = None;
+
+        let mut drag_active = global_dragging.is_some();
+        let mut dragging_payload: Option<DragPayload> = global_dragging.clone();
+        let start_order_key = Id::new(("dnd_start_order_pairs", &id_salt));
+
+        let pairs_snapshot = pairs.clone();
+
+        ui.vertical(|ui| {
+            // Header
+            let chrome_w = 20.0 + 24.0 + 18.0 + 8.0; // handle + color + palette + spacing
+            let cell_w = ((ui.available_width() - chrome_w) / 2.0).max(60.0);
+            ui.horizontal(|ui| {
+                ui.add_space(chrome_w);
+                ui.allocate_ui(egui::vec2(cell_w, 14.0), |ui| {
+                    ui.centered_and_justified(|ui| {
+                        ui.strong("X");
+                    });
+                });
+                ui.allocate_ui(egui::vec2(cell_w, 14.0), |ui| {
+                    ui.centered_and_justified(|ui| {
+                        ui.strong("Y");
+                    });
+                });
+            });
+            ui.separator();
+
+            let dnd_id = Id::new(("pair_list_dnd", &id_salt));
+            let dnd_resp = dnd(ui, dnd_id).show_custom(|ui, iter| {
+                for (idx, (x, y, look)) in pairs.iter_mut().enumerate() {
+                    let is_draggable = x.is_some() || y.is_some();
+                    let row_id = Id::new((
+                        "pair_row",
+                        &id_salt,
+                        x.as_ref().map(|t| t.0.clone()),
+                        y.as_ref().map(|t| t.0.clone()),
+                        idx,
+                    ));
+
+                    iter.next(ui, row_id, idx, is_draggable, |ui, item_handle| {
+                        item_handle.ui(ui, |ui, handle, state| {
+                            if state.dragged && is_draggable {
+                                let this_selected =
+                                    x.as_ref().is_some_and(|t| selection.traces.contains(t))
+                                        || y.as_ref().is_some_and(|t| selection.traces.contains(t));
+                                let mut items: Vec<DragItem> = if this_selected {
+                                    pairs_snapshot
+                                        .iter()
+                                        .filter(|(px, py, _)| {
+                                            px.as_ref()
+                                                .is_some_and(|t| selection.traces.contains(t))
+                                                || py
+                                                    .as_ref()
+                                                    .is_some_and(|t| selection.traces.contains(t))
+                                        })
+                                        .map(|(px, py, l)| DragItem::XyPair {
+                                            x: px.clone(),
+                                            y: py.clone(),
+                                            look: l.clone(),
+                                        })
+                                        .collect()
+                                } else {
+                                    Vec::new()
+                                };
+                                if items.is_empty() {
+                                    items.push(DragItem::XyPair {
+                                        x: x.clone(),
+                                        y: y.clone(),
+                                        look: look.clone(),
+                                    });
+                                }
+                                let p = DragPayload {
+                                    items,
+                                    origin_scope_id: Some(origin_scope_id),
+                                };
+                                ui.ctx().data_mut(|d| {
+                                    if d.get_temp::<Vec<(
+                                        Option<TraceRef>,
+                                        Option<TraceRef>,
+                                        TraceLook,
+                                    )>>(start_order_key)
+                                    .is_none()
+                                    {
+                                        d.insert_temp(start_order_key, pairs_snapshot.clone());
+                                    }
+                                });
+                                own_drag = Some(p.clone());
+                                dragging_payload = Some(p.clone());
+                                *global_dragging = Some(p);
+                                drag_active = true;
+                            }
+
+                            let pair_selected =
+                                x.as_ref().is_some_and(|t| selection.traces.contains(t))
+                                    || y.as_ref().is_some_and(|t| selection.traces.contains(t));
+                            let frame = egui::Frame::new()
+                                .inner_margin(egui::Margin::symmetric(2, 0))
+                                .corner_radius(egui::CornerRadius::same(3));
+                            let frame = if pair_selected {
+                                frame.fill(ui.visuals().selection.bg_fill.linear_multiply(0.35))
+                            } else {
+                                frame
+                            };
+                            frame.show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    handle.ui(ui, |ui| {
+                                        ui.label(DOTS_SIX_VERTICAL);
+                                    });
+
+                                    ui.color_edit_button_srgba(&mut look.color)
+                                        .on_hover_text("Change pair color");
+                                    if ui
+                                        .small_button(PALETTE.as_str())
+                                        .on_hover_text("Edit pair style")
+                                        .clicked()
+                                    {
+                                        *open_pair_editor = idx;
+                                    }
+
+                                    // X cell
+                                    ui.allocate_ui(egui::vec2(cell_w, 18.0), |ui| {
+                                        ui.with_layout(
+                                            egui::Layout::left_to_right(egui::Align::Center),
+                                            |ui| match x {
+                                                Some(t) => {
+                                                    let resp = ui
+                                                        .add(
+                                                            egui::Label::new(t.0.clone())
+                                                                .truncate()
+                                                                .show_tooltip_when_elided(true)
+                                                                .sense(egui::Sense::click()),
+                                                        )
+                                                        .on_hover_text(trace_tooltip(
+                                                            traces_collection,
+                                                            t,
+                                                        ));
+                                                    if resp.hovered() {
+                                                        traces_collection.hover_trace =
+                                                            Some(vec![t.clone()]);
+                                                    }
+                                                    if resp.clicked() {
+                                                        sel_click = Some((
+                                                            idx,
+                                                            t.clone(),
+                                                            ui.input(|i| i.modifiers),
+                                                        ));
+                                                    }
+                                                    if ui
+                                                        .small_button(TRASH)
+                                                        .on_hover_text("Remove X")
+                                                        .clicked()
+                                                    {
+                                                        *x = None;
+                                                    }
+                                                }
+                                                None => {
+                                                    if let Some(dropped) = Self::render_drop_slot(
+                                                        ui,
+                                                        ("pair_slot_x", &id_salt, idx),
+                                                        dragging_payload.as_ref(),
+                                                        drag_active,
+                                                        "X",
+                                                    ) {
+                                                        pending_drop = Some((
+                                                            idx,
+                                                            PairCell::X,
+                                                            dropped.clone(),
+                                                        ));
+                                                        dropped_payload =
+                                                            Some((idx, dropped.clone()));
+                                                        *global_dragging = None;
+                                                    }
+                                                }
+                                            },
+                                        );
+                                    });
+
+                                    // Y cell
+                                    ui.allocate_ui(egui::vec2(cell_w, 18.0), |ui| {
+                                        ui.with_layout(
+                                            egui::Layout::left_to_right(egui::Align::Center),
+                                            |ui| match y {
+                                                Some(t) => {
+                                                    let resp = ui
+                                                        .add(
+                                                            egui::Label::new(t.0.clone())
+                                                                .truncate()
+                                                                .show_tooltip_when_elided(true)
+                                                                .sense(egui::Sense::click()),
+                                                        )
+                                                        .on_hover_text(trace_tooltip(
+                                                            traces_collection,
+                                                            t,
+                                                        ));
+                                                    if resp.hovered() {
+                                                        traces_collection.hover_trace =
+                                                            Some(vec![t.clone()]);
+                                                    }
+                                                    if resp.clicked() {
+                                                        sel_click = Some((
+                                                            idx,
+                                                            t.clone(),
+                                                            ui.input(|i| i.modifiers),
+                                                        ));
+                                                    }
+                                                    if ui
+                                                        .small_button(TRASH)
+                                                        .on_hover_text("Remove Y")
+                                                        .clicked()
+                                                    {
+                                                        *y = None;
+                                                    }
+                                                }
+                                                None => {
+                                                    if let Some(dropped) = Self::render_drop_slot(
+                                                        ui,
+                                                        ("pair_slot_y", &id_salt, idx),
+                                                        dragging_payload.as_ref(),
+                                                        drag_active,
+                                                        "Y",
+                                                    ) {
+                                                        pending_drop = Some((
+                                                            idx,
+                                                            PairCell::Y,
+                                                            dropped.clone(),
+                                                        ));
+                                                        dropped_payload =
+                                                            Some((idx, dropped.clone()));
+                                                        *global_dragging = None;
+                                                    }
+                                                }
+                                            },
+                                        );
+                                    });
+                                });
+                            });
+                        })
+                    });
+                }
+            });
+            // Keep sibling columns in sync while reordering and on drop.
+            dnd_resp.update_vec(pairs);
+
+            if dnd_resp.is_dragging() {
+                ui.ctx().request_repaint();
+                drag_active = true;
+            } else {
+                ui.ctx().data_mut(|d| {
+                    d.remove::<Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)>>(
+                        start_order_key,
+                    )
+                });
+            }
+
+            if pending_drop.is_none() {
+                if let Some(update) = dnd_resp.final_update() {
+                    if let Some(p) = &own_drag {
+                        if p.items.len() > 1 {
+                            let start = ui
+                                .ctx()
+                                .data_mut(|d| {
+                                    d.get_temp::<Vec<(
+                                        Option<TraceRef>,
+                                        Option<TraceRef>,
+                                        TraceLook,
+                                    )>>(start_order_key)
+                                })
+                                .unwrap_or_else(|| pairs_snapshot.clone());
+                            let moved: HashSet<TraceRef> = p.trace_refs().into_iter().collect();
+                            Self::group_move_pairs(pairs, &start, update.to, &moved);
+                        }
+                    }
+                }
+            }
+
+            // Pair-level selection: clicking a member selects the whole pair.
+            // Re-find the pair by member — it may have shifted during the drag.
+            if let Some((_idx, member, mods)) = sel_click {
+                let idx = pairs
+                    .iter()
+                    .position(|(px, py, _)| {
+                        px.as_ref() == Some(&member) || py.as_ref() == Some(&member)
+                    })
+                    .unwrap_or(0);
+                let pair_key = pairs
+                    .get(idx)
+                    .and_then(|(px, py, _)| px.clone().or_else(|| py.clone()));
+                if let Some(key_ref) = pair_key {
+                    if mods.shift {
+                        // Range over pair rows using each row's first member.
+                        let ordered: Vec<TraceRef> = pairs
+                            .iter()
+                            .filter_map(|(px, py, _)| px.clone().or_else(|| py.clone()))
+                            .collect();
+                        // Determine the index range first, then select all
+                        // members of the covered pairs.
+                        let anchor_t = selection
+                            .anchor
+                            .as_ref()
+                            .and_then(|(k, t)| (*k == list_key).then(|| t.clone()));
+                        let a = anchor_t
+                            .and_then(|t| ordered.iter().position(|o| o == &t))
+                            .unwrap_or(idx);
+                        let (lo, hi) = (a.min(idx), a.max(idx));
+                        if !mods.command {
+                            selection.traces.clear();
+                        }
+                        for (px, py, _) in pairs.iter().take(hi + 1).skip(lo) {
+                            if let Some(t) = px {
+                                selection.traces.insert(t.clone());
+                            }
+                            if let Some(t) = py {
+                                selection.traces.insert(t.clone());
+                            }
+                        }
+                        selection.anchor = Some((list_key, key_ref));
+                    } else if mods.command {
+                        let (px, py, _) = &pairs[idx];
+                        let members: Vec<TraceRef> =
+                            [px.clone(), py.clone()].into_iter().flatten().collect();
+                        let selected = members.iter().any(|t| selection.traces.contains(t));
+                        if selected {
+                            for t in &members {
+                                selection.traces.remove(t);
+                            }
+                        } else {
+                            for t in members {
+                                selection.traces.insert(t);
+                            }
+                        }
+                        selection.anchor = Some((list_key, key_ref));
+                    } else {
+                        selection.traces.clear();
+                        if let (Some(px), Some(py)) = (&pairs[idx].0, &pairs[idx].1) {
+                            selection.traces.insert(px.clone());
+                            selection.traces.insert(py.clone());
+                        } else {
+                            selection.traces.insert(key_ref.clone());
+                        }
+                        selection.anchor = Some((list_key, key_ref));
+                    }
+                }
+            }
+
+            let dragging = dragging_payload.as_ref();
+            if let Some(dropped) = Self::render_drop_slot(
+                ui,
+                ("pair_drop_end", &id_salt),
+                dragging,
+                drag_active,
+                "Drop trace / pair here",
+            ) {
+                let idx = pairs.len();
+                dropped_payload = Some((idx, dropped.clone()));
+                *global_dragging = None;
+                pending_drop = Some((idx, PairCell::X, dropped));
+            }
+        });
+
+        // Drop empty rows and apply pending drops.
+        pairs.retain(|(x, y, _)| x.is_some() || y.is_some());
+        if let Some((idx, cell, payload)) = pending_drop {
+            Self::apply_pair_drop(
+                pairs,
+                idx.min(pairs.len()),
+                cell,
+                &payload,
+                traces_collection,
+            );
+            pairs.retain(|(x, y, _)| x.is_some() || y.is_some());
+        }
+
+        if drag_active {
+            if let Some(p) = dragging_payload {
+                *global_dragging = Some(p);
+            }
+        }
+
+        let after: Vec<(Option<TraceRef>, Option<TraceRef>)> = pairs
+            .iter()
+            .map(|(x, y, _)| (x.clone(), y.clone()))
+            .collect();
+        (after != before, dropped_payload)
     }
 
     /// Render a complete scope assignment block: header/settings + either trace list (time) or
@@ -586,6 +1398,7 @@ impl ScopeSettingsUiPanel {
             traces_collection,
             look_editor_out,
             xy_pair_look_editor_out,
+            selection,
         } = args;
         let mut resp = self.render_scope_settings(ui, scope, can_remove_scope, pending);
         let mut scope_changed = false;
@@ -601,7 +1414,7 @@ impl ScopeSettingsUiPanel {
                 scope.trace_order.sort_by(|a, b| b.0.cmp(&a.0));
             }
             if scope.scope_type == ScopeType::XYScope {
-                Self::rebuild_xy_pairs_from_trace_order(scope, traces_collection);
+                scope.rebuild_xy_pairs_from_trace_order(traces_collection);
             }
             scope_changed = true;
         }
@@ -609,10 +1422,10 @@ impl ScopeSettingsUiPanel {
         if resp.type_changed {
             match scope.scope_type {
                 ScopeType::XYScope => {
-                    Self::rebuild_xy_pairs_from_trace_order(scope, traces_collection);
+                    scope.rebuild_xy_pairs_from_trace_order(traces_collection);
                 }
                 ScopeType::TimeScope => {
-                    Self::rebuild_trace_order_from_xy_pairs(scope);
+                    scope.rebuild_trace_order_from_xy_pairs();
                 }
             }
             Self::reorder_trace_order_pairs_first(scope);
@@ -667,6 +1480,8 @@ impl ScopeSettingsUiPanel {
                         preserve_slots: false,
                         color_chooser: Some(color_refs),
                         open_look_editor: Some(&mut open_editor_idx),
+                        selection,
+                        list_key: TraceListKey::ScopeTraces(scope.id),
                     },
                 );
 
@@ -702,172 +1517,38 @@ impl ScopeSettingsUiPanel {
                 if let Some(dropped) = dropped {
                     if let Some(src) = dropped.1.origin_scope_id {
                         if src != scope.id {
-                            resp.moved_from_scope = Some((src, dropped.1.trace));
+                            resp.moved_from_scope = Some((src, dropped.1.trace_refs()));
                         }
                     }
                 }
             }
             ScopeType::XYScope => {
-                let target_w = ui.available_width();
+                // Merged pair list: one row per XY pair; reorder and multi-drag
+                // move whole pairs (members + pair look travel together).
+                let mut open_editor_idx = usize::MAX;
+                let (changed, dropped) = Self::render_pair_list(
+                    ui,
+                    ("xy_scope", scope.id),
+                    global_dragging,
+                    scope.id,
+                    traces_collection,
+                    &mut scope.xy_pairs,
+                    selection,
+                    TraceListKey::ScopePairs(scope.id),
+                    &mut open_editor_idx,
+                );
+                scope_changed |= changed;
 
-                // Keep your per-column lists, but make them actually apply changes back.
-                // Note: empty TraceRef ("") is treated as None.
-
-                let mut x_vec: Vec<Option<TraceRef>> =
-                    scope.xy_pairs.iter().map(|(x, _, _)| x.clone()).collect();
-                let mut y_vec: Vec<Option<TraceRef>> =
-                    scope.xy_pairs.iter().map(|(_, y, _)| y.clone()).collect();
-                let mut look_vec: Vec<TraceLook> =
-                    scope.xy_pairs.iter().map(|(_, _, l)| l.clone()).collect();
-
-                let x_before = x_vec.clone();
-                let y_before = y_vec.clone();
-
-                ui.allocate_ui(egui::vec2(target_w, 0.0), |ui| {
-                    ui.set_width(target_w);
-                    // Two fixed-width columns to avoid the panel expanding in XY mode.
-                    let col_w = ((target_w - 30.0) / 2.0).max(150.0);
-                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
-                        ui.allocate_ui(egui::vec2(col_w, 0.0), |ui| {
-                            let mut colors: Vec<Color32> =
-                                look_vec.iter().map(|l| l.color).collect();
-                            let color_refs: Vec<&mut Color32> = colors.iter_mut().collect();
-
-                            let (changed, dropped) = Self::render_trace_list(
-                                ui,
-                                TraceListArgs {
-                                    id_salt: ("xy_scope_x", scope.id),
-                                    title: "X Traces",
-                                    global_dragging,
-                                    origin_scope_id: Some(scope.id),
-                                    traces_collection,
-                                    traces: &mut x_vec,
-                                    empty_label: "Drop X trace here",
-                                    preserve_slots: true,
-                                    color_chooser: Some(color_refs),
-                                    open_look_editor: None,
-                                },
-                            );
-                            scope_changed |= changed;
-
-                            // Apply edited colors back to pair looks.
-                            if colors.len() > look_vec.len() {
-                                look_vec.resize_with(colors.len(), TraceLook::default);
-                            }
-                            for (i, c) in colors.into_iter().enumerate() {
-                                if let Some(look) = look_vec.get_mut(i) {
-                                    look.color = c;
-                                }
-                            }
-
-                            if let Some(dropped) = dropped {
-                                let (idx, payload) = dropped;
-                                let was_empty =
-                                    x_before.get(idx).and_then(|v| v.as_ref()).is_none()
-                                        && y_before.get(idx).and_then(|v| v.as_ref()).is_none();
-
-                                if was_empty {
-                                    while look_vec.len() <= idx {
-                                        look_vec.push(TraceLook::default());
-                                    }
-                                    if let Some(tr) = traces_collection.get_trace(&payload.trace) {
-                                        look_vec[idx] = tr.look.clone();
-                                    }
-                                }
-
-                                if let Some(src) = payload.origin_scope_id {
-                                    if src != scope.id {
-                                        resp.moved_from_scope = Some((src, payload.trace));
-                                    }
-                                }
-                            }
-                        });
-
-                        ui.separator();
-
-                        ui.allocate_ui(egui::vec2(col_w, 0.0), |ui| {
-                            let mut open_editor_idx = usize::MAX;
-                            let (changed, dropped) = Self::render_trace_list(
-                                ui,
-                                TraceListArgs {
-                                    id_salt: ("xy_scope_y", scope.id),
-                                    title: "Y Traces",
-                                    global_dragging,
-                                    origin_scope_id: Some(scope.id),
-                                    traces_collection,
-                                    traces: &mut y_vec,
-                                    empty_label: "Drop Y trace here",
-                                    preserve_slots: true,
-                                    color_chooser: None,
-                                    open_look_editor: Some(&mut open_editor_idx),
-                                },
-                            );
-                            scope_changed |= changed;
-
-                            if open_editor_idx != usize::MAX {
-                                *look_editor_out = None;
-                                *xy_pair_look_editor_out = Some((scope.id, open_editor_idx));
-                            }
-
-                            if let Some(dropped) = dropped {
-                                let (idx, payload) = dropped;
-                                let was_empty =
-                                    x_before.get(idx).and_then(|v| v.as_ref()).is_none()
-                                        && y_before.get(idx).and_then(|v| v.as_ref()).is_none();
-
-                                if was_empty {
-                                    while look_vec.len() <= idx {
-                                        look_vec.push(TraceLook::default());
-                                    }
-                                    if let Some(tr) = traces_collection.get_trace(&payload.trace) {
-                                        look_vec[idx] = tr.look.clone();
-                                    }
-                                }
-
-                                if let Some(src) = payload.origin_scope_id {
-                                    if src != scope.id {
-                                        resp.moved_from_scope = Some((src, payload.trace));
-                                    }
-                                }
-                            }
-                        });
-                    });
-                });
-
-                if scope_changed {
-                    let max_len = x_vec.len().max(y_vec.len()).max(look_vec.len());
-                    let mut rebuilt: Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)> =
-                        Vec::with_capacity(max_len);
-
-                    for i in 0..max_len {
-                        let x = x_vec.get(i).cloned().unwrap_or(None);
-                        let y = y_vec.get(i).cloned().unwrap_or(None);
-                        let look = look_vec.get(i).cloned().unwrap_or_else(TraceLook::default);
-                        if x.is_none() && y.is_none() {
-                            continue;
-                        }
-                        rebuilt.push((x, y, look));
-                    }
-
-                    // Keep at most one incomplete pair (None/Some or Some/None).
-                    let mut seen_incomplete = false;
-                    rebuilt.retain(|(x, y, _)| {
-                        if x.is_none() ^ y.is_none() {
-                            if seen_incomplete {
-                                return false;
-                            }
-                            seen_incomplete = true;
-                        }
-                        true
-                    });
-
-                    scope.xy_pairs = rebuilt;
+                if open_editor_idx != usize::MAX {
+                    *look_editor_out = None;
+                    *xy_pair_look_editor_out = Some((scope.id, open_editor_idx));
                 }
 
-                // Write back pair looks (color/style edits) even if trace membership didn't change.
-                if scope.xy_pairs.len() == look_vec.len() {
-                    for (i, (_x, _y, look)) in scope.xy_pairs.iter_mut().enumerate() {
-                        *look = look_vec[i].clone();
+                if let Some(dropped) = dropped {
+                    if let Some(src) = dropped.1.origin_scope_id {
+                        if src != scope.id {
+                            resp.moved_from_scope = Some((src, dropped.1.trace_refs()));
+                        }
                     }
                 }
             }

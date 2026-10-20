@@ -339,7 +339,10 @@ impl Panel for MeasurementPanel {
                     continue;
                 }
                 // Skip overlays hidden via the scope's legend.
-                if scope.legend_hidden_items.contains(&egui::Id::new(&m.name)) {
+                if scope
+                    .legend_hidden_items
+                    .contains(&crate::panels::scope_legend::measurement_item_id(&m.name))
+                {
                     continue;
                 }
                 if let Some(p) = m.p1 {
@@ -357,7 +360,11 @@ impl Panel for MeasurementPanel {
             // their x positions in every scope's range. Skip markers hidden
             // via the eye toggle or the scope's legend.
             for m in &self.markers {
-                if !m.visible || scope.legend_hidden_items.contains(&egui::Id::new(&m.name)) {
+                if !m.visible
+                    || scope
+                        .legend_hidden_items
+                        .contains(&crate::panels::scope_legend::marker_item_id(&m.name))
+                {
                     continue;
                 }
                 if let Some(p) = m.point {
@@ -588,7 +595,12 @@ impl Panel for MeasurementPanel {
             };
 
             if let Some(p) = p1_opt {
-                plot_ui.points(Points::new(&name, vec![p]).radius(5.0_f32).color(c_p1));
+                plot_ui.points(
+                    Points::new(&name, vec![p])
+                        .id(crate::panels::scope_legend::measurement_item_id(&name))
+                        .radius(5.0_f32)
+                        .color(c_p1),
+                );
                 let (halign_anchor, text_align, base) = label_pos(dx, dy, &p, ox, oy);
                 let x_lin = if scope.x_axis.log_scale {
                     10f64.powf(p[0])
@@ -611,10 +623,19 @@ impl Panel for MeasurementPanel {
                     .size(marker_font_size)
                     .color(c_p1)
                     .append_to(&mut job, &style, egui::FontSelection::Default, text_align);
-                plot_ui.text(Text::new(&name, base, job).anchor(halign_anchor));
+                plot_ui.text(
+                    Text::new(&name, base, job)
+                        .id(crate::panels::scope_legend::measurement_item_id(&name))
+                        .anchor(halign_anchor),
+                );
             }
             if let Some(p) = p2_opt {
-                plot_ui.points(Points::new(&name, vec![p]).radius(5.0_f32).color(c_p2));
+                plot_ui.points(
+                    Points::new(&name, vec![p])
+                        .id(crate::panels::scope_legend::measurement_item_id(&name))
+                        .radius(5.0_f32)
+                        .color(c_p2),
+                );
                 let (halign_anchor, text_align, base) = label_pos(-dx, -dy, &p, ox, oy);
                 let x_lin = if scope.x_axis.log_scale {
                     10f64.powf(p[0])
@@ -637,10 +658,18 @@ impl Panel for MeasurementPanel {
                     .size(marker_font_size)
                     .color(c_p2)
                     .append_to(&mut job, &style, egui::FontSelection::Default, text_align);
-                plot_ui.text(Text::new(&name, base, job).anchor(halign_anchor));
+                plot_ui.text(
+                    Text::new(&name, base, job)
+                        .id(crate::panels::scope_legend::measurement_item_id(&name))
+                        .anchor(halign_anchor),
+                );
             }
             if let (Some(p1), Some(p2)) = (p1_opt, p2_opt) {
-                plot_ui.line(Line::new(&name, vec![p1, p2]).color(c_line));
+                plot_ui.line(
+                    Line::new(&name, vec![p1, p2])
+                        .id(crate::panels::scope_legend::measurement_item_id(&name))
+                        .color(c_line),
+                );
                 let x1_lin = if scope.x_axis.log_scale {
                     10f64.powf(p1[0])
                 } else {
@@ -713,7 +742,11 @@ impl Panel for MeasurementPanel {
                         egui::FontSelection::Default,
                         egui::Align::LEFT,
                     );
-                plot_ui.text(Text::new(&name, base, job).anchor(halign_anchor));
+                plot_ui.text(
+                    Text::new(&name, base, job)
+                        .id(crate::panels::scope_legend::measurement_item_id(&name))
+                        .anchor(halign_anchor),
+                );
             }
         }
 
@@ -741,14 +774,23 @@ impl Panel for MeasurementPanel {
             };
 
             if marker.show_vline {
-                plot_ui.vline(VLine::new(&name, p[0]).color(c));
+                plot_ui.vline(
+                    VLine::new(&name, p[0])
+                        .id(crate::panels::scope_legend::marker_item_id(&name))
+                        .color(c),
+                );
             }
             if marker.show_hline {
-                plot_ui.hline(HLine::new(&name, p[1]).color(c));
+                plot_ui.hline(
+                    HLine::new(&name, p[1])
+                        .id(crate::panels::scope_legend::marker_item_id(&name))
+                        .color(c),
+                );
             }
             if marker.show_point {
                 plot_ui.points(
                     Points::new(&name, vec![p])
+                        .id(crate::panels::scope_legend::marker_item_id(&name))
                         .radius(5.0_f32)
                         .shape(marker.shape)
                         .color(c),
@@ -813,9 +855,43 @@ impl Panel for MeasurementPanel {
             // legend swatch falls back to gray (ColorConflictHandling).
             plot_ui.text(
                 Text::new(&name, base, job)
+                    .id(crate::panels::scope_legend::marker_item_id(&name))
                     .anchor(Align2::LEFT_TOP)
                     .color(c),
             );
+        }
+    }
+
+    fn legend_entries(
+        &self,
+        _scope: &ScopeData,
+        _traces: &crate::data::traces::TracesCollection,
+        out: &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+    ) {
+        // Mirrors `draw`: one entry per measurement with at least one placed
+        // point, and one per visible marker.  Measurement items use several
+        // colors — TRANSPARENT renders the default swatch color, matching
+        // egui_plot's color-conflict fallback.
+        for m in &self.measurements {
+            let (p1, p2) = m.get_points();
+            if p1.is_none() && p2.is_none() {
+                continue;
+            }
+            out.push(crate::panels::scope_legend::LegendEntryData {
+                id: crate::panels::scope_legend::measurement_item_id(&m.name),
+                label: m.name.clone(),
+                color: Color32::TRANSPARENT,
+            });
+        }
+        for marker in &self.markers {
+            if !marker.visible || marker.point.is_none() {
+                continue;
+            }
+            out.push(crate::panels::scope_legend::LegendEntryData {
+                id: crate::panels::scope_legend::marker_item_id(&marker.name),
+                label: marker.name.clone(),
+                color: marker.color,
+            });
         }
     }
 

@@ -331,6 +331,10 @@ pub struct TraceStyleSerde {
     pub name: String,
     pub look: TraceLookSerde,
     pub offset: f64,
+    /// Optional display alias shown in legends/lists; `None` (or absent in
+    /// older saves) keeps the canonical `name`.
+    #[serde(default)]
+    pub display_name: Option<String>,
 }
 
 /// Serializable trigger slope.
@@ -929,22 +933,32 @@ pub fn load_state_from_path(path: &Path) -> Result<AppStateSerde, String> {
 /// Helper to capture trace styles from a traces collection.
 pub fn capture_trace_styles<'a>(
     trace_order: impl Iterator<Item = &'a TraceRef>,
-    get_trace: impl Fn(&TraceRef) -> Option<(&TraceLook, f64)>,
+    get_trace: impl Fn(&TraceRef) -> Option<(&TraceLook, f64, Option<String>)>,
 ) -> Vec<TraceStyleSerde> {
     trace_order
         .filter_map(|name| {
-            get_trace(name).map(|(look, offset)| TraceStyleSerde {
+            get_trace(name).map(|(look, offset, display_name)| TraceStyleSerde {
                 name: name.0.clone(),
                 look: TraceLookSerde::from(look),
                 offset,
+                display_name,
             })
         })
         .collect()
 }
 
-/// Helper to apply trace styles to a traces collection.
-pub fn apply_trace_styles(styles: &[TraceStyleSerde], mut apply: impl FnMut(&str, TraceLook, f64)) {
+/// Helper to apply trace styles to a traces collection.  `apply` receives
+/// `(name, look, offset, display_name)`.
+pub fn apply_trace_styles(
+    styles: &[TraceStyleSerde],
+    mut apply: impl FnMut(&str, TraceLook, f64, Option<&str>),
+) {
     for s in styles {
-        apply(&s.name, s.look.clone().into_look(), s.offset);
+        apply(
+            &s.name,
+            s.look.clone().into_look(),
+            s.offset,
+            s.display_name.as_deref(),
+        );
     }
 }

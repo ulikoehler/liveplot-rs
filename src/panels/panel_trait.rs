@@ -90,6 +90,20 @@ pub trait Panel: Downcast {
     fn render_panel(&mut self, _ui: &mut Ui, _data: &mut LivePlotData<'_>) {}
     fn draw(&mut self, _plot_ui: &mut PlotUi, _scope: &ScopeData, _traces: &TracesCollection) {}
 
+    /// Report the legend entries for the items [`Panel::draw`] adds to `scope`.
+    ///
+    /// liveplot renders its own scrollable legend overlay (egui_plot's item
+    /// list is not public), so panels that draw named plot items must mirror
+    /// them here — with the same canonical `.id()` set on the drawn items —
+    /// or they will not appear in the legend.
+    fn legend_entries(
+        &self,
+        _scope: &ScopeData,
+        _traces: &TracesCollection,
+        _out: &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+    ) {
+    }
+
     fn update_data(&mut self, _data: &mut LivePlotData<'_>) {}
 
     /// Clear all internal runtime state / events / buffers specific to the panel.

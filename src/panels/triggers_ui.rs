@@ -191,6 +191,7 @@ impl Panel for TriggersPanel {
                     trig.name.clone()
                 };
                 let h = HLine::new(label, y_plot)
+                    .id(crate::panels::scope_legend::trigger_item_id(&trig.name))
                     .color(color)
                     .width(width)
                     .style(style);
@@ -213,6 +214,7 @@ impl Panel for TriggersPanel {
                                 radius *= 1.2;
                             }
                             let p = Points::new(label, vec![[t, y_plot]])
+                                .id(crate::panels::scope_legend::trigger_item_id(&trig.name))
                                 .radius(radius)
                                 .shape(trig.look.marker)
                                 .color(color);
@@ -220,11 +222,45 @@ impl Panel for TriggersPanel {
                         }
                     } else {
                         // Draw a vertical line at trigger time
-                        let v = VLine::new(label, t).color(color).width(width).style(style);
+                        let v = VLine::new(label, t)
+                            .id(crate::panels::scope_legend::trigger_item_id(&trig.name))
+                            .color(color)
+                            .width(width)
+                            .style(style);
                         plot_ui.vline(v);
                     }
                 }
             }
+        }
+    }
+
+    fn legend_entries(
+        &self,
+        scope: &ScopeData,
+        traces: &TracesCollection,
+        out: &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+    ) {
+        // Mirrors `draw`: one entry per enabled trigger whose target is shown.
+        for trig in self.triggers.values() {
+            if !trig.enabled {
+                continue;
+            }
+            let Some(tr) = traces.get_trace(&trig.target) else {
+                continue;
+            };
+            if !tr.look.visible {
+                continue;
+            }
+            let label = if scope.show_info_in_legend {
+                format!("{} — {}", trig.name, trig.get_info(&scope.y_axis))
+            } else {
+                trig.name.clone()
+            };
+            out.push(crate::panels::scope_legend::LegendEntryData {
+                id: crate::panels::scope_legend::trigger_item_id(&trig.name),
+                label,
+                color: trig.look.color,
+            });
         }
     }
 

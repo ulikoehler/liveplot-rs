@@ -124,12 +124,21 @@ impl<'a> LivePlotData<'a> {
         let is_new = !self.traces.contains_key(name);
 
         // Create trace if missing. Don't keep a borrow of the returned trace
-        // across the mutation of scope structures (primary_scope_mut).
+        // across the mutation of scope structures.
         let traces = if is_new {
-            if let Some(primary) = self.primary_scope_mut() {
-                if !primary.trace_order.iter().any(|n| n == name) {
-                    primary.trace_order.push(name.clone());
+            let mut first: Option<&mut ScopeData> = None;
+            let mut target: Option<&mut ScopeData> = None;
+            for s in self.scope_data.iter_mut() {
+                if s.is_default_target {
+                    target = Some(&mut **s);
+                    break;
                 }
+                if first.is_none() {
+                    first = Some(&mut **s);
+                }
+            }
+            if let Some(target) = target.or(first) {
+                target.assign_new_traces(std::iter::once(name.clone()), self.traces);
             }
             self.traces.get_trace_or_new(name)
         } else {

@@ -1,5 +1,5 @@
 use egui::{Color32, Ui};
-use egui_plot::{Legend, Line, Plot, PlotMemory, Points};
+use egui_plot::{Line, Plot, PlotMemory, Points};
 use serde::{Deserialize, Serialize};
 
 use crate::data::density_render::paint_density;
@@ -8,6 +8,7 @@ use crate::data::scope::LegendPosition;
 use crate::data::scope::ScopeData;
 use crate::data::scope::ScopeType;
 use crate::data::trace_look::RenderMode;
+use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
 use crate::events::EventController;
@@ -155,8 +156,17 @@ pub struct ScopePanel {
     /// Collected by the parent for undo tracking.
     pub(crate) settings_changed: bool,
 
+    /// Traces dropped onto this scope's plot that must be removed from their
+    /// origin scope: (source scope id, moved trace refs).  Collected by the
+    /// parent (`LiveplotPanel::collect_trace_moves`).
+    pub(crate) pending_trace_moves: Vec<(usize, Vec<crate::data::traces::TraceRef>)>,
+
     /// Screen-space start position for custom box zoom (right-click drag).
     box_zoom_start: Option<egui::Pos2>,
+
+    /// Rect covered by the scrollable legend overlay last frame — used to keep
+    /// the plot from consuming wheel/pointer input that lands on the legend.
+    legend_overlay_rect: Option<egui::Rect>,
 }
 
 impl Default for ScopePanel {
@@ -182,7 +192,9 @@ impl Default for ScopePanel {
             pending_view_change: None,
             pending_pause: None,
             settings_changed: false,
+            pending_trace_moves: Vec::new(),
             box_zoom_start: None,
+            legend_overlay_rect: None,
         }
     }
 }
@@ -495,7 +507,12 @@ impl ScopePanel {
         mut draw_overlays: F,
         traces: &mut TracesCollection,
     ) where
-        F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
+        F: FnMut(
+            &mut egui_plot::PlotUi,
+            &ScopeData,
+            &TracesCollection,
+            &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+        ),
     {
         if self.controlls_in_toolbar {
             ui.horizontal_wrapped(|ui| {
@@ -1026,7 +1043,12 @@ impl ScopePanel {
 
     fn render_plot<F>(&mut self, ui: &mut Ui, mut draw_overlays: F, traces: &mut TracesCollection)
     where
-        F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
+        F: FnMut(
+            &mut egui_plot::PlotUi,
+            &ScopeData,
+            &TracesCollection,
+            &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+        ),
     {
         // Determine whether tick labels should be suppressed based on the TOTAL
         // widget size (including top bar, sidebars, etc.) so the decision is
@@ -1070,13 +1092,8 @@ impl ScopePanel {
                 plot = plot.y_axis_label(label);
             }
         }
-        if self.data.show_legend && !hide_legend {
-            plot = plot.legend(
-                Legend::default()
-                    .position(self.data.legend_position.into())
-                    .follow_insertion_order(true),
-            );
-        }
+        // No `.legend(...)` — liveplot renders its own scrollable legend
+        // overlay after `plot.show` (see `scope_legend` module).
         let plot = plot
             .x_axis_formatter(|x, _range| {
                 if hide_x_labels {
@@ -1120,6 +1137,10 @@ impl ScopePanel {
                 }
             });
 
+        // Legend entries for the custom scrollable overlay — populated by the
+        // trace loops below and by `draw_overlays` (panel overlays).
+        let mut legend_entries: Vec<crate::panels::scope_legend::LegendEntryData> = Vec::new();
+
         let plot_resp = plot.show(ui, |plot_ui| {
             // Handle wheel zoom around hovered point
             let resp = plot_ui.response();
@@ -1131,11 +1152,15 @@ impl ScopePanel {
                 resp.dragged_by(egui::PointerButton::Primary) && resp.is_pointer_button_down_on();
 
             let scroll_data = resp.ctx.input(|i| i.smooth_scroll_delta);
-            let is_zooming_with_wheel =
-                (scroll_data.x != 0.0 || scroll_data.y != 0.0) && resp.hovered();
-
             // Capture hover_pos before mutable plot_ui calls to avoid borrow conflict
             let hover_pos = resp.hover_pos();
+            // Don't zoom the plot when the pointer is over the scrollable
+            // legend overlay — the wheel scrolls the legend instead.
+            let over_legend = self
+                .legend_overlay_rect
+                .is_some_and(|r| hover_pos.is_some_and(|p| r.contains(p)));
+            let is_zooming_with_wheel =
+                (scroll_data.x != 0.0 || scroll_data.y != 0.0) && resp.hovered() && !over_legend;
             // Tracks the pointer even when it leaves the plot area during a drag,
             // so releasing outside the scope still zooms to the larger rectangle.
             let box_zoom_pos = resp.interact_pointer_pos().or(hover_pos);
@@ -1290,11 +1315,20 @@ impl ScopePanel {
                     let mut width: f32 = pair_look.width.max(0.1);
                     let style = pair_look.style;
 
+                    let x_label = traces.display_label(&x_name);
+                    let y_label = traces.display_label(&y_name);
                     let legend_label = if self.data.show_info_in_legend && !y_tr.info.is_empty() {
-                        format!("{} vs {} — {}", y_name, x_name, y_tr.info)
+                        format!("{} vs {} — {}", y_label, x_label, y_tr.info)
                     } else {
-                        format!("{} vs {}", y_name, x_name)
+                        format!("{} vs {}", y_label, x_label)
                     };
+                    // Canonical item id, independent of display aliases.
+                    let pair_id = crate::panels::scope_legend::xy_pair_item_id(&x_name, &y_name);
+                    legend_entries.push(crate::panels::scope_legend::LegendEntryData {
+                        id: pair_id,
+                        label: legend_label.clone(),
+                        color: pair_look.color,
+                    });
 
                     if let Some(hov) = &traces.hover_trace {
                         // Hover on either trace highlights this pair.
@@ -1313,6 +1347,7 @@ impl ScopePanel {
 
                     plot_ui.line(
                         Line::new(legend_label.clone(), derived.clone())
+                            .id(pair_id)
                             .name(legend_label.clone())
                             .color(color)
                             .width(width)
@@ -1325,6 +1360,9 @@ impl ScopePanel {
                         let radius = pair_look.point_size.max(0.5);
                         plot_ui.points(
                             Points::new(legend_label.clone(), derived.clone())
+                                // Same id as the pair line so they merge into
+                                // one legend entry (as before via shared name).
+                                .id(pair_id)
                                 .radius(radius)
                                 .shape(pair_look.marker)
                                 .color(color),
@@ -1335,8 +1373,15 @@ impl ScopePanel {
                         // Add a second pass for the newest point with increased size.
                         let last = *derived.last().unwrap();
                         let radius = (pair_look.point_size.max(0.5) * 2.0).max(2.0);
+                        let last_id = crate::panels::scope_legend::xy_last_point_item_id(pair_id);
+                        legend_entries.push(crate::panels::scope_legend::LegendEntryData {
+                            id: last_id,
+                            label: format!("{legend_label} (last)"),
+                            color: pair_look.color,
+                        });
                         plot_ui.points(
                             Points::new(format!("{legend_label} (last)"), vec![last])
+                                .id(last_id)
                                 .radius(radius)
                                 .shape(pair_look.marker)
                                 .color(color),
@@ -1446,11 +1491,17 @@ impl ScopePanel {
                                 [x, y]
                             })
                             .collect();
+                        let display = traces.display_label(&name);
                         let legend_label = if self.data.show_info_in_legend && !info.is_empty() {
-                            format!("{} — {}", name, info)
+                            format!("{} — {}", display, info)
                         } else {
-                            name.0.clone()
+                            display
                         };
+                        legend_entries.push(crate::panels::scope_legend::LegendEntryData {
+                            id: crate::panels::scope_legend::trace_item_id(&name),
+                            label: legend_label.clone(),
+                            color: base_color,
+                        });
                         let line = Line::new(name.clone(), pts_vec)
                             .color(Color32::from_rgba_unmultiplied(
                                 base_color.r(),
@@ -1550,12 +1601,18 @@ impl ScopePanel {
                         .color(color)
                         .width(width)
                         .style(style);
+                    let display = traces.display_label(&name);
                     let legend_label = if self.data.show_info_in_legend && !info.is_empty() {
-                        format!("{} — {}", name, info)
+                        format!("{} — {}", display, info)
                     } else {
-                        name.0.clone()
+                        display
                     };
                     line = line.name(legend_label.clone());
+                    legend_entries.push(crate::panels::scope_legend::LegendEntryData {
+                        id: crate::panels::scope_legend::trace_item_id(&name),
+                        label: legend_label.clone(),
+                        color: base_color,
+                    });
                     plot_ui.line(line);
 
                     // Optional point markers for each datapoint
@@ -1567,6 +1624,9 @@ impl ScopePanel {
                             }
                         }
                         let points = Points::new(legend_label, pts_vec.clone())
+                            // Same canonical id as the line so both hide/merge
+                            // under a single legend entry.
+                            .id(crate::panels::scope_legend::trace_item_id(&name))
                             .radius(radius)
                             .shape(marker)
                             .color(color);
@@ -1576,13 +1636,40 @@ impl ScopePanel {
             }
 
             // Additional overlays provided by caller (e.g., thresholds, markers)
-            draw_overlays(plot_ui, &self.data, traces);
+            draw_overlays(plot_ui, &self.data, traces, &mut legend_entries);
 
             // Detect bounds changes via zoom box
             bounds_changed
         });
 
         self.record_plot_geometry(&plot_resp);
+
+        // Custom scrollable legend overlay — egui_plot's built-in legend has no
+        // scrolling, so entries collected while drawing are rendered here and
+        // their state is written back through `PlotMemory`.
+        if self.data.show_legend && !hide_legend && !legend_entries.is_empty() {
+            let plot_id =
+                ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.data.name)));
+            if let Some(mut mem) = PlotMemory::load(ui.ctx(), plot_id) {
+                let frame = *plot_resp.transform.frame();
+                if let Some(res) = crate::panels::scope_legend::render_scope_legend(
+                    ui,
+                    frame,
+                    self.data.legend_position,
+                    &legend_entries,
+                    self.data.id,
+                    |id| mem.hidden_items.contains(id),
+                ) {
+                    self.legend_overlay_rect = res.rect;
+                    mem.hidden_items.clear();
+                    mem.hidden_items.extend(res.hidden_items.iter().copied());
+                    mem.hovered_legend_item = res.hovered_item;
+                    mem.store(ui.ctx(), plot_id);
+                }
+            }
+        } else {
+            self.legend_overlay_rect = None;
+        }
 
         // Handle right-click on legend items: isolate one trace or re-enable all
         if self.data.show_legend && !hide_legend {
@@ -1593,39 +1680,9 @@ impl ScopePanel {
                     if ui.input(|i| i.pointer.secondary_clicked())
                         && plot_resp.response.contains_pointer()
                     {
-                        // Collect all current legend item IDs
-                        let all_ids: Vec<egui::Id> = if self.data.scope_type == ScopeType::XYScope
-                            && !self.data.xy_pairs.is_empty()
-                        {
-                            let mut ids = Vec::new();
-                            for (x_name, y_name, _pair_look) in self.data.xy_pairs.clone() {
-                                let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
-                                    continue;
-                                };
-                                let (Some(_x_tr), Some(y_tr)) =
-                                    (traces.get_trace(&x_name), traces.get_trace(&y_name))
-                                else {
-                                    continue;
-                                };
-                                let label =
-                                    if self.data.show_info_in_legend && !y_tr.info.is_empty() {
-                                        format!("{} vs {} — {}", y_name, x_name, y_tr.info)
-                                    } else {
-                                        format!("{} vs {}", y_name, x_name)
-                                    };
-                                ids.push(egui::Id::new(label));
-                            }
-                            ids
-                        } else {
-                            self.data
-                                .trace_order
-                                .iter()
-                                .filter_map(|name| {
-                                    traces.get_trace(name)?;
-                                    Some(egui::Id::new(name.0.clone()))
-                                })
-                                .collect()
-                        };
+                        // All legend entry ids (canonical — independent of the
+                        // displayed label).
+                        let all_ids: Vec<egui::Id> = legend_entries.iter().map(|e| e.id).collect();
 
                         // If all others are already hidden, show all; otherwise isolate
                         let is_isolated = all_ids
@@ -1663,12 +1720,7 @@ impl ScopePanel {
                         else {
                             continue;
                         };
-                        let label = if self.data.show_info_in_legend && !y_tr.info.is_empty() {
-                            format!("{} vs {} — {}", y_name, x_name, y_tr.info)
-                        } else {
-                            format!("{} vs {}", y_name, x_name)
-                        };
-                        let id = egui::Id::new(label);
+                        let id = crate::panels::scope_legend::xy_pair_item_id(x_name, y_name);
                         let was_visible =
                             pair_look.visible && x_tr.look.visible && y_tr.look.visible;
                         let now_visible = !mem.hidden_items.contains(&id);
@@ -1681,12 +1733,7 @@ impl ScopePanel {
                         let Some(tr) = traces.get_trace_mut(name) else {
                             continue;
                         };
-                        let label = if self.data.show_info_in_legend && !tr.info.is_empty() {
-                            format!("{} — {}", name, tr.info)
-                        } else {
-                            name.0.clone()
-                        };
-                        let id = egui::Id::new(label);
+                        let id = crate::panels::scope_legend::trace_item_id(name);
                         let now_visible = !mem.hidden_items.contains(&id);
                         if tr.look.visible != now_visible {
                             tr.look.visible = now_visible;
@@ -1830,19 +1877,66 @@ impl ScopePanel {
             );
 
             if released && hovered {
-                let trace = payload.trace;
-                // Add the trace if not already in this scope
-                if !self.data.trace_order.iter().any(|t| t == &trace) {
-                    self.data.trace_order.push(trace.clone());
+                let is_xy = self.data.scope_type == ScopeType::XYScope;
+                for item in payload.items.iter() {
+                    match item {
+                        super::scope_settings_ui::DragItem::XyPair { x, y, look } => {
+                            let members: Vec<_> =
+                                [x.clone(), y.clone()].into_iter().flatten().collect();
+                            if is_xy {
+                                // Skip pairs whose members are already present.
+                                let exists = self.data.xy_pairs.iter().any(|(px, py, _)| {
+                                    members
+                                        .iter()
+                                        .any(|m| px.as_ref() == Some(m) || py.as_ref() == Some(m))
+                                });
+                                if !exists {
+                                    self.data
+                                        .xy_pairs
+                                        .push((x.clone(), y.clone(), look.clone()));
+                                }
+                            }
+                            for m in members {
+                                if !self.data.trace_order.iter().any(|t| t == &m) {
+                                    self.data.trace_order.push(m);
+                                }
+                            }
+                        }
+                        super::scope_settings_ui::DragItem::Trace(trace) => {
+                            if is_xy {
+                                // Complete the last incomplete pair if there is
+                                // one, else append a new half-empty pair row.
+                                let mut placed = false;
+                                if let Some((px, py, _)) = self.data.xy_pairs.iter_mut().last() {
+                                    if px.is_some() ^ py.is_some() {
+                                        if px.is_none() {
+                                            *px = Some(trace.clone());
+                                        } else {
+                                            *py = Some(trace.clone());
+                                        }
+                                        placed = true;
+                                    }
+                                }
+                                if !placed {
+                                    let look = TraceLook::default();
+                                    self.data.xy_pairs.push((Some(trace.clone()), None, look));
+                                }
+                            }
+                            if !self.data.trace_order.iter().any(|t| t == trace) {
+                                self.data.trace_order.push(trace.clone());
+                            }
+                        }
+                    }
                 }
-                // If dragged from another scope, remove from origin
+                self.settings_changed = true;
+                // Remember this scope as the default target for new traces.
+                self.data.wants_default_target = true;
+                // If dragged from another scope, queue removal there — the
+                // parent applies it (it owns all scopes).
                 if let Some(origin_id) = payload.origin_scope_id {
                     if origin_id != self.data.id {
-                        // We can't directly remove from the origin scope here since
-                        // we don't have mutable access to it. Instead mark this as
-                        // a move so the caller can handle the removal.
-                        // For now, just add to this scope; the origin removal is
-                        // handled by scope_settings_ui's existing drop logic.
+                        self.pending_trace_moves
+                            .push((origin_id, payload.trace_refs()));
                     }
                 }
                 // Clear the drag payload so other scopes don't also consume it

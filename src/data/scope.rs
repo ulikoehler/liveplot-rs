@@ -284,6 +284,14 @@ pub struct ScopeData {
     pub last_plot_bounds: Option<([f64; 2], [f64; 2])>,
     pub last_plot_screen_rect: Option<[f32; 4]>,
     pub rendered_this_frame: bool,
+    /// When `true`, newly discovered traces are auto-assigned to this scope
+    /// instead of the primary (first) scope.  Managed by
+    /// `LiveplotPanel::set_default_scope`; at most one scope should have it set.
+    pub is_default_target: bool,
+    /// Set to `true` when a trace/datafield is dropped on this scope's plot
+    /// area so the parent can promote it to the default target for future
+    /// traces (`LiveplotPanel::sync_default_scope_target`).
+    pub wants_default_target: bool,
     /// Cache key for y-bounds auto-fit: (total_visible_points, max_timestamp).
     /// When this matches the previous value, `fit_y_bounds` is skipped.
     cached_y_fit_key: Option<(usize, Option<f64>)>,
@@ -317,6 +325,8 @@ impl Default for ScopeData {
             last_plot_bounds: None,
             last_plot_screen_rect: None,
             rendered_this_frame: false,
+            is_default_target: false,
+            wants_default_target: false,
             cached_y_fit_key: None,
             cached_x_fit_key: None,
         }
@@ -337,16 +347,102 @@ impl ScopeData {
         self.xy_pairs.retain(|(x, y, _)| x.is_some() || y.is_some());
     }
 
+    /// Append traces that are not already members of this scope, respecting
+    /// the scope type: XY scopes rebuild `xy_pairs` from `trace_order` so
+    /// appended traces are paired consecutively.
+    pub fn assign_new_traces(
+        &mut self,
+        names: impl IntoIterator<Item = TraceRef>,
+        traces: &TracesCollection,
+    ) {
+        let mut added = false;
+        for n in names {
+            if !self.trace_order.iter().any(|t| t == &n) {
+                self.trace_order.push(n);
+                added = true;
+            }
+        }
+        if added && self.scope_type == ScopeType::XYScope {
+            self.rebuild_xy_pairs_from_trace_order(traces);
+        }
+    }
+
+    /// Rebuild `xy_pairs` from the flat `trace_order`, pairing consecutive
+    /// traces.  Pair looks of still-matching pairs are preserved; new pairs
+    /// inherit the look of the X trace when available.
+    pub fn rebuild_xy_pairs_from_trace_order(&mut self, traces: &TracesCollection) {
+        let mut existing: HashMap<(TraceRef, TraceRef), TraceLook> = HashMap::new();
+        for (x, y, look) in self.xy_pairs.iter() {
+            let (Some(x), Some(y)) = (x.as_ref(), y.as_ref()) else {
+                continue;
+            };
+            existing.insert((x.clone(), y.clone()), look.clone());
+        }
+
+        let traces_in_order = self.trace_order.clone();
+        let mut rebuilt: Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)> = Vec::new();
+
+        let mut i = 0usize;
+        while i < traces_in_order.len() {
+            let x = traces_in_order[i].clone();
+            let y = traces_in_order.get(i + 1).cloned();
+
+            let look = if let Some(y) = y.as_ref() {
+                existing
+                    .get(&(x.clone(), y.clone()))
+                    .cloned()
+                    .or_else(|| traces.get_trace(&x).map(|t| t.look.clone()))
+                    .unwrap_or_else(TraceLook::default)
+            } else {
+                traces
+                    .get_trace(&x)
+                    .map(|t| t.look.clone())
+                    .unwrap_or_default()
+            };
+
+            rebuilt.push((Some(x), y, look));
+            i += 2;
+        }
+        self.xy_pairs = rebuilt;
+    }
+
+    /// Rebuild the flat `trace_order` from `xy_pairs` (paired traces first,
+    /// then any leftovers), used when switching an XY scope back to a time
+    /// scope.
+    pub fn rebuild_trace_order_from_xy_pairs(&mut self) {
+        let mut ordered: Vec<TraceRef> = Vec::new();
+        for (x, y, _look) in self.xy_pairs.iter() {
+            if let Some(x) = x.as_ref() {
+                ordered.push(x.clone());
+            }
+            if let Some(y) = y.as_ref() {
+                ordered.push(y.clone());
+            }
+        }
+        for t in self.trace_order.iter() {
+            if !ordered.contains(t) {
+                ordered.push(t.clone());
+            }
+        }
+        self.trace_order = ordered;
+    }
+
     pub fn update(&mut self, traces: &TracesCollection) {
-        // Keep trace_order in sync with current traces: drop missing, append new
-        self.trace_order.retain(|n| traces.contains_key(n));
+        // Keep trace_order in sync with current traces: drop missing, append new.
+        // Entries whose trace is not yet created but has a pending style
+        // (restored session state) are kept so the restored order survives
+        // until the trace actually arrives.
+        self.trace_order
+            .retain(|n| traces.contains_key(n) || traces.is_pending(n));
 
         // Keep XY pairs in sync with current traces.
         // Incomplete pairs (None) are allowed, but are not rendered/used until complete.
         self.xy_pairs.retain(|(x, y, _)| {
-            let x_ok = x.as_ref().is_none_or(|t| traces.contains_key(t));
-            let y_ok = y.as_ref().is_none_or(|t| traces.contains_key(t));
-            x_ok && y_ok && !(x.is_none() && y.is_none())
+            let member_kept = |t: &Option<TraceRef>| {
+                t.as_ref()
+                    .is_none_or(|t| traces.contains_key(t) || traces.is_pending(t))
+            };
+            member_kept(x) && member_kept(y) && !(x.is_none() && y.is_none())
         });
 
         // Compute a cheap cache key: (total visible points, max timestamp).

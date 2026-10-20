@@ -6,7 +6,9 @@ use egui::{Id, Ui};
 use egui_phosphor_icons::icons::{BROOM, CHART_LINE_UP, DOTS_SIX_VERTICAL, PLUS, X};
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 
-use super::scope_settings_ui::{DragPayload, ScopeAssignmentArgs, ScopeSettingsUiPanel};
+use super::scope_settings_ui::{
+    DragItem, DragPayload, ScopeAssignmentArgs, ScopeSettingsUiPanel, TraceListKey, TraceSelection,
+};
 use super::trace_look_ui::render_trace_look_editor;
 
 fn trace_tooltip(name: &TraceRef, info: &str) -> String {
@@ -23,6 +25,8 @@ pub struct TracesPanel {
     pub look_editor_xy_pair: Option<(usize, usize)>,
     pub hover_trace: Option<Vec<TraceRef>>,
     pub dragging_trace: Option<DragPayload>,
+    /// Ctrl/Shift multi-selection shared between the table and scope lists.
+    pub selection: TraceSelection,
 
     scope_settings_ui: ScopeSettingsUiPanel,
 }
@@ -35,6 +39,7 @@ impl Default for TracesPanel {
             look_editor_xy_pair: None,
             hover_trace: None,
             dragging_trace: None,
+            selection: TraceSelection::default(),
 
             scope_settings_ui: ScopeSettingsUiPanel::default(),
         }
@@ -121,6 +126,11 @@ impl Panel for TracesPanel {
             ui.label("No scopes available.");
             return;
         }
+
+        // Prune selections of traces that no longer exist.
+        let valid: std::collections::HashSet<TraceRef> =
+            data.traces.all_trace_names().into_iter().collect();
+        self.selection.retain(&valid);
 
         // Render the trace look editor in a bottom panel so it stays visible
         // without scrolling.
@@ -235,7 +245,30 @@ impl Panel for TracesPanel {
                     hover_out: &'a mut Option<Vec<TraceRef>>,
                     look_toggle: &'a mut Option<TraceRef>,
                     drag_out: &'a mut Option<DragPayload>,
+                    selection: &'a mut TraceSelection,
                     rows: Vec<Row>,
+                }
+                impl<'a> TracesDelegate<'a> {
+                    /// Payload for dragging `name`: the whole selection (in row
+                    /// order) when `name` is selected, else just `name`.
+                    fn drag_items(&self, name: &TraceRef) -> Vec<DragItem> {
+                        if !self.selection.traces.contains(name) {
+                            return vec![DragItem::Trace(name.clone())];
+                        }
+                        let items: Vec<DragItem> = self
+                            .rows
+                            .iter()
+                            .map(|r| &r.name)
+                            .filter(|n| self.selection.traces.contains(*n))
+                            .cloned()
+                            .map(DragItem::Trace)
+                            .collect();
+                        if items.is_empty() {
+                            vec![DragItem::Trace(name.clone())]
+                        } else {
+                            items
+                        }
+                    }
                 }
                 impl<'a> TableDelegate for TracesDelegate<'a> {
                     fn header_cell_ui(
@@ -274,6 +307,20 @@ impl Panel for TracesPanel {
                             return;
                         }
                         let r = &self.rows[row];
+                        // Precomputed here so the cell closures don't need to
+                        // borrow `self` for `drag_items` (which would conflict
+                        // with the mutable `drag_out`/`hover_out` captures).
+                        let drag_items = self.drag_items(&r.name);
+
+                        // Highlight the whole row when it is part of the
+                        // multi-selection.
+                        if self.selection.traces.contains(&r.name) {
+                            ui.painter().rect_filled(
+                                ui.max_rect(),
+                                egui::CornerRadius::ZERO,
+                                ui.visuals().selection.bg_fill.linear_multiply(0.25),
+                            );
+                        }
 
                         match col {
                             0 => {
@@ -298,7 +345,7 @@ impl Panel for TracesPanel {
                                         }
                                         if resp.drag_started() || resp.dragged() {
                                             *self.drag_out = Some(DragPayload {
-                                                trace: r.name.clone(),
+                                                items: drag_items.clone(),
                                                 origin_scope_id: None,
                                             });
                                             ui.output_mut(|o| {
@@ -350,13 +397,29 @@ impl Panel for TracesPanel {
                                 }
                                 if resp.drag_started() || resp.dragged() {
                                     *self.drag_out = Some(DragPayload {
-                                        trace: r.name.clone(),
+                                        items: drag_items.clone(),
                                         origin_scope_id: None,
                                     });
                                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
                                 }
                                 if resp.clicked() {
-                                    *self.look_toggle = Some(r.name.clone());
+                                    let mods = ui.input(|i| i.modifiers);
+                                    if mods.shift {
+                                        let ordered: Vec<TraceRef> =
+                                            self.rows.iter().map(|r| r.name.clone()).collect();
+                                        self.selection.select_range(
+                                            TraceListKey::Table,
+                                            &r.name,
+                                            &ordered,
+                                            mods.command,
+                                        );
+                                    } else if mods.command {
+                                        self.selection.toggle(TraceListKey::Table, r.name.clone());
+                                    } else {
+                                        self.selection
+                                            .select_only(TraceListKey::Table, r.name.clone());
+                                        *self.look_toggle = Some(r.name.clone());
+                                    }
                                 }
                             }
                             3 => {
@@ -452,6 +515,7 @@ impl Panel for TracesPanel {
                         hover_out: &mut hover_tmp,
                         look_toggle: &mut look_toggle_req,
                         drag_out: &mut drag_from_table,
+                        selection: &mut self.selection,
                         rows: rows_clone,
                     };
 
@@ -499,7 +563,7 @@ impl Panel for TracesPanel {
                     });
 
                     if let Some(pos) = ui.ctx().pointer_latest_pos() {
-                        egui::Area::new(Id::new(("trace_drag_preview", dragging.trace.0.clone())))
+                        egui::Area::new(Id::new(("trace_drag_preview", dragging.preview_label())))
                             .order(egui::Order::Foreground)
                             .fixed_pos(pos + egui::vec2(16.0, 16.0))
                             .interactable(false)
@@ -507,7 +571,7 @@ impl Panel for TracesPanel {
                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         ui.label(DOTS_SIX_VERTICAL);
-                                        ui.label(dragging.trace.0.clone());
+                                        ui.label(dragging.preview_label());
                                     });
                                 });
                             });
@@ -541,6 +605,7 @@ impl Panel for TracesPanel {
                             name: name.0.clone(),
                             look: crate::persistence::TraceLookSerde::from(&tr.look),
                             offset: tr.offset,
+                            display_name: tr.display_name.clone(),
                         });
                     }
                 }
@@ -586,7 +651,7 @@ impl TracesPanel {
             data.pending_requests.add_scope = true;
         }
         ui.add_space(4.0);
-        let mut moved: Vec<(usize, TraceRef)> = Vec::new();
+        let mut moved: Vec<(usize, Vec<TraceRef>)> = Vec::new();
         for scope in data.scope_data.iter_mut() {
             ui.separator();
             ui.add_space(4.0);
@@ -601,6 +666,7 @@ impl TracesPanel {
                     traces_collection: &mut *data.traces,
                     look_editor_out: &mut self.look_editor_trace,
                     xy_pair_look_editor_out: &mut self.look_editor_xy_pair,
+                    selection: &mut self.selection,
                 },
             );
 
@@ -621,9 +687,11 @@ impl TracesPanel {
         }
 
         if !moved.is_empty() {
-            for (src_id, tr) in moved {
+            for (src_id, traces) in moved {
                 if let Some(src_scope) = data.scope_data.iter_mut().find(|s| s.id == src_id) {
-                    src_scope.remove_trace(&tr);
+                    for tr in traces {
+                        src_scope.remove_trace(&tr);
+                    }
                 }
             }
             ui.ctx().request_repaint();

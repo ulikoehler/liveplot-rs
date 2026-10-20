@@ -105,6 +105,8 @@ impl LiveplotPanel {
     }
 
     pub fn update_data(&mut self, traces: &TracesCollection) {
+        self.sync_default_scope_target();
+        self.collect_trace_moves();
         for tile in self.tree.tiles.tiles_mut() {
             if let Tile::Pane(pane) = tile {
                 pane.update_data(traces);
@@ -206,7 +208,12 @@ impl LiveplotPanel {
 
     pub fn render_panel<F>(&mut self, ui: &mut Ui, draw_overlays: F, traces: &mut TracesCollection)
     where
-        F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
+        F: FnMut(
+            &mut egui_plot::PlotUi,
+            &ScopeData,
+            &TracesCollection,
+            &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+        ),
     {
         if self.tree.is_empty() {
             ui.label("No scope panels. Add one from the menu.");
@@ -522,6 +529,70 @@ impl LiveplotPanel {
         }
     }
 
+    /// Id of the scope that receives newly discovered traces, or `None` when
+    /// the primary (first) scope is the target.
+    pub fn default_scope_id(&self) -> Option<usize> {
+        self.get_data()
+            .iter()
+            .find(|s| s.is_default_target)
+            .map(|s| s.id)
+    }
+
+    /// Mark a scope as the default target for newly discovered traces
+    /// (`None` clears the flag on all scopes).
+    pub fn set_default_scope(&mut self, scope_id: Option<usize>) {
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                let data = pane.get_data_mut();
+                data.is_default_target = scope_id.is_some_and(|id| id == data.id);
+            }
+        }
+    }
+
+    /// Consume `wants_default_target` flags set by scope plot drops and
+    /// promote that scope to the default target for new traces.
+    pub fn sync_default_scope_target(&mut self) {
+        let target = self.tree.tiles.tiles_mut().find_map(|t| match t {
+            Tile::Pane(p) => {
+                let d = p.get_data_mut();
+                if d.wants_default_target {
+                    d.wants_default_target = false;
+                    Some(d.id)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        });
+        if let Some(id) = target {
+            self.set_default_scope(Some(id));
+        }
+    }
+
+    /// Drain `pending_trace_moves` queued by scope plot drops and remove the
+    /// moved traces from their origin scopes.
+    pub fn collect_trace_moves(&mut self) {
+        let mut moves: Vec<(usize, Vec<crate::data::traces::TraceRef>)> = Vec::new();
+        for tile in self.tree.tiles.tiles_mut() {
+            if let Tile::Pane(pane) = tile {
+                moves.append(&mut pane.pending_trace_moves);
+            }
+        }
+        for (src_id, traces) in moves {
+            for tile in self.tree.tiles.tiles_mut() {
+                if let Tile::Pane(pane) = tile {
+                    let data = pane.get_data_mut();
+                    if data.id == src_id {
+                        for tr in &traces {
+                            data.remove_trace(tr);
+                        }
+                        pane.settings_changed = true;
+                    }
+                }
+            }
+        }
+    }
+
     /// Replace all scope panels with the given scope data states.
     ///
     /// Existing scopes are cleared and new ScopePanels are created with the
@@ -599,7 +670,12 @@ struct ScopeBehavior<'a, F> {
 
 impl<'a, F> Behavior<ScopePanel> for ScopeBehavior<'a, F>
 where
-    F: FnMut(&mut egui_plot::PlotUi, &ScopeData, &TracesCollection),
+    F: FnMut(
+        &mut egui_plot::PlotUi,
+        &ScopeData,
+        &TracesCollection,
+        &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+    ),
 {
     fn pane_ui(&mut self, ui: &mut Ui, _tile_id: TileId, pane: &mut ScopePanel) -> UiResponse {
         pane.render_panel(ui, &mut self.draw_overlays, self.traces);

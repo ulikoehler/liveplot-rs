@@ -445,7 +445,7 @@ impl Panel for FftPanel {
         // Render using scope panel (legend is enabled via scope_data settings)
         self.scope_ui.render_panel(
             ui,
-            |_plot_ui, _scope_unused, _traces_unused| {},
+            |_plot_ui, _scope_unused, _traces_unused, _legend_entries| {},
             &mut tmp_traces,
         );
 

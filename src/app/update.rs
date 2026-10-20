@@ -423,25 +423,31 @@ impl LivePlotPanel {
                 let detached = RefCell::new(std::mem::take(&mut self.detached_panels));
                 let empty = RefCell::new(std::mem::take(&mut self.empty_panels));
 
-                let mut draw_overlays =
-                    |plot_ui: &mut egui_plot::PlotUi,
-                     scope: &crate::data::scope::ScopeData,
-                     traces: &crate::data::traces::TracesCollection| {
-                        for p in right
-                            .borrow_mut()
-                            .iter_mut()
-                            .chain(left.borrow_mut().iter_mut())
-                            .chain(bottom.borrow_mut().iter_mut())
-                            .chain(detached.borrow_mut().iter_mut())
-                            .chain(empty.borrow_mut().iter_mut())
-                        {
-                            p.draw(plot_ui, scope, traces);
-                        }
-                        // invoke optional user overlay callback after panel overlays
-                        if let Some(cb) = &mut self.overlays {
-                            cb(plot_ui, scope, traces);
-                        }
-                    };
+                let mut draw_overlays = |plot_ui: &mut egui_plot::PlotUi,
+                                         scope: &crate::data::scope::ScopeData,
+                                         traces: &crate::data::traces::TracesCollection,
+                                         legend_entries: &mut Vec<
+                    crate::panels::scope_legend::LegendEntryData,
+                >| {
+                    for p in right
+                        .borrow_mut()
+                        .iter_mut()
+                        .chain(left.borrow_mut().iter_mut())
+                        .chain(bottom.borrow_mut().iter_mut())
+                        .chain(detached.borrow_mut().iter_mut())
+                        .chain(empty.borrow_mut().iter_mut())
+                    {
+                        p.draw(plot_ui, scope, traces);
+                        p.legend_entries(scope, traces, legend_entries);
+                    }
+                    // invoke optional user overlay callback after panel overlays
+                    // (its items are not introspectable — they get no legend
+                    // entry but still render and honor `hidden_items` if the
+                    // user sets ids explicitly).
+                    if let Some(cb) = &mut self.overlays {
+                        cb(plot_ui, scope, traces);
+                    }
+                };
 
                 // Render the liveplot panel; `draw_overlays` supplies per-panel overlays.
                 self.liveplot_panel.clear_rendered_flags();
@@ -586,6 +592,7 @@ impl LivePlotPanel {
         };
 
         self.liveplot_panel.update_data(&self.traces_data);
+        let default_scope_id = self.liveplot_panel.default_scope_id();
         let data = &mut LivePlotData {
             scope_data: self.liveplot_panel.get_data_mut(),
             traces: &mut self.traces_data,
@@ -594,18 +601,48 @@ impl LivePlotPanel {
             settings_changed: false,
         };
 
-        // Attach newly created traces to the primary (first) scope only.
-        // Sort alphabetically so vector/array field traces (which arrive in
-        // HashMap/channel order) are added in a deterministic, user-friendly
-        // order.
-        if let Some(scope) = data.primary_scope_mut() {
+        // Attach newly created traces to the default target scope (the scope
+        // a datafield/trace was last dropped on) or the primary (first) scope.
+        // A name is only appended if it is not assigned to ANY scope — checking
+        // only the target scope would re-add traces the user already moved to
+        // another scope whenever new data arrives.
+        {
+            let mut assigned: std::collections::HashSet<TraceRef> =
+                std::collections::HashSet::new();
+            for s in data.scope_data.iter() {
+                assigned.extend(s.trace_order.iter().cloned());
+                for (x, y, _) in s.xy_pairs.iter() {
+                    assigned.extend(x.iter().cloned());
+                    assigned.extend(y.iter().cloned());
+                }
+            }
             let mut to_add: Vec<TraceRef> = new_traces
                 .into_iter()
                 .chain(all_trace_names)
-                .filter(|name| !scope.trace_order.iter().any(|n| n == name))
+                .filter(|name| !assigned.contains(name))
                 .collect();
+            // Sort alphabetically so vector/array field traces (which arrive in
+            // HashMap/channel order) are added in a deterministic,
+            // user-friendly order.
             to_add.sort_by(|a, b| a.0.cmp(&b.0));
-            scope.trace_order.extend(to_add);
+            to_add.dedup();
+            if !to_add.is_empty() {
+                let scope_data = &mut data.scope_data;
+                let mut first: Option<&mut crate::data::scope::ScopeData> = None;
+                let mut target: Option<&mut crate::data::scope::ScopeData> = None;
+                for s in scope_data.iter_mut() {
+                    if Some(s.id) == default_scope_id {
+                        target = Some(&mut **s);
+                        break;
+                    }
+                    if first.is_none() {
+                        first = Some(&mut **s);
+                    }
+                }
+                if let Some(scope) = target.or(first) {
+                    scope.assign_new_traces(to_add, data.traces);
+                }
+            }
         }
         self.traces_dirty = false;
 

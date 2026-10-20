@@ -494,23 +494,36 @@ impl LivePlotPanel {
         let trace_styles: Vec<crate::persistence::TraceStyleSerde> = {
             let scopes = self.liveplot_panel.get_data();
             let mut seen = std::collections::HashSet::new();
-            let mut snapshot: Vec<(String, crate::data::trace_look::TraceLook, f64)> = Vec::new();
+            let mut snapshot: Vec<(
+                String,
+                crate::data::trace_look::TraceLook,
+                f64,
+                Option<String>,
+            )> = Vec::new();
             for scope in scopes.iter() {
                 for name in scope.trace_order.iter() {
                     if seen.insert(name.0.clone()) {
                         if let Some(tr) = self.traces_data.get_trace(name) {
-                            snapshot.push((name.0.clone(), tr.look.clone(), tr.offset));
+                            snapshot.push((
+                                name.0.clone(),
+                                tr.look.clone(),
+                                tr.offset,
+                                tr.display_name.clone(),
+                            ));
                         }
                     }
                 }
             }
             snapshot
                 .into_iter()
-                .map(|(n, look, off)| crate::persistence::TraceStyleSerde {
-                    name: n,
-                    look: crate::persistence::TraceLookSerde::from(&look),
-                    offset: off,
-                })
+                .map(
+                    |(n, look, off, display_name)| crate::persistence::TraceStyleSerde {
+                        name: n,
+                        look: crate::persistence::TraceLookSerde::from(&look),
+                        offset: off,
+                        display_name,
+                    },
+                )
                 .collect()
         };
 
@@ -710,8 +723,10 @@ impl LivePlotPanel {
         }
 
         // Apply traces styles (uses pending_styles for traces not yet created).
-        crate::persistence::apply_trace_styles(&loaded.traces_style, |name, look, off| {
+        crate::persistence::apply_trace_styles(&loaded.traces_style, |name, look, off, alias| {
             self.traces_data.set_pending_style(name, look, off);
+            self.traces_data
+                .set_display_name(&TraceRef(name.to_string()), alias.map(str::to_string));
         });
 
         // Apply math traces (always, even when empty, so undo can remove them).

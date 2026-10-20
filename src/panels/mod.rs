@@ -7,6 +7,7 @@ pub mod liveplot_ui;
 pub mod math_ui;
 pub mod measurment_ui;
 pub mod panel_trait;
+pub mod scope_legend;
 pub mod scope_settings_ui;
 pub mod scope_ui;
 pub mod thresholds_ui;

@@ -185,6 +185,7 @@ impl Panel for ThresholdsPanel {
                         };
                         if y_plot.is_finite() {
                             let h = HLine::new(label, y_plot)
+                                .id(crate::panels::scope_legend::threshold_item_id(&def.name))
                                 .color(thr_color)
                                 .width(def.look.width * thr_expand_line)
                                 .style(def.look.style);
@@ -239,12 +240,14 @@ impl Panel for ThresholdsPanel {
                                     legend_label.clone(),
                                     vec![[ev.start_t, marker_y_plot]],
                                 )
+                                .id(crate::panels::scope_legend::threshold_item_id(&def.name))
                                 .radius(def.start_look.point_size * thr_expand_points)
                                 .shape(def.start_look.marker)
                                 .color(ev_color);
                                 plot_ui.points(p);
                             } else {
                                 let s = VLine::new(legend_label.clone(), ev.start_t)
+                                    .id(crate::panels::scope_legend::threshold_item_id(&def.name))
                                     .color(ev_color)
                                     .width(def.start_look.width * thr_expand_line)
                                     .style(def.start_look.style);
@@ -256,12 +259,14 @@ impl Panel for ThresholdsPanel {
                                     legend_label.clone(),
                                     vec![[ev.end_t, marker_y_plot]],
                                 )
+                                .id(crate::panels::scope_legend::threshold_item_id(&def.name))
                                 .radius(def.stop_look.point_size * thr_expand_points)
                                 .shape(def.stop_look.marker)
                                 .color(ev_color);
                                 plot_ui.points(p);
                             } else {
                                 let e = VLine::new(legend_label.clone(), ev.end_t)
+                                    .id(crate::panels::scope_legend::threshold_item_id(&def.name))
                                     .color(ev_color)
                                     .width(def.stop_look.width * thr_expand_line)
                                     .style(def.stop_look.style);
@@ -272,6 +277,33 @@ impl Panel for ThresholdsPanel {
                     }
                 }
             }
+        }
+    }
+
+    fn legend_entries(
+        &self,
+        scope: &ScopeData,
+        traces: &TracesCollection,
+        out: &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+    ) {
+        // Mirrors `draw`: one entry per threshold whose target trace is shown.
+        for def in self.thresholds.values() {
+            let Some(tr) = traces.get_trace(&def.target) else {
+                continue;
+            };
+            if !tr.look.visible {
+                continue;
+            }
+            let label = if scope.show_info_in_legend {
+                format!("{} — {}", def.name, def.get_info(&scope.y_axis))
+            } else {
+                def.name.clone()
+            };
+            out.push(crate::panels::scope_legend::LegendEntryData {
+                id: crate::panels::scope_legend::threshold_item_id(&def.name),
+                label,
+                color: def.look.color,
+            });
         }
     }
 
