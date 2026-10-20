@@ -125,6 +125,17 @@ impl TraceSelection {
         self.anchor = Some((key, t));
     }
 
+    /// Plain click: collapse the selection to just `t`.  Clicking the sole
+    /// selected item again releases the selection entirely.
+    pub fn click(&mut self, key: TraceListKey, t: TraceRef) {
+        let sole = self.traces.len() == 1 && self.traces.contains(&t);
+        self.traces.clear();
+        if !sole {
+            self.traces.insert(t.clone());
+        }
+        self.anchor = Some((key, t));
+    }
+
     /// Ctrl-click: toggle membership and set the anchor.
     pub fn toggle(&mut self, key: TraceListKey, t: TraceRef) {
         if !self.traces.remove(&t) {
@@ -838,7 +849,7 @@ impl ScopeSettingsUiPanel {
                 } else if mods.command {
                     selection.toggle(list_key, t);
                 } else {
-                    selection.select_only(list_key, t);
+                    selection.click(list_key, t);
                     // Preserve the existing plain-click behavior of opening the
                     // trace look editor.
                     if let Some(open_out) = open_look_editor.as_mut() {
@@ -887,6 +898,11 @@ impl ScopeSettingsUiPanel {
 
         if let Some((idx, dropped)) = pending_place {
             Self::apply_slot_drop(traces, idx, &dropped);
+        }
+
+        // A completed drop releases the multi-selection.
+        if dropped_payload.is_some() {
+            selection.clear();
         }
 
         if drag_active {
@@ -969,10 +985,29 @@ impl ScopeSettingsUiPanel {
             }
         };
 
+        // Consecutive lone traces alternate cells starting at the dropped
+        // cell, so a flat multi-selection dropped onto an XY scope forms
+        // pairs (x, y, x, y, ...) instead of all landing in one column.
         let mut row = idx;
+        let mut side = cell;
         for item in payload.items.iter() {
-            place(pairs, row, cell, item);
-            row += 1;
+            match item {
+                DragItem::XyPair { .. } => {
+                    place(pairs, row, PairCell::X, item);
+                    row += 1;
+                    side = PairCell::X;
+                }
+                DragItem::Trace(_) => {
+                    place(pairs, row, side, item);
+                    match side {
+                        PairCell::X => side = PairCell::Y,
+                        PairCell::Y => {
+                            side = PairCell::X;
+                            row += 1;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1006,75 +1041,82 @@ impl ScopeSettingsUiPanel {
 
         let pairs_snapshot = pairs.clone();
 
-        ui.vertical(|ui| {
-            // Header
-            let chrome_w = 20.0 + 24.0 + 18.0 + 8.0; // handle + color + palette + spacing
-            let cell_w = ((ui.available_width() - chrome_w) / 2.0).max(60.0);
-            ui.horizontal(|ui| {
-                ui.add_space(chrome_w);
-                ui.allocate_ui(egui::vec2(cell_w, 14.0), |ui| {
-                    ui.centered_and_justified(|ui| {
-                        ui.strong("X");
+        // Pin the list width: rows are sized from `available_width`, so without
+        // a fixed bound any slight overflow grows the panel, which grows
+        // `available_width` again — an unbounded feedback loop.
+        let target_w = ui.available_width();
+        ui.allocate_ui(egui::vec2(target_w, 0.0), |ui| {
+            ui.set_width(target_w);
+            ui.vertical(|ui| {
+                // Header
+                let chrome_w = 20.0 + 24.0 + 18.0 + 6.0 * ui.spacing().item_spacing.x + 8.0; // handle + color + palette + spacing/margins
+                let cell_w = ((ui.available_width() - chrome_w) / 2.0).max(60.0);
+                ui.horizontal(|ui| {
+                    ui.add_space(chrome_w);
+                    ui.allocate_ui(egui::vec2(cell_w, 14.0), |ui| {
+                        ui.centered_and_justified(|ui| {
+                            ui.strong("X");
+                        });
+                    });
+                    ui.allocate_ui(egui::vec2(cell_w, 14.0), |ui| {
+                        ui.centered_and_justified(|ui| {
+                            ui.strong("Y");
+                        });
                     });
                 });
-                ui.allocate_ui(egui::vec2(cell_w, 14.0), |ui| {
-                    ui.centered_and_justified(|ui| {
-                        ui.strong("Y");
-                    });
-                });
-            });
-            ui.separator();
+                ui.separator();
 
-            let dnd_id = Id::new(("pair_list_dnd", &id_salt));
-            let dnd_resp = dnd(ui, dnd_id).show_custom(|ui, iter| {
-                for (idx, (x, y, look)) in pairs.iter_mut().enumerate() {
-                    let is_draggable = x.is_some() || y.is_some();
-                    let row_id = Id::new((
-                        "pair_row",
-                        &id_salt,
-                        x.as_ref().map(|t| t.0.clone()),
-                        y.as_ref().map(|t| t.0.clone()),
-                        idx,
-                    ));
+                let dnd_id = Id::new(("pair_list_dnd", &id_salt));
+                let dnd_resp = dnd(ui, dnd_id).show_custom(|ui, iter| {
+                    for (idx, (x, y, look)) in pairs.iter_mut().enumerate() {
+                        let is_draggable = x.is_some() || y.is_some();
+                        let row_id = Id::new((
+                            "pair_row",
+                            &id_salt,
+                            x.as_ref().map(|t| t.0.clone()),
+                            y.as_ref().map(|t| t.0.clone()),
+                            idx,
+                        ));
 
-                    iter.next(ui, row_id, idx, is_draggable, |ui, item_handle| {
-                        item_handle.ui(ui, |ui, handle, state| {
-                            if state.dragged && is_draggable {
-                                let this_selected =
-                                    x.as_ref().is_some_and(|t| selection.traces.contains(t))
+                        iter.next(ui, row_id, idx, is_draggable, |ui, item_handle| {
+                            item_handle.ui(ui, |ui, handle, state| {
+                                if state.dragged && is_draggable {
+                                    let this_selected = x
+                                        .as_ref()
+                                        .is_some_and(|t| selection.traces.contains(t))
                                         || y.as_ref().is_some_and(|t| selection.traces.contains(t));
-                                let mut items: Vec<DragItem> = if this_selected {
-                                    pairs_snapshot
-                                        .iter()
-                                        .filter(|(px, py, _)| {
-                                            px.as_ref()
-                                                .is_some_and(|t| selection.traces.contains(t))
-                                                || py
-                                                    .as_ref()
+                                    let mut items: Vec<DragItem> = if this_selected {
+                                        pairs_snapshot
+                                            .iter()
+                                            .filter(|(px, py, _)| {
+                                                px.as_ref()
                                                     .is_some_and(|t| selection.traces.contains(t))
-                                        })
-                                        .map(|(px, py, l)| DragItem::XyPair {
-                                            x: px.clone(),
-                                            y: py.clone(),
-                                            look: l.clone(),
-                                        })
-                                        .collect()
-                                } else {
-                                    Vec::new()
-                                };
-                                if items.is_empty() {
-                                    items.push(DragItem::XyPair {
-                                        x: x.clone(),
-                                        y: y.clone(),
-                                        look: look.clone(),
-                                    });
-                                }
-                                let p = DragPayload {
-                                    items,
-                                    origin_scope_id: Some(origin_scope_id),
-                                };
-                                ui.ctx().data_mut(|d| {
-                                    if d.get_temp::<Vec<(
+                                                    || py.as_ref().is_some_and(|t| {
+                                                        selection.traces.contains(t)
+                                                    })
+                                            })
+                                            .map(|(px, py, l)| DragItem::XyPair {
+                                                x: px.clone(),
+                                                y: py.clone(),
+                                                look: l.clone(),
+                                            })
+                                            .collect()
+                                    } else {
+                                        Vec::new()
+                                    };
+                                    if items.is_empty() {
+                                        items.push(DragItem::XyPair {
+                                            x: x.clone(),
+                                            y: y.clone(),
+                                            look: look.clone(),
+                                        });
+                                    }
+                                    let p = DragPayload {
+                                        items,
+                                        origin_scope_id: Some(origin_scope_id),
+                                    };
+                                    ui.ctx().data_mut(|d| {
+                                        if d.get_temp::<Vec<(
                                         Option<TraceRef>,
                                         Option<TraceRef>,
                                         TraceLook,
@@ -1083,278 +1125,291 @@ impl ScopeSettingsUiPanel {
                                     {
                                         d.insert_temp(start_order_key, pairs_snapshot.clone());
                                     }
+                                    });
+                                    own_drag = Some(p.clone());
+                                    dragging_payload = Some(p.clone());
+                                    *global_dragging = Some(p);
+                                    drag_active = true;
+                                }
+
+                                let pair_selected =
+                                    x.as_ref().is_some_and(|t| selection.traces.contains(t))
+                                        || y.as_ref().is_some_and(|t| selection.traces.contains(t));
+                                let frame = egui::Frame::new()
+                                    .inner_margin(egui::Margin::symmetric(2, 0))
+                                    .corner_radius(egui::CornerRadius::same(3));
+                                let frame = if pair_selected {
+                                    frame.fill(ui.visuals().selection.bg_fill.linear_multiply(0.35))
+                                } else {
+                                    frame
+                                };
+                                frame.show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        handle.ui(ui, |ui| {
+                                            ui.label(DOTS_SIX_VERTICAL);
+                                        });
+
+                                        ui.color_edit_button_srgba(&mut look.color)
+                                            .on_hover_text("Change pair color");
+                                        if ui
+                                            .small_button(PALETTE.as_str())
+                                            .on_hover_text("Edit pair style")
+                                            .clicked()
+                                        {
+                                            *open_pair_editor = idx;
+                                        }
+
+                                        // X cell
+                                        ui.allocate_ui(egui::vec2(cell_w, 18.0), |ui| {
+                                            ui.with_layout(
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| match x {
+                                                    Some(t) => {
+                                                        let resp = ui
+                                                            .add(
+                                                                egui::Label::new(t.0.clone())
+                                                                    .truncate()
+                                                                    .show_tooltip_when_elided(true)
+                                                                    .sense(egui::Sense::click()),
+                                                            )
+                                                            .on_hover_text(trace_tooltip(
+                                                                traces_collection,
+                                                                t,
+                                                            ));
+                                                        if resp.hovered() {
+                                                            traces_collection.hover_trace =
+                                                                Some(vec![t.clone()]);
+                                                        }
+                                                        if resp.clicked() {
+                                                            sel_click = Some((
+                                                                idx,
+                                                                t.clone(),
+                                                                ui.input(|i| i.modifiers),
+                                                            ));
+                                                        }
+                                                        if ui
+                                                            .small_button(TRASH)
+                                                            .on_hover_text("Remove X")
+                                                            .clicked()
+                                                        {
+                                                            *x = None;
+                                                        }
+                                                    }
+                                                    None => {
+                                                        if let Some(dropped) =
+                                                            Self::render_drop_slot(
+                                                                ui,
+                                                                ("pair_slot_x", &id_salt, idx),
+                                                                dragging_payload.as_ref(),
+                                                                drag_active,
+                                                                "X",
+                                                            )
+                                                        {
+                                                            pending_drop = Some((
+                                                                idx,
+                                                                PairCell::X,
+                                                                dropped.clone(),
+                                                            ));
+                                                            dropped_payload =
+                                                                Some((idx, dropped.clone()));
+                                                            *global_dragging = None;
+                                                        }
+                                                    }
+                                                },
+                                            );
+                                        });
+
+                                        // Y cell
+                                        ui.allocate_ui(egui::vec2(cell_w, 18.0), |ui| {
+                                            ui.with_layout(
+                                                egui::Layout::left_to_right(egui::Align::Center),
+                                                |ui| match y {
+                                                    Some(t) => {
+                                                        let resp = ui
+                                                            .add(
+                                                                egui::Label::new(t.0.clone())
+                                                                    .truncate()
+                                                                    .show_tooltip_when_elided(true)
+                                                                    .sense(egui::Sense::click()),
+                                                            )
+                                                            .on_hover_text(trace_tooltip(
+                                                                traces_collection,
+                                                                t,
+                                                            ));
+                                                        if resp.hovered() {
+                                                            traces_collection.hover_trace =
+                                                                Some(vec![t.clone()]);
+                                                        }
+                                                        if resp.clicked() {
+                                                            sel_click = Some((
+                                                                idx,
+                                                                t.clone(),
+                                                                ui.input(|i| i.modifiers),
+                                                            ));
+                                                        }
+                                                        if ui
+                                                            .small_button(TRASH)
+                                                            .on_hover_text("Remove Y")
+                                                            .clicked()
+                                                        {
+                                                            *y = None;
+                                                        }
+                                                    }
+                                                    None => {
+                                                        if let Some(dropped) =
+                                                            Self::render_drop_slot(
+                                                                ui,
+                                                                ("pair_slot_y", &id_salt, idx),
+                                                                dragging_payload.as_ref(),
+                                                                drag_active,
+                                                                "Y",
+                                                            )
+                                                        {
+                                                            pending_drop = Some((
+                                                                idx,
+                                                                PairCell::Y,
+                                                                dropped.clone(),
+                                                            ));
+                                                            dropped_payload =
+                                                                Some((idx, dropped.clone()));
+                                                            *global_dragging = None;
+                                                        }
+                                                    }
+                                                },
+                                            );
+                                        });
+                                    });
                                 });
-                                own_drag = Some(p.clone());
-                                dragging_payload = Some(p.clone());
-                                *global_dragging = Some(p);
-                                drag_active = true;
-                            }
+                            })
+                        });
+                    }
+                });
+                // Keep sibling columns in sync while reordering and on drop.
+                dnd_resp.update_vec(pairs);
 
-                            let pair_selected =
-                                x.as_ref().is_some_and(|t| selection.traces.contains(t))
-                                    || y.as_ref().is_some_and(|t| selection.traces.contains(t));
-                            let frame = egui::Frame::new()
-                                .inner_margin(egui::Margin::symmetric(2, 0))
-                                .corner_radius(egui::CornerRadius::same(3));
-                            let frame = if pair_selected {
-                                frame.fill(ui.visuals().selection.bg_fill.linear_multiply(0.35))
-                            } else {
-                                frame
-                            };
-                            frame.show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    handle.ui(ui, |ui| {
-                                        ui.label(DOTS_SIX_VERTICAL);
-                                    });
-
-                                    ui.color_edit_button_srgba(&mut look.color)
-                                        .on_hover_text("Change pair color");
-                                    if ui
-                                        .small_button(PALETTE.as_str())
-                                        .on_hover_text("Edit pair style")
-                                        .clicked()
-                                    {
-                                        *open_pair_editor = idx;
-                                    }
-
-                                    // X cell
-                                    ui.allocate_ui(egui::vec2(cell_w, 18.0), |ui| {
-                                        ui.with_layout(
-                                            egui::Layout::left_to_right(egui::Align::Center),
-                                            |ui| match x {
-                                                Some(t) => {
-                                                    let resp = ui
-                                                        .add(
-                                                            egui::Label::new(t.0.clone())
-                                                                .truncate()
-                                                                .show_tooltip_when_elided(true)
-                                                                .sense(egui::Sense::click()),
-                                                        )
-                                                        .on_hover_text(trace_tooltip(
-                                                            traces_collection,
-                                                            t,
-                                                        ));
-                                                    if resp.hovered() {
-                                                        traces_collection.hover_trace =
-                                                            Some(vec![t.clone()]);
-                                                    }
-                                                    if resp.clicked() {
-                                                        sel_click = Some((
-                                                            idx,
-                                                            t.clone(),
-                                                            ui.input(|i| i.modifiers),
-                                                        ));
-                                                    }
-                                                    if ui
-                                                        .small_button(TRASH)
-                                                        .on_hover_text("Remove X")
-                                                        .clicked()
-                                                    {
-                                                        *x = None;
-                                                    }
-                                                }
-                                                None => {
-                                                    if let Some(dropped) = Self::render_drop_slot(
-                                                        ui,
-                                                        ("pair_slot_x", &id_salt, idx),
-                                                        dragging_payload.as_ref(),
-                                                        drag_active,
-                                                        "X",
-                                                    ) {
-                                                        pending_drop = Some((
-                                                            idx,
-                                                            PairCell::X,
-                                                            dropped.clone(),
-                                                        ));
-                                                        dropped_payload =
-                                                            Some((idx, dropped.clone()));
-                                                        *global_dragging = None;
-                                                    }
-                                                }
-                                            },
-                                        );
-                                    });
-
-                                    // Y cell
-                                    ui.allocate_ui(egui::vec2(cell_w, 18.0), |ui| {
-                                        ui.with_layout(
-                                            egui::Layout::left_to_right(egui::Align::Center),
-                                            |ui| match y {
-                                                Some(t) => {
-                                                    let resp = ui
-                                                        .add(
-                                                            egui::Label::new(t.0.clone())
-                                                                .truncate()
-                                                                .show_tooltip_when_elided(true)
-                                                                .sense(egui::Sense::click()),
-                                                        )
-                                                        .on_hover_text(trace_tooltip(
-                                                            traces_collection,
-                                                            t,
-                                                        ));
-                                                    if resp.hovered() {
-                                                        traces_collection.hover_trace =
-                                                            Some(vec![t.clone()]);
-                                                    }
-                                                    if resp.clicked() {
-                                                        sel_click = Some((
-                                                            idx,
-                                                            t.clone(),
-                                                            ui.input(|i| i.modifiers),
-                                                        ));
-                                                    }
-                                                    if ui
-                                                        .small_button(TRASH)
-                                                        .on_hover_text("Remove Y")
-                                                        .clicked()
-                                                    {
-                                                        *y = None;
-                                                    }
-                                                }
-                                                None => {
-                                                    if let Some(dropped) = Self::render_drop_slot(
-                                                        ui,
-                                                        ("pair_slot_y", &id_salt, idx),
-                                                        dragging_payload.as_ref(),
-                                                        drag_active,
-                                                        "Y",
-                                                    ) {
-                                                        pending_drop = Some((
-                                                            idx,
-                                                            PairCell::Y,
-                                                            dropped.clone(),
-                                                        ));
-                                                        dropped_payload =
-                                                            Some((idx, dropped.clone()));
-                                                        *global_dragging = None;
-                                                    }
-                                                }
-                                            },
-                                        );
-                                    });
-                                });
-                            });
-                        })
+                if dnd_resp.is_dragging() {
+                    ui.ctx().request_repaint();
+                    drag_active = true;
+                } else {
+                    ui.ctx().data_mut(|d| {
+                        d.remove::<Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)>>(
+                            start_order_key,
+                        )
                     });
                 }
-            });
-            // Keep sibling columns in sync while reordering and on drop.
-            dnd_resp.update_vec(pairs);
 
-            if dnd_resp.is_dragging() {
-                ui.ctx().request_repaint();
-                drag_active = true;
-            } else {
-                ui.ctx().data_mut(|d| {
-                    d.remove::<Vec<(Option<TraceRef>, Option<TraceRef>, TraceLook)>>(
-                        start_order_key,
-                    )
-                });
-            }
-
-            if pending_drop.is_none() {
-                if let Some(update) = dnd_resp.final_update() {
-                    if let Some(p) = &own_drag {
-                        if p.items.len() > 1 {
-                            let start = ui
-                                .ctx()
-                                .data_mut(|d| {
-                                    d.get_temp::<Vec<(
+                if pending_drop.is_none() {
+                    if let Some(update) = dnd_resp.final_update() {
+                        if let Some(p) = &own_drag {
+                            if p.items.len() > 1 {
+                                let start = ui
+                                    .ctx()
+                                    .data_mut(|d| {
+                                        d.get_temp::<Vec<(
                                         Option<TraceRef>,
                                         Option<TraceRef>,
                                         TraceLook,
                                     )>>(start_order_key)
-                                })
-                                .unwrap_or_else(|| pairs_snapshot.clone());
-                            let moved: HashSet<TraceRef> = p.trace_refs().into_iter().collect();
-                            Self::group_move_pairs(pairs, &start, update.to, &moved);
+                                    })
+                                    .unwrap_or_else(|| pairs_snapshot.clone());
+                                let moved: HashSet<TraceRef> = p.trace_refs().into_iter().collect();
+                                Self::group_move_pairs(pairs, &start, update.to, &moved);
+                            }
                         }
                     }
                 }
-            }
 
-            // Pair-level selection: clicking a member selects the whole pair.
-            // Re-find the pair by member — it may have shifted during the drag.
-            if let Some((_idx, member, mods)) = sel_click {
-                let idx = pairs
-                    .iter()
-                    .position(|(px, py, _)| {
-                        px.as_ref() == Some(&member) || py.as_ref() == Some(&member)
-                    })
-                    .unwrap_or(0);
-                let pair_key = pairs
-                    .get(idx)
-                    .and_then(|(px, py, _)| px.clone().or_else(|| py.clone()));
-                if let Some(key_ref) = pair_key {
-                    if mods.shift {
-                        // Range over pair rows using each row's first member.
-                        let ordered: Vec<TraceRef> = pairs
-                            .iter()
-                            .filter_map(|(px, py, _)| px.clone().or_else(|| py.clone()))
-                            .collect();
-                        // Determine the index range first, then select all
-                        // members of the covered pairs.
-                        let anchor_t = selection
-                            .anchor
-                            .as_ref()
-                            .and_then(|(k, t)| (*k == list_key).then(|| t.clone()));
-                        let a = anchor_t
-                            .and_then(|t| ordered.iter().position(|o| o == &t))
-                            .unwrap_or(idx);
-                        let (lo, hi) = (a.min(idx), a.max(idx));
-                        if !mods.command {
+                // Pair-level selection: clicking a member selects the whole pair.
+                // Re-find the pair by member — it may have shifted during the drag.
+                if let Some((_idx, member, mods)) = sel_click {
+                    let idx = pairs
+                        .iter()
+                        .position(|(px, py, _)| {
+                            px.as_ref() == Some(&member) || py.as_ref() == Some(&member)
+                        })
+                        .unwrap_or(0);
+                    let pair_key = pairs
+                        .get(idx)
+                        .and_then(|(px, py, _)| px.clone().or_else(|| py.clone()));
+                    if let Some(key_ref) = pair_key {
+                        if mods.shift {
+                            // Range over pair rows using each row's first member.
+                            let ordered: Vec<TraceRef> = pairs
+                                .iter()
+                                .filter_map(|(px, py, _)| px.clone().or_else(|| py.clone()))
+                                .collect();
+                            // Determine the index range first, then select all
+                            // members of the covered pairs.
+                            let anchor_t = selection
+                                .anchor
+                                .as_ref()
+                                .and_then(|(k, t)| (*k == list_key).then(|| t.clone()));
+                            let a = anchor_t
+                                .and_then(|t| ordered.iter().position(|o| o == &t))
+                                .unwrap_or(idx);
+                            let (lo, hi) = (a.min(idx), a.max(idx));
+                            if !mods.command {
+                                selection.traces.clear();
+                            }
+                            for (px, py, _) in pairs.iter().take(hi + 1).skip(lo) {
+                                if let Some(t) = px {
+                                    selection.traces.insert(t.clone());
+                                }
+                                if let Some(t) = py {
+                                    selection.traces.insert(t.clone());
+                                }
+                            }
+                            selection.anchor = Some((list_key, key_ref));
+                        } else if mods.command {
+                            let (px, py, _) = &pairs[idx];
+                            let members: Vec<TraceRef> =
+                                [px.clone(), py.clone()].into_iter().flatten().collect();
+                            let selected = members.iter().any(|t| selection.traces.contains(t));
+                            if selected {
+                                for t in &members {
+                                    selection.traces.remove(t);
+                                }
+                            } else {
+                                for t in members {
+                                    selection.traces.insert(t);
+                                }
+                            }
+                            selection.anchor = Some((list_key, key_ref));
+                        } else {
+                            // Plain click collapses the selection to this pair;
+                            // clicking the already-sole-selected pair releases the
+                            // selection entirely.
+                            let members: Vec<TraceRef> =
+                                [pairs[idx].0.clone(), pairs[idx].1.clone()]
+                                    .into_iter()
+                                    .flatten()
+                                    .collect();
+                            let sole = !members.is_empty()
+                                && selection.traces.len() == members.len()
+                                && members.iter().all(|t| selection.traces.contains(t));
                             selection.traces.clear();
-                        }
-                        for (px, py, _) in pairs.iter().take(hi + 1).skip(lo) {
-                            if let Some(t) = px {
-                                selection.traces.insert(t.clone());
+                            if !sole {
+                                selection.traces.extend(members);
                             }
-                            if let Some(t) = py {
-                                selection.traces.insert(t.clone());
-                            }
+                            selection.anchor = Some((list_key, key_ref));
                         }
-                        selection.anchor = Some((list_key, key_ref));
-                    } else if mods.command {
-                        let (px, py, _) = &pairs[idx];
-                        let members: Vec<TraceRef> =
-                            [px.clone(), py.clone()].into_iter().flatten().collect();
-                        let selected = members.iter().any(|t| selection.traces.contains(t));
-                        if selected {
-                            for t in &members {
-                                selection.traces.remove(t);
-                            }
-                        } else {
-                            for t in members {
-                                selection.traces.insert(t);
-                            }
-                        }
-                        selection.anchor = Some((list_key, key_ref));
-                    } else {
-                        selection.traces.clear();
-                        if let (Some(px), Some(py)) = (&pairs[idx].0, &pairs[idx].1) {
-                            selection.traces.insert(px.clone());
-                            selection.traces.insert(py.clone());
-                        } else {
-                            selection.traces.insert(key_ref.clone());
-                        }
-                        selection.anchor = Some((list_key, key_ref));
                     }
                 }
-            }
 
-            let dragging = dragging_payload.as_ref();
-            if let Some(dropped) = Self::render_drop_slot(
-                ui,
-                ("pair_drop_end", &id_salt),
-                dragging,
-                drag_active,
-                "Drop trace / pair here",
-            ) {
-                let idx = pairs.len();
-                dropped_payload = Some((idx, dropped.clone()));
-                *global_dragging = None;
-                pending_drop = Some((idx, PairCell::X, dropped));
-            }
+                let dragging = dragging_payload.as_ref();
+                if let Some(dropped) = Self::render_drop_slot(
+                    ui,
+                    ("pair_drop_end", &id_salt),
+                    dragging,
+                    drag_active,
+                    "Drop trace / pair here",
+                ) {
+                    let idx = pairs.len();
+                    dropped_payload = Some((idx, dropped.clone()));
+                    *global_dragging = None;
+                    pending_drop = Some((idx, PairCell::X, dropped));
+                }
+            });
         });
 
         // Drop empty rows and apply pending drops.
@@ -1368,6 +1423,11 @@ impl ScopeSettingsUiPanel {
                 traces_collection,
             );
             pairs.retain(|(x, y, _)| x.is_some() || y.is_some());
+        }
+
+        // A completed drop releases the multi-selection.
+        if dropped_payload.is_some() {
+            selection.clear();
         }
 
         if drag_active {
@@ -1556,5 +1616,85 @@ impl ScopeSettingsUiPanel {
 
         resp.scope_changed = scope_changed;
         resp
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tref(name: &str) -> TraceRef {
+        TraceRef(name.to_string())
+    }
+
+    fn trace_payload(names: &[&str]) -> DragPayload {
+        DragPayload {
+            items: names.iter().map(|n| DragItem::Trace(tref(n))).collect(),
+            origin_scope_id: None,
+        }
+    }
+
+    #[test]
+    fn pair_drop_alternates_traces_into_xy_cells() {
+        // A flat selection dropped onto an XY scope forms consecutive pairs.
+        let mut pairs = Vec::new();
+        let traces = TracesCollection::default();
+        ScopeSettingsUiPanel::apply_pair_drop(
+            &mut pairs,
+            0,
+            PairCell::X,
+            &trace_payload(&["a", "b", "c", "d"]),
+            &traces,
+        );
+        assert_eq!(
+            pairs
+                .iter()
+                .map(|(x, y, _)| (x.clone(), y.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (Some(tref("a")), Some(tref("b"))),
+                (Some(tref("c")), Some(tref("d"))),
+            ]
+        );
+    }
+
+    #[test]
+    fn pair_drop_on_y_cell_starts_alternation_on_y() {
+        // Dropping onto a Y cell fills that cell first, then alternates.
+        let mut pairs = vec![(Some(tref("x0")), None, TraceLook::default())];
+        let traces = TracesCollection::default();
+        ScopeSettingsUiPanel::apply_pair_drop(
+            &mut pairs,
+            0,
+            PairCell::Y,
+            &trace_payload(&["a", "b", "c"]),
+            &traces,
+        );
+        assert_eq!(pairs[0].0, Some(tref("x0")));
+        assert_eq!(pairs[0].1, Some(tref("a")));
+        assert_eq!(pairs[1].0, Some(tref("b")));
+        assert_eq!(pairs[1].1, Some(tref("c")));
+    }
+
+    #[test]
+    fn pair_drop_moves_existing_members() {
+        // Dropping a trace already in another row clears it there (move).
+        let mut pairs = vec![
+            (Some(tref("a")), Some(tref("b")), TraceLook::default()),
+            (Some(tref("c")), Some(tref("d")), TraceLook::default()),
+        ];
+        let traces = TracesCollection::default();
+        ScopeSettingsUiPanel::apply_pair_drop(
+            &mut pairs,
+            0,
+            PairCell::X,
+            &trace_payload(&["c"]),
+            &traces,
+        );
+        assert_eq!(pairs[0].0, Some(tref("c")));
+        assert_eq!(pairs[0].1, Some(tref("b")));
+        // Row 1 lost its only... c moved out; d remains.
+        assert_eq!(pairs[1].0, None);
+        assert_eq!(pairs[1].1, Some(tref("d")));
     }
 }

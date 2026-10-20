@@ -132,6 +132,12 @@ impl Panel for TracesPanel {
             data.traces.all_trace_names().into_iter().collect();
         self.selection.retain(&valid);
 
+        // Esc releases the multi-selection and aborts an in-progress drag.
+        if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.dragging_trace = None;
+            self.selection.clear();
+        }
+
         // Render the trace look editor in a bottom panel so it stays visible
         // without scrolling.
         let has_editor = self.look_editor_trace.is_some() || self.look_editor_xy_pair.is_some();
@@ -416,8 +422,7 @@ impl Panel for TracesPanel {
                                     } else if mods.command {
                                         self.selection.toggle(TraceListKey::Table, r.name.clone());
                                     } else {
-                                        self.selection
-                                            .select_only(TraceListKey::Table, r.name.clone());
+                                        self.selection.click(TraceListKey::Table, r.name.clone());
                                         *self.look_toggle = Some(r.name.clone());
                                     }
                                 }
@@ -588,8 +593,13 @@ impl Panel for TracesPanel {
                     data.traces.hover_trace = Some(hover_trace);
                 }
 
-                if ui.ctx().input(|i| i.pointer.any_released()) {
+                // Releasing the pointer ends a drag (drop or abort) and
+                // releases the multi-selection.  Runs after the drag-preview
+                // block so the payload temp data still exists on the release
+                // frame for scope plot-area drops rendered later this frame.
+                if self.dragging_trace.is_some() && ui.ctx().input(|i| i.pointer.any_released()) {
                     self.dragging_trace = None;
+                    self.selection.clear();
                 }
             }); // end ScrollArea
     }
