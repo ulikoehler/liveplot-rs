@@ -280,7 +280,7 @@ pub struct ScopeData {
     /// Legend item ids hidden via legend clicks on this scope, refreshed each
     /// frame by the scope renderer. Transient — used by overlays (measurements,
     /// markers) to exclude hidden points from bounds calculations.
-    pub legend_hidden_items: HashSet<egui::Id>,
+    pub legend_hidden_items: HashSet<egui_plot::ItemId>,
     pub last_plot_bounds: Option<([f64; 2], [f64; 2])>,
     pub last_plot_screen_rect: Option<[f32; 4]>,
     pub rendered_this_frame: bool,

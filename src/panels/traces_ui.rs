@@ -3,7 +3,9 @@ use crate::data::scope::ScopeType;
 use crate::data::{data::LivePlotData, traces::TraceRef};
 use eframe::egui;
 use egui::{Id, Ui};
-use egui_phosphor_icons::icons::{BROOM, CHART_LINE_UP, DOTS_SIX_VERTICAL, PLUS, X};
+use egui_material_icons::icons::{
+    ICON_ADD, ICON_CLOSE, ICON_DELETE_SWEEP, ICON_DRAG_INDICATOR, ICON_TRENDING_UP,
+};
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 
 use super::scope_settings_ui::{
@@ -34,7 +36,7 @@ pub struct TracesPanel {
 impl Default for TracesPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Traces", CHART_LINE_UP.as_str()),
+            state: PanelState::new("Traces", ICON_TRENDING_UP.codepoint),
             look_editor_trace: None,
             look_editor_xy_pair: None,
             hover_trace: None,
@@ -111,7 +113,10 @@ impl Panel for TracesPanel {
 
                 ui.separator();
 
-                if ui.button(format!("{} Clear All", BROOM.as_str())).clicked() {
+                if ui
+                    .button(format!("{} Clear All", ICON_DELETE_SWEEP.codepoint))
+                    .clicked()
+                {
                     data.traces.clear_all();
                     ui.close();
                 }
@@ -158,7 +163,10 @@ impl Panel for TracesPanel {
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
                                             if ui
-                                                .small_button(format!("{} Close", X.as_str()))
+                                                .small_button(format!(
+                                                    "{} Close",
+                                                    ICON_CLOSE.codepoint
+                                                ))
                                                 .clicked()
                                             {
                                                 self.look_editor_trace = None;
@@ -181,7 +189,7 @@ impl Panel for TracesPanel {
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
                                         if ui
-                                            .small_button(format!("{} Close", X.as_str()))
+                                            .small_button(format!("{} Close", ICON_CLOSE.codepoint))
                                             .clicked()
                                         {
                                             self.look_editor_xy_pair = None;
@@ -338,7 +346,7 @@ impl Panel for TracesPanel {
                                     |ui| {
                                         let resp = ui
                                             .add(
-                                                egui::Label::new(DOTS_SIX_VERTICAL)
+                                                egui::Label::new(ICON_DRAG_INDICATOR)
                                                     .sense(egui::Sense::click_and_drag()),
                                             )
                                             .on_hover_text("Drag into a scope / XY slot");
@@ -564,28 +572,31 @@ impl Panel for TracesPanel {
                     // panels (rendered later in the central panel) can detect a
                     // drop on their plot area.
                     ui.ctx().data_mut(|d| {
-                        d.insert_temp(Id::new("liveplot_active_trace_drag"), dragging.clone());
+                        d.insert_temp(Id::unique("liveplot_active_trace_drag"), dragging.clone());
                     });
 
                     if let Some(pos) = ui.ctx().pointer_latest_pos() {
-                        egui::Area::new(Id::new(("trace_drag_preview", dragging.preview_label())))
-                            .order(egui::Order::Foreground)
-                            .fixed_pos(pos + egui::vec2(16.0, 16.0))
-                            .interactable(false)
-                            .show(ui.ctx(), |ui| {
-                                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.label(DOTS_SIX_VERTICAL);
-                                        ui.label(dragging.preview_label());
-                                    });
+                        egui::Area::new(Id::unique((
+                            "trace_drag_preview",
+                            dragging.preview_label(),
+                        )))
+                        .order(egui::Order::Foreground)
+                        .fixed_pos(pos + egui::vec2(16.0, 16.0))
+                        .interactable(false)
+                        .show(ui.ctx(), |ui| {
+                            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(ICON_DRAG_INDICATOR);
+                                    ui.label(dragging.preview_label());
                                 });
                             });
+                        });
                     }
                 } else {
                     // Drag was consumed (e.g. by a drop slot) or released —
                     // remove stale temp data so scope panels don't see it.
                     ui.ctx().data_mut(|d| {
-                        d.remove::<DragPayload>(Id::new("liveplot_active_trace_drag"));
+                        d.remove::<DragPayload>(Id::unique("liveplot_active_trace_drag"));
                     });
                 }
 
@@ -657,7 +668,10 @@ impl Panel for TracesPanel {
 impl TracesPanel {
     fn render_scope_assignments(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
         let can_remove_scope = data.scope_data.len() > 1;
-        if ui.button(format!("{} Add scope", PLUS.as_str())).clicked() {
+        if ui
+            .button(format!("{} Add scope", ICON_ADD.codepoint))
+            .clicked()
+        {
             data.pending_requests.add_scope = true;
         }
         ui.add_space(4.0);

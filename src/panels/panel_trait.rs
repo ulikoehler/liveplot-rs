@@ -261,7 +261,7 @@ impl_downcast!(Panel);
 /// `before` snapshot is taken when the user *starts* interacting, not at
 /// the start of the release frame (which would already have the new value).
 pub fn detect_settings_change(ctx: &egui::Context, panel_title: &str, snapshot: Option<String>) {
-    let id = egui::Id::new(("settings_snapshot", panel_title));
+    let id = egui::Id::unique(("settings_snapshot", panel_title));
     let existing = ctx.data(|d| d.get_temp::<String>(id));
     if existing.is_none() {
         if let Some(snap) = snapshot {
@@ -286,7 +286,7 @@ pub fn detect_settings_change_after(
                 .iter()
                 .any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))
         });
-    let id = egui::Id::new(("settings_snapshot", panel_title));
+    let id = egui::Id::unique(("settings_snapshot", panel_title));
     if pointer_released {
         let before = ctx.data(|d| d.get_temp::<String>(id));
         let after = snapshot;

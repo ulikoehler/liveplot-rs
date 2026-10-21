@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use crate::data::trace_look::TraceLook;
 use crate::panels::panel_trait::{Panel, PanelState};
 use crate::panels::trace_look_ui::render_trace_look_editor;
-use egui_phosphor_icons::icons::{BROOM, PLUS, RECYCLE};
+use egui_material_icons::icons::{ICON_ADD, ICON_DELETE_SWEEP, ICON_RECYCLING};
 
 #[derive(Debug, Clone)]
 pub struct MathPanel {
@@ -116,7 +116,7 @@ impl Panel for MathPanel {
 
                 ui.separator();
 
-                if ui.button(format!("{} New", PLUS.as_str())).clicked() {
+                if ui.button(format!("{} New", ICON_ADD.codepoint)).clicked() {
                     self.builder =
                         MathTrace::new(TraceRef::default(), MathKind::Add { inputs: Vec::new() });
                     self.editing = None;
@@ -128,7 +128,7 @@ impl Panel for MathPanel {
                     ui.close();
                 }
                 if ui
-                    .button(format!("{} Reset All Storage", RECYCLE.as_str()))
+                    .button(format!("{} Reset All Storage", ICON_RECYCLING.codepoint))
                     .clicked()
                 {
                     for def in self.math_traces.iter_mut() {
@@ -137,7 +137,10 @@ impl Panel for MathPanel {
                     }
                     ui.close();
                 }
-                if ui.button(format!("{} Clear All", BROOM.as_str())).clicked() {
+                if ui
+                    .button(format!("{} Clear All", ICON_DELETE_SWEEP.codepoint))
+                    .clicked()
+                {
                     // Remove math traces & their underlying live data
                     for def in self.math_traces.iter() {
                         // Emit MATH_TRACE_REMOVED for each
@@ -260,7 +263,7 @@ impl Panel for MathPanel {
         // Global storage reset for all stateful math traces
         ui.horizontal(|ui| {
             if ui
-                .button(format!("{} Reset All Storage", RECYCLE.as_str()))
+                .button(format!("{} Reset All Storage", ICON_RECYCLING.codepoint))
                 .on_hover_text("Reset integrators, filters, min/max for all math traces")
                 .clicked()
             {
@@ -338,7 +341,7 @@ impl Panel for MathPanel {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Remove button with hover highlight
                     let remove_resp = ui
-                        .button(egui_phosphor_icons::icons::TRASH)
+                        .button(egui_material_icons::icons::ICON_DELETE)
                         .on_hover_text("Remove");
                     if remove_resp.hovered() {
                         hover_trace_intern = Some(vec![def.name.clone()]);
@@ -389,7 +392,7 @@ impl Panel for MathPanel {
                     });
                     if is_stateful || resettable_t || formula_hist {
                         let reset_resp = ui
-                            .button(egui_phosphor_icons::icons::ARROW_CLOCKWISE)
+                            .button(egui_material_icons::icons::ICON_REFRESH)
                             .on_hover_text(if resettable_t {
                                 "Reset t to 0 at the newest sample and clear running min/max history"
                             } else if formula_hist {
@@ -440,7 +443,7 @@ impl Panel for MathPanel {
         let new_clicked = ui
             .add_sized(
                 [ui.available_width(), 24.0],
-                egui::Button::new(format!("{} New", PLUS.as_str())),
+                egui::Button::new(format!("{} New", ICON_ADD.codepoint)),
             )
             .on_hover_text("Create a new math trace")
             .clicked();
@@ -623,7 +626,10 @@ impl Panel for MathPanel {
                         });
                     }
                     ui.horizontal(|ui| {
-                        if ui.button(format!("{} Add input", PLUS.as_str())).clicked() {
+                        if ui
+                            .button(format!("{} Add input", ICON_ADD.codepoint))
+                            .clicked()
+                        {
                             let nm = trace_names.first().cloned().unwrap_or_default();
                             inputs.push((nm, 1.0));
                         }
@@ -808,7 +814,7 @@ impl Panel for MathPanel {
                     // Insert chips: one per available trace (in trace color),
                     // plus t / pi / e and a function menu. Clicking inserts at
                     // the text cursor of the formula edit below.
-                    let edit_id = egui::Id::new("math_formula_edit");
+                    let edit_id = egui::Id::unique("math_formula_edit");
                     let mut pending_insert: Option<(String, usize)> = None;
                     ui.horizontal_wrapped(|ui| {
                         for n in &trace_names {
@@ -964,7 +970,7 @@ impl Panel for MathPanel {
                 let save_label = if is_editing {
                     "Save".to_string()
                 } else {
-                    format!("{} Add trace", PLUS.as_str())
+                    format!("{} Add trace", ICON_ADD.codepoint)
                 };
                 let formula_ok = match &self.builder.kind {
                     MathKind::Formula { expr } => {
@@ -978,7 +984,7 @@ impl Panel for MathPanel {
                 let formula_has_focus = matches!(self.builder.kind, MathKind::Formula { .. })
                     && ui
                         .ctx()
-                        .memory(|m| m.has_focus(egui::Id::new("math_formula_edit")));
+                        .memory(|m| m.has_focus(egui::Id::unique("math_formula_edit")));
                 let enter_pressed = can_save
                     && !formula_has_focus
                     && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));

@@ -8,7 +8,9 @@ use crate::panels::trace_look_ui::render_trace_look_editor;
 use chrono::Local;
 use egui;
 use egui::{Color32, Ui};
-use egui_phosphor_icons::icons::{BROOM, FILE_TEXT, PLUS, WARNING, X};
+use egui_material_icons::icons::{
+    ICON_ADD, ICON_CLOSE, ICON_DELETE_SWEEP, ICON_DESCRIPTION, ICON_WARNING,
+};
 use egui_plot::{HLine, LineStyle, MarkerShape, Points, VLine};
 use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 use std::cmp::Ordering;
@@ -31,7 +33,7 @@ pub struct ThresholdsPanel {
 impl Default for ThresholdsPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Thresholds", WARNING.as_str()),
+            state: PanelState::new("Thresholds", ICON_WARNING.codepoint),
             builder: ThresholdDef::default(),
             editing: None,
             error: None,
@@ -84,7 +86,7 @@ impl Panel for ThresholdsPanel {
 
                 ui.separator();
 
-                if ui.button(format!("{} New", PLUS.as_str())).clicked() {
+                if ui.button(format!("{} New", ICON_ADD.codepoint)).clicked() {
                     self.builder = ThresholdDef::default();
                     self.editing = None;
                     self.creating = true;
@@ -96,7 +98,7 @@ impl Panel for ThresholdsPanel {
                     ui.close();
                 }
                 if ui
-                    .button(format!("{} Clear events", BROOM.as_str()))
+                    .button(format!("{} Clear events", ICON_DELETE_SWEEP.codepoint))
                     .clicked()
                 {
                     self.clear_all_events();
@@ -403,7 +405,7 @@ impl Panel for ThresholdsPanel {
                 let removing_name = def.name.clone();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let remove_resp = ui
-                        .button(egui_phosphor_icons::icons::TRASH)
+                        .button(egui_material_icons::icons::ICON_DELETE)
                         .on_hover_text("Remove");
                     if remove_resp.hovered() {
                         self.hover_threshold = Some(removing_name.clone());
@@ -412,7 +414,7 @@ impl Panel for ThresholdsPanel {
                         action_remove = true;
                     }
                     let clear_resp = ui
-                        .button(format!("{} Clear events", BROOM.as_str()))
+                        .button(format!("{} Clear events", ICON_DELETE_SWEEP.codepoint))
                         .on_hover_text("Clear events for this threshold");
                     if clear_resp.hovered() {
                         self.hover_threshold = Some(removing_name.clone());
@@ -491,7 +493,7 @@ impl Panel for ThresholdsPanel {
         let new_clicked = ui
             .add_sized(
                 [ui.available_width(), 24.0],
-                egui::Button::new(format!("{} New", PLUS.as_str())),
+                egui::Button::new(format!("{} New", ICON_ADD.codepoint)),
             )
             .on_hover_text("Create a new threshold")
             .clicked();
@@ -724,7 +726,10 @@ impl Panel for ThresholdsPanel {
                     save_clicked = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(format!("{} Cancel", X.as_str())).clicked() {
+                    if ui
+                        .button(format!("{} Cancel", ICON_CLOSE.codepoint))
+                        .clicked()
+                    {
                         self.editing = None;
                         self.creating = false;
                         self.builder = ThresholdDef::default();
@@ -796,7 +801,7 @@ impl Panel for ThresholdsPanel {
                 self.events_filter = sel;
             }
             if ui
-                .button(format!("{} Export to CSV", FILE_TEXT.as_str()))
+                .button(format!("{} Export to CSV", ICON_DESCRIPTION.codepoint))
                 .clicked()
             {
                 if let Some(path) = rfd::FileDialog::new()
@@ -810,7 +815,7 @@ impl Panel for ThresholdsPanel {
                 }
             }
             if ui
-                .button(format!("{} Clear events", BROOM.as_str()))
+                .button(format!("{} Clear events", ICON_DELETE_SWEEP.codepoint))
                 .on_hover_text("Delete all threshold events (global log and per-threshold buffers)")
                 .clicked()
             {

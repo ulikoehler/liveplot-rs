@@ -5,8 +5,8 @@ use crate::data::export; // main crate's export module
 use crate::data::traces::TraceRef;
 use egui::Ui;
 #[cfg(feature = "parquet")]
-use egui_phosphor_icons::icons::TABLE;
-use egui_phosphor_icons::icons::{EXPORT, FILE_CSV, FOLDER_OPEN, IMAGE};
+use egui_material_icons::icons::ICON_TABLE;
+use egui_material_icons::icons::{ICON_CSV, ICON_FOLDER_OPEN, ICON_IMAGE, ICON_UPLOAD};
 use std::collections::HashMap;
 
 pub struct ExportPanel {
@@ -15,7 +15,7 @@ pub struct ExportPanel {
 impl Default for ExportPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Export", EXPORT.as_str()),
+            state: PanelState::new("Export", ICON_UPLOAD.codepoint),
         }
     }
 }
@@ -52,7 +52,7 @@ impl Panel for ExportPanel {
             .config(menu_cfg)
             .ui(ui, |ui| {
                 if ui
-                    .button(format!("{} Save Screenshot", IMAGE.as_str()))
+                    .button(format!("{} Save Screenshot", ICON_IMAGE.codepoint))
                     .on_hover_text("Take one screenshot of the full center panel")
                     .clicked()
                 {
@@ -63,7 +63,7 @@ impl Panel for ExportPanel {
                     ui.close();
                 }
                 if ui
-                    .button(format!("{} Snapshot as CSV", FILE_CSV.as_str()))
+                    .button(format!("{} Snapshot as CSV", ICON_CSV.codepoint))
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new()
@@ -95,7 +95,7 @@ impl Panel for ExportPanel {
                         ) {
                             eprintln!("Failed to export snapshot CSV: {e}");
                         } else {
-                            // Emit EXPORT event
+                            // Emit ICON_UPLOAD event
                             if let Some(ctrl) = &data.event_ctrl {
                                 let mut evt =
                                     crate::events::PlotEvent::new(crate::events::EventKind::EXPORT);
@@ -112,7 +112,7 @@ impl Panel for ExportPanel {
                 // Move Save/Load state into Export menu
                 ui.separator();
                 if ui
-                    .button(format!("{} Save state...", FOLDER_OPEN.as_str()))
+                    .button(format!("{} Save state...", ICON_FOLDER_OPEN.codepoint))
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new()
@@ -125,7 +125,7 @@ impl Panel for ExportPanel {
                     ui.close();
                 }
                 if ui
-                    .button(format!("{} Load state...", FOLDER_OPEN.as_str()))
+                    .button(format!("{} Load state...", ICON_FOLDER_OPEN.codepoint))
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new()
@@ -139,7 +139,7 @@ impl Panel for ExportPanel {
                 #[cfg(feature = "parquet")]
                 {
                     if ui
-                        .button(format!("{} Snapshot as Parquet", TABLE.as_str()))
+                        .button(format!("{} Snapshot as Parquet", ICON_TABLE.codepoint))
                         .clicked()
                     {
                         if let Some(path) = rfd::FileDialog::new()

@@ -6,7 +6,7 @@ use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
 use crate::panels::scope_ui::{ScopePanel, ZoomMode};
 use egui::Ui;
-use egui_phosphor_icons::icons::{CHART_BAR, WARNING};
+use egui_material_icons::icons::{ICON_BAR_CHART, ICON_WARNING};
 use egui_plot::PlotMemory;
 use std::collections::HashSet;
 
@@ -50,7 +50,7 @@ impl Default for FftPanel {
         scope_data.legend_position = LegendPosition::RightTop;
 
         Self {
-            state: PanelState::new("FFT", CHART_BAR.as_str()),
+            state: PanelState::new("FFT", ICON_BAR_CHART.codepoint),
             fft_data: FftData::default(),
             scope_ui,
             fft_db: false,
@@ -320,7 +320,7 @@ impl Panel for FftPanel {
                 ui.label(
                     egui::RichText::new(format!(
                         "{} Not enough data for FFT size",
-                        WARNING.as_str()
+                        ICON_WARNING.codepoint
                     ))
                     .color(egui::Color32::from_rgb(220, 160, 40)),
                 );
@@ -450,14 +450,14 @@ impl Panel for FftPanel {
         );
 
         // Read back which traces the user toggled in the legend
-        let plot_id = ui.make_persistent_id(egui::Id::new(format!(
+        let plot_id = ui.make_persistent_id(egui::Id::unique(format!(
             "scope_plot_{}",
             self.scope_ui.get_data().name
         )));
         if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
             self.hidden_in_legend.clear();
             for name in self.fft_data.fft_traces.keys() {
-                let item_id = egui::Id::new(&name.0);
+                let item_id = egui_plot::ItemId::new(&name.0);
                 if mem.hidden_items.contains(&item_id) {
                     self.hidden_in_legend.insert(name.clone());
                 }

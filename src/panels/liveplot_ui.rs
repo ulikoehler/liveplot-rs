@@ -4,7 +4,9 @@ use crate::data::data::{ScreenshotRequest, ScreenshotTarget};
 use crate::data::scope::ScopeData;
 use crate::data::traces::TracesCollection;
 use egui::{Stroke, Ui, Visuals, WidgetText};
-use egui_phosphor_icons::icons::{BROOM, EYE, MINUS, PLUS, SIDEBAR};
+use egui_material_icons::icons::{
+    ICON_ADD, ICON_DELETE_SWEEP, ICON_REMOVE, ICON_VIEW_SIDEBAR, ICON_VISIBILITY,
+};
 use egui_tiles::{
     Behavior, Container, Linear, LinearDir, TabState, Tabs, Tile, TileId, Tiles, Tree, UiResponse,
 };
@@ -48,7 +50,7 @@ impl LiveplotPanel {
         let root_pane = tiles.insert_pane(scope);
         let root = tiles.insert_tab_tile(vec![root_pane]);
         Self {
-            tree: Tree::new(egui::Id::new(("liveplot_scopes", tree_key)), root, tiles),
+            tree: Tree::new(egui::Id::unique(("liveplot_scopes", tree_key)), root, tiles),
             next_scope_idx: 1,
             event_ctrl_cache: None,
             structure_changed: false,
@@ -148,9 +150,9 @@ impl LiveplotPanel {
 
         // Add an icon to the Scopes menu for easier recognition; collapse to icon when narrow
         let scopes_label = if collapsed {
-            EYE.as_str().to_string()
+            ICON_VISIBILITY.codepoint.to_string()
         } else {
-            format!("{} Scopes", EYE.as_str())
+            format!("{} Scopes", ICON_VISIBILITY.codepoint)
         };
         egui::containers::menu::MenuButton::new(scopes_label)
             .config(
@@ -158,13 +160,16 @@ impl LiveplotPanel {
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
             )
             .ui(ui, |ui| {
-                if ui.button(format!("{} Add scope", PLUS.as_str())).clicked() {
+                if ui
+                    .button(format!("{} Add scope", ICON_ADD.codepoint))
+                    .clicked()
+                {
                     self.add_scope();
                     self.structure_changed = true;
                 }
 
                 if ui
-                    .button(format!("{} Clear all", BROOM.as_str()))
+                    .button(format!("{} Clear all", ICON_DELETE_SWEEP.codepoint))
                     .on_hover_text("Clear all trace data")
                     .clicked()
                 {
@@ -653,7 +658,7 @@ impl LiveplotPanel {
             return;
         };
 
-        self.tree = Tree::new(egui::Id::new("liveplot_scopes_restore"), root_id, tiles);
+        self.tree = Tree::new(egui::Id::unique("liveplot_scopes_restore"), root_id, tiles);
 
         self.next_scope_idx = next_idx.unwrap_or(max_id);
     }
@@ -721,9 +726,9 @@ where
         _scroll_offset: &mut f32,
     ) {
         let icon = if self.controls_currently_on {
-            MINUS.as_str()
+            ICON_REMOVE.codepoint
         } else {
-            SIDEBAR.as_str()
+            ICON_VIEW_SIDEBAR.codepoint
         };
         let label = format!("{icon} Controls");
         if ui

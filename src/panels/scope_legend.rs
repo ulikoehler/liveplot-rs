@@ -8,7 +8,7 @@
 
 use egui::epaint::CircleShape;
 use egui::{
-    pos2, vec2, Align, Color32, Direction, Frame, Id, Layout, PointerButton, Rect, Response, Sense,
+    pos2, vec2, Align, Color32, Direction, Frame, Layout, PointerButton, Rect, Response, Sense,
     Shadow, Shape, TextStyle, Ui, UiBuilder,
 };
 
@@ -20,7 +20,7 @@ use crate::data::traces::TraceRef;
 pub struct LegendEntryData {
     /// Canonical plot item id — must match the `.id()` of the drawn item(s) so
     /// `PlotMemory::hidden_items` and `hovered_legend_item` apply to them.
-    pub id: Id,
+    pub id: egui_plot::ItemId,
     /// Label displayed in the legend (may differ from the canonical item id,
     /// e.g. display aliases or appended info text).
     pub label: String,
@@ -37,50 +37,50 @@ pub struct LegendEntryData {
 // ---------------------------------------------------------------------------
 
 /// Item id for a single (time-scope) trace. Matches `PlotItemBase::new`'s
-/// `Id::new(name)` so explicitly setting it is a no-op for `Line`, but is
+/// `ItemId::new(&name)` so explicitly setting it is a no-op for `Line`, but is
 /// required for additional items like `Points` (whose default id would be the
 /// legend label).
-pub fn trace_item_id(name: &TraceRef) -> Id {
-    Id::new(name.0.clone())
+pub fn trace_item_id(name: &TraceRef) -> egui_plot::ItemId {
+    egui_plot::ItemId::new(&name.0)
 }
 
 /// Item id shared by the line/points of an XY pair.
-pub fn xy_pair_item_id(x: &TraceRef, y: &TraceRef) -> Id {
-    Id::new(("liveplot_xy_pair", x.0.clone(), y.0.clone()))
+pub fn xy_pair_item_id(x: &TraceRef, y: &TraceRef) -> egui_plot::ItemId {
+    egui_plot::ItemId::new(("liveplot_xy_pair", &x.0, &y.0))
 }
 
 /// Item id of the "(last)" newest-point marker of an XY pair.
-pub fn xy_last_point_item_id(pair_id: Id) -> Id {
-    pair_id.with("last")
+pub fn xy_last_point_item_id(pair_id: egui_plot::ItemId) -> egui_plot::ItemId {
+    egui_plot::ItemId::new((pair_id, "last"))
 }
 
 /// Item id shared by all items of a threshold definition.
-pub fn threshold_item_id(name: &str) -> Id {
-    Id::new(("liveplot_threshold", name))
+pub fn threshold_item_id(name: &str) -> egui_plot::ItemId {
+    egui_plot::ItemId::new(("liveplot_threshold", name))
 }
 
 /// Item id shared by all items of a trigger.
-pub fn trigger_item_id(name: &str) -> Id {
-    Id::new(("liveplot_trigger", name))
+pub fn trigger_item_id(name: &str) -> egui_plot::ItemId {
+    egui_plot::ItemId::new(("liveplot_trigger", name))
 }
 
 /// Item id shared by all items of a measurement.
-pub fn measurement_item_id(name: &str) -> Id {
-    Id::new(("liveplot_measurement", name))
+pub fn measurement_item_id(name: &str) -> egui_plot::ItemId {
+    egui_plot::ItemId::new(("liveplot_measurement", name))
 }
 
 /// Item id shared by all items of a marker.
-pub fn marker_item_id(name: &str) -> Id {
-    Id::new(("liveplot_marker", name))
+pub fn marker_item_id(name: &str) -> egui_plot::ItemId {
+    egui_plot::ItemId::new(("liveplot_marker", name))
 }
 
 /// Outcome of a legend render pass; the caller applies it to `PlotMemory`.
 #[derive(Debug, Default)]
 pub struct ScopeLegendResult {
     /// Ids of unchecked entries → `PlotMemory::hidden_items`.
-    pub hidden_items: Vec<Id>,
+    pub hidden_items: Vec<egui_plot::ItemId>,
     /// Entry under the pointer → `PlotMemory::hovered_legend_item`.
-    pub hovered_item: Option<Id>,
+    pub hovered_item: Option<egui_plot::ItemId>,
     /// Rect actually covered by the legend — lets the plot ignore pointer/scroll
     /// input that lands on the legend instead of the axes.
     pub rect: Option<Rect>,
@@ -98,7 +98,7 @@ pub fn render_scope_legend(
     position: LegendPosition,
     entries: &[LegendEntryData],
     salt: usize,
-    is_hidden: impl Fn(&Id) -> bool,
+    is_hidden: impl Fn(&egui_plot::ItemId) -> bool,
 ) -> Option<ScopeLegendResult> {
     if entries.is_empty() {
         return None;

@@ -4,9 +4,10 @@ use crate::data::marker::Marker;
 use crate::data::measurement::Measurement;
 use crate::data::scope::{AxisSettings, ScopeData};
 use egui::{Align2, Color32};
-use egui_phosphor_icons::icons::{
-    ASTERISK, BROOM, CIRCLE, CROSS, CROSSHAIR, DIAMOND, DOT, EYE, EYE_SLASH, LINE_VERTICAL, MINUS,
-    PLUS, RULER, SQUARE,
+use egui_material_icons::icons::{
+    ICON_ADD, ICON_BORDER_VERTICAL, ICON_CIRCLE, ICON_CLOSE, ICON_DELETE_SWEEP, ICON_DIAMOND,
+    ICON_EMERGENCY, ICON_FIBER_MANUAL_RECORD, ICON_MY_LOCATION, ICON_REMOVE, ICON_SQUARE,
+    ICON_STRAIGHTEN, ICON_VISIBILITY, ICON_VISIBILITY_OFF,
 };
 use egui_plot::{HLine, Line, MarkerShape, PlotPoint, Points, Text, VLine};
 
@@ -29,7 +30,7 @@ pub struct MeasurementPanel {
 impl Default for MeasurementPanel {
     fn default() -> Self {
         Self {
-            state: PanelState::new("Measurement", RULER.as_str()),
+            state: PanelState::new("Measurement", ICON_STRAIGHTEN.codepoint),
             measurements: Vec::new(),
             selected_measurement: None,
             selected_point_index: None,
@@ -220,7 +221,7 @@ impl Panel for MeasurementPanel {
 
                 ui.separator();
 
-                if ui.button(format!("{} New", PLUS.as_str())).clicked() {
+                if ui.button(format!("{} New", ICON_ADD.codepoint)).clicked() {
                     self.add_measurement();
                     // Focus this panel
                     let st = self.state_mut();
@@ -229,7 +230,7 @@ impl Panel for MeasurementPanel {
                     ui.close();
                 }
                 if ui
-                    .button(format!("{} Clear All", BROOM.as_str()))
+                    .button(format!("{} Clear All", ICON_DELETE_SWEEP.codepoint))
                     .on_hover_text("Clear measurement markers across all scopes")
                     .clicked()
                 {
@@ -241,7 +242,7 @@ impl Panel for MeasurementPanel {
                     ui.close();
                 }
                 if ui
-                    .button(format!("{} Take P1 at click", CROSSHAIR.as_str()))
+                    .button(format!("{} Take P1 at click", ICON_MY_LOCATION.codepoint))
                     .clicked()
                 {
                     self.selected_point_index = Some(0);
@@ -249,7 +250,7 @@ impl Panel for MeasurementPanel {
                     ui.close();
                 }
                 if ui
-                    .button(format!("{} Take P2 at click", CROSSHAIR.as_str()))
+                    .button(format!("{} Take P2 at click", ICON_MY_LOCATION.codepoint))
                     .clicked()
                 {
                     self.selected_point_index = Some(1);
@@ -259,7 +260,10 @@ impl Panel for MeasurementPanel {
 
                 ui.separator();
 
-                if ui.button(format!("{} New Marker", PLUS.as_str())).clicked() {
+                if ui
+                    .button(format!("{} New Marker", ICON_ADD.codepoint))
+                    .clicked()
+                {
                     let idx = self.markers.len() + 1;
                     self.markers
                         .push(Marker::new(&format!("K{}", idx), self.markers.len()));
@@ -273,7 +277,7 @@ impl Panel for MeasurementPanel {
                     ui.close();
                 }
                 if ui
-                    .button(format!("{} Clear All Markers", BROOM.as_str()))
+                    .button(format!("{} Clear All Markers", ICON_DELETE_SWEEP.codepoint))
                     .on_hover_text("Clear marker points across all scopes")
                     .clicked()
                 {
@@ -898,10 +902,13 @@ impl Panel for MeasurementPanel {
     fn render_panel(&mut self, ui: &mut egui::Ui, data: &mut LivePlotData<'_>) {
         ui.label("Pick points on the plot and compute deltas.");
         ui.horizontal(|ui| {
-            if ui.button(format!("{} Add", PLUS.as_str())).clicked() {
+            if ui.button(format!("{} Add", ICON_ADD.codepoint)).clicked() {
                 self.add_measurement();
             }
-            if ui.button(format!("{} Clear All", BROOM.as_str())).clicked() {
+            if ui
+                .button(format!("{} Clear All", ICON_DELETE_SWEEP.codepoint))
+                .clicked()
+            {
                 for m in &mut self.measurements {
                     m.clear();
                 }
@@ -959,14 +966,14 @@ impl Panel for MeasurementPanel {
                 }
 
                 let clear_btn = ui
-                    .button(egui_phosphor_icons::icons::BROOM)
+                    .button(egui_material_icons::icons::ICON_DELETE_SWEEP)
                     .on_hover_text("Clear");
                 if clear_btn.clicked() {
                     m.clear();
                 }
 
                 let rm_btn = ui
-                    .button(egui_phosphor_icons::icons::TRASH)
+                    .button(egui_material_icons::icons::ICON_DELETE)
                     .on_hover_text("Remove");
                 if rm_btn.clicked() {
                     remove_this = true;
@@ -1112,7 +1119,7 @@ impl Panel for MeasurementPanel {
         ui.separator();
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Markers").strong());
-            if ui.button(format!("{} Add", PLUS.as_str())).clicked() {
+            if ui.button(format!("{} Add", ICON_ADD.codepoint)).clicked() {
                 let idx = self.markers.len();
                 self.markers
                     .push(Marker::new(&format!("K{}", idx + 1), idx));
@@ -1129,7 +1136,7 @@ impl Panel for MeasurementPanel {
                 }
             }
             if ui
-                .button(format!("{} Clear All", BROOM.as_str()))
+                .button(format!("{} Clear All", ICON_DELETE_SWEEP.codepoint))
                 .on_hover_text("Clear all marker points")
                 .clicked()
             {
@@ -1199,7 +1206,7 @@ impl Panel for MeasurementPanel {
 
                 // Display-mode toggles (independent; can combine into a cross).
                 if ui
-                    .selectable_label(m.show_hline, MINUS.as_str())
+                    .selectable_label(m.show_hline, ICON_REMOVE.codepoint)
                     .on_hover_text("Horizontal line")
                     .clicked()
                 {
@@ -1207,7 +1214,7 @@ impl Panel for MeasurementPanel {
                     self.markers_dirty = true;
                 }
                 if ui
-                    .selectable_label(m.show_vline, LINE_VERTICAL.as_str())
+                    .selectable_label(m.show_vline, ICON_BORDER_VERTICAL.codepoint)
                     .on_hover_text("Vertical line")
                     .clicked()
                 {
@@ -1215,7 +1222,7 @@ impl Panel for MeasurementPanel {
                     self.markers_dirty = true;
                 }
                 if ui
-                    .selectable_label(m.show_point, DOT.as_str())
+                    .selectable_label(m.show_point, ICON_FIBER_MANUAL_RECORD.codepoint)
                     .on_hover_text("Point")
                     .clicked()
                 {
@@ -1223,7 +1230,11 @@ impl Panel for MeasurementPanel {
                     self.markers_dirty = true;
                 }
 
-                let eye = if m.visible { EYE } else { EYE_SLASH };
+                let eye = if m.visible {
+                    ICON_VISIBILITY
+                } else {
+                    ICON_VISIBILITY_OFF
+                };
                 if ui
                     .button(eye)
                     .on_hover_text("Toggle marker visibility")
@@ -1239,7 +1250,7 @@ impl Panel for MeasurementPanel {
                 }
 
                 let clear_btn = ui
-                    .button(egui_phosphor_icons::icons::BROOM)
+                    .button(egui_material_icons::icons::ICON_DELETE_SWEEP)
                     .on_hover_text("Clear point");
                 if clear_btn.clicked() {
                     m.clear();
@@ -1247,7 +1258,7 @@ impl Panel for MeasurementPanel {
                 }
 
                 let rm_btn = ui
-                    .button(egui_phosphor_icons::icons::TRASH)
+                    .button(egui_material_icons::icons::ICON_DELETE)
                     .on_hover_text("Remove");
                 if rm_btn.clicked() {
                     remove_this = true;
@@ -1264,12 +1275,12 @@ impl Panel for MeasurementPanel {
                 let show_point = self.markers[i].show_point;
                 ui.add_enabled_ui(show_point, |ui| {
                     let shapes: [(MarkerShape, &str, &str); 6] = [
-                        (MarkerShape::Circle, "Circle", CIRCLE.as_str()),
-                        (MarkerShape::Diamond, "Diamond", DIAMOND.as_str()),
-                        (MarkerShape::Square, "Square", SQUARE.as_str()),
-                        (MarkerShape::Cross, "Cross", CROSS.as_str()),
-                        (MarkerShape::Plus, "Plus", PLUS.as_str()),
-                        (MarkerShape::Asterisk, "Asterisk", ASTERISK.as_str()),
+                        (MarkerShape::Circle, "Circle", ICON_CIRCLE.codepoint),
+                        (MarkerShape::Diamond, "Diamond", ICON_DIAMOND.codepoint),
+                        (MarkerShape::Square, "Square", ICON_SQUARE.codepoint),
+                        (MarkerShape::Cross, "Cross", ICON_CLOSE.codepoint),
+                        (MarkerShape::Plus, "Plus", ICON_ADD.codepoint),
+                        (MarkerShape::Asterisk, "Asterisk", ICON_EMERGENCY.codepoint),
                     ];
                     for (shape, name, icon) in shapes {
                         let sel = self.markers[i].shape == shape;

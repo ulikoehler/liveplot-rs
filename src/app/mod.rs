@@ -215,6 +215,11 @@ pub struct LivePlotPanel {
     /// In-flight screenshot capture waiting for the next viewport screenshot event.
     pub(crate) pending_screenshot_capture: Option<PendingScreenshotCapture>,
 
+    /// Receives the image produced by `ctx.request_screenshot` once the
+    /// integration has read back the rendered pixels.
+    pub(crate) screenshot_image_slot:
+        std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<egui::ColorImage>>>>,
+
     // ── Responsive button-layout configuration ───────────────────────────────
     /// Buttons placed in the top menu bar.  `None` = the full default set.
     pub top_bar_buttons: Option<Vec<ScopeButton>>,
@@ -321,6 +326,7 @@ impl LivePlotPanel {
             threshold_event_cursors: HashMap::new(),
             pending_requests: LivePlotRequests::default(),
             pending_screenshot_capture: None,
+            screenshot_image_slot: std::sync::Arc::new(std::sync::Mutex::new(None)),
             top_bar_buttons: None,
             sidebar_buttons: None,
             min_height_for_top_bar: 200.0,

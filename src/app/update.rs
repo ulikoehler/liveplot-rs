@@ -61,19 +61,16 @@ impl LivePlotPanel {
         out
     }
 
-    fn handle_completed_screenshot(&mut self, ctx: &egui::Context) {
+    fn handle_completed_screenshot(&mut self) {
         let Some(pending) = self.pending_screenshot_capture.clone() else {
             return;
         };
-        let Some(image_arc) = ctx.input(|i| {
-            i.events.iter().rev().find_map(|event| {
-                if let egui::Event::Screenshot { image, .. } = event {
-                    Some(image.clone())
-                } else {
-                    None
-                }
-            })
-        }) else {
+        let Some(image_arc) = self
+            .screenshot_image_slot
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take())
+        else {
             return;
         };
         self.pending_screenshot_capture = None;
@@ -215,7 +212,12 @@ impl LivePlotPanel {
             pixels_per_point: ctx.pixels_per_point(),
             content_origin: [content_rect.left(), content_rect.top()],
         });
-        ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
+        let slot = self.screenshot_image_slot.clone();
+        ctx.request_screenshot(move |image| {
+            if let Ok(mut slot) = slot.lock() {
+                *slot = Some(image);
+            }
+        });
     }
 
     /// Main per-frame update: ingest data, render menu / side panels, then draw the plot.
@@ -328,7 +330,7 @@ impl LivePlotPanel {
             self.last_plot_size = widget_rect.size();
 
             self.update_data();
-            self.handle_completed_screenshot(ui.ctx());
+            self.handle_completed_screenshot();
 
             // Propagate the event controller to scope panels (handles new scopes too).
             self.liveplot_panel

@@ -5,9 +5,9 @@ edition = "2021"
 description = "Sine/cosine live-plot demo running in the browser via egui/eframe + WebAssembly"
 
 [dependencies]
-eframe = { version = "0.36", features = ["wgpu"] }
-egui = "0.36"
-egui_plot = "0.37"
+eframe = { version = "0.37", features = ["wgpu"] }
+egui = "0.37"
+egui_plot = "0.38"
 web-time = "1"
 log = "0.4"
 

@@ -12,8 +12,8 @@ use crate::data::trace_look::TraceLook;
 use crate::data::traces::TraceRef;
 use crate::data::traces::TracesCollection;
 use crate::events::EventController;
-use egui_phosphor_icons::icons::{
-    ARROWS_DOWN_UP, ARROWS_LEFT_RIGHT, IMAGE, MAGNIFYING_GLASS, PAUSE, PLAY,
+use egui_material_icons::icons::{
+    ICON_IMAGE, ICON_PAUSE, ICON_PLAY_ARROW, ICON_SEARCH, ICON_SWAP_HORIZ, ICON_SWAP_VERT,
 };
 
 /// Lightweight snapshot of scope settings for change detection (undo tracking).
@@ -547,11 +547,17 @@ impl ScopePanel {
         let settings_snapshot = self.snapshot_settings();
 
         if !self.data.paused {
-            if ui.button(format!("{} Scope", PAUSE.as_str())).clicked() {
+            if ui
+                .button(format!("{} Scope", ICON_PAUSE.codepoint))
+                .clicked()
+            {
                 self.data.paused = true;
                 traces.take_snapshot();
             }
-        } else if ui.button(format!("{} Scope", PLAY.as_str())).clicked() {
+        } else if ui
+            .button(format!("{} Scope", ICON_PLAY_ARROW.codepoint))
+            .clicked()
+        {
             self.data.paused = false;
         }
 
@@ -638,7 +644,7 @@ impl ScopePanel {
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             let response = ui.horizontal(|ui| {
                 if ui
-                    .button(format!("{} Fit X", ARROWS_LEFT_RIGHT.as_str()))
+                    .button(format!("{} Fit X", ICON_SWAP_HORIZ.codepoint))
                     .on_hover_text("Fit X to visible data")
                     .clicked()
                 {
@@ -832,7 +838,7 @@ impl ScopePanel {
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             let response = ui.horizontal(|ui| {
                 if ui
-                    .button(format!("{} Fit Y", ARROWS_DOWN_UP.as_str()))
+                    .button(format!("{} Fit Y", ICON_SWAP_VERT.codepoint))
                     .on_hover_text("Fit Y to visible data")
                     .clicked()
                 {
@@ -998,7 +1004,7 @@ impl ScopePanel {
         ui.separator();
 
         if ui
-            .button(format!("{} Fit to View", MAGNIFYING_GLASS.as_str()))
+            .button(format!("{} Fit to View", ICON_SEARCH.codepoint))
             .on_hover_text("Fit both axes to visible data")
             .clicked()
         {
@@ -1028,7 +1034,7 @@ impl ScopePanel {
 
         // Screenshot button kept in core controls
         if ui
-            .button(format!("{} Save Screenshot", IMAGE.as_str()))
+            .button(format!("{} Save Screenshot", ICON_IMAGE.codepoint))
             .on_hover_text("Take a screenshot of this scope")
             .clicked()
         {
@@ -1390,9 +1396,9 @@ impl ScopePanel {
                 }
             } else {
                 let ordered: Vec<TraceRef> = self.data.trace_order.clone();
-                for name in ordered.iter().cloned() {
+                for name in ordered.iter() {
                     // Get all needed trace fields upfront (immutable borrow released before mutable use)
-                    let trace_info = match traces.get_trace(&name) {
+                    let trace_info = match traces.get_trace(name) {
                         Some(tr) => (
                             tr.look.render_mode,
                             tr.offset,
@@ -1426,7 +1432,7 @@ impl ScopePanel {
                         let is_dimmed = traces
                             .hover_trace
                             .as_ref()
-                            .is_some_and(|hov| !hov.contains(&name));
+                            .is_some_and(|hov| !hov.contains(name));
                         let mut color = base_color;
                         if is_dimmed {
                             color = Color32::from_rgba_unmultiplied(
@@ -1437,7 +1443,7 @@ impl ScopePanel {
                             );
                         }
                         if let Some(dcache) = traces.get_density_cache(
-                            &name,
+                            name,
                             self.data.paused,
                             self.data.x_axis.bounds,
                             self.data.time_window,
@@ -1457,7 +1463,7 @@ impl ScopePanel {
                         }
                         // Still draw a thin outline line for context
                         let shown_pts = match traces.get_drawn_points_envelope(
-                            &name,
+                            name,
                             self.data.paused,
                             self.data.x_axis.bounds,
                             self.data.time_window,
@@ -1491,14 +1497,14 @@ impl ScopePanel {
                                 [x, y]
                             })
                             .collect();
-                        let display = traces.display_label(&name);
+                        let display = traces.display_label(name);
                         let legend_label = if self.data.show_info_in_legend && !info.is_empty() {
                             format!("{} — {}", display, info)
                         } else {
                             display
                         };
                         legend_entries.push(crate::panels::scope_legend::LegendEntryData {
-                            id: crate::panels::scope_legend::trace_item_id(&name),
+                            id: crate::panels::scope_legend::trace_item_id(name),
                             label: legend_label.clone(),
                             color: base_color,
                         });
@@ -1519,7 +1525,7 @@ impl ScopePanel {
                     let shown_pts = match render_mode {
                         RenderMode::Downsampled => {
                             match traces.get_drawn_points_envelope(
-                                &name,
+                                name,
                                 self.data.paused,
                                 self.data.x_axis.bounds,
                                 self.data.time_window,
@@ -1531,7 +1537,7 @@ impl ScopePanel {
                         }
                         RenderMode::MinMaxEnvelope => {
                             match traces.get_drawn_points_minmax_envelope(
-                                &name,
+                                name,
                                 self.data.paused,
                                 self.data.x_axis.bounds,
                                 self.data.time_window,
@@ -1543,7 +1549,7 @@ impl ScopePanel {
                         }
                         RenderMode::Line => {
                             match traces.get_drawn_points_decimated(
-                                &name,
+                                name,
                                 self.data.paused,
                                 self.data.x_axis.bounds,
                                 2000,
@@ -1584,7 +1590,7 @@ impl ScopePanel {
                     let mut color = base_color;
                     let mut width: f32 = base_width.max(0.1);
                     if let Some(hov) = &traces.hover_trace {
-                        if !hov.contains(&name) {
+                        if !hov.contains(name) {
                             // Strongly dim non-hovered traces
                             color = Color32::from_rgba_unmultiplied(
                                 color.r(),
@@ -1601,7 +1607,7 @@ impl ScopePanel {
                         .color(color)
                         .width(width)
                         .style(style);
-                    let display = traces.display_label(&name);
+                    let display = traces.display_label(name);
                     let legend_label = if self.data.show_info_in_legend && !info.is_empty() {
                         format!("{} — {}", display, info)
                     } else {
@@ -1609,7 +1615,7 @@ impl ScopePanel {
                     };
                     line = line.name(legend_label.clone());
                     legend_entries.push(crate::panels::scope_legend::LegendEntryData {
-                        id: crate::panels::scope_legend::trace_item_id(&name),
+                        id: crate::panels::scope_legend::trace_item_id(name),
                         label: legend_label.clone(),
                         color: base_color,
                     });
@@ -1619,14 +1625,14 @@ impl ScopePanel {
                     if show_points && !pts_vec.is_empty() {
                         let mut radius = point_size.max(0.5);
                         if let Some(hov) = &traces.hover_trace {
-                            if hov.contains(&name) {
+                            if hov.contains(name) {
                                 radius = (radius * 1.25).max(radius + 0.5);
                             }
                         }
                         let points = Points::new(legend_label, pts_vec.clone())
                             // Same canonical id as the line so both hide/merge
                             // under a single legend entry.
-                            .id(crate::panels::scope_legend::trace_item_id(&name))
+                            .id(crate::panels::scope_legend::trace_item_id(name))
                             .radius(radius)
                             .shape(marker)
                             .color(color);
@@ -1649,7 +1655,7 @@ impl ScopePanel {
         // their state is written back through `PlotMemory`.
         if self.data.show_legend && !hide_legend && !legend_entries.is_empty() {
             let plot_id =
-                ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.data.name)));
+                ui.make_persistent_id(egui::Id::unique(format!("scope_plot_{}", self.data.name)));
             if let Some(mut mem) = PlotMemory::load(ui.ctx(), plot_id) {
                 let frame = *plot_resp.transform.frame();
                 if let Some(res) = crate::panels::scope_legend::render_scope_legend(
@@ -1674,7 +1680,7 @@ impl ScopePanel {
         // Handle right-click on legend items: isolate one trace or re-enable all
         if self.data.show_legend && !hide_legend {
             let plot_id =
-                ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.data.name)));
+                ui.make_persistent_id(egui::Id::unique(format!("scope_plot_{}", self.data.name)));
             if let Some(mut mem) = PlotMemory::load(ui.ctx(), plot_id) {
                 if let Some(hovered_id) = mem.hovered_legend_item {
                     if ui.input(|i| i.pointer.secondary_clicked())
@@ -1682,7 +1688,8 @@ impl ScopePanel {
                     {
                         // All legend entry ids (canonical — independent of the
                         // displayed label).
-                        let all_ids: Vec<egui::Id> = legend_entries.iter().map(|e| e.id).collect();
+                        let all_ids: Vec<egui_plot::ItemId> =
+                            legend_entries.iter().map(|e| e.id).collect();
 
                         // If all others are already hidden, show all; otherwise isolate
                         let is_isolated = all_ids
@@ -1707,7 +1714,7 @@ impl ScopePanel {
         // auto-fit (which checks trace.look.visible) respects legend toggling.
         if self.data.show_legend && !hide_legend {
             let plot_id =
-                ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.data.name)));
+                ui.make_persistent_id(egui::Id::unique(format!("scope_plot_{}", self.data.name)));
             if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
                 if self.data.scope_type == ScopeType::XYScope && !self.data.xy_pairs.is_empty() {
                     for (x_name, y_name, pair_look) in self.data.xy_pairs.iter_mut() {
@@ -1748,7 +1755,7 @@ impl ScopePanel {
         // Kept in sync even when the legend is off so hidden items still
         // match what is actually drawn.
         let plot_id =
-            ui.make_persistent_id(egui::Id::new(format!("scope_plot_{}", self.data.name)));
+            ui.make_persistent_id(egui::Id::unique(format!("scope_plot_{}", self.data.name)));
         if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
             self.data.legend_hidden_items = mem.hidden_items.iter().copied().collect();
         }
@@ -1865,7 +1872,7 @@ impl ScopePanel {
 
         let drag_payload: Option<DragPayload> = ui
             .ctx()
-            .data(|d| d.get_temp(egui::Id::new("liveplot_active_trace_drag")));
+            .data(|d| d.get_temp(egui::Id::unique("liveplot_active_trace_drag")));
 
         if let Some(payload) = drag_payload {
             // Check if the pointer was released over this plot area
@@ -1941,7 +1948,7 @@ impl ScopePanel {
                 }
                 // Clear the drag payload so other scopes don't also consume it
                 ui.ctx().data_mut(|d| {
-                    d.remove::<DragPayload>(egui::Id::new("liveplot_active_trace_drag"));
+                    d.remove::<DragPayload>(egui::Id::unique("liveplot_active_trace_drag"));
                 });
             } else if hovered && !released {
                 // Visual feedback: highlight the plot border while dragging over it

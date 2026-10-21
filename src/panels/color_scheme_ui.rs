@@ -2,8 +2,9 @@
 
 use eframe::egui;
 use eframe::egui::Color32;
-use egui_phosphor_icons::icons::{
-    ARROW_DOWN, ARROW_UP, CHECK, FLOPPY_DISK, MINUS, PALETTE, PLUS, STAR, TRASH, WARNING,
+use egui_material_icons::icons::{
+    ICON_ADD, ICON_ARROW_DOWNWARD, ICON_ARROW_UPWARD, ICON_CHECK, ICON_DELETE, ICON_PALETTE,
+    ICON_REMOVE, ICON_SAVE, ICON_STAR, ICON_WARNING,
 };
 use serde::{Deserialize, Serialize};
 
@@ -55,7 +56,7 @@ impl Default for ColorSchemePanel {
         let default_scheme = ColorScheme::Dark;
         let palette = default_scheme.trace_colors();
         Self {
-            state: PanelState::new("Color Scheme", PALETTE.as_str()),
+            state: PanelState::new("Color Scheme", ICON_PALETTE.codepoint),
             selected_index: 0,
             editing_palette: palette,
             editing_name: String::new(),
@@ -203,12 +204,12 @@ impl Panel for ColorSchemePanel {
                 for (i, label) in labels.iter().enumerate() {
                     let is_custom = i >= builtins.len();
                     let indicator = if i == self.selected_index {
-                        CHECK.as_str()
+                        ICON_CHECK.codepoint
                     } else {
                         "  "
                     };
                     let custom_prefix = if is_custom {
-                        format!("{} ", STAR.as_str())
+                        format!("{} ", ICON_STAR.codepoint)
                     } else {
                         String::new()
                     };
@@ -252,7 +253,7 @@ impl Panel for ColorSchemePanel {
                     for (i, label) in labels.iter().enumerate() {
                         let is_custom = i >= builtins.len();
                         let prefix = if is_custom {
-                            format!("{} ", STAR.as_str())
+                            format!("{} ", ICON_STAR.codepoint)
                         } else {
                             "".to_string()
                         };
@@ -298,13 +299,25 @@ impl Panel for ColorSchemePanel {
 
                 ui.label(format!("#{}", i + 1));
 
-                if ui.button(ARROW_UP).on_hover_text("Move up").clicked() {
+                if ui
+                    .button(ICON_ARROW_UPWARD)
+                    .on_hover_text("Move up")
+                    .clicked()
+                {
                     to_move_up = Some(i);
                 }
-                if ui.button(ARROW_DOWN).on_hover_text("Move down").clicked() {
+                if ui
+                    .button(ICON_ARROW_DOWNWARD)
+                    .on_hover_text("Move down")
+                    .clicked()
+                {
                     to_move_down = Some(i);
                 }
-                if ui.button(MINUS).on_hover_text("Remove color").clicked() {
+                if ui
+                    .button(ICON_REMOVE)
+                    .on_hover_text("Remove color")
+                    .clicked()
+                {
                     to_remove = Some(i);
                 }
             });
@@ -337,13 +350,19 @@ impl Panel for ColorSchemePanel {
         // Mark dirty if any color changed (we can't easily detect this per-widget,
         // so we set dirty on any interaction in the color list area).
         ui.horizontal(|ui| {
-            if ui.button(format!("{} Add color", PLUS.as_str())).clicked() {
+            if ui
+                .button(format!("{} Add color", ICON_ADD.codepoint))
+                .clicked()
+            {
                 // Add a contrasting color.
                 let new_color = Color32::from_rgb(200, 200, 80);
                 self.editing_palette.push(new_color);
                 self.dirty = true;
             }
-            if ui.button(format!("{} Apply", CHECK.as_str())).clicked() {
+            if ui
+                .button(format!("{} Apply", ICON_CHECK.codepoint))
+                .clicked()
+            {
                 self.apply_palette(ui, &self.editing_palette);
                 data.traces.recolor_using_palette();
                 self.dirty = false;
@@ -358,9 +377,7 @@ impl Panel for ColorSchemePanel {
         ui.horizontal(|ui| {
             ui.text_edit_singleline(&mut self.editing_name);
             ui.add_space(4.0);
-            if ui
-                .button(format!("{} Save", FLOPPY_DISK.as_str()))
-                .clicked()
+            if ui.button(format!("{} Save", ICON_SAVE.codepoint)).clicked()
                 && !self.editing_name.trim().is_empty()
             {
                 let name = self.editing_name.trim().to_string();
@@ -386,7 +403,10 @@ impl Panel for ColorSchemePanel {
         if is_custom {
             ui.add_space(4.0);
             if ui
-                .button(format!("{} Delete this custom scheme", TRASH.as_str()))
+                .button(format!(
+                    "{} Delete this custom scheme",
+                    ICON_DELETE.codepoint
+                ))
                 .clicked()
             {
                 let ci = self.selected_index - builtins.len();
@@ -409,7 +429,7 @@ impl Panel for ColorSchemePanel {
                     Color32::from_rgb(200, 160, 0),
                     format!(
                         "{} Unsaved changes — click Apply to preview, or save as a custom scheme",
-                        WARNING.as_str()
+                        ICON_WARNING.codepoint
                     ),
                 );
             });

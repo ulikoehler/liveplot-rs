@@ -6,7 +6,9 @@ use crate::data::traces::TracesCollection;
 use eframe::egui;
 use egui::{Color32, Id, Ui};
 use egui_dnd::dnd;
-use egui_phosphor_icons::icons::{CARET_DOWN, CARET_UP, DOTS_SIX_VERTICAL, PALETTE, PENCIL, TRASH};
+use egui_material_icons::icons::{
+    ICON_DELETE, ICON_DRAG_INDICATOR, ICON_EDIT, ICON_EXPAND_LESS, ICON_EXPAND_MORE, ICON_PALETTE,
+};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
@@ -281,7 +283,7 @@ impl ScopeSettingsUiPanel {
                     self.rename_buffer = scope.name.clone();
                 }
 
-                let edit_id = Id::new(("scope_rename", scope_id));
+                let edit_id = Id::unique(("scope_rename", scope_id));
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut self.rename_buffer)
                         .id(edit_id)
@@ -321,7 +323,7 @@ impl ScopeSettingsUiPanel {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
-                    .add_enabled(can_remove_scope, egui::Button::new(TRASH.as_str()))
+                    .add_enabled(can_remove_scope, egui::Button::new(ICON_DELETE.codepoint))
                     .on_hover_text("Remove this scope from layout")
                     .clicked()
                 {
@@ -329,7 +331,7 @@ impl ScopeSettingsUiPanel {
                 }
 
                 if ui
-                    .small_button(PENCIL.as_str())
+                    .small_button(ICON_EDIT.codepoint)
                     .on_hover_text("Rename")
                     .clicked()
                 {
@@ -376,7 +378,7 @@ impl ScopeSettingsUiPanel {
 
         ui.horizontal(|ui| {
             if ui
-                .small_button(PALETTE.as_str())
+                .small_button(ICON_PALETTE.codepoint)
                 .on_hover_text("Recolor traces to match legend order")
                 .clicked()
             {
@@ -384,9 +386,9 @@ impl ScopeSettingsUiPanel {
             }
 
             let sort_icon = if self.sort_ascending {
-                CARET_UP
+                ICON_EXPAND_LESS
             } else {
-                CARET_DOWN
+                ICON_EXPAND_MORE
             };
             if ui
                 .small_button(sort_icon)
@@ -459,7 +461,7 @@ impl ScopeSettingsUiPanel {
         drag_active: bool,
         label: &str,
     ) -> Option<DragPayload> {
-        let _id = Id::new(("drop_slot", id_salt));
+        let _id = Id::unique(("drop_slot", id_salt));
         let ctx = ui.ctx().clone();
 
         let h = if drag_active { 18.0 } else { 14.0 };
@@ -669,21 +671,21 @@ impl ScopeSettingsUiPanel {
 
         let mut color_chooser = color_chooser;
         let mut open_look_editor = open_look_editor;
-        let start_order_key = Id::new(("dnd_start_order", &id_salt));
+        let start_order_key = Id::unique(("dnd_start_order", &id_salt));
 
         ui.vertical(|ui| {
             ui.strong(title);
             ui.separator();
 
-            let dnd_id = Id::new(("trace_list_dnd", &id_salt));
+            let dnd_id = Id::unique(("trace_list_dnd", &id_salt));
             let dnd_resp = dnd(ui, dnd_id).show_custom_vec(traces, |ui, traces, iter| {
                 for (idx, tr) in traces.iter_mut().enumerate() {
                     let is_draggable = tr.is_some();
 
                     // Stable ID for actual traces; use (idx) for None placeholders.
                     let row_id = match tr.as_ref() {
-                        Some(t) => Id::new(("trace_list_row", &id_salt, t.0.clone())),
-                        None => Id::new(("trace_list_row_none", &id_salt, idx)),
+                        Some(t) => Id::unique(("trace_list_row", &id_salt, t.0.clone())),
+                        None => Id::unique(("trace_list_row_none", &id_salt, idx)),
                     };
 
                     iter.next(ui, row_id, idx, is_draggable, |ui, item_handle| {
@@ -741,7 +743,7 @@ impl ScopeSettingsUiPanel {
                                     frame.show(ui, |ui| {
                                         ui.horizontal(|ui| {
                                             handle.ui(ui, |ui| {
-                                                ui.label(DOTS_SIX_VERTICAL);
+                                                ui.label(ICON_DRAG_INDICATOR);
                                             });
 
                                             if let Some(colors) = color_chooser.as_mut() {
@@ -776,7 +778,7 @@ impl ScopeSettingsUiPanel {
                                                 |ui| {
                                                     if ui
                                                         .small_button(
-                                                            egui_phosphor_icons::icons::TRASH,
+                                                            egui_material_icons::icons::ICON_DELETE,
                                                         )
                                                         .on_hover_text("Remove")
                                                         .clicked()
@@ -785,7 +787,7 @@ impl ScopeSettingsUiPanel {
                                                     }
                                                     if open_look_editor.is_some()
                                                         && ui
-                                                            .small_button(PALETTE.as_str())
+                                                            .small_button(ICON_PALETTE.codepoint)
                                                             .on_hover_text("Edit trace style")
                                                             .clicked()
                                                     {
@@ -1043,7 +1045,7 @@ impl ScopeSettingsUiPanel {
 
         let mut drag_active = global_dragging.is_some();
         let mut dragging_payload: Option<DragPayload> = global_dragging.clone();
-        let start_order_key = Id::new(("dnd_start_order_pairs", &id_salt));
+        let start_order_key = Id::unique(("dnd_start_order_pairs", &id_salt));
 
         let pairs_snapshot = pairs.clone();
 
@@ -1073,11 +1075,11 @@ impl ScopeSettingsUiPanel {
                 });
                 ui.separator();
 
-                let dnd_id = Id::new(("pair_list_dnd", &id_salt));
+                let dnd_id = Id::unique(("pair_list_dnd", &id_salt));
                 let dnd_resp = dnd(ui, dnd_id).show_custom(|ui, iter| {
                     for (idx, (x, y, look)) in pairs.iter_mut().enumerate() {
                         let is_draggable = x.is_some() || y.is_some();
-                        let row_id = Id::new((
+                        let row_id = Id::unique((
                             "pair_row",
                             &id_salt,
                             x.as_ref().map(|t| t.0.clone()),
@@ -1153,13 +1155,13 @@ impl ScopeSettingsUiPanel {
                                 frame.show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         handle.ui(ui, |ui| {
-                                            ui.label(DOTS_SIX_VERTICAL);
+                                            ui.label(ICON_DRAG_INDICATOR);
                                         });
 
                                         ui.color_edit_button_srgba(&mut look.color)
                                             .on_hover_text("Change pair color");
                                         if ui
-                                            .small_button(PALETTE.as_str())
+                                            .small_button(ICON_PALETTE.codepoint)
                                             .on_hover_text("Edit pair style")
                                             .clicked()
                                         {
@@ -1195,7 +1197,7 @@ impl ScopeSettingsUiPanel {
                                                             ));
                                                         }
                                                         if ui
-                                                            .small_button(TRASH)
+                                                            .small_button(ICON_DELETE)
                                                             .on_hover_text("Remove X")
                                                             .clicked()
                                                         {
@@ -1255,7 +1257,7 @@ impl ScopeSettingsUiPanel {
                                                             ));
                                                         }
                                                         if ui
-                                                            .small_button(TRASH)
+                                                            .small_button(ICON_DELETE)
                                                             .on_hover_text("Remove Y")
                                                             .clicked()
                                                         {
