@@ -8,7 +8,8 @@ use egui_material_icons::icons::{
     ICON_ADD, ICON_DELETE_SWEEP, ICON_REMOVE, ICON_VIEW_SIDEBAR, ICON_VISIBILITY,
 };
 use egui_tiles::{
-    Behavior, Container, Linear, LinearDir, TabState, Tabs, Tile, TileId, Tiles, Tree, UiResponse,
+    Behavior, Container, Linear, LinearDir, SimplificationOptions, TabState, Tabs, Tile, TileId,
+    Tiles, Tree, UiResponse,
 };
 
 pub struct LiveplotPanel {
@@ -687,6 +688,16 @@ where
         UiResponse::None
     }
 
+    /// Wrap every bare pane in a `Tabs` container so each scope keeps its
+    /// title bar (scope name + controls toggle) also inside `Linear`/`Grid`
+    /// layouts such as vertically stacked scopes.
+    fn simplification_options(&self) -> SimplificationOptions {
+        SimplificationOptions {
+            all_panes_must_have_tabs: true,
+            ..SimplificationOptions::default()
+        }
+    }
+
     fn tab_title_for_pane(&mut self, pane: &ScopePanel) -> WidgetText {
         pane.name().to_string().into()
     }
@@ -867,5 +878,99 @@ impl Behavior<ScopePanel> for NoopBehavior {
 
     fn tab_title_for_pane(&mut self, _pane: &ScopePanel) -> WidgetText {
         WidgetText::from("Scope")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persistence::{ScopeLayoutDirectionSerde, ScopeLayoutNodeSerde};
+
+    fn noop_overlays(
+        _: &mut egui_plot::PlotUi,
+        _: &ScopeData,
+        _: &TracesCollection,
+        _: &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+    ) {
+    }
+
+    fn test_behavior(
+        traces: &mut TracesCollection,
+    ) -> ScopeBehavior<
+        '_,
+        fn(
+            &mut egui_plot::PlotUi,
+            &ScopeData,
+            &TracesCollection,
+            &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+        ),
+    > {
+        ScopeBehavior {
+            draw_overlays: noop_overlays,
+            traces,
+            controls_currently_on: false,
+            controls_toggle_pressed: false,
+        }
+    }
+
+    fn two_scope_panel_with_layout(layout: ScopeLayoutNodeSerde) -> LiveplotPanel {
+        let mut panel = LiveplotPanel::new_with_id("test_tree", 0);
+        panel.add_scope();
+        let states = panel.scope_states();
+        panel.restore_scopes(states, Some(2), Some(&layout));
+        panel
+    }
+
+    #[test]
+    fn stacked_scopes_keep_title_bars() {
+        let layout = ScopeLayoutNodeSerde::Linear {
+            direction: ScopeLayoutDirectionSerde::Vertical,
+            children: vec![
+                ScopeLayoutNodeSerde::Pane { scope_id: 0 },
+                ScopeLayoutNodeSerde::Pane { scope_id: 1 },
+            ],
+        };
+        let mut panel = two_scope_panel_with_layout(layout);
+
+        let mut traces = TracesCollection::default();
+        let behavior = test_behavior(&mut traces);
+        panel.tree.simplify(&behavior.simplification_options());
+
+        let root = panel.tree.root.expect("tree should have a root");
+        let Some(Tile::Container(Container::Linear(linear))) = panel.tree.tiles.get(root) else {
+            panic!("expected a Linear root container");
+        };
+        assert_eq!(linear.children.len(), 2);
+        for child in &linear.children {
+            let Some(Tile::Container(Container::Tabs(tabs))) = panel.tree.tiles.get(*child) else {
+                panic!("stacked scope pane must be wrapped in a Tabs container");
+            };
+            assert_eq!(tabs.children.len(), 1);
+        }
+    }
+
+    #[test]
+    fn tabbed_scopes_stay_tabbed() {
+        let layout = ScopeLayoutNodeSerde::Tabs {
+            active_scope_id: Some(0),
+            children: vec![
+                ScopeLayoutNodeSerde::Pane { scope_id: 0 },
+                ScopeLayoutNodeSerde::Pane { scope_id: 1 },
+            ],
+        };
+        let mut panel = two_scope_panel_with_layout(layout);
+
+        let mut traces = TracesCollection::default();
+        let behavior = test_behavior(&mut traces);
+        panel.tree.simplify(&behavior.simplification_options());
+
+        let root = panel.tree.root.expect("tree should have a root");
+        let Some(Tile::Container(Container::Tabs(tabs))) = panel.tree.tiles.get(root) else {
+            panic!("expected a Tabs root container");
+        };
+        assert_eq!(tabs.children.len(), 2);
+        for child in &tabs.children {
+            assert!(matches!(panel.tree.tiles.get(*child), Some(Tile::Pane(_))));
+        }
     }
 }

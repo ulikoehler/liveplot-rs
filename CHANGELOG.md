@@ -1,5 +1,10 @@
 ## Unreleased
 
+* Scope title bars are now also shown for scopes inside `Linear`/`Grid`
+  layouts (e.g. vertically stacked scopes): every pane is wrapped in a
+  `Tabs` container via `all_panes_must_have_tabs`, so each scope keeps its
+  name and the shared Controls toggle visible.
+
 * Added a **Formula** operation to the Math panel: free-text expressions over
   traces (`{name}` syntax, so names with spaces work), the time variable `t`,
   and constants `pi`/`e`. Supports `+ - * / ^`, parentheses, implicit
