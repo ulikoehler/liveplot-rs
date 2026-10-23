@@ -717,16 +717,6 @@ where
         Stroke::new(2.0_f32, visuals.widgets.noninteractive.bg_stroke.color)
     }
 
-    /// Keep every pane inside a Tabs container so each area has a tab bar.
-    /// Bare panes in Linear/Grid containers get no tab bar (and nothing to
-    /// grab for drag-and-drop).
-    fn simplification_options(&self) -> SimplificationOptions {
-        SimplificationOptions {
-            all_panes_must_have_tabs: true,
-            ..SimplificationOptions::default()
-        }
-    }
-
     /// Add a "Controls" toggle button on the right side of each tab bar that
     /// only affects the scopes in that tab bar.
     fn top_bar_right_ui(
@@ -929,8 +919,7 @@ mod tests {
         ScopeBehavior {
             draw_overlays: noop_overlays,
             traces,
-            controls_currently_on: false,
-            controls_toggle_pressed: false,
+            controls_toggle: None,
         }
     }
 
