@@ -8,7 +8,8 @@ use egui_material_icons::icons::{
     ICON_ADD, ICON_DELETE_SWEEP, ICON_REMOVE, ICON_VIEW_SIDEBAR, ICON_VISIBILITY,
 };
 use egui_tiles::{
-    Behavior, Container, Linear, LinearDir, TabState, Tabs, Tile, TileId, Tiles, Tree, UiResponse,
+    Behavior, Container, Linear, LinearDir, SimplificationOptions, TabState, Tabs, Tile, TileId,
+    Tiles, Tree, UiResponse,
 };
 
 pub struct LiveplotPanel {
@@ -225,26 +226,17 @@ impl LiveplotPanel {
             return;
         }
 
-        // Check if any scope currently has controls visible (for the shared toggle button).
-        let any_controls_on = self
-            .tree
-            .tiles
-            .tiles()
-            .any(|t| matches!(t, Tile::Pane(p) if p.controls_in_toolbar()));
-
         let mut behavior = ScopeBehavior {
             draw_overlays,
             traces,
-            controls_currently_on: any_controls_on,
-            controls_toggle_pressed: false,
+            controls_toggle: None,
         };
         self.tree.ui(&mut behavior, ui);
 
-        // Apply the shared controls toggle if the button was pressed.
-        if behavior.controls_toggle_pressed {
-            let new_state = !behavior.controls_currently_on;
-            for tile in self.tree.tiles.tiles_mut() {
-                if let Tile::Pane(pane) = tile {
+        // Apply the controls toggle to the scopes of the tab bar whose button was pressed.
+        if let Some((pane_ids, new_state)) = behavior.controls_toggle {
+            for id in pane_ids {
+                if let Some(Tile::Pane(pane)) = self.tree.tiles.get_mut(id) {
                     pane.set_controls_in_toolbar(new_state);
                 }
             }
@@ -667,10 +659,9 @@ impl LiveplotPanel {
 struct ScopeBehavior<'a, F> {
     draw_overlays: F,
     traces: &'a mut TracesCollection,
-    /// Whether any scope currently has controls visible (used for the shared toggle button label).
-    controls_currently_on: bool,
-    /// Set to `true` when the shared controls toggle button is clicked.
-    controls_toggle_pressed: bool,
+    /// Set when a tab bar's "Controls" toggle is clicked: the pane tile ids in
+    /// that tab bar and the new controls state to apply to them.
+    controls_toggle: Option<(Vec<TileId>, bool)>,
 }
 
 impl<'a, F> Behavior<ScopePanel> for ScopeBehavior<'a, F>
@@ -716,16 +707,35 @@ where
         Stroke::new(2.0_f32, visuals.widgets.noninteractive.bg_stroke.color)
     }
 
-    /// Add a shared "Controls" toggle button on the right side of the tab bar.
+    /// Keep every pane inside a Tabs container so each area has a tab bar.
+    /// Bare panes in Linear/Grid containers get no tab bar (and nothing to
+    /// grab for drag-and-drop).
+    fn simplification_options(&self) -> SimplificationOptions {
+        SimplificationOptions {
+            all_panes_must_have_tabs: true,
+            ..SimplificationOptions::default()
+        }
+    }
+
+    /// Add a "Controls" toggle button on the right side of each tab bar that
+    /// only affects the scopes in that tab bar.
     fn top_bar_right_ui(
         &mut self,
-        _tiles: &Tiles<ScopePanel>,
+        tiles: &Tiles<ScopePanel>,
         ui: &mut Ui,
         _tile_id: TileId,
-        _tabs: &Tabs,
+        tabs: &Tabs,
         _scroll_offset: &mut f32,
     ) {
-        let icon = if self.controls_currently_on {
+        let pane_ids: Vec<TileId> = tabs
+            .children
+            .iter()
+            .flat_map(|id| pane_ids_in_subtree(tiles, *id))
+            .collect();
+        let controls_on = pane_ids.iter().any(|id| {
+            matches!(tiles.get(*id), Some(Tile::Pane(p)) if p.controls_in_toolbar())
+        });
+        let icon = if controls_on {
             ICON_REMOVE.codepoint
         } else {
             ICON_VIEW_SIDEBAR.codepoint
@@ -733,11 +743,23 @@ where
         let label = format!("{icon} Controls");
         if ui
             .small_button(label)
-            .on_hover_text("Toggle plot controls for all scopes")
+            .on_hover_text("Toggle plot controls for the scopes in this tab bar")
             .clicked()
         {
-            self.controls_toggle_pressed = true;
+            self.controls_toggle = Some((pane_ids, !controls_on));
         }
+    }
+}
+
+/// Collect the tile ids of all panes in the subtree rooted at `tile_id`.
+fn pane_ids_in_subtree(tiles: &Tiles<ScopePanel>, tile_id: TileId) -> Vec<TileId> {
+    match tiles.get(tile_id) {
+        Some(Tile::Pane(_)) => vec![tile_id],
+        Some(Tile::Container(container)) => container
+            .children()
+            .flat_map(|id| pane_ids_in_subtree(tiles, *id))
+            .collect(),
+        None => Vec::new(),
     }
 }
 
