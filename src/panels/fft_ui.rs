@@ -449,11 +449,11 @@ impl Panel for FftPanel {
             &mut tmp_traces,
         );
 
-        // Read back which traces the user toggled in the legend
-        let plot_id = ui.make_persistent_id(egui::Id::unique(format!(
-            "scope_plot_{}",
-            self.scope_ui.get_data().name
-        )));
+        // Read back which traces the user toggled in the legend. Must use the
+        // same `PlotMemory` id that `ScopePanel::render_plot` pins via
+        // `Plot::id(...)` (see there).
+        let plot_id =
+            ui.make_persistent_id(format!("scope_plot_{}", self.scope_ui.get_data().name));
         if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
             self.hidden_in_legend.clear();
             for name in self.fft_data.fft_traces.keys() {

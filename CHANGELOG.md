@@ -1,5 +1,13 @@
 ## Unreleased
 
+* Fixed the scope legend not being displayed: after the egui_plot 0.38
+  upgrade the `PlotMemory` id derived with `Id::unique(...)` no longer
+  matched the id `Plot::show` uses internally, so `PlotMemory::load`
+  returned `None` and the legend overlay was never rendered. The memory id
+  is now computed once and pinned explicitly via `Plot::id(...)`, which
+  also restores legend click-to-hide, alt-click isolate, right-click
+  isolate, and the FFT panel's hidden-trace readback.
+
 * Scope title bars are now also shown for scopes inside `Linear`/`Grid`
   layouts (e.g. vertically stacked scopes): every pane is wrapped in a
   `Tabs` container via `all_panes_must_have_tabs`, so each scope keeps its

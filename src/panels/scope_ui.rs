@@ -1070,7 +1070,14 @@ impl ScopePanel {
         let y_log = self.data.y_axis.log_scale;
         let x_log = self.data.x_axis.log_scale;
         let show_grid = self.data.show_grid;
+        // The id under which egui_plot stores this plot's `PlotMemory`. It is
+        // pinned explicitly via `.id()` so that `PlotMemory::load`/`store`
+        // calls below always hit the same entry — deriving it a second time
+        // risks producing a different id whenever egui_plot changes how it
+        // turns `Plot::new`'s salt into an id.
+        let plot_id = ui.make_persistent_id(format!("scope_plot_{}", self.data.name));
         let mut plot = Plot::new(format!("scope_plot_{}", self.data.name))
+            .id(plot_id)
             .allow_scroll(false)
             .allow_zoom(false)
             .allow_boxed_zoom(false)
@@ -1654,8 +1661,6 @@ impl ScopePanel {
         // scrolling, so entries collected while drawing are rendered here and
         // their state is written back through `PlotMemory`.
         if self.data.show_legend && !hide_legend && !legend_entries.is_empty() {
-            let plot_id =
-                ui.make_persistent_id(egui::Id::unique(format!("scope_plot_{}", self.data.name)));
             if let Some(mut mem) = PlotMemory::load(ui.ctx(), plot_id) {
                 let frame = *plot_resp.transform.frame();
                 if let Some(res) = crate::panels::scope_legend::render_scope_legend(
@@ -1679,8 +1684,6 @@ impl ScopePanel {
 
         // Handle right-click on legend items: isolate one trace or re-enable all
         if self.data.show_legend && !hide_legend {
-            let plot_id =
-                ui.make_persistent_id(egui::Id::unique(format!("scope_plot_{}", self.data.name)));
             if let Some(mut mem) = PlotMemory::load(ui.ctx(), plot_id) {
                 if let Some(hovered_id) = mem.hovered_legend_item {
                     if ui.input(|i| i.pointer.secondary_clicked())
@@ -1713,8 +1716,6 @@ impl ScopePanel {
         // Sync legend hidden_items back to trace.look.visible so that
         // auto-fit (which checks trace.look.visible) respects legend toggling.
         if self.data.show_legend && !hide_legend {
-            let plot_id =
-                ui.make_persistent_id(egui::Id::unique(format!("scope_plot_{}", self.data.name)));
             if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
                 if self.data.scope_type == ScopeType::XYScope && !self.data.xy_pairs.is_empty() {
                     for (x_name, y_name, pair_look) in self.data.xy_pairs.iter_mut() {
@@ -1754,8 +1755,6 @@ impl ScopePanel {
         // (measurements, markers) can exclude hidden overlays from bounds.
         // Kept in sync even when the legend is off so hidden items still
         // match what is actually drawn.
-        let plot_id =
-            ui.make_persistent_id(egui::Id::unique(format!("scope_plot_{}", self.data.name)));
         if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
             self.data.legend_hidden_items = mem.hidden_items.iter().copied().collect();
         }
