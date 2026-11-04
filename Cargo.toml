@@ -42,7 +42,7 @@ window_control_display_info = [
 # Optional VolcanoPlot (C++/Vulkan) plot backend
 volcano = []
 
-# Optional tiles layout engine for helper APIs # Optional tiles layout engine for helper APIs & examples examples
+# Optional tiles layout engine for helper APIs & examples
 tiles = ["dep:egui_tiles"]
 
 [dependencies]
@@ -78,6 +78,7 @@ egui_material_icons = "0.9"
 once_cell = "1.21.3"
 
 [build-dependencies]
+cc = "1"
 tonic-prost-build = "0.14"
 
 ## note: this repository uses `examples/embedded_tiles.rs` as the tiles example
