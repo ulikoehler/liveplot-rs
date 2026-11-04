@@ -12,7 +12,9 @@ mod export;
 mod hotkeys_e2e;
 mod hotkeys_more;
 mod legend;
+mod legend2;
 mod math;
+mod math2;
 mod meas_events;
 mod measurement;
 mod panels;
@@ -22,10 +24,12 @@ mod scopes;
 mod sink;
 mod smoke;
 mod snapshots;
+mod soak;
 mod stress;
 mod thresholds;
 mod traces_panel;
 mod triggers;
+mod xy_scope;
 
 #[cfg(feature = "fft")]
 mod fft;
