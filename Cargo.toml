@@ -39,7 +39,10 @@ window_control_display_info = [
 	"dep:display-info",
 ]
 
-# Optional tiles layout engine for helper APIs & examples
+# Optional VolcanoPlot (C++/Vulkan) plot backend
+volcano = []
+
+# Optional tiles layout engine for helper APIs # Optional tiles layout engine for helper APIs & examples examples
 tiles = ["dep:egui_tiles"]
 
 [dependencies]

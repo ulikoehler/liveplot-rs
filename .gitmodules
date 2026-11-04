@@ -1,3 +1,6 @@
 [submodule "vendor/VolcanoPlot"]
 	path = vendor/VolcanoPlot
 	url = https://github.com/ulikoehler/VolcanoPlot.git
+[submodule "vendor/Vulkan-Headers"]
+	path = vendor/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git

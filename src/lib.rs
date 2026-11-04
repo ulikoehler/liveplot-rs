@@ -12,6 +12,8 @@ pub mod controllers;
 pub mod events;
 pub mod sink;
 pub mod undo;
+#[cfg(feature = "volcano")]
+pub mod volcano;
 
 // Public re-exports for a compact external API
 pub use app::{run_liveplot, LivePlotApp, LivePlotPanel};
