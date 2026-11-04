@@ -111,3 +111,26 @@ fn volcano_xy_scope_renders_pair() {
     );
     assert!(s.last_plot_bounds.is_some());
 }
+
+/// The FFT panel's embedded scope renders through VolcanoPlot too
+/// ("everything incl. FFT" — it's the same render_plot path).
+#[cfg(feature = "fft")]
+#[test]
+fn volcano_fft_scope_renders() {
+    use liveplot::panels::fft_ui::FftPanel;
+    use liveplot::Panel;
+    let mut bed = make_test_bed();
+    {
+        let fp = find_panel_mut::<FftPanel>(&mut bed).expect("FftPanel exists");
+        fp.state_mut().visible = true;
+        fp.scope_ui.get_data_mut().volcano_enabled = true;
+    }
+    feed_sine(&bed, "sig", 4096, 1.0, 1000.0, 0.0);
+    steps(&mut bed, 60);
+    let fp = find_panel::<FftPanel>(&bed).unwrap();
+    let data = fp.scope_ui.get_data();
+    assert!(
+        data.volcano_surface.as_ref().is_some_and(|v| v.initialized()),
+        "FFT scope should render through VolcanoPlot"
+    );
+}

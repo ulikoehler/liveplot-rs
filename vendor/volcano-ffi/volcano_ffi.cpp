@@ -93,114 +93,142 @@ static bool init(VpFigure* f, int w, int h) {
 extern "C" {
 
 VpFigure* vp_figure_create(int width, int height) {
-    auto* f = new VpFigure();
-    if (!init(f, width, height)) {
-        delete f;
+    try {
+        auto* f = new VpFigure();
+        if (!init(f, width, height)) {
+            delete f;
+            return nullptr;
+        }
+        return f;
+    } catch (...) {
         return nullptr;
     }
-    return f;
 }
 
-void vp_figure_destroy(VpFigure* fig) { delete fig; }
+void vp_figure_destroy(VpFigure* fig) {
+    try { delete fig; } catch (...) {}
+}
 
 int vp_figure_resize(VpFigure* fig, int width, int height) {
-    if (!fig || width <= 0 || height <= 0) return 0;
-    if (width == fig->w && height == fig->h) return 1;
-    return init(fig, width, height) ? 1 : 0;
+    try {
+        if (!fig || width <= 0 || height <= 0) return 0;
+        if (width == fig->w && height == fig->h) return 1;
+        return init(fig, width, height) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
 }
 
 uint64_t vp_trace_add(VpFigure* fig) {
-    if (!fig) return 0;
-    uint64_t id = fig->next_id++;
-    fig->trace_data[id] = VpFigure::TraceData{};
-    auto lp = std::make_shared<plot::LinePlot>(plot::Series2D{});
-    auto* raw = lp.get();
-    fig->axes->addPlot(std::move(lp));
-    fig->traces[id] = raw;
-    return id;
+    try {
+        if (!fig) return 0;
+        uint64_t id = fig->next_id++;
+        fig->trace_data[id] = VpFigure::TraceData{};
+        auto lp = std::make_shared<plot::LinePlot>(plot::Series2D{});
+        auto* raw = lp.get();
+        fig->axes->addPlot(std::move(lp));
+        fig->traces[id] = raw;
+        return id;
+    } catch (...) {
+        return 0;
+    }
 }
 
 void vp_trace_set(VpFigure* fig, uint64_t id, const double* xy, size_t n,
                   uint32_t rgba8, float width, int style) {
-    if (!fig) return;
-    auto td_it = fig->trace_data.find(id);
-    if (td_it == fig->trace_data.end()) return;
-    auto& td = td_it->second;
-    td.x.assign(n, 0.0f);
-    td.y.assign(n, 0.0f);
-    for (size_t i = 0; i < n; ++i) {
-        td.x[i] = static_cast<float>(xy[2 * i]);
-        td.y[i] = static_cast<float>(xy[2 * i + 1]);
-    }
-    td.rgba8 = rgba8;
-    td.width = width;
-    td.style = style;
+    try {
+        if (!fig) return;
+        auto td_it = fig->trace_data.find(id);
+        if (td_it == fig->trace_data.end()) return;
+        auto& td = td_it->second;
+        td.x.assign(n, 0.0f);
+        td.y.assign(n, 0.0f);
+        for (size_t i = 0; i < n; ++i) {
+            td.x[i] = static_cast<float>(xy[2 * i]);
+            td.y[i] = static_cast<float>(xy[2 * i + 1]);
+        }
+        td.rgba8 = rgba8;
+        td.width = width;
+        td.style = style;
 
-    auto it = fig->traces.find(id);
-    if (it == fig->traces.end()) return;
-    auto* lp = it->second;
-    lp->setData(td.x, td.y);
-    auto& s = lp->series();
-    s.color = plot::Color::fromRgba8(
-        (rgba8 >> 24) & 0xFF, (rgba8 >> 16) & 0xFF, (rgba8 >> 8) & 0xFF,
-        rgba8 & 0xFF);
-    s.lineWidth = width;
-    s.lineStyle = style == 1 ? plot::LineStyle::Dashed
-                  : style == 2 ? plot::LineStyle::Dotted
-                               : plot::LineStyle::Solid;
-    s.marker = style == 3 ? plot::MarkerStyle::Circle
-                          : plot::MarkerStyle::None;
+        auto it = fig->traces.find(id);
+        if (it == fig->traces.end()) return;
+        auto* lp = it->second;
+        lp->setData(td.x, td.y);
+        auto& s = lp->series();
+        s.color = plot::Color::fromRgba8(
+            (rgba8 >> 24) & 0xFF, (rgba8 >> 16) & 0xFF, (rgba8 >> 8) & 0xFF,
+            rgba8 & 0xFF);
+        s.lineWidth = width;
+        s.lineStyle = style == 1 ? plot::LineStyle::Dashed
+                      : style == 2 ? plot::LineStyle::Dotted
+                                   : plot::LineStyle::Solid;
+        s.marker = style == 3 ? plot::MarkerStyle::Circle
+                              : plot::MarkerStyle::None;
+    } catch (...) {}
 }
 
 void vp_trace_remove(VpFigure* fig, uint64_t id) {
-    if (!fig) return;
-    auto it = fig->traces.find(id);
-    if (it != fig->traces.end()) {
-        fig->axes->removePlot(it->second);
-        fig->traces.erase(it);
-    }
-    fig->trace_data.erase(id);
+    try {
+        if (!fig) return;
+        auto it = fig->traces.find(id);
+        if (it != fig->traces.end()) {
+            fig->axes->removePlot(it->second);
+            fig->traces.erase(it);
+        }
+        fig->trace_data.erase(id);
+    } catch (...) {}
 }
 
 void vp_set_viewport(VpFigure* fig, double xmin, double xmax, double ymin,
                      double ymax) {
-    if (!fig || !fig->axes) return;
-    if (!(std::isnan(xmin) || std::isnan(xmax)))
-        fig->axes->setXlim(static_cast<float>(xmin), static_cast<float>(xmax));
-    if (!(std::isnan(ymin) || std::isnan(ymax)))
-        fig->axes->setYlim(static_cast<float>(ymin), static_cast<float>(ymax));
+    try {
+        if (!fig || !fig->axes) return;
+        if (!(std::isnan(xmin) || std::isnan(xmax)))
+            fig->axes->setXlim(static_cast<float>(xmin), static_cast<float>(xmax));
+        if (!(std::isnan(ymin) || std::isnan(ymax)))
+            fig->axes->setYlim(static_cast<float>(ymin), static_cast<float>(ymax));
+    } catch (...) {}
 }
 
 void vp_set_axis_labels(VpFigure* fig, const char* x_label,
                         const char* y_label) {
-    if (!fig) return;
-    if (x_label) fig->x_label = x_label;
-    if (y_label) fig->y_label = y_label;
-    if (fig->axes) {
-        if (x_label) fig->axes->style().xAxis.label = x_label;
-        if (y_label) fig->axes->style().yAxis.label = y_label;
-    }
+    try {
+        if (!fig) return;
+        if (x_label) fig->x_label = x_label;
+        if (y_label) fig->y_label = y_label;
+        if (fig->axes) {
+            if (x_label) fig->axes->style().xAxis.label = x_label;
+            if (y_label) fig->axes->style().yAxis.label = y_label;
+        }
+    } catch (...) {}
 }
 
 void vp_set_background(VpFigure* fig, int white) {
-    if (!fig) return;
-    fig->white_bg = white != 0;
-    if (fig->axes) {
-        fig->axes->setStyle(white ? plot::styles::defaultStyle()
-                                  : plot::styles::darkBackground());
-    }
+    try {
+        if (!fig) return;
+        fig->white_bg = white != 0;
+        if (fig->axes) {
+            fig->axes->setStyle(white ? plot::styles::defaultStyle()
+                                      : plot::styles::darkBackground());
+        }
+    } catch (...) {}
 }
 
 size_t vp_render_rgba(VpFigure* fig, uint8_t* out, size_t out_len) {
-    if (!fig || !out) return 0;
-    size_t need = static_cast<size_t>(fig->w) * fig->h * 4;
-    if (out_len < need) return 0;
-    fig->renderer->prepare(*fig->figure);
-    fig->renderer->renderFrame(*fig->figure);
-    auto px = fig->backend->readbackRgba8();
-    if (px.size() != need) return 0;
-    std::memcpy(out, px.data(), need);
-    return need;
+    try {
+        if (!fig || !out) return 0;
+        size_t need = static_cast<size_t>(fig->w) * fig->h * 4;
+        if (out_len < need) return 0;
+        fig->renderer->prepare(*fig->figure);
+        fig->renderer->renderFrame(*fig->figure);
+        auto px = fig->backend->readbackRgba8();
+        if (px.size() != need) return 0;
+        std::memcpy(out, px.data(), need);
+        return need;
+    } catch (...) {
+        return 0;
+    }
 }
 
 int vp_figure_width(const VpFigure* fig) { return fig ? fig->w : 0; }
