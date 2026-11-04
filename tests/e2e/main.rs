@@ -37,6 +37,7 @@ mod thresholds;
 mod traces2;
 mod traces_panel;
 mod triggers;
+mod ui_thresholds;
 mod xy_scope;
 
 #[cfg(feature = "fft")]
