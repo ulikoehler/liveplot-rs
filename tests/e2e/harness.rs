@@ -164,6 +164,7 @@ pub fn panel_visible<T: 'static + Panel>(bed: &TestBed) -> bool {
 // ── Input helpers ───────────────────────────────────────────────────────────
 
 /// Click whatever node label-contains `label`. Panics if there is no match.
+#[allow(dead_code)]
 pub fn click_label_contains(bed: &mut TestBed, label: &str) {
     use egui_kittest::kittest::Queryable;
     let node = bed
