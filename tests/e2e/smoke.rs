@@ -7,10 +7,7 @@ fn app_starts_and_renders() {
     let mut bed = make_test_bed();
     bed.harness.step();
     // The accesskit tree should contain at least some nodes.
-    let tree = bed
-        .harness
-        .query_all_by(|n| n.label().is_some())
-        .count();
+    let tree = bed.harness.query_all_by(|n| n.label().is_some()).count();
     assert!(tree > 10, "expected a populated UI tree, got {tree} nodes");
 }
 

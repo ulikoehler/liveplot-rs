@@ -72,6 +72,25 @@ impl LiveplotPanel {
         scopes_data
     }
 
+    /// Immutable references to all scope panels, sorted by scope id.
+    ///
+    /// Unlike [`get_data`](Self::get_data) this yields the panels themselves,
+    /// giving access to panel-level state (e.g. `legend_overlay_rect`) that
+    /// is not part of `ScopeData`.
+    pub fn scope_panels(&self) -> Vec<&ScopePanel> {
+        let mut panels: Vec<&ScopePanel> = self
+            .tree
+            .tiles
+            .tiles()
+            .filter_map(|tile| match tile {
+                Tile::Pane(pane) => Some(pane),
+                _ => None,
+            })
+            .collect();
+        panels.sort_by_key(|p| p.id());
+        panels
+    }
+
     pub fn get_data_mut(&mut self) -> Vec<&mut ScopeData> {
         let scopes_data: Vec<&mut ScopeData> = self
             .tree
@@ -732,9 +751,9 @@ where
             .iter()
             .flat_map(|id| pane_ids_in_subtree(tiles, *id))
             .collect();
-        let controls_on = pane_ids.iter().any(|id| {
-            matches!(tiles.get(*id), Some(Tile::Pane(p)) if p.controls_in_toolbar())
-        });
+        let controls_on = pane_ids
+            .iter()
+            .any(|id| matches!(tiles.get(*id), Some(Tile::Pane(p)) if p.controls_in_toolbar()));
         let icon = if controls_on {
             ICON_REMOVE.codepoint
         } else {

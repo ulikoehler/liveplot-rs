@@ -410,6 +410,14 @@ impl ScopePanel {
         &self.data
     }
 
+    /// Rect of the custom legend overlay from the last rendered frame, if any.
+    ///
+    /// Exposed for tests and for callers that want to know whether the legend
+    /// currently occludes part of the plot.
+    pub fn legend_overlay_rect(&self) -> Option<egui::Rect> {
+        self.legend_overlay_rect
+    }
+
     /// Consume and return any pending view change (zoom/pan/slider/fit).
     pub fn take_view_change(&mut self) -> Option<crate::events::ViewChangeMeta> {
         self.pending_view_change.take()
