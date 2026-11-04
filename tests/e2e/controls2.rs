@@ -4,7 +4,7 @@
 use liveplot::data::thresholds::{ThresholdDef, ThresholdKind};
 use liveplot::data::triggers::{Trigger, TriggerSlope};
 use liveplot::panels::scope_ui::ZoomMode;
-use liveplot::panels::{ScopePanel, ThresholdsPanel, TriggersPanel};
+use liveplot::panels::{ThresholdsPanel, TriggersPanel};
 use liveplot::TraceRef;
 
 use crate::harness::*;
