@@ -2,6 +2,7 @@ mod harness;
 mod signals;
 
 mod axes;
+mod controllers;
 mod events;
 mod hotkeys_e2e;
 mod legend;

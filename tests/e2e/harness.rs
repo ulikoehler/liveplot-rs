@@ -37,6 +37,9 @@ pub fn make_test_bed_with(size: egui::Vec2) -> TestBed {
         .build_ui_state(
             move |ui, panel| {
                 liveplot::data::hotkeys::handle_hotkeys(panel, ui.ctx());
+                // Embedders' real pattern: apply external controllers
+                // (no-op when none are attached) then render.
+                panel.apply_controllers_embedded(ui.ctx());
                 panel.update(ui);
             },
             panel,
