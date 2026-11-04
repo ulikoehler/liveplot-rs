@@ -1,0 +1,3 @@
+[submodule "vendor/VolcanoPlot"]
+	path = vendor/VolcanoPlot
+	url = https://github.com/ulikoehler/VolcanoPlot.git
