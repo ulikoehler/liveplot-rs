@@ -39,6 +39,7 @@ mod traces_panel;
 mod triggers;
 mod ui_controls;
 mod ui_controls2;
+mod ui_controls3;
 mod ui_thresholds;
 mod xy_scope;
 
