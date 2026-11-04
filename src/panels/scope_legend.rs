@@ -141,11 +141,14 @@ pub fn render_scope_legend(
     // ignores the layout's cross-alignment, so for right/bottom positions the
     // frame would stretch over the whole plot. Measure the content in an
     // invisible pass, then render inside a `max_rect` anchored at the corner.
+    // The measure pass must use left alignment: with a right-aligned layout
+    // the frame's `min_rect` would span from the left-anchored scroll area to
+    // the right-aligned seed point and measure the full plot width.
     let mut measure_ui = ui.new_child(
         UiBuilder::new()
             .id_salt(("scope_legend_measure", salt))
             .max_rect(legend_rect)
-            .layout(layout)
+            .layout(Layout::top_down(Align::LEFT))
             .invisible(),
     );
     let measured_size = background
