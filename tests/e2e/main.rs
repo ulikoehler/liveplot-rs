@@ -43,6 +43,8 @@ mod ui_controls3;
 mod ui_controls4;
 mod ui_menus;
 mod ui_thresholds;
+#[cfg(feature = "volcano")]
+mod volcano_scope;
 mod xy_scope;
 
 #[cfg(feature = "fft")]

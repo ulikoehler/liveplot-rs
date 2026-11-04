@@ -145,6 +145,11 @@ impl VolcanoFigure {
         }
     }
 
+    /// Light vs dark figure styling.
+    pub fn set_background(&mut self, white: bool) {
+        unsafe { vp_set_background(self.ptr, white as i32) }
+    }
+
     /// Render one frame; returns the RGBA8 framebuffer (w*h*4 bytes).
     pub fn render_rgba(&mut self) -> Option<&[u8]> {
         let n = unsafe { vp_render_rgba(self.ptr, self.buf.as_mut_ptr(), self.buf.len()) };

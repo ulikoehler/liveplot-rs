@@ -1,12 +1,17 @@
 //! `VolcanoSurface` — renders a scope's traces through the VolcanoPlot
-//! FFI into an egui texture, with pointer→viewport forwarding.
+//! FFI into an egui texture painted *underneath* the (transparent)
+//! egui_plot layer, which keeps owning interaction, overlays and
+//! `PlotMemory`. Viewport sync: the app writes `bounds` back from the
+//! plot transform each frame; the surface only auto-fits until the
+//! first painted frame.
 
 use std::collections::HashMap;
 
-use crate::data::traces::TracesCollection;
 use crate::data::scope::ScopeData;
 use crate::data::trace_look::TraceLook;
+use crate::data::traces::TracesCollection;
 use egui_plot::LineStyle;
+
 use super::{VolcanoFigure, VolcanoLineStyle};
 
 fn rgba8(c: egui::Color32) -> u32 {
@@ -28,7 +33,8 @@ pub struct VolcanoSurface {
     fig: Option<VolcanoFigure>,
     tex: Option<egui::TextureHandle>,
     trace_ids: HashMap<String, u64>,
-    /// Current data-space viewport (x, y).
+    /// Current data-space viewport (x, y) — written back from the
+    /// plot transform by the caller after each frame.
     pub bounds: ([f64; 2], [f64; 2]),
     initialized: bool,
 }
@@ -50,10 +56,14 @@ impl VolcanoSurface {
         }
     }
 
-    /// Render the scope's traces into `rect`. Returns whether the scope
-    /// actually rendered a frame (false when Vulkan init failed — caller
-    /// falls back to egui_plot).
-    pub fn render(
+    pub fn initialized(&self) -> bool {
+        self.initialized
+    }
+
+    /// Render the scope's traces into `rect` (paint only — the
+    /// transparent egui plot layered on top owns all interaction).
+    /// Returns false when Vulkan is unavailable → caller falls back.
+    pub fn paint(
         &mut self,
         ui: &mut egui::Ui,
         rect: egui::Rect,
@@ -106,15 +116,15 @@ impl VolcanoSurface {
             }
         }
 
-        // Viewport: auto-fit → data extents; else stored bounds/time_window.
-        let (xb, yb) = Self::viewport_for(scope, traces, self.bounds);
-        self.bounds = (xb, yb);
+        // Until the caller writes back real plot bounds, auto-fit data
+        // (or honor the trailing time window).
+        if !self.initialized {
+            self.bounds = Self::fit_bounds(scope, traces, self.bounds);
+        }
+        let (xb, yb) = self.bounds;
         fig.set_viewport(xb[0], xb[1], yb[0], yb[1]);
-
-        fig.set_axis_labels(
-            scope.x_axis.name.as_deref(),
-            scope.y_axis.name.as_deref(),
-        );
+        fig.set_background(!ui.visuals().dark_mode);
+        fig.set_axis_labels(scope.x_axis.name.as_deref(), scope.y_axis.name.as_deref());
 
         let Some(px) = fig.render_rgba() else {
             return false;
@@ -135,14 +145,11 @@ impl VolcanoSurface {
         true
     }
 
-    fn viewport_for(
+    fn fit_bounds(
         scope: &ScopeData,
         traces: &TracesCollection,
         bounds: ([f64; 2], [f64; 2]),
     ) -> ([f64; 2], [f64; 2]) {
-        if !scope.x_axis.auto_fit || !scope.y_axis.auto_fit {
-            return bounds;
-        }
         let mut xb = [f64::INFINITY, f64::NEG_INFINITY];
         let mut yb = [f64::INFINITY, f64::NEG_INFINITY];
         for name in scope.trace_order.iter() {
@@ -155,47 +162,15 @@ impl VolcanoSurface {
             }
         }
         if !xb[0].is_finite() {
-            xb = [0.0, 1.0];
+            xb = bounds.0;
         }
         if !yb[0].is_finite() {
-            yb = [-1.0, 1.0];
+            yb = bounds.1;
         }
-        // Time window keeps a trailing x range.
         if scope.time_window > 0.0 && scope.x_axis.auto_fit {
             xb[0] = (xb[1] - scope.time_window).max(xb[0]);
         }
         (xb, yb)
-    }
-
-    /// Forward pointer input: scroll = zoom, primary drag = pan,
-    /// secondary drag = box zoom. `resp` is the interact response for
-    /// the plot rect.
-    pub fn handle_input(&mut self, resp: &egui::Response, rect: egui::Rect) {
-        let (xb, yb) = self.bounds;
-        if let Some(hover) = resp.hover_pos() {
-            let scroll = resp.ctx.input(|i| i.smooth_scroll_delta.y);
-            if scroll.abs() > 0.0 {
-                let fx = (hover.x - rect.left()) / rect.width().max(1.0);
-                let fy = (hover.y - rect.top()) / rect.height().max(1.0);
-                let cx = xb[0] + f64::from(fx) * (xb[1] - xb[0]);
-                let cy = yb[1] - f64::from(fy) * (yb[1] - yb[0]);
-                let z = (1.0 - f64::from(scroll) * 0.002).clamp(0.5, 2.0);
-                self.bounds = (
-                    [cx - (cx - xb[0]) * z, cx + (xb[1] - cx) * z],
-                    [cy - (cy - yb[0]) * z, cy + (yb[1] - cy) * z],
-                );
-            }
-        }
-        if resp.dragged_by(egui::PointerButton::Primary) {
-            let d = resp.drag_delta();
-            let dx = -f64::from(d.x) / f64::from(rect.width()) * (xb[1] - xb[0]);
-            let dy = f64::from(d.y) / f64::from(rect.height()) * (yb[1] - yb[0]);
-            self.bounds = ([xb[0] + dx, xb[1] + dx], [yb[0] + dy, yb[1] + dy]);
-        }
-    }
-
-    pub fn initialized(&self) -> bool {
-        self.initialized
     }
 }
 

@@ -1064,29 +1064,6 @@ impl ScopePanel {
             &mut Vec<crate::panels::scope_legend::LegendEntryData>,
         ),
     {
-        #[cfg(feature = "volcano")]
-        if std::env::var_os("LIVEPLOT_VOLCANO").is_some() {
-            let rect = ui.available_rect_before_wrap();
-            let resp = ui.interact(
-                rect,
-                ui.id().with("volcano_plot"),
-                egui::Sense::click_and_drag(),
-            );
-            let mut surf = self.data.volcano_surface.take().unwrap_or_default();
-            let ok = surf.render(ui, rect, &self.data, traces);
-            if ok {
-                self.data.last_plot_screen_rect =
-                    Some([rect.min.x, rect.min.y, rect.max.x, rect.max.y]);
-                surf.handle_input(&resp, rect);
-                self.data.last_plot_bounds = Some(surf.bounds);
-                self.data.rendered_this_frame = true;
-            }
-            self.data.volcano_surface = Some(surf);
-            if ok {
-                return;
-            }
-        }
-
         // Determine whether tick labels should be suppressed based on the TOTAL
         // widget size (including top bar, sidebars, etc.) so the decision is
         // stable and doesn't jump as sub-panels are toggled.
@@ -1108,6 +1085,10 @@ impl ScopePanel {
         // turns `Plot::new`'s salt into an id.
         let plot_id = ui.make_persistent_id(format!("scope_plot_{}", self.data.name));
         self.data.plot_id = Some(plot_id);
+        #[cfg(feature = "volcano")]
+        let volcano = self.data.volcano_enabled;
+        #[cfg(not(feature = "volcano"))]
+        let volcano = false;
         let mut plot = Plot::new(format!("scope_plot_{}", self.data.name))
             .id(plot_id)
             .allow_scroll(false)
@@ -1127,6 +1108,24 @@ impl ScopePanel {
             // suppress the egui_plot axis space reservation so the plot fills the full
             // widget width without a black gutter on the left (Y axis) or bottom (X axis).
             .show_axes(egui::Vec2b::new(!hide_x_labels, !hide_y_labels));
+        // VolcanoPlot mode: the egui plot becomes a transparent
+        // interaction/overlay layer; the series pixels come from the
+        // VolcanoPlot texture painted underneath.
+        if volcano {
+            plot = plot
+                .show_axes(egui::Vec2b::new(false, false))
+                .show_grid(egui::Vec2b::new(false, false))
+                .show_background(false);
+        }
+        #[allow(unused_mut)]
+        let mut volcano_ok = false;
+        #[cfg(feature = "volcano")]
+        if volcano {
+            let rect = ui.available_rect_before_wrap();
+            let mut surf = self.data.volcano_surface.take().unwrap_or_default();
+            volcano_ok = surf.paint(ui, rect, &self.data, traces);
+            self.data.volcano_surface = Some(surf);
+        }
         if !hide_x_labels {
             if let Some(label) = self.axis_label_text(traces, true) {
                 plot = plot.x_axis_label(label);
@@ -1390,6 +1389,7 @@ impl ScopePanel {
                         }
                     }
 
+                    if !volcano_ok {
                     plot_ui.line(
                         Line::new(legend_label.clone(), derived.clone())
                             .id(pair_id)
@@ -1397,12 +1397,13 @@ impl ScopePanel {
                             .color(color)
                             .width(width)
                             .style(style),
-                    );
+                    );                    }
 
                     let highlight_newest = pair_look.highlight_newest_point;
 
                     if pair_look.show_points {
                         let radius = pair_look.point_size.max(0.5);
+                        if !volcano_ok {
                         plot_ui.points(
                             Points::new(legend_label.clone(), derived.clone())
                                 // Same id as the pair line so they merge into
@@ -1411,7 +1412,7 @@ impl ScopePanel {
                                 .radius(radius)
                                 .shape(pair_look.marker)
                                 .color(color),
-                        );
+                        );                        }
                     }
 
                     if highlight_newest {
@@ -1424,13 +1425,14 @@ impl ScopePanel {
                             label: format!("{legend_label} (last)"),
                             color: pair_look.color,
                         });
+                        if !volcano_ok {
                         plot_ui.points(
                             Points::new(format!("{legend_label} (last)"), vec![last])
                                 .id(last_id)
                                 .radius(radius)
                                 .shape(pair_look.marker)
                                 .color(color),
-                        );
+                        );                        }
                     }
                 }
             } else {
@@ -1491,6 +1493,7 @@ impl ScopePanel {
                             let transform = plot_ui.transform();
                             let resp = plot_ui.response();
                             let painter = resp.ctx.layer_painter(resp.layer_id);
+                            if !volcano_ok {
                             paint_density(
                                 &painter,
                                 transform,
@@ -1498,7 +1501,7 @@ impl ScopePanel {
                                 color,
                                 brightness_gain,
                                 self.data.x_axis.bounds,
-                            );
+                            );                            }
                         }
                         // Still draw a thin outline line for context
                         let shown_pts = match traces.get_drawn_points_envelope(
@@ -1557,7 +1560,8 @@ impl ScopePanel {
                             .width(0.5)
                             .style(style)
                             .name(legend_label);
-                        plot_ui.line(line);
+                        if !volcano_ok {
+                        plot_ui.line(line);                        }
                         continue;
                     }
 
@@ -1658,7 +1662,8 @@ impl ScopePanel {
                         label: legend_label.clone(),
                         color: base_color,
                     });
-                    plot_ui.line(line);
+                    if !volcano_ok {
+                    plot_ui.line(line);                    }
 
                     // Optional point markers for each datapoint
                     if show_points && !pts_vec.is_empty() {
@@ -1675,7 +1680,8 @@ impl ScopePanel {
                             .radius(radius)
                             .shape(marker)
                             .color(color);
-                        plot_ui.points(points);
+                        if !volcano_ok {
+                        plot_ui.points(points);                        }
                     }
                 }
             }
@@ -1687,6 +1693,13 @@ impl ScopePanel {
             bounds_changed
         });
 
+        #[cfg(feature = "volcano")]
+        if volcano_ok {
+            if let Some(surf) = &mut self.data.volcano_surface {
+                let b = plot_resp.transform.bounds();
+                surf.bounds = ([b.min()[0], b.max()[0]], [b.min()[1], b.max()[1]]);
+            }
+        }
         self.record_plot_geometry(&plot_resp);
 
         // Custom scrollable legend overlay — egui_plot's built-in legend has no

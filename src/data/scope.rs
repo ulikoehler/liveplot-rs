@@ -289,9 +289,13 @@ pub struct ScopeData {
     pub last_plot_bounds: Option<([f64; 2], [f64; 2])>,
     pub last_plot_screen_rect: Option<[f32; 4]>,
     pub rendered_this_frame: bool,
-    /// VolcanoPlot render surface (feature `volcano`, env LIVEPLOT_VOLCANO).
+    /// VolcanoPlot render surface + enable flag (feature `volcano`).
+    /// Seeded from `LIVEPLOT_VOLCANO` at construction; embedders/tests
+    /// can set it per scope.
     #[cfg(feature = "volcano")]
     pub volcano_surface: Option<crate::volcano::VolcanoSurface>,
+    #[cfg(feature = "volcano")]
+    pub volcano_enabled: bool,
     /// When `true`, newly discovered traces are auto-assigned to this scope
     /// instead of the primary (first) scope.  Managed by
     /// `LiveplotPanel::set_default_scope`; at most one scope should have it set.
@@ -336,6 +340,8 @@ impl Default for ScopeData {
             rendered_this_frame: false,
             #[cfg(feature = "volcano")]
             volcano_surface: None,
+            #[cfg(feature = "volcano")]
+            volcano_enabled: std::env::var_os("LIVEPLOT_VOLCANO").is_some(),
             is_default_target: false,
             wants_default_target: false,
             cached_y_fit_key: None,
