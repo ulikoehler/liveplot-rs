@@ -226,6 +226,13 @@ pub fn key_press(bed: &mut TestBed, key: egui::Key) {
 
 pub fn key_press_mod(bed: &mut TestBed, modifiers: egui::Modifiers, key: egui::Key) {
     use egui::Event;
+    // egui tracks modifier state via ModifiersChanged events — a Key event's
+    // `modifiers` field alone doesn't update `input.modifiers`.
+    bed.harness
+        .input_mut()
+        .events
+        .push(Event::ModifiersChanged(modifiers));
+    bed.harness.step();
     bed.harness.input_mut().events.push(Event::Key {
         key,
         physical_key: None,
@@ -241,5 +248,10 @@ pub fn key_press_mod(bed: &mut TestBed, modifiers: egui::Modifiers, key: egui::K
         repeat: false,
         modifiers,
     });
+    bed.harness.step();
+    bed.harness
+        .input_mut()
+        .events
+        .push(Event::ModifiersChanged(egui::Modifiers::NONE));
     bed.harness.step();
 }

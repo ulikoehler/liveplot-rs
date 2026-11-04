@@ -10,8 +10,10 @@ mod controllers2;
 mod events;
 mod export;
 mod hotkeys_e2e;
+mod hotkeys_more;
 mod legend;
 mod math;
+mod meas_events;
 mod measurement;
 mod panels;
 mod persistence;
@@ -27,3 +29,5 @@ mod triggers;
 
 #[cfg(feature = "fft")]
 mod fft;
+#[cfg(feature = "fft")]
+mod fft_controller;
