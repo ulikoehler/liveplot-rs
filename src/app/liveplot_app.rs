@@ -133,8 +133,10 @@ impl LivePlotApp {
     /// Apply a [`LivePlotConfig`](crate::config::LivePlotConfig) to configure
     /// axes, trace limits, hotkeys, responsive thresholds, and more.
     ///
-    /// Typically called once right after construction, before entering the event loop.
-    pub(crate) fn apply_config(&mut self, cfg: &mut crate::config::LivePlotConfig) {
+    /// Typically called once right after construction, before entering the
+    /// event loop — also available to embedders/tests that want to
+    /// reconfigure the app at runtime.
+    pub fn apply_config(&mut self, cfg: &mut crate::config::LivePlotConfig) {
         // Periodic repaint cap (~60 fps default). Input events still repaint
         // immediately — this only throttles the steady-state redraw rate.
         if let Some(fps) = cfg.max_fps {
@@ -339,6 +341,14 @@ impl LivePlotApp {
                     if let Some(tr) = data.traces.get_trace_mut(&tref) {
                         tr.look.visible = vis;
                     }
+                    // Route through legend memory too — otherwise update_data's
+                    // PlotMemory->look sync silently reverts the change.
+                    crate::panels::scope_legend::set_trace_hidden_in_scope_memories(
+                        ctx,
+                        &mut data.scope_data,
+                        &tref,
+                        !vis,
+                    );
                 }
                 for (name, off) in inner.offset_requests.drain(..) {
                     let tref = TraceRef(name.clone());

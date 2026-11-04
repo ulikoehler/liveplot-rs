@@ -177,6 +177,14 @@ impl LivePlotPanel {
                 }
                 for (name, vis) in inner.visible_requests.drain(..) {
                     let tref = TraceRef(name.clone());
+                    // Route through legend memory too — otherwise update_data's
+                    // PlotMemory->look sync silently reverts the change.
+                    crate::panels::scope_legend::set_trace_hidden_in_scope_memories(
+                        ctx,
+                        &mut data.scope_data,
+                        &tref,
+                        !vis,
+                    );
                     if let Some(tr) = data.traces.get_trace_mut(&tref) {
                         tr.look.visible = vis;
                         // Emit TRACE_SHOWN or TRACE_HIDDEN event

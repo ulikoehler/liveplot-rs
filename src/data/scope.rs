@@ -281,6 +281,11 @@ pub struct ScopeData {
     /// frame by the scope renderer. Transient — used by overlays (measurements,
     /// markers) to exclude hidden points from bounds calculations.
     pub legend_hidden_items: HashSet<egui_plot::ItemId>,
+    /// The egui `Id` of this scope's plot widget, captured during render.
+    /// Needed to address this scope's `PlotMemory` (e.g. hidden legend items)
+    /// from outside the render pass — e.g. controller-driven visibility
+    /// changes. Transient, not serialized.
+    pub plot_id: Option<egui::Id>,
     pub last_plot_bounds: Option<([f64; 2], [f64; 2])>,
     pub last_plot_screen_rect: Option<[f32; 4]>,
     pub rendered_this_frame: bool,
@@ -322,6 +327,7 @@ impl Default for ScopeData {
             pause_on_click: false,
             measurement_x_range: None,
             legend_hidden_items: HashSet::new(),
+            plot_id: None,
             last_plot_bounds: None,
             last_plot_screen_rect: None,
             rendered_this_frame: false,

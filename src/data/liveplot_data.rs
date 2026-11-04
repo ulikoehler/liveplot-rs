@@ -80,6 +80,11 @@ impl<'a> LivePlotData<'a> {
         self.pending_requests.clear_thresholds = true;
         self.pending_requests.clear_triggers = true;
         self.pending_requests.clear_math = true;
+        if let Some(ctrl) = &self.event_ctrl {
+            ctrl.emit_filtered(crate::events::PlotEvent::new(
+                crate::events::EventKind::DATA_CLEARED,
+            ));
+        }
     }
 
     pub fn toggle_pause(&mut self) {

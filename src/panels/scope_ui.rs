@@ -1084,6 +1084,7 @@ impl ScopePanel {
         // risks producing a different id whenever egui_plot changes how it
         // turns `Plot::new`'s salt into an id.
         let plot_id = ui.make_persistent_id(format!("scope_plot_{}", self.data.name));
+        self.data.plot_id = Some(plot_id);
         let mut plot = Plot::new(format!("scope_plot_{}", self.data.name))
             .id(plot_id)
             .allow_scroll(false)

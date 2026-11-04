@@ -1,10 +1,13 @@
 mod harness;
 mod signals;
 
+mod a11y;
 mod app_level;
 mod axes;
+mod config_flags;
 mod controllers;
 mod events;
+mod export;
 mod hotkeys_e2e;
 mod legend;
 mod math;
@@ -17,6 +20,7 @@ mod smoke;
 mod snapshots;
 mod stress;
 mod thresholds;
+mod traces_panel;
 mod triggers;
 
 #[cfg(feature = "fft")]

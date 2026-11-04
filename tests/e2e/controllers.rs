@@ -42,12 +42,9 @@ fn traces_controller_sets_color_and_visibility() {
     feed_sine(&bed, "a", 50, 1.0, 50.0, 0.0);
     steps(&mut bed, 2);
 
-    // NOTE: request_set_visible is currently stomped by update_data's
-    // PlotMemory→look sync (look.visible = m.visible each frame), so the
-    // request can never stick — a genuine bug found by this suite.
-    // Covered here instead: color + offset, which the sync doesn't touch.
     tc.request_set_color("a", [255, 0, 0]);
     tc.request_set_offset("a", 3.0);
+    tc.request_set_visible("a", false);
     steps(&mut bed, 3);
 
     let tr = bed
@@ -64,6 +61,28 @@ fn traces_controller_sets_color_and_visibility() {
         "request_set_color should set RGB"
     );
     assert_eq!(tr.offset, 3.0, "request_set_offset should apply");
+    assert!(
+        !tr.look.visible,
+        "request_set_visible(false) should hide the trace"
+    );
+    // Hidden via the same channel legend clicks use.
+    let item = liveplot::panels::scope_legend::trace_item_id(&liveplot::TraceRef("a".into()));
+    assert!(
+        scope(&bed, 0).legend_hidden_items.contains(&item),
+        "controller-hidden trace should appear in legend hidden_items"
+    );
+
+    // And re-showing works symmetrically.
+    tc.request_set_visible("a", true);
+    steps(&mut bed, 3);
+    let vis = bed
+        .harness
+        .state()
+        .traces_data
+        .traces_iter()
+        .find(|(n, _)| n.0 == "a")
+        .map(|(_, t)| t.look.visible);
+    assert_eq!(vis, Some(true), "request_set_visible(true) should show");
 }
 
 #[test]

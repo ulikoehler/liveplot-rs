@@ -12,7 +12,7 @@ use egui::{
     Shadow, Shape, TextStyle, Ui, UiBuilder,
 };
 
-use crate::data::scope::LegendPosition;
+use crate::data::scope::{LegendPosition, ScopeData};
 use crate::data::traces::TraceRef;
 
 /// One row in the scope legend overlay.
@@ -72,6 +72,34 @@ pub fn measurement_item_id(name: &str) -> egui_plot::ItemId {
 /// Item id shared by all items of a marker.
 pub fn marker_item_id(name: &str) -> egui_plot::ItemId {
     egui_plot::ItemId::new(("liveplot_marker", name))
+}
+
+/// Apply a trace-visibility request to every scope's `PlotMemory`.
+///
+/// `ScopePanel::update_data` derives `TraceLook::visible` from the legend's
+/// `hidden_items` each frame, so toggling `tr.look.visible` alone is silently
+/// reverted on the next render. Writing through `hidden_items` makes external
+/// (controller-driven) visibility changes behave exactly like legend clicks —
+/// including the struck-through styling in the legend itself.
+pub fn set_trace_hidden_in_scope_memories(
+    ctx: &egui::Context,
+    scope_data: &mut Vec<&mut ScopeData>,
+    name: &TraceRef,
+    hidden: bool,
+) {
+    let item_id = trace_item_id(name);
+    for scope in scope_data.iter_mut() {
+        if let Some(plot_id) = scope.plot_id {
+            if let Some(mut mem) = egui_plot::PlotMemory::load(ctx, plot_id) {
+                if hidden {
+                    mem.hidden_items.insert(item_id);
+                } else {
+                    mem.hidden_items.remove(&item_id);
+                }
+                mem.store(ctx, plot_id);
+            }
+        }
+    }
 }
 
 /// Outcome of a legend render pass; the caller applies it to `PlotMemory`.
