@@ -5,6 +5,9 @@
 //! renders trace data to an RGBA8 buffer that the scope UI uploads as
 //! an egui texture. See `docs/volcano-integration.md`.
 
+mod surface;
+pub use surface::VolcanoSurface;
+
 use std::ffi::CString;
 
 #[allow(non_camel_case_types)]

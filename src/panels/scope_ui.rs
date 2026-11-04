@@ -1064,6 +1064,29 @@ impl ScopePanel {
             &mut Vec<crate::panels::scope_legend::LegendEntryData>,
         ),
     {
+        #[cfg(feature = "volcano")]
+        if std::env::var_os("LIVEPLOT_VOLCANO").is_some() {
+            let rect = ui.available_rect_before_wrap();
+            let resp = ui.interact(
+                rect,
+                ui.id().with("volcano_plot"),
+                egui::Sense::click_and_drag(),
+            );
+            let mut surf = self.data.volcano_surface.take().unwrap_or_default();
+            let ok = surf.render(ui, rect, &self.data, traces);
+            if ok {
+                self.data.last_plot_screen_rect =
+                    Some([rect.min.x, rect.min.y, rect.max.x, rect.max.y]);
+                surf.handle_input(&resp, rect);
+                self.data.last_plot_bounds = Some(surf.bounds);
+                self.data.rendered_this_frame = true;
+            }
+            self.data.volcano_surface = Some(surf);
+            if ok {
+                return;
+            }
+        }
+
         // Determine whether tick labels should be suppressed based on the TOTAL
         // widget size (including top bar, sidebars, etc.) so the decision is
         // stable and doesn't jump as sub-panels are toggled.
