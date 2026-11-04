@@ -143,6 +143,6 @@ debug-assertions = false
 
 [dev-dependencies]
 egui = "0.37"
-egui_kittest = "0.37"
+egui_kittest = { version = "0.37", features = ["eframe", "wgpu", "snapshot"] }
 egui_material_icons = "0.9"
 kittest = "0.5"

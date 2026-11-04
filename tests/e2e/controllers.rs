@@ -56,7 +56,7 @@ fn traces_controller_sets_color_and_visibility() {
         .traces_data
         .traces_iter()
         .find(|(n, _)| n.0 == "a")
-        .map(|(_, t)| t.clone());
+        .map(|(_, t)| t);
     let tr = tr.expect("trace a");
     assert_eq!(
         tr.look.color,

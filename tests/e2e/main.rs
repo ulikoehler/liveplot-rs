@@ -1,6 +1,7 @@
 mod harness;
 mod signals;
 
+mod app_level;
 mod axes;
 mod controllers;
 mod events;
@@ -13,6 +14,7 @@ mod persistence;
 mod scopes;
 mod sink;
 mod smoke;
+mod snapshots;
 mod stress;
 mod thresholds;
 mod triggers;

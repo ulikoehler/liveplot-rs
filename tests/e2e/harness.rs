@@ -48,6 +48,28 @@ pub fn make_test_bed_with(size: egui::Vec2) -> TestBed {
     TestBed { harness, sink }
 }
 
+/// App-level harness: runs the full `LivePlotApp` (eframe::App), so
+/// postprocess logic — event emission, save/load state, screenshot
+/// capture routing — is covered too.
+pub struct AppBed {
+    pub harness: egui_kittest::Harness<'static, liveplot::LivePlotApp>,
+    pub sink: PlotSink,
+}
+
+pub fn make_app_bed() -> AppBed {
+    let (sink, rx) = channel_plot();
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(W, H))
+        .with_context_setup(|ctx| {
+            egui_material_icons::initialize(ctx);
+        })
+        .with_accessibility_check(false)
+        .with_step_dt(1.0 / 60.0)
+        .build_eframe(move |_cc| liveplot::LivePlotApp::new(rx));
+    harness.step();
+    AppBed { harness, sink }
+}
+
 // ── Steps ───────────────────────────────────────────────────────────────────
 
 pub fn steps(bed: &mut TestBed, n: usize) {

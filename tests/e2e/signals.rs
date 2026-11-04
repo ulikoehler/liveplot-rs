@@ -24,6 +24,7 @@ impl TestRng {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)] // full generator library — not every spec is used yet
 pub enum SignalSpec {
     Sine {
         freq: f64,
@@ -151,6 +152,7 @@ pub fn gen(spec: &SignalSpec, n: usize, fs: f64, t0: f64) -> Vec<PlotPoint> {
 }
 
 /// Same as [`gen`] but injects NaN every `every` samples.
+#[allow(dead_code)]
 pub fn gen_with_gaps(
     spec: &SignalSpec,
     n: usize,

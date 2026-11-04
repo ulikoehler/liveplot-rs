@@ -48,7 +48,7 @@ fn log_scale_toggle_survives_render() {
 
 #[test]
 fn axis_format_value_time_and_value() {
-    let mut bed = make_test_bed();
+    let bed = make_test_bed();
     let s = scope(&bed, 0);
     // Time axis (default) formats epoch seconds.
     let t = s.x_axis.format_value(3600.0, None);
