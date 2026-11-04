@@ -8,7 +8,7 @@
 
 use egui::epaint::CircleShape;
 use egui::{
-    pos2, vec2, Align, Color32, Direction, Frame, Layout, PointerButton, Rect, Response, Sense,
+    pos2, vec2, Align, Align2, Color32, Frame, Layout, PointerButton, Rect, Response, Sense,
     Shadow, Shape, TextStyle, Ui, UiBuilder,
 };
 
@@ -104,23 +104,24 @@ pub fn render_scope_legend(
         return None;
     }
 
-    let main_dir = match position {
-        LegendPosition::LeftTop | LegendPosition::RightTop => Direction::TopDown,
-        LegendPosition::LeftBottom | LegendPosition::RightBottom => Direction::BottomUp,
-    };
     let cross_align = match position {
         LegendPosition::LeftTop | LegendPosition::LeftBottom => Align::LEFT,
         LegendPosition::RightTop | LegendPosition::RightBottom => Align::RIGHT,
     };
-    let layout = Layout::from_main_dir_and_cross_align(main_dir, cross_align);
+    // Corner anchoring is handled explicitly via `anchored_rect` below; the
+    // layout itself must stay top-down because `ScrollArea` lays out its
+    // content from the top of its (top-anchored) clip rect.
+    let layout = Layout::top_down(cross_align);
+    let anchor = match position {
+        LegendPosition::LeftTop => Align2::LEFT_TOP,
+        LegendPosition::RightTop => Align2::RIGHT_TOP,
+        LegendPosition::LeftBottom => Align2::LEFT_BOTTOM,
+        LegendPosition::RightBottom => Align2::RIGHT_BOTTOM,
+    };
 
     let legend_rect = frame.shrink(4.0);
-    let mut legend_ui = ui.new_child(
-        UiBuilder::new()
-            .id_salt(("scope_legend", salt))
-            .max_rect(legend_rect)
-            .layout(layout),
-    );
+    let max_height = (legend_rect.height() - 16.0).max(24.0);
+    let max_width = (legend_rect.width() * 0.75).max(40.0);
 
     let mut checked: Vec<bool> = entries.iter().map(|e| !is_hidden(&e.id)).collect();
     let mut result = ScopeLegendResult::default();
@@ -136,11 +137,47 @@ pub fn render_scope_legend(
     }
     .multiply_with_opacity(0.75);
 
+    // `ScrollArea` anchors its rect at `available_rect_before_wrap().min` and
+    // ignores the layout's cross-alignment, so for right/bottom positions the
+    // frame would stretch over the whole plot. Measure the content in an
+    // invisible pass, then render inside a `max_rect` anchored at the corner.
+    let mut measure_ui = ui.new_child(
+        UiBuilder::new()
+            .id_salt(("scope_legend_measure", salt))
+            .max_rect(legend_rect)
+            .layout(layout)
+            .invisible(),
+    );
+    let measured_size = background
+        .show(&mut measure_ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("liveplot_scope_legend_measure")
+                .auto_shrink([true, true])
+                .max_height(max_height)
+                .max_width(max_width)
+                .show(ui, |ui| {
+                    ui.set_max_width(max_width);
+                    let font_id = TextStyle::Body.resolve(ui.style());
+                    for entry in entries {
+                        legend_entry_ui(ui, &entry.label, entry.color, true, &font_id);
+                    }
+                });
+        })
+        .response
+        .rect
+        .size();
+
+    let anchored_rect = anchor.anchor_size(anchor.pos_in_rect(&legend_rect), measured_size);
+    let mut legend_ui = ui.new_child(
+        UiBuilder::new()
+            .id_salt(("scope_legend", salt))
+            .max_rect(anchored_rect)
+            .layout(layout),
+    );
+
     let frame_resp = background.show(&mut legend_ui, |ui| {
         // The point of this custom legend: scroll when the entries exceed the
         // plot height instead of overflowing the scope.
-        let max_height = (legend_rect.height() - 16.0).max(24.0);
-        let max_width = (legend_rect.width() * 0.75).max(40.0);
         egui::ScrollArea::vertical()
             .id_salt("liveplot_scope_legend")
             .auto_shrink([true, true])
