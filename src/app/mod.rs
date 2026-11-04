@@ -273,8 +273,10 @@ pub struct LivePlotPanel {
     pub(crate) last_settings_json: Option<String>,
     /// Set by side panels (traces, thresholds, math, triggers, measurements, FFT,
     /// color scheme) when a user-initiated setting change occurs.  Collected
-    /// during the frame and checked in the undo detection logic.
-    pub(crate) side_panels_changed: bool,
+    /// during the frame and checked in the undo detection logic.  Embedders
+    /// that mutate scope/panel state directly can set this to record an undo
+    /// checkpoint just like an in-app settings change.
+    pub side_panels_changed: bool,
 }
 
 impl LivePlotPanel {
