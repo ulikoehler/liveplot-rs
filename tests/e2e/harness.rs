@@ -200,6 +200,26 @@ pub fn click_at(bed: &mut TestBed, pos: egui::Pos2) {
     }
 }
 
+/// Drag with the given pointer button between two screen positions.
+pub fn drag(bed: &mut TestBed, from: egui::Pos2, to: egui::Pos2, button: egui::PointerButton) {
+    use egui::Event;
+    let ev = |pos, pressed| Event::PointerButton {
+        pos,
+        button,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    for e in [
+        Event::PointerMoved(from),
+        ev(from, true),
+        Event::PointerMoved(to),
+        ev(to, false),
+    ] {
+        bed.harness.input_mut().events.push(e);
+        bed.harness.step();
+    }
+}
+
 pub fn key_press(bed: &mut TestBed, key: egui::Key) {
     key_press_mod(bed, egui::Modifiers::NONE, key);
 }
