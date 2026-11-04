@@ -1,7 +1,12 @@
 # LivePlot End-to-End Test Plan
 
-> Status: **living document** — update the "Implementation status" column as
-> tests land. Test IDs are stable; never renumber.
+> Status: **implemented** — `tests/e2e/` holds 117 tests (default features)
+> / 122 (`--features fft`), all passing, plus 5 `#[ignore]`d heavy/soak
+> cases (`LIVEPLOT_STRESS=1 … -- --ignored`, all green). Bugs found by the
+> suite so far: `request_set_visible` was reverted by PlotMemory sync
+> (fixed), `DATA_CLEARED` was never emitted (fixed), and
+> `features.pause_resume`/`top_bar`/`clear_all` were dead config (wired).
+> Test IDs are stable; never renumber.
 
 This document describes the complete end-to-end (e2e) test strategy for the
 `liveplot` crate: what we test, how we test it, which dummy signals we feed
