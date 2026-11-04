@@ -1,7 +1,7 @@
 //! CAT-HK — remaining default hotkeys through the input pipeline.
 
 use liveplot::data::hotkeys::{Hotkey, HotkeyName, Modifier};
-use liveplot::panels::{MeasurementPanel, ThresholdsPanel, TriggersPanel};
+use liveplot::panels::{ThresholdsPanel, TriggersPanel};
 
 use crate::harness::*;
 

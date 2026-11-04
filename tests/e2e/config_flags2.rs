@@ -6,10 +6,7 @@ use liveplot::config::{LivePlotConfig, ScopeButton};
 use crate::harness::*;
 
 /// CFG-03: `pause_resume=false` removes the Pause button.
-/// NOTE: `features.pause_resume` is currently never consumed — the flag is
-/// dead config. Ignored until the wiring lands.
 #[test]
-#[ignore = "features.pause_resume is unwired (dead config flag)"]
 fn pause_resume_flag_hides_button() {
     let mut bed = make_app_bed();
     {
@@ -46,11 +43,9 @@ fn button_set_without_clear_all_hides_it() {
     );
 }
 
-/// CFG-04: `top_bar=false` moves chrome (menu button disappears).
-/// NOTE: `features.top_bar` is currently never consumed — dead config.
-/// Ignored until the wiring lands.
+/// CFG-04: `top_bar=false` collapses the menu bar into sidebar icons
+/// (labels disappear from the labelled-button query).
 #[test]
-#[ignore = "features.top_bar is unwired (dead config flag)"]
 fn top_bar_flag_removes_top_bar() {
     let mut bed = make_app_bed();
     {

@@ -7,6 +7,7 @@
 
 use eframe::egui;
 
+use crate::config::ScopeButton;
 use crate::controllers::{
     FFTController, LiveplotController, ScopesController, ThresholdController, TracesController,
     UiActionController, WindowController,
@@ -184,6 +185,27 @@ impl LivePlotApp {
         self.main_panel.min_height_for_top_bar = cfg.layout.min_height_for_top_bar;
         self.main_panel.min_width_for_sidebar = cfg.layout.min_width_for_sidebar;
         self.main_panel.min_height_for_sidebar = cfg.layout.min_height_for_sidebar;
+
+        // ── Feature flags that filter chrome buttons ─────────────────────────
+        // `pause_resume` / `clear_all` remove their top-bar entries entirely.
+        if !cfg.features.pause_resume || !cfg.features.clear_all {
+            let filter = |btns: &mut Option<Vec<ScopeButton>>| {
+                let mut v = btns.clone().unwrap_or_else(ScopeButton::all_defaults);
+                if !cfg.features.pause_resume {
+                    v.retain(|b| !matches!(b, ScopeButton::PauseResume));
+                }
+                if !cfg.features.clear_all {
+                    v.retain(|b| !matches!(b, ScopeButton::ClearAll));
+                }
+                *btns = Some(v);
+            };
+            filter(&mut self.main_panel.top_bar_buttons);
+        }
+        // `top_bar=false` collapses the menu bar into the sidebar icon strip
+        // (same machinery as the responsive "window too short" path).
+        if !cfg.features.top_bar {
+            self.main_panel.min_height_for_top_bar = f32::INFINITY;
+        }
 
         // ── Tick-label visibility thresholds ─────────────────────────────────
         self.main_panel.liveplot_panel.set_tick_label_thresholds(
