@@ -1,6 +1,9 @@
 mod harness;
 mod signals;
 
+mod axes;
+mod events;
+mod hotkeys_e2e;
 mod legend;
 mod math;
 mod measurement;
@@ -11,6 +14,7 @@ mod sink;
 mod smoke;
 mod stress;
 mod thresholds;
+mod triggers;
 
 #[cfg(feature = "fft")]
 mod fft;
