@@ -86,3 +86,28 @@ fn egui_path_pan_control() {
         "egui pan control: {xb0:?} -> {xb1:?}"
     );
 }
+
+/// XY pairs render through the surface too (timestamp-joined series).
+#[test]
+fn volcano_xy_scope_renders_pair() {
+    let mut bed = make_test_bed();
+    feed_sine(&bed, "xs", 300, 1.0, 100.0, 0.0);
+    feed_sine(&bed, "ys", 300, 0.5, 100.0, 0.0);
+    {
+        let s = scope_mut(&mut bed, 0);
+        s.scope_type = liveplot::data::scope::ScopeType::XYScope;
+        s.xy_pairs.push((
+            Some(liveplot::TraceRef("xs".into())),
+            Some(liveplot::TraceRef("ys".into())),
+            Default::default(),
+        ));
+        s.volcano_enabled = true;
+    }
+    steps(&mut bed, 20);
+    let s = scope(&bed, 0);
+    assert!(
+        s.volcano_surface.as_ref().is_some_and(|v| v.initialized()),
+        "XY scope should render through VolcanoPlot"
+    );
+    assert!(s.last_plot_bounds.is_some());
+}

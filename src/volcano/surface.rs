@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use crate::data::scope::ScopeData;
+use crate::data::scope::{ScopeData, ScopeType};
 use crate::data::trace_look::TraceLook;
 use crate::data::traces::TracesCollection;
 use egui_plot::LineStyle;
@@ -96,13 +96,68 @@ impl VolcanoSurface {
                 .trace_ids
                 .entry(name.0.clone())
                 .or_insert_with(|| fig.add_trace());
+            let x_log = scope.x_axis.log_scale;
+            let y_log = scope.y_axis.log_scale;
             let xy: Vec<[f64; 2]> = tr
                 .live
                 .iter()
-                .map(|p| [p[0], p[1] + tr.offset])
+                .map(|p| {
+                    let x = if x_log && p[0] > 0.0 { p[0].log10() } else { p[0] };
+                    let y = if y_log { (p[1] + tr.offset).log10() } else { p[1] + tr.offset };
+                    [x, if y.is_finite() { y } else { f64::NAN }]
+                })
                 .collect();
             fig.set_trace(id, &xy, rgba8(tr.look.color), tr.look.width, vp_style(&tr.look));
         }
+        // XY-scope pairs: join x/y traces on timestamp within 1e-9.
+        if scope.scope_type == ScopeType::XYScope {
+            const TOL: f64 = 1e-9;
+            for (x_name, y_name, pair_look) in scope.xy_pairs.iter() {
+                let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
+                    continue;
+                };
+                if !pair_look.visible {
+                    continue;
+                }
+                let (Some(x_tr), Some(y_tr)) =
+                    (traces.get_trace(x_name), traces.get_trace(y_name))
+                else {
+                    continue;
+                };
+                let (Some(x_pts), Some(y_pts)) = (
+                    traces.get_points_ref(x_name, scope.paused),
+                    traces.get_points_ref(y_name, scope.paused),
+                ) else {
+                    continue;
+                };
+                let mut derived: Vec<[f64; 2]> = Vec::new();
+                let (mut i, mut j) = (0usize, 0usize);
+                while i < x_pts.len() && j < y_pts.len() {
+                    let tx = x_pts[i][0];
+                    let ty = y_pts[j][0];
+                    let dt = tx - ty;
+                    if dt.abs() <= TOL {
+                        derived.push([x_pts[i][1] + x_tr.offset,
+                                      y_pts[j][1] + y_tr.offset]);
+                        i += 1;
+                        j += 1;
+                    } else if dt < 0.0 {
+                        i += 1;
+                    } else {
+                        j += 1;
+                    }
+                }
+                let key = format!("xy:{}:{}", x_name.0, y_name.0);
+                seen.insert(key.clone());
+                let id = *self
+                    .trace_ids
+                    .entry(key)
+                    .or_insert_with(|| fig.add_trace());
+                fig.set_trace(id, &derived, rgba8(pair_look.color),
+                              pair_look.width, vp_style(pair_look));
+            }
+        }
+
         // Drop vanished traces.
         let dead: Vec<String> = self
             .trace_ids
