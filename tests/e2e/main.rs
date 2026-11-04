@@ -8,6 +8,7 @@ mod config_flags;
 mod config_flags2;
 mod controllers;
 mod controllers2;
+mod controls2;
 mod events;
 mod events2;
 mod events3;
