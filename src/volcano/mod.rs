@@ -42,6 +42,7 @@ extern "C" {
     );
     fn vp_set_background(fig: *mut VpFigure, white: i32);
     fn vp_set_margins(fig: *mut VpFigure, l: f32, r: f32, b: f32, t: f32);
+    fn vp_set_background_rgba(fig: *mut VpFigure, r: f32, g: f32, b: f32);
     fn vp_render_rgba(fig: *mut VpFigure, out: *mut u8, out_len: usize) -> usize;
 }
 
@@ -134,6 +135,12 @@ impl VolcanoFigure {
         unsafe { vp_set_viewport(self.ptr, xmin, xmax, ymin, ymax) }
     }
 
+    /// Canvas+axes background to an exact color — pass egui's
+    /// panel_fill so the figure margins blend into the egui chrome.
+    pub fn set_background_rgba(&mut self, r: f32, g: f32, b: f32) {
+        unsafe { vp_set_background_rgba(self.ptr, r, g, b) }
+    }
+
     /// Grid margins as canvas fractions — must match the overlay
     /// axes-rect the caller paints overlays into.
     pub fn set_margins(&mut self, l: f32, r: f32, b: f32, t: f32) {
@@ -143,13 +150,11 @@ impl VolcanoFigure {
     pub fn set_axis_labels(&mut self, x: Option<&str>, y: Option<&str>) {
         let x_c = x.map(|s| CString::new(s).unwrap_or_default());
         let y_c = y.map(|s| CString::new(s).unwrap_or_default());
-        unsafe {
-            vp_set_axis_labels(
-                self.ptr,
-                x_c.map(|c| c.as_ptr()).unwrap_or(std::ptr::null()),
-                y_c.map(|c| c.as_ptr()).unwrap_or(std::ptr::null()),
-            )
-        }
+        // Borrow — the CStrings must outlive the FFI call. (.map owned
+        // them and freed the buffer before the call — a dangling ptr.)
+        let x_p = x_c.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null());
+        let y_p = y_c.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null());
+        unsafe { vp_set_axis_labels(self.ptr, x_p, y_p) }
     }
 
     /// Light vs dark figure styling.

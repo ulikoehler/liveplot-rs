@@ -1097,7 +1097,15 @@ impl ScopePanel {
         {
             surf.bounds = ([x0, x1], [y0, y1]);
         }
-        let ok = surf.sync_and_render(ui.ctx(), &self.data, traces, w, h, dark);
+        let ok = surf.sync_and_render(
+            ui.ctx(),
+            &self.data,
+            traces,
+            w,
+            h,
+            dark,
+            ui.visuals().panel_fill,
+        );
         if !ok {
             // Vulkan unavailable — permanently fall back to egui_plot.
             self.data.volcano_enabled = false;
@@ -1119,7 +1127,7 @@ impl ScopePanel {
         // bottom .14, top .985).
         const ML: f32 = 0.07;
         const MR: f32 = 0.985;
-        const MB: f32 = 0.16;
+        const MB: f32 = 0.20;
         const MT: f32 = 0.985;
         let axes = egui::Rect::from_min_max(
             egui::pos2(

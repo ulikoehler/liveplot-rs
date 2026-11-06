@@ -125,6 +125,7 @@ impl VolcanoSurface {
         w: u32,
         h: u32,
         dark: bool,
+        panel_bg: egui::Color32,
     ) -> bool {
         let w = w.max(8);
         let h = h.max(8);
@@ -339,6 +340,11 @@ impl VolcanoSurface {
         let (xb, yb) = self.bounds;
         fig.set_viewport(xb[0], xb[1], yb[0], yb[1]);
         fig.set_background(!dark);
+        fig.set_background_rgba(
+            panel_bg.r() as f32 / 255.0,
+            panel_bg.g() as f32 / 255.0,
+            panel_bg.b() as f32 / 255.0,
+        );
         fig.set_axis_labels(scope.x_axis.name.as_deref(), scope.y_axis.name.as_deref());
 
         // Render + readback on a worker thread — the expensive part

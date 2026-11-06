@@ -11,7 +11,7 @@ use egui_table::{HeaderRow as EgHeaderRow, Table, TableDelegate};
 use super::scope_settings_ui::{
     DragItem, DragPayload, ScopeAssignmentArgs, ScopeSettingsUiPanel, TraceListKey, TraceSelection,
 };
-use super::trace_look_ui::render_trace_look_editor;
+use super::trace_look_ui::render_trace_look_editor_inner;
 
 fn trace_tooltip(name: &TraceRef, info: &str) -> String {
     if info.trim().is_empty() {
@@ -175,7 +175,14 @@ impl Panel for TracesPanel {
                                     );
                                 });
                                 ui.separator();
-                                render_trace_look_editor(&mut tr.look, ui, true);
+                                let volcano = data
+                                    .scope_data
+                                    .iter()
+                                    .find(|s| s.trace_order.contains(&tn))
+                                    .is_some_and(|s| s.volcano_enabled);
+                                render_trace_look_editor_inner(
+                                    &mut tr.look, ui, true, volcano,
+                                );
                             });
                         } else {
                             ui.label("Trace not found.");
@@ -202,8 +209,9 @@ impl Panel for TracesPanel {
                             if let Some(scope) =
                                 data.scope_data.iter_mut().find(|s| s.id == scope_id)
                             {
-                                if let Some((_x, _y, look)) = scope.xy_pairs.get_mut(pair_idx) {
-                                    render_trace_look_editor(look, ui, true);
+                                let volcano = scope.volcano_enabled;
+                            if let Some((_x, _y, look)) = scope.xy_pairs.get_mut(pair_idx) {
+                                    render_trace_look_editor_inner(look, ui, true, volcano);
                                 } else {
                                     ui.label("XY pair not found.");
                                 }

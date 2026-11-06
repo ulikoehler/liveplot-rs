@@ -4,6 +4,17 @@ use egui_plot::LineStyle;
 use crate::data::trace_look::{RenderMode, TraceLook};
 
 pub fn render_trace_look_editor(look: &mut TraceLook, ui: &mut Ui, allow_points: bool) {
+    render_trace_look_editor_inner(look, ui, allow_points, false)
+}
+
+/// `volcano` hides the render-mode combo — the VolcanoPlot path
+/// ignores it (all raw points go to the GPU either way).
+pub fn render_trace_look_editor_inner(
+    look: &mut TraceLook,
+    ui: &mut Ui,
+    allow_points: bool,
+    volcano: bool,
+) {
     ui.horizontal(|ui| {
         ui.label("Color");
         let mut c = look.color;
@@ -59,7 +70,8 @@ pub fn render_trace_look_editor(look: &mut TraceLook, ui: &mut Ui, allow_points:
         LineStyle::Solid => {}
     }
     // Render mode selector
-    egui::ComboBox::from_label("Render mode")
+    if !volcano {
+egui::ComboBox::from_label("Render mode")
         .selected_text(match look.render_mode {
             RenderMode::Downsampled => "Downsampled",
             RenderMode::MinMaxEnvelope => "Min/Max Envelope",
@@ -105,6 +117,7 @@ pub fn render_trace_look_editor(look: &mut TraceLook, ui: &mut Ui, allow_points:
                 look.render_mode = RenderMode::DensitySplatting;
             }
         });
+}
     if look.render_mode == RenderMode::DensitySplatting {
         ui.horizontal(|ui| {
             ui.label("Brightness");

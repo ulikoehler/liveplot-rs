@@ -117,3 +117,23 @@ fn volcano_degenerate_state() {
     fig.set_viewport(5.0, 5.0, 0.0, 1.0);
     eprintln!("degenerate xlim: {:?}", fig.render_rgba().map(|v| v.len()));
 }
+
+/// Diagnostic: render with axis labels and dump the framebuffer to PNG.
+#[test]
+fn volcano_debug_render_png() {
+    let mut fig = VolcanoFigure::new(640, 400).unwrap();
+    fig.set_axis_labels(Some("Frequency (Hz)"), Some("Magnitude (dB)"));
+    fig.set_viewport(0.0, 10.0, 0.0, 1.0);
+    fig.set_background(true);
+    let id = fig.add_trace();
+    let pts: Vec<[f64; 2]> = (0..500)
+        .map(|i| [i as f64 * 0.02, (i as f64 * 0.02).sin()])
+        .collect();
+    fig.set_trace(id, &pts, 0xFF4444FF, 1.5, VolcanoLineStyle::Solid);
+    let (w, h) = fig.size();
+    if let Some(px) = fig.render_rgba() {
+        let img = image::RgbaImage::from_raw(w, h, px.to_vec()).unwrap();
+        img.save("/tmp/volcano_debug.png").unwrap();
+        eprintln!("saved /tmp/volcano_debug.png {w}x{h}");
+    }
+}
