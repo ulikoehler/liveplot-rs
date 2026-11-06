@@ -58,3 +58,30 @@ fn volcano_viewport_and_styles() {
     assert!(fig.resize(400, 300));
     assert!(fig.render_rgba().is_some());
 }
+
+/// Rough perf probe: render a 200k-point trace a few times and report
+/// the average frame time (Vulkan render + readback).
+#[test]
+fn volcano_perf_200k_points() {
+    use std::time::Instant;
+    let n = 200_000usize;
+    let mut xy = Vec::with_capacity(n);
+    for i in 0..n {
+        let t = i as f64 * 0.001;
+        xy.push([t, t.sin() * (1.0 + 0.05 * (t * 8.0).cos())]);
+    }
+    let mut fig = VolcanoFigure::new(1280, 720).expect("figure");
+    let id = fig.add_trace();
+    let t_up = Instant::now();
+    fig.set_trace(id, &xy, 0xFF8800FF, 1.5, VolcanoLineStyle::Solid);
+    eprintln!("upload 200k pts: {:.1?}", t_up.elapsed());
+    fig.set_viewport(0.0, 200.0, -1.2, 1.2);
+    let mut times = Vec::new();
+    for _ in 0..5 {
+        let t = Instant::now();
+        assert!(fig.render_rgba().is_some());
+        times.push(t.elapsed());
+    }
+    eprintln!("render+readback 1280x720 x5: {:?} (avg {:?})",
+              times, times.iter().sum::<std::time::Duration>() / 5);
+}

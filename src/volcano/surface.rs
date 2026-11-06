@@ -14,6 +14,45 @@ use egui_plot::LineStyle;
 
 use super::{VolcanoFigure, VolcanoLineStyle};
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+fn style_bits(look: &TraceLook) -> u32 {
+    let s = match look.style {
+        LineStyle::Dashed { .. } => 1,
+        LineStyle::Dotted { .. } => 2,
+        _ => 0,
+    };
+    s | ((look.show_points as u32) << 8)
+}
+
+/// Signature of everything that feeds one vp trace — data head/tail
+/// (eviction + appends), look, offset, log transform.
+fn trace_sig(
+    pts: &std::collections::VecDeque<[f64; 2]>,
+    look: &TraceLook,
+    offset: f64,
+    log_xy: (bool, bool),
+) -> u64 {
+    let mut h = DefaultHasher::new();
+    pts.len().hash(&mut h);
+    if let Some(p) = pts.front() {
+        p[0].to_bits().hash(&mut h);
+        p[1].to_bits().hash(&mut h);
+    }
+    if let Some(p) = pts.back() {
+        p[0].to_bits().hash(&mut h);
+        p[1].to_bits().hash(&mut h);
+    }
+    offset.to_bits().hash(&mut h);
+    look.color.to_array().hash(&mut h);
+    look.width.to_bits().hash(&mut h);
+    style_bits(look).hash(&mut h);
+    look.visible.hash(&mut h);
+    log_xy.hash(&mut h);
+    h.finish()
+}
+
 fn rgba8(c: egui::Color32) -> u32 {
     let [r, g, b, a] = c.to_array();
     ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | a as u32
@@ -33,6 +72,11 @@ pub struct VolcanoSurface {
     fig: Option<VolcanoFigure>,
     tex: Option<egui::TextureHandle>,
     trace_ids: HashMap<String, u64>,
+    /// Last pushed data signature per trace key — skips re-uploads.
+    trace_sigs: HashMap<String, u64>,
+    /// Signature of the whole render input — skips the Vulkan render
+    /// + readback + texture upload when nothing changed.
+    last_sig: u64,
     /// Current data-space viewport (x, y) — written back from the
     /// plot transform by the caller after each frame.
     pub bounds: ([f64; 2], [f64; 2]),
@@ -51,6 +95,8 @@ impl VolcanoSurface {
             fig: None,
             tex: None,
             trace_ids: HashMap::new(),
+            trace_sigs: HashMap::new(),
+            last_sig: 0,
             bounds: ([0.0, 1.0], [0.0, 1.0]),
             initialized: false,
         }
@@ -79,6 +125,68 @@ impl VolcanoSurface {
                 None => return false,
             },
         };
+        // Whole-render signature — if identical to last frame the
+        // texture is still current: repaint and skip the Vulkan
+        // render + readback + upload entirely.
+        let dark = ui.visuals().dark_mode;
+        let log_xy = (scope.x_axis.log_scale, scope.y_axis.log_scale);
+        let mut sh = DefaultHasher::new();
+        w.hash(&mut sh);
+        h.hash(&mut sh);
+        self.bounds.0[0].to_bits().hash(&mut sh);
+        self.bounds.0[1].to_bits().hash(&mut sh);
+        self.bounds.1[0].to_bits().hash(&mut sh);
+        self.bounds.1[1].to_bits().hash(&mut sh);
+        dark.hash(&mut sh);
+        log_xy.hash(&mut sh);
+        scope.paused.hash(&mut sh);
+        std::mem::discriminant(&scope.scope_type).hash(&mut sh);
+        let mut frame_sigs: Vec<(String, u64)> = Vec::new();
+        for name in scope.trace_order.iter() {
+            let Some(tr) = traces.get_trace(name) else { continue };
+            if !tr.look.visible {
+                continue;
+            }
+            let sig = trace_sig(&tr.live, &tr.look, tr.offset, log_xy);
+            name.0.hash(&mut sh);
+            sig.hash(&mut sh);
+            frame_sigs.push((name.0.clone(), sig));
+        }
+        if scope.scope_type == ScopeType::XYScope {
+            for (xn, yn, pl) in scope.xy_pairs.iter() {
+                let (Some(xn), Some(yn)) = (xn, yn) else { continue };
+                if !pl.visible {
+                    continue;
+                }
+                let (Some(xt), Some(yt)) =
+                    (traces.get_trace(xn), traces.get_trace(yn))
+                else {
+                    continue;
+                };
+                let a = trace_sig(&xt.live, pl, xt.offset, (false, false));
+                let b = trace_sig(&yt.live, pl, yt.offset, (false, false));
+                format!("xy:{}:{}", xn.0, yn.0).hash(&mut sh);
+                a.hash(&mut sh);
+                b.hash(&mut sh);
+            }
+        }
+        let sig = sh.finish();
+        if self.initialized && sig == self.last_sig {
+            if let Some(tex) = &self.tex {
+                ui.painter().image(
+                    tex.id(),
+                    rect,
+                    egui::Rect::from_min_max(
+                        egui::pos2(0.0, 0.0),
+                        egui::pos2(1.0, 1.0),
+                    ),
+                    egui::Color32::WHITE,
+                );
+            }
+            return true;
+        }
+        self.last_sig = sig;
+
         let (fw, fh) = fig.size();
         if fw != w || fh != h {
             fig.resize(w, h);
@@ -96,8 +204,17 @@ impl VolcanoSurface {
                 .trace_ids
                 .entry(name.0.clone())
                 .or_insert_with(|| fig.add_trace());
-            let x_log = scope.x_axis.log_scale;
-            let y_log = scope.y_axis.log_scale;
+            let (x_log, y_log) = log_xy;
+            // Skip the FFI upload when this trace hasn't changed —
+            // avoids re-copying large buffers every frame.
+            let new_sig = frame_sigs
+                .iter()
+                .find(|(k, _)| k == &name.0)
+                .map(|(_, s)| *s)
+                .unwrap_or(0);
+            if self.trace_sigs.get(&name.0) == Some(&new_sig) {
+                continue;
+            }
             let xy: Vec<[f64; 2]> = tr
                 .live
                 .iter()
@@ -108,6 +225,7 @@ impl VolcanoSurface {
                 })
                 .collect();
             fig.set_trace(id, &xy, rgba8(tr.look.color), tr.look.width, vp_style(&tr.look));
+            self.trace_sigs.insert(name.0.clone(), new_sig);
         }
         // XY-scope pairs: join x/y traces on timestamp within 1e-9.
         if scope.scope_type == ScopeType::XYScope {
@@ -169,6 +287,7 @@ impl VolcanoSurface {
             if let Some(id) = self.trace_ids.remove(&k) {
                 fig.remove_trace(id);
             }
+            self.trace_sigs.remove(&k);
         }
 
         // Until the caller writes back real plot bounds, auto-fit data
@@ -178,7 +297,7 @@ impl VolcanoSurface {
         }
         let (xb, yb) = self.bounds;
         fig.set_viewport(xb[0], xb[1], yb[0], yb[1]);
-        fig.set_background(!ui.visuals().dark_mode);
+        fig.set_background(!dark);
         fig.set_axis_labels(scope.x_axis.name.as_deref(), scope.y_axis.name.as_deref());
 
         let Some(px) = fig.render_rgba() else {

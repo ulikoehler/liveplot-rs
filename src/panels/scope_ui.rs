@@ -1113,7 +1113,6 @@ impl ScopePanel {
         // VolcanoPlot texture painted underneath.
         if volcano {
             plot = plot
-                .show_axes(egui::Vec2b::new(false, false))
                 .show_grid(egui::Vec2b::new(false, false))
                 .show_background(false);
         }
