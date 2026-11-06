@@ -41,6 +41,7 @@ extern "C" {
         y_label: *const std::ffi::c_char,
     );
     fn vp_set_background(fig: *mut VpFigure, white: i32);
+    fn vp_set_margins(fig: *mut VpFigure, l: f32, r: f32, b: f32, t: f32);
     fn vp_render_rgba(fig: *mut VpFigure, out: *mut u8, out_len: usize) -> usize;
 }
 
@@ -131,6 +132,12 @@ impl VolcanoFigure {
     /// Set viewport bounds; pass `f64::NAN` pairs to keep autoscale.
     pub fn set_viewport(&mut self, xmin: f64, xmax: f64, ymin: f64, ymax: f64) {
         unsafe { vp_set_viewport(self.ptr, xmin, xmax, ymin, ymax) }
+    }
+
+    /// Grid margins as canvas fractions — must match the overlay
+    /// axes-rect the caller paints overlays into.
+    pub fn set_margins(&mut self, l: f32, r: f32, b: f32, t: f32) {
+        unsafe { vp_set_margins(self.ptr, l, r, b, t) }
     }
 
     pub fn set_axis_labels(&mut self, x: Option<&str>, y: Option<&str>) {

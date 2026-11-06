@@ -1077,7 +1077,7 @@ impl ScopePanel {
         use crate::panels::plot_backend::VolcanoPainterBackend;
         use egui::epaint::RectShape;
 
-        let desired = egui::vec2(ui.available_width(), ui.available_height().max(120.0));
+        let desired = ui.available_size();
         let (rect, resp) =
             ui.allocate_exact_size(desired, egui::Sense::click_and_drag());
         let plot_id = ui.make_persistent_id(format!("scope_plot_{}", self.data.name));
@@ -1117,9 +1117,9 @@ impl ScopePanel {
         // Axes rect inside the texture (VolcanoPlot's grid margins —
         // keep in sync with volcano_ffi.cpp: left .11, right .985,
         // bottom .14, top .985).
-        const ML: f32 = 0.11;
+        const ML: f32 = 0.07;
         const MR: f32 = 0.985;
-        const MB: f32 = 0.14;
+        const MB: f32 = 0.16;
         const MT: f32 = 0.985;
         let axes = egui::Rect::from_min_max(
             egui::pos2(

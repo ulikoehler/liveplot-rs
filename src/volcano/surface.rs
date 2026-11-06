@@ -220,7 +220,12 @@ impl VolcanoSurface {
         self.last_sig = sig;
 
         let (fw, fh) = fig.size();
-        if fw != w || fh != h {
+        // Debounce: resizing rebuilds the whole Vulkan backend —
+        // don't do it for small layout jitter (a few % stretch is
+        // invisible); only when the figure is clearly wrong-sized.
+        let dw = (w as i32 - fw as i32).abs();
+        let dh = (h as i32 - fh as i32).abs();
+        if dw > 32 || dh > 32 {
             fig.resize(w, h);
         }
 
