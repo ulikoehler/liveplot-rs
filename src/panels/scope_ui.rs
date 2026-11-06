@@ -1303,8 +1303,14 @@ impl ScopePanel {
         }
 
         // Legend overlay (same Area + PlotMemory channel as egui path).
+        // Same suppression conditions: force-hide + size thresholds.
+        let hide_legend = self.data.force_hide_legend
+            || (self.min_width_for_legend > 0.0
+                && rect.width() < self.min_width_for_legend)
+            || (self.min_height_for_legend > 0.0
+                && rect.height() < self.min_height_for_legend);
         self.legend_overlay_rect = None;
-        if self.data.show_legend && !legend_entries.is_empty() {
+        if self.data.show_legend && !hide_legend && !legend_entries.is_empty() {
             if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), plot_id) {
                 if let Some(res) = crate::panels::scope_legend::render_scope_legend(
                     ui,
