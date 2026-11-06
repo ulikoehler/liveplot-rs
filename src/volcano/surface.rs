@@ -77,6 +77,11 @@ pub struct VolcanoSurface {
     /// Signature of the whole render input — skips the Vulkan render
     /// + readback + texture upload when nothing changed.
     last_sig: u64,
+    /// In-flight render+readback on a worker thread — keeps the UI at
+    /// 60fps while Vulkan renders (~7ms/frame) in the background.
+    pending: Option<
+        std::thread::JoinHandle<(Option<VolcanoFigure>, Option<Vec<u8>>)>,
+    >,
     /// Current data-space viewport (x, y) — written back from the
     /// plot transform by the caller after each frame.
     pub bounds: ([f64; 2], [f64; 2]),
@@ -97,6 +102,7 @@ impl VolcanoSurface {
             trace_ids: HashMap::new(),
             trace_sigs: HashMap::new(),
             last_sig: 0,
+            pending: None,
             bounds: ([0.0, 1.0], [0.0, 1.0]),
             initialized: false,
         }
@@ -120,6 +126,38 @@ impl VolcanoSurface {
     ) -> bool {
         let w = w.max(8);
         let h = h.max(8);
+
+        // Collect a finished render: upload the frame + reclaim fig.
+        // First render blocks once (~7ms) so callers waiting for real
+        // output aren't left with a blank texture; afterwards renders
+        // pipeline 1-frame behind — the UI stays at 60fps.
+        if let Some(handle) = self.pending.take() {
+            if !self.initialized || handle.is_finished() {
+                if let Ok((fig, px)) = handle.join() {
+                    self.fig = fig;
+                    if let Some(px) = px {
+                        let image = egui::ColorImage::from_rgba_unmultiplied(
+                            [w as usize, h as usize],
+                            &px,
+                        );
+                        let tex = self.tex.get_or_insert_with(|| {
+                            ctx.load_texture(
+                                "volcano_scope",
+                                image.clone(),
+                                egui::TextureOptions::LINEAR,
+                            )
+                        });
+                        tex.set(image, egui::TextureOptions::LINEAR);
+                        self.initialized = true;
+                    }
+                }
+            } else {
+                // Worker still busy — paint last frame, skip this one.
+                self.pending = Some(handle);
+                return true;
+            }
+        }
+
         let fig = match &mut self.fig {
             Some(f) => f,
             None => match VolcanoFigure::new(w, h) {
@@ -294,26 +332,13 @@ impl VolcanoSurface {
         fig.set_background(!dark);
         fig.set_axis_labels(scope.x_axis.name.as_deref(), scope.y_axis.name.as_deref());
 
-        let Some(px) = fig.render_rgba() else {
-            for name in scope.trace_order.iter() {
-                if let Some(tr) = traces.get_trace(name) {
-                    let xs: Vec<f64> = tr.live.iter().take(3).map(|p| p[0]).collect();
-                    let ys: Vec<f64> = tr.live.iter().take(3).map(|p| p[1]).collect();
-                    let (xb, yb) = self.bounds;
-                    eprintln!(
-                        "volcano fail: '{}' n={} x={:?} y={:?} vb=({:?},{:?})",
-                        name.0, tr.live.len(), xs, ys, xb, yb
-                    );
-                }
-            }
-            return false;
-        };
-        let image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], px);
-        let tex = self.tex.get_or_insert_with(|| {
-            ctx.load_texture("volcano_scope", image.clone(), egui::TextureOptions::LINEAR)
-        });
-        tex.set(image, egui::TextureOptions::LINEAR);
-        self.initialized = true;
+        // Render + readback on a worker thread — the expensive part
+        // (prepare/renderFrame/readback ~7ms) never blocks the UI.
+        let mut owned = self.fig.take().unwrap();
+        self.pending = Some(std::thread::spawn(move || {
+            let px = owned.render_rgba().map(|b| b.to_vec());
+            (Some(owned), px)
+        }));
         true
     }
 
