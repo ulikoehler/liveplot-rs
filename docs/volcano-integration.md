@@ -72,3 +72,23 @@ Goal: feature-flagged replacement of `egui_plot` with VolcanoPlot
 - Zoom/pan is re-render driven — latency identical to egui redraw.
 - VolcanoPlot axes/ticks inside the texture can't share egui's font/style.
 - First milestone: figure renders a sine wave to a texture in-app.
+
+## Build prerequisites (feature `volcano`)
+
+```bash
+git submodule update --init --recursive   # VolcanoPlot + nested glyb deps
+LIVEPLOT_VOLCANO=1 cargo run --features volcano
+```
+
+- **Linux**: cmake + g++ (C++23) + Vulkan runtime (`libvulkan.so.1`).
+  Headers/shaderc come from `vendor/vulkan-sdk` + `vendor/Vulkan-Headers`.
+  The `glyb` patch (vendored zlib/libpng/freetype/harfbuzz) is applied
+  by `build.rs` — no system font/image dev packages needed.
+- **Windows**: LunarG Vulkan SDK with `VULKAN_SDK` set; MSVC multi-config
+  is handled. `vendor/vulkan-sdk` contents are Linux-only.
+- The submodule stays at stock upstream: the FFI shim lives in
+  `vendor/volcano-ffi` (compiled via `cc` in `build.rs`); the glyb patch
+  in `vendor/volcano-patches` is copied in at build time.
+- Per-scope override: `ScopeData::volcano_enabled` (seeded once from
+  the env var at construction).
+- Test: `cargo test --features volcano --test volcano_ffi --test e2e volcano_scope`
