@@ -1077,7 +1077,7 @@ impl ScopePanel {
         use crate::panels::plot_backend::VolcanoPainterBackend;
         use egui::epaint::RectShape;
 
-        let desired = ui.available_size();
+        let desired = egui::vec2(ui.available_width(), ui.available_height().max(120.0));
         let (rect, resp) =
             ui.allocate_exact_size(desired, egui::Sense::click_and_drag());
         let plot_id = ui.make_persistent_id(format!("scope_plot_{}", self.data.name));
@@ -1251,9 +1251,6 @@ impl ScopePanel {
             Vec::new();
         for name in self.data.trace_order.iter() {
             let Some(tr) = traces.get_trace(name) else { continue };
-            if !tr.look.visible {
-                continue;
-            }
             legend_entries.push(crate::panels::scope_legend::LegendEntryData {
                 id: crate::panels::scope_legend::trace_item_id(name),
                 label: traces.display_label(name),
@@ -1263,9 +1260,6 @@ impl ScopePanel {
         if self.data.scope_type == crate::data::scope::ScopeType::XYScope {
             for (xn, yn, pl) in self.data.xy_pairs.iter() {
                 let (Some(xn), Some(yn)) = (xn, yn) else { continue };
-                if !pl.visible {
-                    continue;
-                }
                 legend_entries.push(crate::panels::scope_legend::LegendEntryData {
                     id: crate::panels::scope_legend::xy_pair_item_id(xn, yn),
                     label: format!("{}/{}", xn.0, yn.0),
