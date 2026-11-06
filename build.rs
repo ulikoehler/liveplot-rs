@@ -145,8 +145,9 @@ fn main() {
         }
     }
 
-    // Link: left-to-right resolution order. Third-party artifact names
-    // differ per generator — pick whichever exists.
+    // Link: left-to-right resolution order. glyb prefers system
+    // freetype/harfbuzz/png/zlib — vendored artifacts only exist when
+    // the system lib was absent, so pick static-when-built else dylib.
     let mut libs = vec![
         "volcano_ffi_static".to_string(),
         "volcano_render_static".to_string(),
@@ -156,16 +157,22 @@ fn main() {
         "volcano_text_static".to_string(),
         "glyb_static".to_string(),
         "volcano_core_static".to_string(),
-        "harfbuzz".to_string(),
-        "freetype".to_string(),
     ];
+    let mut dylibs = Vec::new();
     let pick = |names: &[&str]| -> Option<String> {
         search.iter().find_map(|d| first_existing(d, names))
     };
-    libs.push(
-        pick(&["png_static", "libpng16_static", "libpng", "png"]).expect("libpng build artifact"),
-    );
-    libs.push(pick(&["zlibstatic", "zlib", "z"]).expect("zlib build artifact"));
+    for (names, sys) in [
+        (&["harfbuzz"][..], "harfbuzz"),
+        (&["freetype"][..], "freetype"),
+        (&["png_static", "libpng16_static", "libpng", "png"][..], "png"),
+        (&["zlibstatic", "zlib", "z"][..], "z"),
+    ] {
+        match pick(names) {
+            Some(l) => libs.push(l),
+            None => dylibs.push(sys),
+        }
+    }
     // Second pass: single-pass archive resolution can skip members that
     // only become needed later (hb-ft.cc inside glyb is required by
     // font.cc which appears after it in the archive).
@@ -177,6 +184,9 @@ fn main() {
     ]);
     for lib in &libs {
         println!("cargo:rustc-link-lib=static={lib}");
+    }
+    for lib in &dylibs {
+        println!("cargo:rustc-link-lib=dylib={lib}");
     }
 
     if windows {
