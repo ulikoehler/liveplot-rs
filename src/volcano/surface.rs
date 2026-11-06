@@ -340,6 +340,16 @@ impl VolcanoSurface {
         let (xb, yb) = self.bounds;
         fig.set_viewport(xb[0], xb[1], yb[0], yb[1]);
         fig.set_background(!dark);
+        // Pixel margins as canvas fractions — keeps the figure's axes
+        // rect aligned with the overlay axes-rect the caller computes
+        // (see render_volcano_plot: 60/12/56/8 px, 52/10/34/6 when short).
+        let (ml, mr, mb, mt) = if (h as f32) < 160.0 {
+            (52.0, 10.0, 34.0, 6.0)
+        } else {
+            (60.0, 12.0, 56.0, 8.0)
+        };
+        let (wf, hf) = (w as f32, h as f32);
+        fig.set_margins(ml / wf, 1.0 - mr / wf, mb / hf, 1.0 - mt / hf);
         fig.set_background_rgba(
             panel_bg.r() as f32 / 255.0,
             panel_bg.g() as f32 / 255.0,
