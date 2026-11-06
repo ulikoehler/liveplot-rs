@@ -1,7 +1,6 @@
 //! Panel trait and state for the modular UI architecture.
 
 use egui::{Context, Ui};
-use egui_plot::PlotUi;
 
 use crate::data::data::LivePlotData;
 use crate::data::hotkeys::HotkeyName;
@@ -88,7 +87,7 @@ pub trait Panel: Downcast {
     ) {
     }
     fn render_panel(&mut self, _ui: &mut Ui, _data: &mut LivePlotData<'_>) {}
-    fn draw(&mut self, _plot_ui: &mut PlotUi, _scope: &ScopeData, _traces: &TracesCollection) {}
+    fn draw(&mut self, _plot_ui: &mut dyn crate::panels::plot_backend::PlotBackend, _scope: &ScopeData, _traces: &TracesCollection) {}
 
     /// Report the legend entries for the items [`Panel::draw`] adds to `scope`.
     ///

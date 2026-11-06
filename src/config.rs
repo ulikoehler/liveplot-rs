@@ -233,7 +233,7 @@ pub struct Controllers {
 /// [`LivePlotConfig::overlays`].
 pub type OverlayCallback = Box<
     dyn FnMut(
-            &mut egui_plot::PlotUi,
+            &mut dyn crate::panels::plot_backend::PlotBackend,
             &crate::data::scope::ScopeData,
             &crate::data::traces::TracesCollection,
         ) + 'static,

@@ -106,18 +106,20 @@ impl VolcanoSurface {
         self.initialized
     }
 
-    /// Render the scope's traces into `rect` (paint only — the
-    /// transparent egui plot layered on top owns all interaction).
-    /// Returns false when Vulkan is unavailable → caller falls back.
-    pub fn paint(
+    /// Sync + render + upload into the egui texture. Painting the
+    /// texture is the caller's job (see `texture_id()`). Returns
+    /// false when Vulkan is unavailable → caller falls back.
+    pub fn sync_and_render(
         &mut self,
-        ui: &mut egui::Ui,
-        rect: egui::Rect,
+        ctx: &egui::Context,
         scope: &ScopeData,
         traces: &TracesCollection,
+        w: u32,
+        h: u32,
+        dark: bool,
     ) -> bool {
-        let w = rect.width().max(8.0) as u32;
-        let h = rect.height().max(8.0) as u32;
+        let w = w.max(8);
+        let h = h.max(8);
         let fig = match &mut self.fig {
             Some(f) => f,
             None => match VolcanoFigure::new(w, h) {
@@ -126,9 +128,8 @@ impl VolcanoSurface {
             },
         };
         // Whole-render signature — if identical to last frame the
-        // texture is still current: repaint and skip the Vulkan
-        // render + readback + upload entirely.
-        let dark = ui.visuals().dark_mode;
+        // texture is still current: skip the Vulkan render + readback
+        // + upload entirely.
         let log_xy = (scope.x_axis.log_scale, scope.y_axis.log_scale);
         let mut sh = DefaultHasher::new();
         w.hash(&mut sh);
@@ -172,17 +173,6 @@ impl VolcanoSurface {
         }
         let sig = sh.finish();
         if self.initialized && sig == self.last_sig {
-            if let Some(tex) = &self.tex {
-                ui.painter().image(
-                    tex.id(),
-                    rect,
-                    egui::Rect::from_min_max(
-                        egui::pos2(0.0, 0.0),
-                        egui::pos2(1.0, 1.0),
-                    ),
-                    egui::Color32::WHITE,
-                );
-            }
             return true;
         }
         self.last_sig = sig;
@@ -199,14 +189,18 @@ impl VolcanoSurface {
             if !tr.look.visible {
                 continue;
             }
+            // Skip before add_trace — an empty LinePlot breaks
+            // VolcanoPlot's renderFrame (and not marking it `seen`
+            // lets the dead-trace cleanup remove a stale plot).
+            if tr.live.is_empty() {
+                continue;
+            }
             seen.insert(name.0.clone());
             let id = *self
                 .trace_ids
                 .entry(name.0.clone())
                 .or_insert_with(|| fig.add_trace());
             let (x_log, y_log) = log_xy;
-            // Skip the FFI upload when this trace hasn't changed —
-            // avoids re-copying large buffers every frame.
             let new_sig = frame_sigs
                 .iter()
                 .find(|(k, _)| k == &name.0)
@@ -301,22 +295,31 @@ impl VolcanoSurface {
         fig.set_axis_labels(scope.x_axis.name.as_deref(), scope.y_axis.name.as_deref());
 
         let Some(px) = fig.render_rgba() else {
+            for name in scope.trace_order.iter() {
+                if let Some(tr) = traces.get_trace(name) {
+                    let xs: Vec<f64> = tr.live.iter().take(3).map(|p| p[0]).collect();
+                    let ys: Vec<f64> = tr.live.iter().take(3).map(|p| p[1]).collect();
+                    let (xb, yb) = self.bounds;
+                    eprintln!(
+                        "volcano fail: '{}' n={} x={:?} y={:?} vb=({:?},{:?})",
+                        name.0, tr.live.len(), xs, ys, xb, yb
+                    );
+                }
+            }
             return false;
         };
         let image = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], px);
         let tex = self.tex.get_or_insert_with(|| {
-            ui.ctx()
-                .load_texture("volcano_scope", image.clone(), egui::TextureOptions::LINEAR)
+            ctx.load_texture("volcano_scope", image.clone(), egui::TextureOptions::LINEAR)
         });
         tex.set(image, egui::TextureOptions::LINEAR);
-        ui.painter().image(
-            tex.id(),
-            rect,
-            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-            egui::Color32::WHITE,
-        );
         self.initialized = true;
         true
+    }
+
+    /// Texture with the last rendered frame, for the caller to paint.
+    pub fn texture_id(&self) -> Option<egui::TextureId> {
+        self.tex.as_ref().map(|t| t.id())
     }
 
     fn fit_bounds(

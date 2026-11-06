@@ -129,6 +129,11 @@ fn volcano_fft_scope_renders() {
     steps(&mut bed, 60);
     let fp = find_panel::<FftPanel>(&bed).unwrap();
     let data = fp.scope_ui.get_data();
+    eprintln!("fft: enabled={} initialized={:?} rendered={} rect={:?}",
+        data.volcano_enabled,
+        data.volcano_surface.as_ref().map(|v| v.initialized()),
+        data.rendered_this_frame,
+        data.last_plot_screen_rect);
     assert!(
         data.volcano_surface.as_ref().is_some_and(|v| v.initialized()),
         "FFT scope should render through VolcanoPlot"

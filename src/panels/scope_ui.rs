@@ -516,7 +516,7 @@ impl ScopePanel {
         traces: &mut TracesCollection,
     ) where
         F: FnMut(
-            &mut egui_plot::PlotUi,
+            &mut dyn crate::panels::plot_backend::PlotBackend,
             &ScopeData,
             &TracesCollection,
             &mut Vec<crate::panels::scope_legend::LegendEntryData>,
@@ -1055,10 +1055,308 @@ impl ScopePanel {
         }
     }
 
+    /// VolcanoPlot render path — replaces `egui_plot::Plot` entirely:
+    /// series come from the Vulkan-rendered texture, interaction and
+    /// overlays are handled here (egui widgets on top, painter for
+    /// overlay items via `VolcanoPainterBackend`).
+    #[cfg(feature = "volcano")]
+    fn render_volcano_plot<F>(
+        &mut self,
+        ui: &mut Ui,
+        draw_overlays: &mut F,
+        traces: &mut TracesCollection,
+    ) -> bool
+    where
+        F: FnMut(
+            &mut dyn crate::panels::plot_backend::PlotBackend,
+            &ScopeData,
+            &TracesCollection,
+            &mut Vec<crate::panels::scope_legend::LegendEntryData>,
+        ),
+    {
+        use crate::panels::plot_backend::VolcanoPainterBackend;
+        use egui::epaint::RectShape;
+
+        let desired = ui.available_size();
+        let (rect, resp) =
+            ui.allocate_exact_size(desired, egui::Sense::click_and_drag());
+        let plot_id = ui.make_persistent_id(format!("scope_plot_{}", self.data.name));
+        self.data.plot_id = Some(plot_id);
+
+        // Viewport: the app owns data bounds; write them into the
+        // surface so the figure renders the same range.
+        let (x0, x1) = self.data.x_axis.bounds;
+        let (y0, y1) = self.data.y_axis.bounds;
+        let (w, h) = (rect.width() as u32, rect.height() as u32);
+        let dark = ui.visuals().dark_mode;
+        let mut surf = self.data.volcano_surface.take().unwrap_or_default();
+        // Only feed valid bounds — degenerate/non-finite ranges (e.g. an
+        // FFT scope before its first spectrum) must not poison setXlim.
+        if x0.is_finite() && x1.is_finite() && x1 > x0
+            && y0.is_finite() && y1.is_finite() && y1 > y0
+        {
+            surf.bounds = ([x0, x1], [y0, y1]);
+        }
+        let ok = surf.sync_and_render(ui.ctx(), &self.data, traces, w, h, dark);
+        if !ok {
+            // Vulkan unavailable — permanently fall back to egui_plot.
+            self.data.volcano_enabled = false;
+            self.data.volcano_surface = Some(surf);
+            return false;
+        }
+        if let Some(tex) = surf.texture_id() {
+            ui.painter().image(
+                tex,
+                rect,
+                egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                egui::Color32::WHITE,
+            );
+        }
+        self.data.volcano_surface = Some(surf);
+
+        // Axes rect inside the texture (VolcanoPlot's grid margins —
+        // keep in sync with volcano_ffi.cpp: left .11, right .985,
+        // bottom .14, top .985).
+        const ML: f32 = 0.11;
+        const MR: f32 = 0.985;
+        const MB: f32 = 0.14;
+        const MT: f32 = 0.985;
+        let axes = egui::Rect::from_min_max(
+            egui::pos2(
+                rect.left() + rect.width() * ML,
+                rect.bottom() - rect.height() * MT,
+            ),
+            egui::pos2(
+                rect.left() + rect.width() * MR,
+                rect.bottom() - rect.height() * MB,
+            ),
+        );
+
+        // Input → data bounds.
+        let mut bounds_changed = false;
+        let to_data = |p: egui::Pos2| -> [f64; 2] {
+            [
+                x0 + (p.x - axes.left()) as f64 / axes.width() as f64 * (x1 - x0),
+                y0 + (axes.bottom() - p.y) as f64 / axes.height() as f64 * (y1 - y0),
+            ]
+        };
+        if resp.dragged_by(egui::PointerButton::Primary) {
+            let d = resp.drag_delta();
+            let dx = -(d.x as f64) / axes.width() as f64 * (x1 - x0);
+            let dy = (d.y as f64) / axes.height() as f64 * (y1 - y0);
+            self.data.x_axis.bounds = (x0 + dx, x1 + dx);
+            self.data.y_axis.bounds = (y0 + dy, y1 + dy);
+            bounds_changed = true;
+        }
+        if resp.contains_pointer() {
+            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            if scroll.abs() > 0.01 {
+                let zoom_x = matches!(
+                    self.zoom_mode,
+                    ZoomMode::Both | ZoomMode::X
+                );
+                let zoom_y = matches!(
+                    self.zoom_mode,
+                    ZoomMode::Both | ZoomMode::Y
+                );
+                let f = (1.0 - scroll as f64 * 0.002).clamp(0.5, 2.0);
+                if let Some(pos) = resp.hover_pos() {
+                    let c = to_data(pos);
+                    let (mut nx0, mut nx1) = (x0, x1);
+                    let (mut ny0, mut ny1) = (y0, y1);
+                    if zoom_x {
+                        nx0 = c[0] + (x0 - c[0]) * f;
+                        nx1 = c[0] + (x1 - c[0]) * f;
+                    }
+                    if zoom_y {
+                        ny0 = c[1] + (y0 - c[1]) * f;
+                        ny1 = c[1] + (y1 - c[1]) * f;
+                    }
+                    self.data.x_axis.bounds = (nx0, nx1);
+                    self.data.y_axis.bounds = (ny0, ny1);
+                    bounds_changed = true;
+                }
+            }
+        }
+        // Box zoom: secondary drag.
+        let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+        if resp.drag_started_by(egui::PointerButton::Secondary) {
+            self.box_zoom_start = resp.interact_pointer_pos();
+        }
+        if self.box_zoom_start.is_some() && escape {
+            self.box_zoom_start = None;
+        }
+        if let (Some(a), Some(b)) =
+            (self.box_zoom_start, resp.interact_pointer_pos())
+        {
+            if resp.dragged_by(egui::PointerButton::Secondary) {
+                let r = egui::Rect::from_two_pos(a, b);
+                ui.painter().add(RectShape::stroke(
+                    r,
+                    0.0,
+                    egui::Stroke::new(1.0, egui::Color32::LIGHT_BLUE),
+                    egui::StrokeKind::Inside,
+                ));
+            }
+            if resp.drag_stopped_by(egui::PointerButton::Secondary) {
+                let (lo, hi) = (to_data(a.min(b)), to_data(a.max(b)));
+                if (hi[0] - lo[0]).abs() > 1e-12 && (hi[1] - lo[1]).abs() > 1e-12 {
+                    self.data.x_axis.bounds = (lo[0], hi[0]);
+                    self.data.y_axis.bounds = (lo[1], hi[1]);
+                    bounds_changed = true;
+                }
+                self.box_zoom_start = None;
+            }
+        }
+        if resp.double_clicked() {
+            self.data.x_axis.auto_fit = true;
+            self.data.y_axis.auto_fit = true;
+            bounds_changed = true;
+        }
+        // Click: measurement point + pause (same semantics as egui path).
+        if resp.clicked() {
+            if let Some(pos) = resp.interact_pointer_pos() {
+                let p = to_data(pos);
+                let xp = if self.data.x_axis.log_scale && p[0] > 0.0 {
+                    p[0].log10()
+                } else {
+                    p[0]
+                };
+                let yp = if self.data.y_axis.log_scale && p[1] > 0.0 {
+                    p[1].log10()
+                } else {
+                    p[1]
+                };
+                self.data.clicked_point = Some([xp, yp]);
+                self.data.clicked_screen_pos = Some([pos.x, pos.y]);
+            }
+            if !self.data.pause_on_click && self.data.measurement_active
+                && !self.data.paused
+            {
+                self.data.paused = true;
+                self.pending_pause = Some(true);
+            }
+        }
+        if bounds_changed {
+            self.pending_view_change = Some(crate::events::ViewChangeMeta {
+                x_range: Some(self.data.x_axis.bounds),
+                y_range: Some(self.data.y_axis.bounds),
+                scope_id: Some(self.data.id),
+                scope_type: Some(self.data.scope_type.clone()),
+            });
+        }
+
+        // Legend entries + overlays via the painter backend.
+        let mut legend_entries: Vec<crate::panels::scope_legend::LegendEntryData> =
+            Vec::new();
+        for name in self.data.trace_order.iter() {
+            let Some(tr) = traces.get_trace(name) else { continue };
+            if !tr.look.visible {
+                continue;
+            }
+            legend_entries.push(crate::panels::scope_legend::LegendEntryData {
+                id: crate::panels::scope_legend::trace_item_id(name),
+                label: traces.display_label(name),
+                color: tr.look.color,
+            });
+        }
+        if self.data.scope_type == crate::data::scope::ScopeType::XYScope {
+            for (xn, yn, pl) in self.data.xy_pairs.iter() {
+                let (Some(xn), Some(yn)) = (xn, yn) else { continue };
+                if !pl.visible {
+                    continue;
+                }
+                legend_entries.push(crate::panels::scope_legend::LegendEntryData {
+                    id: crate::panels::scope_legend::xy_pair_item_id(xn, yn),
+                    label: format!("{}/{}", xn.0, yn.0),
+                    color: pl.color,
+                });
+            }
+        }
+        let bounds = if self.data.x_axis.bounds.0.is_finite()
+            && self.data.x_axis.bounds.1.is_finite()
+            && self.data.x_axis.bounds.1 > self.data.x_axis.bounds.0
+            && self.data.y_axis.bounds.0.is_finite()
+            && self.data.y_axis.bounds.1.is_finite()
+            && self.data.y_axis.bounds.1 > self.data.y_axis.bounds.0
+        {
+            egui_plot::PlotBounds::from_min_max(
+                [self.data.x_axis.bounds.0, self.data.y_axis.bounds.0],
+                [self.data.x_axis.bounds.1, self.data.y_axis.bounds.1],
+            )
+        } else {
+            egui_plot::PlotBounds::from_min_max([0.0, 0.0], [1.0, 1.0])
+        };
+        use crate::panels::plot_backend::PlotBackend as _;
+        let mut vpb = VolcanoPainterBackend::new(ui, &resp, axes, bounds);
+        draw_overlays(&mut vpb, &self.data, traces, &mut legend_entries);
+        let (nx0, nx1) = (vpb.plot_bounds().min()[0], vpb.plot_bounds().max()[0]);
+        let (ny0, ny1) = (vpb.plot_bounds().min()[1], vpb.plot_bounds().max()[1]);
+        if (nx0, nx1) != self.data.x_axis.bounds {
+            self.data.x_axis.bounds = (nx0, nx1);
+        }
+        if (ny0, ny1) != self.data.y_axis.bounds {
+            self.data.y_axis.bounds = (ny0, ny1);
+        }
+
+        // Legend overlay (same Area + PlotMemory channel as egui path).
+        self.legend_overlay_rect = None;
+        if self.data.show_legend && !legend_entries.is_empty() {
+            if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), plot_id) {
+                if let Some(res) = crate::panels::scope_legend::render_scope_legend(
+                    ui,
+                    axes,
+                    self.data.legend_position,
+                    &legend_entries,
+                    self.data.id,
+                    |id| mem.hidden_items.contains(id),
+                ) {
+                    self.legend_overlay_rect = res.rect;
+                    mem.hidden_items.clear();
+                    mem.hidden_items.extend(res.hidden_items.iter().copied());
+                    mem.hovered_legend_item = res.hovered_item;
+                    mem.store(ui.ctx(), plot_id);
+                }
+            }
+            if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), plot_id) {
+                if let Some(hovered_id) = mem.hovered_legend_item {
+                    if ui.input(|i| i.pointer.secondary_clicked())
+                        && resp.contains_pointer()
+                    {
+                        let all_ids: Vec<egui_plot::ItemId> =
+                            legend_entries.iter().map(|e| e.id).collect();
+                        let is_isolated = all_ids.iter().all(|id| {
+                            *id == hovered_id || mem.hidden_items.contains(id)
+                        });
+                        mem.hidden_items.clear();
+                        if !is_isolated {
+                            for id in &all_ids {
+                                if *id != hovered_id {
+                                    mem.hidden_items.insert(*id);
+                                }
+                            }
+                        }
+                        mem.store(ui.ctx(), plot_id);
+                    }
+                }
+            }
+        }
+
+        // Geometry for tests/debug.
+        self.data.last_plot_screen_rect =
+            Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
+        self.data.last_plot_bounds = Some((
+            [self.data.x_axis.bounds.0, self.data.x_axis.bounds.1],
+            [self.data.y_axis.bounds.0, self.data.y_axis.bounds.1],
+        ));
+        self.data.rendered_this_frame = true;
+        true
+    }
+
     fn render_plot<F>(&mut self, ui: &mut Ui, mut draw_overlays: F, traces: &mut TracesCollection)
     where
         F: FnMut(
-            &mut egui_plot::PlotUi,
+            &mut dyn crate::panels::plot_backend::PlotBackend,
             &ScopeData,
             &TracesCollection,
             &mut Vec<crate::panels::scope_legend::LegendEntryData>,
@@ -1108,22 +1406,14 @@ impl ScopePanel {
             // suppress the egui_plot axis space reservation so the plot fills the full
             // widget width without a black gutter on the left (Y axis) or bottom (X axis).
             .show_axes(egui::Vec2b::new(!hide_x_labels, !hide_y_labels));
-        // VolcanoPlot mode: the egui plot becomes a transparent
-        // interaction/overlay layer; the series pixels come from the
-        // VolcanoPlot texture painted underneath.
-        if volcano {
-            plot = plot
-                .show_grid(egui::Vec2b::new(false, false))
-                .show_background(false);
-        }
+        // VolcanoPlot mode: the whole egui_plot path is skipped —
+        // `render_volcano_plot` draws series through the VolcanoPlot
+        // texture and handles interaction itself.
         #[allow(unused_mut)]
         let mut volcano_ok = false;
         #[cfg(feature = "volcano")]
-        if volcano {
-            let rect = ui.available_rect_before_wrap();
-            let mut surf = self.data.volcano_surface.take().unwrap_or_default();
-            volcano_ok = surf.paint(ui, rect, &self.data, traces);
-            self.data.volcano_surface = Some(surf);
+        if volcano && self.render_volcano_plot(ui, &mut draw_overlays, traces) {
+            return;
         }
         if !hide_x_labels {
             if let Some(label) = self.axis_label_text(traces, true) {
@@ -1686,7 +1976,12 @@ impl ScopePanel {
             }
 
             // Additional overlays provided by caller (e.g., thresholds, markers)
-            draw_overlays(plot_ui, &self.data, traces, &mut legend_entries);
+            draw_overlays(
+                &mut crate::panels::plot_backend::EguiBackend(plot_ui),
+                &self.data,
+                traces,
+                &mut legend_entries,
+            );
 
             // Detect bounds changes via zoom box
             bounds_changed

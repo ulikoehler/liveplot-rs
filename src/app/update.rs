@@ -425,7 +425,7 @@ impl LivePlotPanel {
                 let detached = RefCell::new(std::mem::take(&mut self.detached_panels));
                 let empty = RefCell::new(std::mem::take(&mut self.empty_panels));
 
-                let mut draw_overlays = |plot_ui: &mut egui_plot::PlotUi,
+                let mut draw_overlays = |plot_ui: &mut dyn crate::panels::plot_backend::PlotBackend,
                                          scope: &crate::data::scope::ScopeData,
                                          traces: &crate::data::traces::TracesCollection,
                                          legend_entries: &mut Vec<

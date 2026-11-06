@@ -85,3 +85,35 @@ fn volcano_perf_200k_points() {
     eprintln!("render+readback 1280x720 x5: {:?} (avg {:?})",
               times, times.iter().sum::<std::time::Duration>() / 5);
 }
+
+/// Tiny heights must not fail — the FFT scope can be as short as ~50px.
+#[test]
+fn volcano_tiny_height_renders() {
+    for (w, h) in [(1122, 51), (100, 8), (64, 64)] {
+        let mut fig = match VolcanoFigure::new(w, h) {
+            Some(f) => f,
+            None => { eprintln!("figure {w}x{h} create failed"); continue; }
+        };
+        let id = fig.add_trace();
+        fig.set_trace(id, &[[0.0, 0.0], [1.0, 1.0]], 0xFF8800FF, 1.5, VolcanoLineStyle::Solid);
+        fig.set_viewport(0.0, 1.0, 0.0, 1.0);
+        let ok = fig.render_rgba().is_some();
+        eprintln!("{w}x{h}: render ok={ok}");
+    }
+}
+
+/// Degenerate viewport / empty trace — must not break the renderer.
+#[test]
+fn volcano_degenerate_state() {
+    let mut fig = VolcanoFigure::new(1122, 51).unwrap();
+    // no traces at all, degenerate viewport
+    fig.set_viewport(0.0, 0.0, 0.0, 0.0);
+    eprintln!("empty+degenerate: {:?}", fig.render_rgba().map(|v| v.len()));
+    let id = fig.add_trace();
+    fig.set_trace(id, &[], 0xFF8800FF, 1.5, VolcanoLineStyle::Solid);
+    eprintln!("empty trace: {:?}", fig.render_rgba().map(|v| v.len()));
+    fig.set_trace(id, &[[5.0, f64::NAN], [6.0, 1.0]], 0xFF8800FF, 1.5, VolcanoLineStyle::Solid);
+    eprintln!("nan point: {:?}", fig.render_rgba().map(|v| v.len()));
+    fig.set_viewport(5.0, 5.0, 0.0, 1.0);
+    eprintln!("degenerate xlim: {:?}", fig.render_rgba().map(|v| v.len()));
+}

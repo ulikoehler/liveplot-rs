@@ -121,7 +121,7 @@ impl Panel for ThresholdsPanel {
 
     fn draw(
         &mut self,
-        plot_ui: &mut egui_plot::PlotUi,
+        plot_ui: &mut dyn crate::panels::plot_backend::PlotBackend,
         scope: &ScopeData,
         traces: &TracesCollection,
     ) {

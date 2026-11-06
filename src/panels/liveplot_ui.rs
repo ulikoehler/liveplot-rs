@@ -234,7 +234,7 @@ impl LiveplotPanel {
     pub fn render_panel<F>(&mut self, ui: &mut Ui, draw_overlays: F, traces: &mut TracesCollection)
     where
         F: FnMut(
-            &mut egui_plot::PlotUi,
+            &mut dyn crate::panels::plot_backend::PlotBackend,
             &ScopeData,
             &TracesCollection,
             &mut Vec<crate::panels::scope_legend::LegendEntryData>,
@@ -686,7 +686,7 @@ struct ScopeBehavior<'a, F> {
 impl<'a, F> Behavior<ScopePanel> for ScopeBehavior<'a, F>
 where
     F: FnMut(
-        &mut egui_plot::PlotUi,
+        &mut dyn crate::panels::plot_backend::PlotBackend,
         &ScopeData,
         &TracesCollection,
         &mut Vec<crate::panels::scope_legend::LegendEntryData>,
@@ -917,7 +917,7 @@ mod tests {
     use crate::persistence::{ScopeLayoutDirectionSerde, ScopeLayoutNodeSerde};
 
     fn noop_overlays(
-        _: &mut egui_plot::PlotUi,
+        _: &mut dyn crate::panels::plot_backend::PlotBackend,
         _: &ScopeData,
         _: &TracesCollection,
         _: &mut Vec<crate::panels::scope_legend::LegendEntryData>,
@@ -929,7 +929,7 @@ mod tests {
     ) -> ScopeBehavior<
         '_,
         fn(
-            &mut egui_plot::PlotUi,
+            &mut dyn crate::panels::plot_backend::PlotBackend,
             &ScopeData,
             &TracesCollection,
             &mut Vec<crate::panels::scope_legend::LegendEntryData>,

@@ -497,7 +497,7 @@ impl Panel for MeasurementPanel {
 
     fn draw(
         &mut self,
-        plot_ui: &mut egui_plot::PlotUi,
+        plot_ui: &mut dyn crate::panels::plot_backend::PlotBackend,
         scope: &crate::data::scope::ScopeData,
         _traces: &crate::data::traces::TracesCollection,
     ) {
