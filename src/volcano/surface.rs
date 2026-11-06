@@ -80,7 +80,9 @@ pub struct VolcanoSurface {
     /// In-flight render+readback on a worker thread — keeps the UI at
     /// 60fps while Vulkan renders (~7ms/frame) in the background.
     pending: Option<
-        std::thread::JoinHandle<(Option<VolcanoFigure>, Option<Vec<u8>>)>,
+        std::thread::JoinHandle<
+            (Option<VolcanoFigure>, Option<(u32, u32, Vec<u8>)>),
+        >,
     >,
     /// Current data-space viewport (x, y) — written back from the
     /// plot transform by the caller after each frame.
@@ -135,9 +137,11 @@ impl VolcanoSurface {
             if !self.initialized || handle.is_finished() {
                 if let Ok((fig, px)) = handle.join() {
                     self.fig = fig;
-                    if let Some(px) = px {
+                    if let Some((rw, rh, px)) = px {
+                        // rw/rh are the RENDERED size — may lag the
+                        // current w/h if a resize raced this frame.
                         let image = egui::ColorImage::from_rgba_unmultiplied(
-                            [w as usize, h as usize],
+                            [rw as usize, rh as usize],
                             &px,
                         );
                         let tex = self.tex.get_or_insert_with(|| {
@@ -336,7 +340,8 @@ impl VolcanoSurface {
         // (prepare/renderFrame/readback ~7ms) never blocks the UI.
         let mut owned = self.fig.take().unwrap();
         self.pending = Some(std::thread::spawn(move || {
-            let px = owned.render_rgba().map(|b| b.to_vec());
+            let (rw, rh) = owned.size();
+            let px = owned.render_rgba().map(|b| (rw, rh, b.to_vec()));
             (Some(owned), px)
         }));
         true
