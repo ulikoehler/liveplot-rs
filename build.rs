@@ -65,13 +65,8 @@ fn main() {
         )
     };
 
-    // Apply the glyb patch inside the submodule worktree (stock upstream
-    // lacks the vendored-dependency fallbacks).
-    std::fs::copy(
-        manifest.join("vendor/volcano-patches/glyb.cmake"),
-        volcano.join("cmake/components/glyb.cmake"),
-    )
-    .expect("copy glyb.cmake patch");
+    // The submodule's `liveplot-ffi` branch carries the glyb patch
+    // (vendored zlib/libpng/freetype/harfbuzz) and the ffi component.
 
     // Configure once (CMakeCache presence = configured).
     if !build_dir.join("CMakeCache.txt").exists() {
@@ -107,9 +102,7 @@ fn main() {
         build_dir.to_str().unwrap().to_string(),
         "-j4".to_string(),
         "--target".to_string(),
-        "volcano_render_static".to_string(),
-        "--target".to_string(),
-        "volcano_backend_static".to_string(),
+        "volcano_ffi_static".to_string(),
     ];
     if windows {
         build.push("--config".to_string());
@@ -120,26 +113,6 @@ fn main() {
         .status()
         .expect("cmake build failed to start");
     assert!(status.success(), "cmake build failed");
-
-    // Compile the FFI shim (stock upstream knows nothing about it).
-    let mut cc = cc::Build::new();
-    cc.cpp(true)
-        .std("c++23")
-        .file(manifest.join("vendor/volcano-ffi/volcano_ffi.cpp"))
-        .include(volcano.join("include"))
-        .include(manifest.join("vendor/volcano-ffi"))
-        .include(manifest.join("vendor/Vulkan-Headers/include"))
-        .include(&vk_include)
-        .include(vk_include.join("vma"))
-        .define("VULKAN_HPP_DISPATCH_LOADER_DYNAMIC", "1");
-    if !windows {
-        cc.flag("-fPIC").flag("-w"); // upstream headers warn under -Wall
-    }
-    cc.compile("volcano_ffi");
-    println!(
-        "cargo:rustc-link-search=native={}",
-        std::env::var("OUT_DIR").unwrap()
-    );
 
     // Link search paths — MSVC puts libs under <dir>/Release.
     let mut search = vec![
@@ -173,7 +146,7 @@ fn main() {
     // Link: left-to-right resolution order. Third-party artifact names
     // differ per generator — pick whichever exists.
     let mut libs = vec![
-        "volcano_ffi".to_string(),
+        "volcano_ffi_static".to_string(),
         "volcano_render_static".to_string(),
         "volcano_backend_static".to_string(),
         "volcano_encode_static".to_string(),
@@ -226,8 +199,8 @@ fn main() {
         }
     }
 
-    println!("cargo:rerun-if-changed=vendor/volcano-ffi");
-    println!("cargo:rerun-if-changed=vendor/volcano-patches");
+    println!("cargo:rerun-if-changed=vendor/VolcanoPlot/src/ffi");
+    println!("cargo:rerun-if-changed=vendor/VolcanoPlot/include/volcano/ffi");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_VOLCANO");
     println!("cargo:rerun-if-env-changed=VULKAN_SDK");
 }

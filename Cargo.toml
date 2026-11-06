@@ -78,7 +78,6 @@ egui_material_icons = "0.9"
 once_cell = "1.21.3"
 
 [build-dependencies]
-cc = "1"
 tonic-prost-build = "0.14"
 
 ## note: this repository uses `examples/embedded_tiles.rs` as the tiles example
