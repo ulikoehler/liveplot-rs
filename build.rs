@@ -68,8 +68,10 @@ fn main() {
     // The submodule's `liveplot-ffi` branch carries the glyb patch
     // (vendored zlib/libpng/freetype/harfbuzz) and the ffi component.
 
-    // Configure once (CMakeCache presence = configured).
-    if !build_dir.join("CMakeCache.txt").exists() {
+    // Always configure — cheap after first run, and required whenever
+    // the submodule advances (a stale cache yields "no rule to make
+    // volcano_ffi_static").
+    {
         let mut args = vec![
             "-B".to_string(),
             build_dir.to_str().unwrap().to_string(),
