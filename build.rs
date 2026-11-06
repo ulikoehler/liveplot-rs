@@ -209,6 +209,23 @@ fn main() {
                 println!("cargo:rustc-link-arg={rt}");
             }
         }
+        // webp/jpeg encoders are compiled into volcano_encode only when
+        // the libs were found at configure time — link them iff present.
+        for (lib, names) in [
+            ("webp", &["libwebp.so", "libwebp.so.7"][..]),
+            ("jpeg", &["libjpeg.so", "libjpeg.so.8", "libjpeg.so.62"][..]),
+        ] {
+            for dir in ["/usr/lib/x86_64-linux-gnu", "/usr/lib", "/usr/local/lib"] {
+                if let Some(n) = names.iter().find(|n| Path::new(dir).join(n).exists()) {
+                    if n.ends_with(".so") {
+                        println!("cargo:rustc-link-lib=dylib={lib}");
+                    } else {
+                        println!("cargo:rustc-link-arg={dir}/{n}");
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     println!("cargo:rerun-if-changed=vendor/VolcanoPlot/src/ffi");
