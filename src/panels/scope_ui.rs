@@ -1096,6 +1096,7 @@ impl ScopePanel {
             && y0.is_finite() && y1.is_finite() && y1 > y0
         {
             surf.bounds = ([x0, x1], [y0, y1]);
+            surf.bounds_external = true;
         }
         let ok = surf.sync_and_render(
             ui.ctx(),

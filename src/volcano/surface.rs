@@ -87,6 +87,10 @@ pub struct VolcanoSurface {
     /// Current data-space viewport (x, y) — written back from the
     /// plot transform by the caller after each frame.
     pub bounds: ([f64; 2], [f64; 2]),
+    /// True when the caller owns `bounds` — fit_bounds defers to it
+    /// (without this the first-frame fit clobbered the real viewport,
+    /// which is what made early frames render the full data range).
+    pub bounds_external: bool,
     initialized: bool,
 }
 
@@ -106,6 +110,7 @@ impl VolcanoSurface {
             last_sig: 0,
             pending: None,
             bounds: ([0.0, 1.0], [0.0, 1.0]),
+            bounds_external: false,
             initialized: false,
         }
     }
