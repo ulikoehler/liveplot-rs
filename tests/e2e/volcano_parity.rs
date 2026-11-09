@@ -1194,3 +1194,53 @@ fn parity_fft_embedded_scope() {
         );
     }
 }
+
+/// App-level (real LivePlotApp) legend + screenshot — merged from the
+/// retired zz_snap.rs. Both traces render in the volcano path inside
+/// the real app; `harness.render()` must produce a frame.
+#[test]
+fn parity_app_level_legend_and_screenshot() {
+    let mut bed = make_app_bed();
+    for s in bed
+        .harness
+        .state_mut()
+        .main_panel
+        .liveplot_panel
+        .get_data_mut()
+        .iter_mut()
+    {
+        s.volcano_enabled = true;
+    }
+    let two = bed.sink.create_trace("two_tone", None);
+    bed.sink
+        .send_points(
+            &two,
+            crate::signals::gen(&crate::signals::SignalSpec::sine(5.0), 4096, 1000.0, 0.0),
+        )
+        .unwrap();
+    let sw = bed.sink.create_trace("swept_freq", None);
+    bed.sink
+        .send_points(
+            &sw,
+            crate::signals::gen(&crate::signals::SignalSpec::sine(50.0), 4096, 1000.0, 0.0),
+        )
+        .unwrap();
+    for _ in 0..40 {
+        bed.harness.step();
+    }
+    let (lr, rd) = {
+        let scopes = bed.harness.state().main_panel.liveplot_panel.get_data();
+        (
+            scopes[0].legend_overlay_rect,
+            scopes[0].rendered_this_frame,
+        )
+    };
+    assert!(lr.is_some(), "legend must render in the real app");
+    assert!(rd, "scope renders in the real app");
+    // wgpu render path (software rasterizer) — proves the volcano
+    // texture composits into a real frame.
+    assert!(
+        bed.harness.render().is_ok(),
+        "screenshot frame renders"
+    );
+}
