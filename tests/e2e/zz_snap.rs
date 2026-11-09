@@ -1,35 +1,49 @@
 use crate::harness::*;
-use liveplot::panels::fft_ui::FftPanel;
-use liveplot::Panel;
+use crate::signals::SignalSpec;
 
-/// Mirrors `fft_demo`: two traces + FFT panel visible. Screenshot
-/// both volcano and egui paths to check the legend visually.
-fn fft_demo_bed(volcano: bool) -> TestBed {
-    let mut bed = make_test_bed();
-    feed_sine(&bed, "two_tone", 4096, 5.0, 1000.0, 0.0);
-    feed_sine(&bed, "swept_freq", 4096, 50.0, 1000.0, 0.0);
-    {
-        let fp = find_panel_mut::<FftPanel>(&mut bed).expect("FftPanel");
-        fp.state_mut().visible = true;
-        fp.scope_ui.get_data_mut().volcano_enabled = volcano;
-    }
-    for s in scopes(&bed).iter() {
-        let _ = s;
-    }
-    scope_mut(&mut bed, 0).volcano_enabled = volcano;
-    steps(&mut bed, 40);
-    bed
-}
-
+/// Real LivePlotApp (what `run_liveplot` uses) mirroring fft_demo:
+/// two traces + FFT panel, volcano on. Screenshot + legend check.
 #[test]
-fn fft_demo_screenshot() {
-    for (vol, name) in [(false, "egui"), (true, "volcano")] {
-        let mut bed = fft_demo_bed(vol);
-        let s = scope(&bed, 0);
-        eprintln!("[{name}] legend_rect={:?} traces={:?} rendered={}",
-                  s.legend_overlay_rect, s.trace_order.len(), s.rendered_this_frame);
-        if let Ok(img) = bed.harness.render() {
-            img.save(format!("/tmp/fft_demo_{name}.png")).ok();
-        }
+fn real_app_volcano_legend() {
+    let mut bed = make_app_bed();
+    for s in bed
+        .harness
+        .state_mut()
+        .main_panel
+        .liveplot_panel
+        .get_data_mut()
+        .iter_mut()
+    {
+        s.volcano_enabled = true;
     }
+    // fft_demo feeds two_tone + swept_freq.
+    let two = bed.sink.create_trace("two_tone", None);
+    bed.sink
+        .send_points(&two, crate::signals::gen(&SignalSpec::sine(5.0), 4096, 1000.0, 0.0))
+        .unwrap();
+    let sw = bed.sink.create_trace("swept_freq", None);
+    bed.sink
+        .send_points(&sw, crate::signals::gen(&SignalSpec::sine(50.0), 4096, 1000.0, 0.0))
+        .unwrap();
+    for _ in 0..40 {
+        bed.harness.step();
+    }
+    let (lr, tr, rd) = {
+        let scopes = bed
+            .harness
+            .state()
+            .main_panel
+            .liveplot_panel
+            .get_data();
+        (
+            scopes[0].legend_overlay_rect,
+            scopes[0].trace_order.len(),
+            scopes[0].rendered_this_frame,
+        )
+    };
+    eprintln!("app-level: legend_rect={lr:?} traces={tr} rendered={rd}");
+    if let Ok(img) = bed.harness.render() {
+        img.save("/tmp/real_app_volcano.png").ok();
+    }
+    assert!(lr.is_some(), "legend must render in the real app");
 }
