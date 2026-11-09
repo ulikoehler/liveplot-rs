@@ -1099,6 +1099,27 @@ Call `self.handle_trace_drop(ui, &resp)` at the end of
 - `zz_snap.rs` content merges into `volcano_parity.rs` named tests;
   file deleted at phase end.
 
+### W-21 — Edge-to-edge data area parity (found by T-PIX-001)
+
+`parity_trace_pixel_centroid` proved the volcano trace sits ~17px
+higher than egui's: egui_plot maps data to the FULL widget rect and
+paints tick labels INSIDE its edges, while VolcanoPlot insets the
+axes by mpl-style margins (60/12/56/8 px) holding its own labels.
+
+Options to close it:
+
+- A (exact, larger): margins→0 so VP axes = widget rect; draw tick
+  labels + axis labels on the egui overlay at egui's positions
+  (reuse `x_axis_formatter`/`y_axis_formatter` + grid_spacer). Grid
+  lines still come from VP inside the identical data area.
+- B (approximate): compute the margin table per-frame from egui's
+  expected label metrics (`y` label width + ~12px, x label height
+  + ~12px) so axes rects match within a few px; VP keeps drawing
+  its own labels in the margin space.
+- Current state: option B not implemented — margins fixed at
+  60/12/56/8 (52/10/34/6 when h<160); the centroid test asserts the
+  residual model difference (x tight, y ≤40px).
+
 ### W-20 — Docs
 
 - Update `docs/volcano-integration.md` (margin contract, user_bounds
