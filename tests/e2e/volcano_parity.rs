@@ -1300,3 +1300,74 @@ fn parity_dark_light_background() {
         }
     }
 }
+
+/// T-PIX-001: the trace's colored-pixel CENTROID inside the axes rect
+/// must match between arms — proves the curve lands at the same
+/// screen position (viewport + margin alignment), not just "some
+/// pixels drawn". Counts needn't match — the two renderers
+/// anti-alias/width differently.
+#[test]
+fn parity_trace_pixel_centroid() {
+    let mut outs = Vec::new();
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.volcano_enabled = vol;
+            // Pause → deterministic snapshot; the async volcano worker
+            // otherwise sees a different sine phase than egui's
+            // synchronous render (legitimate lag, not a bug).
+            s.paused = true;
+        }
+        steps(&mut bed, 12);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let ax = axes_rect(&bed, 0);
+        let Ok(img) = bed.harness.render() else {
+            eprintln!("no wgpu frame — skipping pixel test");
+            return;
+        };
+        let (x0, y0) = (ax.left().max(0.0) as u32 + 2, ax.top().max(0.0) as u32 + 2);
+        let (x1, y1) = (
+            (ax.right() as u32).min(img.width().saturating_sub(2)),
+            (ax.bottom() as u32).min(img.height().saturating_sub(2)),
+        );
+        let (mut n, mut sx, mut sy) = (0u64, 0u64, 0u64);
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let p = img.get_pixel(x, y).0;
+                let mx = *p.iter().max().unwrap() as i32;
+                let mn = *p.iter().min().unwrap() as i32;
+                if mx - mn > 30 {
+                    n += 1;
+                    sx += x as u64;
+                    sy += y as u64;
+                }
+            }
+        }
+        assert!(n > 100, "trace pixels present (vol={vol}), got {n}");
+        outs.push((n, sx as f64 / n as f64, sy as f64 / n as f64));
+    }
+    if outs.len() == 2 {
+        let ((n0, cx0, cy0), (n1, cx1, cy1)) = (outs[0], outs[1]);
+        // x centroid must align tightly — margins are symmetric L/R
+        // on both paths. y carries the KNOWN margin-model difference:
+        // egui maps data to the full widget rect (labels inside),
+        // volcano insets it by the mpl margins (W-21 tracks exact
+        // edge-to-edge parity) — allow the margin-order tolerance.
+        assert!(
+            (cx1 - cx0).abs() < 12.0,
+            "x centroid aligns: egui={cx0:.1} vol={cx1:.1}"
+        );
+        assert!(
+            (cy1 - cy0).abs() < 40.0,
+            "y centroid within margin model: egui={cy0:.1} vol={cy1:.1}"
+        );
+        assert!(
+            (n1 as f64 - n0 as f64).abs() < n0 as f64 * 0.6,
+            "pixel counts similar: {n0} vs {n1}"
+        );
+    }
+}
