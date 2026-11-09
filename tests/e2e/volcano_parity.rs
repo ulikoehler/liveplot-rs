@@ -1371,3 +1371,35 @@ fn parity_trace_pixel_centroid() {
         );
     }
 }
+
+/// T-PAUSE-005: pausing must freeze the RENDERED data (snapshot), not
+/// just the autoscroll — new points arriving while paused must not
+/// shift what the volcano path uploads (reported bug: "stop only
+/// stops autoscroll, doesn't keep the data").
+#[test]
+fn parity_pause_keeps_rendered_snapshot() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        steps(&mut bed, 15);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        scope_mut(&mut bed, 0).paused = true;
+        steps(&mut bed, 10);
+        let (xb0, yb0) = view_bounds(&bed, 0);
+        // Feed MORE data while paused — the drawn data must not move.
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 100.0);
+        steps(&mut bed, 10);
+        let (xb1, yb1) = view_bounds(&bed, 0);
+        let tol = (xb0[1] - xb0[0]).abs().max(1e-9) * 0.05;
+        assert!(
+            (xb1[0] - xb0[0]).abs() < tol && (xb1[1] - xb0[1]).abs() < tol
+                && (yb1[0] - yb0[0]).abs() < tol && (yb1[1] - yb0[1]).abs() < tol,
+            "paused view frozen despite new data (vol={vol}): {xb0:?}->{xb1:?}"
+        );
+        // And the scope is still rendering the snapshot, not blank.
+        assert!(scope(&bed, 0).rendered_this_frame, "renders (vol={vol})");
+    }
+}
