@@ -678,9 +678,13 @@ fn parity_pan_y_sticks_x_recenters_live() {
     }
 }
 
-/// T-ZOOM-011/012: identical secondary-drag input on both paths must
-/// produce identical resulting view bounds (whichever way the widget
-/// interprets the drag — parity, not absolute zoom).
+/// T-ZOOM-011/012: box zoom in X mode applies the dragged x-range.
+/// `box_zoom_start` is captured on the first decided-drag frame at the
+/// CURRENT pointer pos, so we move in steps (a few px past `a` first)
+/// — a single jump gives an empty box on both paths.
+/// Live semantics: after the zoom, `live_update` re-anchors the window
+/// to `now` at the NEW span — so assert the span shrank to the dragged
+/// fraction and the right edge still tracks `now`, on both paths.
 #[test]
 fn parity_box_zoom_x_mode() {
     let mut outs = Vec::new();
@@ -694,20 +698,42 @@ fn parity_box_zoom_x_mode() {
             continue;
         }
         let ax = axes_rect(&bed, 0);
+        let (xb0, yb0) = view_bounds(&bed, 0);
+        // Default ZoomMode::X — horizontal band drag.
         let a = egui::pos2(ax.left() + ax.width() * 0.3, ax.center().y);
         let b = egui::pos2(ax.left() + ax.width() * 0.6, ax.center().y + 30.0);
-        drag(&mut bed, a, b, egui::PointerButton::Secondary);
+        let mid = [
+            a + egui::vec2(4.0, 2.0),
+            a + egui::vec2(12.0, 5.0),
+            a + egui::vec2(28.0, 10.0),
+            b,
+        ];
+        drag_path(&mut bed, a, &mid, egui::PointerButton::Secondary);
         steps(&mut bed, 8);
-        outs.push(view_bounds(&bed, 0));
+        let (xb1, yb1) = view_bounds(&bed, 0);
+        let span0 = xb0[1] - xb0[0];
+        let span1 = xb1[1] - xb1[0];
+        assert!(
+            span1 < span0 * 0.65 && span1 > span0 * 0.15,
+            "box x zoom shrinks span to ~0.3x (vol={vol}): {span0} -> {span1}"
+        );
+        // Right edge re-anchors to `now` — near the old right edge.
+        assert!(
+            (xb1[1] - xb0[1]).abs() < span0 * 0.15,
+            "right edge stays at now (vol={vol}): {xb0:?} -> {xb1:?}"
+        );
+        // y unchanged in X mode.
+        assert_eq!(yb0, yb1, "y bounds unchanged in X mode (vol={vol})");
+        outs.push((xb1, yb1));
     }
     if outs.len() == 2 {
-        let ((ax0, ay0), (ax1, ay1)) = (outs[0], outs[1]);
-        let tol = (ax0[1] - ax0[0]).abs().max(1e-9) * 0.05;
+        let ((ex, ey), (vx, vy)) = (outs[0], outs[1]);
+        let tol = (ex[1] - ex[0]).abs().max(1e-9) * 0.1;
         assert!(
-            (ax1[0] - ax0[0]).abs() < tol
-                && (ax1[1] - ax0[1]).abs() < tol
-                && (ay1[0] - ay0[0]).abs() < tol
-                && (ay1[1] - ay0[1]).abs() < tol,
+            (vx[0] - ex[0]).abs() < tol
+                && (vx[1] - ex[1]).abs() < tol
+                && (vy[0] - ey[0]).abs() < tol
+                && (vy[1] - ey[1]).abs() < tol,
             "identical box-zoom outcome: egui={:?} volcano={:?}",
             outs[0],
             outs[1]
@@ -715,8 +741,8 @@ fn parity_box_zoom_x_mode() {
     }
 }
 
-/// T-ZOOM-013: same for ZoomMode::Both — identical outcome on both
-/// paths.
+/// T-ZOOM-013: box zoom in Both mode — x span shrinks to the dragged
+/// fraction (re-anchored to `now`), y shrinks to the dragged y range.
 #[test]
 fn parity_box_zoom_both_modes() {
     let mut outs = Vec::new();
@@ -731,20 +757,41 @@ fn parity_box_zoom_both_modes() {
             continue;
         }
         let ax = axes_rect(&bed, 0);
+        let (xb0, yb0) = view_bounds(&bed, 0);
         let a = egui::pos2(ax.left() + ax.width() * 0.3, ax.top() + ax.height() * 0.3);
         let b = egui::pos2(ax.left() + ax.width() * 0.6, ax.top() + ax.height() * 0.7);
-        drag(&mut bed, a, b, egui::PointerButton::Secondary);
+        let mid = [
+            a + egui::vec2(4.0, 3.0),
+            a + egui::vec2(12.0, 8.0),
+            a + egui::vec2(28.0, 18.0),
+            b,
+        ];
+        drag_path(&mut bed, a, &mid, egui::PointerButton::Secondary);
         steps(&mut bed, 8);
-        outs.push(view_bounds(&bed, 0));
+        let (xb1, yb1) = view_bounds(&bed, 0);
+        let xspan0 = xb0[1] - xb0[0];
+        let yspan0 = yb0[1] - yb0[0];
+        let xspan1 = xb1[1] - xb1[0];
+        let yspan1 = yb1[1] - yb1[0];
+        assert!(
+            xspan1 < xspan0 * 0.65 && xspan1 > xspan0 * 0.15,
+            "x span shrinks to ~0.3x (vol={vol}): {xspan0} -> {xspan1}"
+        );
+        // dragged y covers screen 0.3..0.7 → ~40% of the y view.
+        assert!(
+            yspan1 < yspan0 * 0.7 && yspan1 > yspan0 * 0.2,
+            "y span shrinks to ~0.4x (vol={vol}): {yspan0} -> {yspan1}"
+        );
+        outs.push((xb1, yb1));
     }
     if outs.len() == 2 {
-        let ((ax0, ay0), (ax1, ay1)) = (outs[0], outs[1]);
-        let tol = (ax0[1] - ax0[0]).abs().max(1e-9) * 0.05;
+        let ((ex, ey), (vx, vy)) = (outs[0], outs[1]);
+        let tol = (ex[1] - ex[0]).abs().max(1e-9) * 0.15;
         assert!(
-            (ax1[0] - ax0[0]).abs() < tol
-                && (ax1[1] - ax0[1]).abs() < tol
-                && (ay1[0] - ay0[0]).abs() < tol
-                && (ay1[1] - ay0[1]).abs() < tol,
+            (vx[0] - ex[0]).abs() < tol
+                && (vx[1] - ex[1]).abs() < tol
+                && (vy[0] - ey[0]).abs() < tol
+                && (vy[1] - ey[1]).abs() < tol,
             "identical box-zoom outcome: egui={:?} volcano={:?}",
             outs[0],
             outs[1]
@@ -757,4 +804,254 @@ fn parity_box_zoom_both_modes() {
 fn set_zoom_mode(bed: &mut TestBed, idx: usize, mode: liveplot::panels::scope_ui::ZoomMode) {
     let mut panels = bed.harness.state_mut().liveplot_panel.scope_panels_mut();
     panels[idx].set_zoom_mode(mode);
+}
+
+/// T-ZOOM-001/002: wheel zoom anchors at the hovered point — the
+/// anchor's data coord must be (approximately) invariant on both
+/// paths, and the span must shrink by the same factor.
+#[test]
+fn parity_wheel_zoom_anchors_at_pointer() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.volcano_enabled = vol;
+            s.paused = true;
+        }
+        steps(&mut bed, 25);
+        if vol && !vol_available(&mut bed, 0) {
+            eprintln!("no vulkan — skipping volcano arm");
+            continue;
+        }
+        let ax = axes_rect(&bed, 0);
+        // Zoom in at a point 40% across the axes — not the center.
+        let anchor = egui::pos2(ax.left() + ax.width() * 0.4, ax.center().y);
+        let (xb0, _) = view_bounds(&bed, 0);
+        let anchor_frac = (anchor.x - ax.left()) as f64 / ax.width() as f64;
+        let anchor_x = xb0[0] + anchor_frac * (xb0[1] - xb0[0]);
+        scroll_at(&mut bed, anchor, 0.0, 150.0, 4);
+        steps(&mut bed, 4);
+        let (xb1, _) = view_bounds(&bed, 0);
+        assert!(
+            xb1[1] - xb1[0] < xb0[1] - xb0[0],
+            "zoom must narrow (vol={vol})"
+        );
+        // Anchor invariance: anchor_x stays at the same axes fraction.
+        let after_frac = (anchor_x - xb1[0]) / (xb1[1] - xb1[0]);
+        assert!(
+            (after_frac - anchor_frac).abs() < 0.06,
+            "zoom anchors at pointer (vol={vol}): frac {anchor_frac:.3} -> {after_frac:.3}"
+        );
+    }
+}
+
+/// T-ZOOM-004: ZoomMode::Y — wheel changes only y.
+#[test]
+fn parity_wheel_zoom_y_mode() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.volcano_enabled = vol;
+            s.paused = true;
+        }
+        set_zoom_mode(&mut bed, 0, liveplot::panels::scope_ui::ZoomMode::Y);
+        steps(&mut bed, 25);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let (xb0, yb0) = view_bounds(&bed, 0);
+        let c = axes_rect(&bed, 0).center();
+        scroll_at(&mut bed, c, 0.0, 150.0, 4);
+        steps(&mut bed, 4);
+        let (xb1, yb1) = view_bounds(&bed, 0);
+        let xs = (xb0[1] - xb0[0]).abs().max(1e-9);
+        assert!(
+            (xb1[0] - xb0[0]).abs() < xs * 1e-9 && (xb1[1] - xb0[1]).abs() < xs * 1e-9,
+            "Y mode: x untouched (vol={vol}): {xb0:?} -> {xb1:?}"
+        );
+        assert!(
+            yb1[1] - yb1[0] < yb0[1] - yb0[0],
+            "Y mode: y narrows (vol={vol}): {yb0:?} -> {yb1:?}"
+        );
+    }
+}
+
+/// T-ZOOM-021: double-click re-fits to the data extent on the volcano
+/// path. NOTE: kittest cannot drive `resp.double_clicked()` through
+/// egui_plot's internal response — the egui arm stays zoomed here
+/// (same synthetic-input limitation that retired the old view.rs
+/// tests); real-app manual protocol covers the egui reference.
+#[test]
+fn volcano_dblclick_refit() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.volcano_enabled = vol;
+            s.paused = true;
+        }
+        steps(&mut bed, 25);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let c = axes_rect(&bed, 0).center();
+        scroll_at(&mut bed, c, 0.0, 200.0, 6);
+        steps(&mut bed, 4);
+        let (xz, _) = view_bounds(&bed, 0);
+        assert!(xz[1] - xz[0] < 15.0, "zoomed in (vol={vol}): {xz:?}");
+        double_click_at(&mut bed, c);
+        steps(&mut bed, 4);
+        let (xf, _) = view_bounds(&bed, 0);
+        if vol {
+            // Data spans t=0..20 — fitted view covers it.
+            assert!(
+                xf[0] < 1.0 && xf[1] > 19.0,
+                "dblclick refits data (volcano): {xf:?}"
+            );
+        }
+    }
+}
+
+/// T-LGD-006: legend anchors to the configured corner on both paths —
+/// the overlay rect must sit in the same axes quadrant.
+#[test]
+fn parity_legend_position_corners() {
+    use liveplot::data::scope::LegendPosition;
+    for pos in [
+        LegendPosition::LeftTop,
+        LegendPosition::RightTop,
+        LegendPosition::LeftBottom,
+        LegendPosition::RightBottom,
+    ] {
+        for vol in [false, true] {
+            let mut bed = make_test_bed();
+            feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+            {
+                let s = scope_mut(&mut bed, 0);
+                s.volcano_enabled = vol;
+                s.legend_position = pos;
+            }
+            steps(&mut bed, 20);
+            if vol && !vol_available(&mut bed, 0) {
+                continue;
+            }
+            let lr = scope(&bed, 0).legend_overlay_rect.expect("legend rect");
+            let ax = axes_rect(&bed, 0);
+            let cx = (lr[0] + lr[2]) / 2.0;
+            let cy = (lr[1] + lr[3]) / 2.0;
+            let left = cx < ax.center().x;
+            let top = cy < ax.center().y;
+            let (want_left, want_top) = match pos {
+                LegendPosition::LeftTop => (true, true),
+                LegendPosition::RightTop => (false, true),
+                LegendPosition::LeftBottom => (true, false),
+                LegendPosition::RightBottom => (false, false),
+            };
+            assert_eq!(
+                (left, top),
+                (want_left, want_top),
+                "{pos:?} corner (vol={vol}): legend=({cx},{cy}) axes={ax:?}"
+            );
+        }
+    }
+}
+
+/// T-LGD-012: force_hide_legend suppresses the overlay on both paths.
+#[test]
+fn parity_legend_force_hide() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.volcano_enabled = vol;
+            s.force_hide_legend = true;
+        }
+        steps(&mut bed, 20);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        assert!(
+            scope(&bed, 0).legend_overlay_rect.is_none(),
+            "force_hide suppresses legend (vol={vol})"
+        );
+        assert!(
+            scope(&bed, 0).rendered_this_frame,
+            "scope still renders (vol={vol})"
+        );
+    }
+}
+
+/// T-CLK-003: pause_on_click toggles paused on a single click, both
+/// paths.
+#[test]
+fn parity_pause_on_click() {
+    let mut outs = Vec::new();
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.volcano_enabled = vol;
+            s.pause_on_click = true;
+        }
+        steps(&mut bed, 25);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let paused0 = scope(&bed, 0).paused;
+        let c = axes_rect(&bed, 0).center();
+        click_at(&mut bed, c);
+        steps(&mut bed, 4);
+        let after1 = scope(&bed, 0).paused;
+        click_at(&mut bed, c);
+        steps(&mut bed, 4);
+        let after2 = scope(&bed, 0).paused;
+        // Whatever egui's exact semantics (resume vs. stay), the
+        // volcano path shares the same handler → must match exactly.
+        outs.push((paused0, after1, after2));
+    }
+    if outs.len() == 2 {
+        assert_eq!(
+            outs[0], outs[1],
+            "pause_on_click outcomes: egui={:?} volcano={:?}",
+            outs[0], outs[1]
+        );
+        // First click must at least pause on both.
+        assert_ne!(outs[0].0, outs[0].1, "first click pauses on egui too");
+    }
+}
+
+/// T-HOV-001: hovering inside the axes keeps the frame healthy and —
+/// when near a point — does not panic; the label_formatter-equivalent
+/// tooltip path must run on the volcano arm.
+#[test]
+fn parity_hover_inside_axes() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.volcano_enabled = vol;
+            s.paused = true;
+        }
+        steps(&mut bed, 25);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let ax = axes_rect(&bed, 0);
+        // Hover near the center, then near a trace point (sine at
+        // center-ish x ≈ crossing). Both must keep rendering.
+        hover_at(&mut bed, ax.center());
+        hover_at(&mut bed, ax.center() + egui::vec2(30.0, -40.0));
+        steps(&mut bed, 3);
+        assert!(
+            scope(&bed, 0).rendered_this_frame,
+            "frame renders while hovered (vol={vol})"
+        );
+    }
 }

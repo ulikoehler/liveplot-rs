@@ -251,9 +251,26 @@ pub fn scroll_at(bed: &mut TestBed, pos: egui::Pos2, dx: f32, dy: f32, n: usize)
 }
 
 /// Two click cycles at `pos` — registers as a double-click.
+/// All four events go in ONE input batch so egui's multi-click timer
+/// sees them back-to-back (separate steps are too slow).
 pub fn double_click_at(bed: &mut TestBed, pos: egui::Pos2) {
-    click_at(bed, pos);
-    click_at(bed, pos);
+    use egui::Event;
+    let ev = |pressed| Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    for e in [
+        Event::PointerMoved(pos),
+        ev(true),
+        ev(false),
+        ev(true),
+        ev(false),
+    ] {
+        bed.harness.input_mut().events.push(e);
+    }
+    bed.harness.step();
 }
 
 /// Multi-segment drag: press at `from`, move through `path`, release.

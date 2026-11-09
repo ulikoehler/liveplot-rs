@@ -1274,27 +1274,32 @@ impl ScopePanel {
                 ));
             }
             if resp.drag_stopped_by(egui::PointerButton::Secondary) {
-                let (lo, hi) = (to_view(view, a.min(b)), to_view(view, a.max(b)));
+                // Min/max in DATA space per axis — screen-y is inverted,
+                // so `a.min(b)`/`a.max(b)` in screen space would flip y.
+                let p0 = to_view(view, a);
+                let p1 = to_view(view, b);
+                let (lox, hix) = (p0[0].min(p1[0]), p0[0].max(p1[0]));
+                let (loy, hiy) = (p0[1].min(p1[1]), p0[1].max(p1[1]));
                 match self.zoom_mode {
                     ZoomMode::X => {
-                        if (hi[0] - lo[0]).abs() > 1e-12 {
-                            view.0 = [lo[0], hi[0]];
+                        if hix - lox > 1e-12 {
+                            view.0 = [lox, hix];
                             changed_x = true;
                         }
                     }
                     ZoomMode::Y => {
-                        if (hi[1] - lo[1]).abs() > 1e-12 {
-                            view.1 = [lo[1], hi[1]];
+                        if hiy - loy > 1e-12 {
+                            view.1 = [loy, hiy];
                             changed_y = true;
                         }
                     }
                     ZoomMode::Both => {
-                        if (hi[0] - lo[0]).abs() > 1e-12 {
-                            view.0 = [lo[0], hi[0]];
+                        if hix - lox > 1e-12 {
+                            view.0 = [lox, hix];
                             changed_x = true;
                         }
-                        if (hi[1] - lo[1]).abs() > 1e-12 {
-                            view.1 = [lo[1], hi[1]];
+                        if hiy - loy > 1e-12 {
+                            view.1 = [loy, hiy];
                             changed_y = true;
                         }
                     }
@@ -1557,6 +1562,38 @@ impl ScopePanel {
         // via the shared handler (fit-on-double-click, clicked_point,
         // pause-on-click, measurement capture, CLICK/PAUSE events).
         self.handle_plot_click(&resp, &vpb_transform, traces);
+
+        // Hover coordinate tooltip — mirrors egui_plot's
+        // label_formatter: nearest visible data point within ~10pt
+        // shows its label + coords; elsewhere just the hovered coords.
+        if resp.hovered() {
+            if let Some(pos) = hover_pos {
+                let near = volcano_nearest_point(view, axes, pos, &self.data, traces);
+                let ([px, py], name) = near
+                    .map(|(p, n)| (p, n))
+                    .unwrap_or((to_view(view, pos), String::new()));
+                let x = if self.data.x_axis.log_scale {
+                    10f64.powf(px)
+                } else {
+                    px
+                };
+                let y = if self.data.y_axis.log_scale {
+                    10f64.powf(py)
+                } else {
+                    py
+                };
+                let x_str = self.data.x_axis.format_value(x, None);
+                let y_str = self.data.y_axis.format_value(y, None);
+                let text = if name.is_empty() {
+                    format!("x = {x_str}\ny = {y_str}")
+                } else {
+                    format!("{name}\nx = {x_str}\ny = {y_str}")
+                };
+                resp.show_tooltip_ui(|ui| {
+                    ui.label(text);
+                });
+            }
+        }
 
         // Drag-and-drop of traces from the traces panel — same as egui.
         self.handle_trace_drop(ui, &resp);
@@ -2773,4 +2810,89 @@ fn xy_pair_legend_label(
     } else {
         format!("{} vs {}", y_label, x_label)
     }
+}
+
+/// Nearest visible data point within ~10pt of `pos` (screen px) —
+/// the volcano equivalent of egui_plot's `HoverPosition::NearDataPoint`.
+/// Returns the point's VIEW-space (post-log) coords + its legend label.
+#[cfg(feature = "volcano")]
+fn volcano_nearest_point(
+    view: ([f64; 2], [f64; 2]),
+    axes: egui::Rect,
+    pos: egui::Pos2,
+    data: &ScopeData,
+    traces: &TracesCollection,
+) -> Option<([f64; 2], String)> {
+    const MAX_D2: f32 = 10.0 * 10.0;
+    let (x_log, y_log) = (data.x_axis.log_scale, data.y_axis.log_scale);
+    let to_screen = |v: [f64; 2]| -> egui::Pos2 {
+        egui::pos2(
+            axes.left() + ((v[0] - view.0[0]) / (view.0[1] - view.0[0])) as f32 * axes.width(),
+            axes.bottom() - ((v[1] - view.1[0]) / (view.1[1] - view.1[0])) as f32 * axes.height(),
+        )
+    };
+    let mut best: Option<(f32, [f64; 2], String)> = None;
+    // Offset is folded in first (same order as the draw path), then
+    // log — matching what the series actually renders at.
+    macro_rules! consider {
+        ($plin:expr, $label:expr) => {{
+            let lx = if x_log && $plin[0] > 0.0 {
+                $plin[0].log10()
+            } else {
+                $plin[0]
+            };
+            let ly = if y_log && $plin[1] > 0.0 {
+                $plin[1].log10()
+            } else {
+                $plin[1]
+            };
+            if lx.is_finite() && ly.is_finite() {
+                let d2 = to_screen([lx, ly]).distance_sq(pos);
+                if d2 < MAX_D2 && best.as_ref().map_or(true, |(d, _, _)| d2 < *d) {
+                    best = Some((d2, [lx, ly], $label.clone()));
+                }
+            }
+        }};
+    }
+    if data.scope_type == ScopeType::XYScope && !data.xy_pairs.is_empty() {
+        const TOL: f64 = 1e-9;
+        for (xn, yn, pl) in data.xy_pairs.iter() {
+            let (Some(xn), Some(yn)) = (xn, yn) else {
+                continue;
+            };
+            let (Some(xt), Some(yt)) = (traces.get_trace(xn), traces.get_trace(yn)) else {
+                continue;
+            };
+            if !pl.visible || !xt.look.visible || !yt.look.visible {
+                continue;
+            }
+            let (Some(xs), Some(ys)) = (
+                traces.get_points_ref(xn, data.paused),
+                traces.get_points_ref(yn, data.paused),
+            ) else {
+                continue;
+            };
+            let label = xy_pair_legend_label(data.show_info_in_legend, traces, xn, yn, &yt.info);
+            for p in TracesCollection::join_xy_points(xs, ys, TOL) {
+                consider!([p[0] + xt.offset, p[1] + yt.offset], label);
+            }
+        }
+    } else {
+        for name in data.trace_order.iter() {
+            let Some(tr) = traces.get_trace(name) else {
+                continue;
+            };
+            if !tr.look.visible {
+                continue;
+            }
+            let Some(pts) = traces.get_points_ref(name, data.paused) else {
+                continue;
+            };
+            let label = trace_legend_label(data.show_info_in_legend, traces, name, &tr.info);
+            for p in pts.iter() {
+                consider!([p[0], p[1] + tr.offset], label);
+            }
+        }
+    }
+    best.map(|(_, p, n)| (p, n))
 }

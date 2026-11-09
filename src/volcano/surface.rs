@@ -24,6 +24,8 @@ fn style_bits(look: &TraceLook) -> u32 {
         _ => 0,
     };
     s | ((look.show_points as u32) << 8)
+        | ((look.marker as u32) << 12)
+        | (look.point_size.to_bits() & 0xFFFF) << 16
 }
 
 /// Signature of everything that feeds one vp trace — data head/tail
@@ -62,8 +64,28 @@ fn vp_style(look: &TraceLook) -> VolcanoLineStyle {
     match look.style {
         LineStyle::Dashed { .. } => VolcanoLineStyle::Dashed,
         LineStyle::Dotted { .. } => VolcanoLineStyle::Dotted,
-        _ if look.show_points => VolcanoLineStyle::PointsOnly,
         _ => VolcanoLineStyle::Solid,
+    }
+}
+
+/// egui `MarkerShape` → `plot::MarkerStyle` ordinal; `MARKER_NONE`
+/// when `show_points` is off (egui draws points only on request too).
+fn vp_marker(look: &TraceLook) -> i32 {
+    use egui_plot::MarkerShape;
+    if !look.show_points {
+        return 40; // MarkerStyle::None
+    }
+    match look.marker {
+        MarkerShape::Circle => 1,
+        MarkerShape::Diamond => 3,
+        MarkerShape::Square => 2,
+        MarkerShape::Cross => 14, // 'x' (stroked)
+        MarkerShape::Plus => 13,  // '+' (stroked)
+        MarkerShape::Up => 5,     // '^'
+        MarkerShape::Down => 6,   // 'v'
+        MarkerShape::Left => 7,   // '<'
+        MarkerShape::Right => 8,  // '>'
+        MarkerShape::Asterisk => 17,
     }
 }
 
@@ -360,6 +382,7 @@ impl VolcanoSurface {
                 tr.look.width,
                 vp_style(&tr.look),
             );
+            fig.set_marker(id, vp_marker(&tr.look), tr.look.point_size);
             self.trace_sigs.insert(name.0.clone(), new_sig);
         }
         // XY-scope pairs: join x/y traces on timestamp within 1e-9 —
@@ -434,6 +457,7 @@ impl VolcanoSurface {
                     pair_look.width,
                     vp_style(pair_look),
                 );
+                fig.set_marker(id, vp_marker(pair_look), pair_look.point_size);
             }
         }
 

@@ -27,6 +27,7 @@ extern "C" {
         width: f32,
         style: i32,
     );
+    fn vp_trace_set_marker(fig: *mut VpFigure, id: u64, marker: i32, size: f32);
     fn vp_trace_remove(fig: *mut VpFigure, id: u64);
     fn vp_set_viewport(fig: *mut VpFigure, xmin: f64, xmax: f64, ymin: f64, ymax: f64);
     fn vp_set_axis_labels(
@@ -118,6 +119,12 @@ impl VolcanoFigure {
                 style as i32,
             )
         }
+    }
+
+    /// Marker glyph at each point — independent of the line style.
+    /// `marker` is a `plot::MarkerStyle` ordinal; `MARKER_NONE` = 40.
+    pub fn set_marker(&mut self, id: u64, marker: i32, size: f32) {
+        unsafe { vp_trace_set_marker(self.ptr, id, marker, size) }
     }
 
     pub fn remove_trace(&mut self, id: u64) {
