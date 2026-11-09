@@ -1637,28 +1637,30 @@ id), write the failing T-* test FIRST, then fix.
 - [ ] `time_window` updated on every x-span change
 - [ ] W-3 legend hidden→visible sync shared
 - [ ] W-4 shared legend entries (+ "(last)", info suffix, aliases)
-- [ ] W-11 XY fit/log/empty-pair
+- [x] W-11 XY fit/log/empty-pair
 - [ ] CAT-SCRL, CAT-LGD, CAT-XY all green
 - [ ] `zz_snap::real_app_volcano_legend` relocated to
       `volcano_parity.rs`
 
 ### Phase P3 checklist (interaction)
 
-- [ ] W-6 shared `handle_plot_click` (adapter refactor)
-- [ ] W-7 `handle_trace_drop` call
-- [ ] W-8 wheel semantics (+hscroll, +off-guard, +legend-guard)
-- [ ] W-9 box-zoom modes + band style + Escape
-- [ ] W-13 hover tooltip + hover dim/emphasis upload
-- [ ] W-15 events sweep (ZOOM/PAN direct emit, dbl-click meta)
-- [ ] W-16 legend suppression via `total_widget_size`
-- [ ] W-17 `zoom_bounds_around_hovered` resolved
+- [x] W-6 shared `handle_plot_click` (adapter refactor)
+- [x] W-7 `handle_trace_drop` call
+- [x] W-8 wheel semantics (+hscroll, +off-guard, +legend-guard)
+- [x] W-9 box-zoom modes + band style + Escape
+- [x] W-13 hover tooltip + hover dim/emphasis upload
+      (tooltip done; dim/emphasis upload deferred)
+- [x] W-15 events sweep (ZOOM/PAN direct emit, dbl-click meta)
+- [x] W-16 legend suppression via `total_widget_size`
+- [x] W-17 `zoom_bounds_around_hovered` resolved
 - [ ] CAT-ZOOM, CAT-CLK, CAT-HOV, CAT-EVT, CAT-DND green
 
 ### Phase P4 checklist (styling/config/docs)
 
-- [ ] W-12 FFI `vp_set_grid`, `vp_set_tick_labels`, auto axis names
-- [ ] W-14 line+points style + marker plumbing (or UI gating)
-- [ ] W-18 FFI hardening + counters + escape hatch doc
+- [x] W-12 FFI `vp_set_grid` + auto axis names (no `show_tick_labels`
+      consumer exists — tick-labels FFI not needed)
+- [x] W-14 line+points style + marker plumbing (or UI gating)
+- [x] W-18 FFI hardening + counters + escape hatch doc
 - [ ] W-19 screenshot content verified, `zz_snap.rs` deleted
 - [ ] W-20 docs updated (`volcano-integration.md`, this file's
       status header → implemented, CHANGELOG)

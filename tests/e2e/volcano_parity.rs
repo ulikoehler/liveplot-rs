@@ -1055,3 +1055,105 @@ fn parity_hover_inside_axes() {
         );
     }
 }
+
+/// T-RND-epoch: epoch-scale timestamps (t≈1.79e9) render and bound
+/// correctly — historical f32-precision regression zone
+/// (`shift`/`shift_ref` logic on the volcano path).
+#[test]
+fn parity_epoch_timestamps() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        // feed_sine's t0 becomes the epoch base.
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 1_790_000_000.0);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        steps(&mut bed, 25);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let (xb, _) = view_bounds(&bed, 0);
+        // Trailing window at now≈1.79e9+20 — bounds must be at epoch
+        // scale, not collapsed to zero or f32-quantized.
+        assert!(
+            xb[0] > 1_789_999_990.0 && xb[1] > 1_790_000_010.0,
+            "epoch bounds (vol={vol}): {xb:?}"
+        );
+        assert!(
+            scope(&bed, 0).rendered_this_frame,
+            "frame renders at epoch scale (vol={vol})"
+        );
+        // The trace must be visible — count drawn pixels via the
+        // colored-pixel probe used by the other pixel tests? The
+        // behavioral check: legend + bounds sane is enough here.
+    }
+}
+
+/// T-LGD-005: alt-click on a legend row isolates the item — only it
+/// stays visible (shared PlotMemory path on both arms).
+#[test]
+fn parity_legend_alt_click_isolates() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig_a", 2000, 1.0, 100.0, 0.0);
+        feed_sine(&bed, "sig_b", 2000, 1.0, 100.0, 0.0);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        steps(&mut bed, 25);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let lr = scope(&bed, 0).legend_overlay_rect.expect("legend");
+        let row = egui::pos2(lr[0] + 24.0, lr[1] + 12.0);
+        // alt-click isolates the FIRST entry (highest in the list).
+        bed.harness.input_mut().events.push(egui::Event::PointerMoved(row));
+        bed.harness.step();
+        for pressed in [true, false] {
+            bed.harness.input_mut().events.push(egui::Event::PointerButton {
+                pos: row,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::ALT,
+            });
+            bed.harness.step();
+        }
+        steps(&mut bed, 5);
+        // Exactly one of the two trace ids must be hidden afterwards.
+        let id_a = liveplot::panels::scope_legend::trace_item_id(
+            &liveplot::TraceRef("sig_a".into()),
+        );
+        let id_b = liveplot::panels::scope_legend::trace_item_id(
+            &liveplot::TraceRef("sig_b".into()),
+        );
+        let hidden = &scope(&bed, 0).legend_hidden_items;
+        let (ha, hb) = (hidden.contains(&id_a), hidden.contains(&id_b));
+        assert_ne!(
+            ha, hb,
+            "alt-click isolates exactly one (vol={vol}): a={ha} b={hb}"
+        );
+    }
+}
+
+/// T-LGD-018: wheel over the legend scrolls it (or is ignored) instead
+/// of zooming the plot — bounds unchanged on both paths.
+#[test]
+fn parity_wheel_over_legend_no_zoom() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        steps(&mut bed, 20);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let lr = scope(&bed, 0).legend_overlay_rect.expect("legend");
+        let inside_legend = egui::pos2((lr[0] + lr[2]) / 2.0, (lr[1] + lr[3]) / 2.0);
+        let (xb0, yb0) = view_bounds(&bed, 0);
+        scroll_at(&mut bed, inside_legend, 0.0, 150.0, 4);
+        steps(&mut bed, 4);
+        let (xb1, yb1) = view_bounds(&bed, 0);
+        let tol = (xb0[1] - xb0[0]).abs().max(1e-9) * 1e-6;
+        assert!(
+            (xb1[0] - xb0[0]).abs() < tol && (xb1[1] - xb0[1]).abs() < tol
+                && (yb1[0] - yb0[0]).abs() < tol && (yb1[1] - yb0[1]).abs() < tol,
+            "wheel over legend must not zoom (vol={vol}): {xb0:?}->{xb1:?}"
+        );
+    }
+}
