@@ -1431,8 +1431,6 @@ impl ScopePanel {
         self.data.plot_id = Some(plot_id);
         #[cfg(feature = "volcano")]
         let volcano = self.data.volcano_enabled;
-        #[cfg(not(feature = "volcano"))]
-        let volcano = false;
         let mut plot = Plot::new(format!("scope_plot_{}", self.data.name))
             .id(plot_id)
             .allow_scroll(false)
