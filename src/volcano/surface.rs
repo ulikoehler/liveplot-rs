@@ -241,6 +241,22 @@ impl VolcanoSurface {
             fig.resize(w, h);
         }
 
+        // f32-precision-safe translate: when the bounds magnitude is
+        // huge relative to its span (epoch timestamps ~1.79e9), shift
+        // data+viewport by the same offset so the plotted range sits
+        // in representable f32 space. MUST be computed BEFORE the
+        // trace uploads below — the shifted data lands off-screen
+        // otherwise (empty scope, axes only).
+        let (xb, yb) = self.bounds;
+        let x_span = (xb[1] - xb[0]).abs().max(1e-12);
+        let y_span = (yb[1] - yb[0]).abs().max(1e-12);
+        self.shift.0 = if xb[0].abs() > x_span * 1e4 { xb[0] } else { 0.0 };
+        self.shift.1 = if yb[0].abs() > y_span * 1e4 { yb[0] } else { 0.0 };
+        let (sx, sy) = self.shift;
+        // A changed shift must force re-upload — fold it into the
+        // per-trace sig so the stale unshifted data gets replaced.
+        let shift_bits = (self.shift.0.to_bits() ^ self.shift.1.to_bits()) as u64;
+
         // Sync trace set: add missing, update data+style.
         let mut seen = std::collections::HashSet::new();
         for name in scope.trace_order.iter() {
@@ -264,7 +280,8 @@ impl VolcanoSurface {
                 .iter()
                 .find(|(k, _)| k == &name.0)
                 .map(|(_, s)| *s)
-                .unwrap_or(0);
+                .unwrap_or(0)
+                ^ shift_bits;
             if self.trace_sigs.get(&name.0) == Some(&new_sig) {
                 continue;
             }
@@ -272,8 +289,8 @@ impl VolcanoSurface {
                 .live
                 .iter()
                 .map(|p| {
-                    let x = if x_log && p[0] > 0.0 { p[0].log10() } else { p[0] };
-                    let y = if y_log { (p[1] + tr.offset).log10() } else { p[1] + tr.offset };
+                    let x = if x_log && p[0] > 0.0 { p[0].log10() } else { p[0] - sx };
+                    let y = if y_log { (p[1] + tr.offset).log10() } else { p[1] - sy + tr.offset };
                     [x, if y.is_finite() { y } else { f64::NAN }]
                 })
                 .collect();
@@ -301,7 +318,6 @@ impl VolcanoSurface {
                 ) else {
                     continue;
                 };
-                let (sx, sy) = self.shift;
                 let mut derived: Vec<[f64; 2]> = Vec::new();
                 let (mut i, mut j) = (0usize, 0usize);
                 while i < x_pts.len() && j < y_pts.len() {
@@ -345,19 +361,19 @@ impl VolcanoSurface {
         }
 
         // Until the caller writes back real plot bounds, auto-fit data
-        // (or honor the trailing time window).
-        if !self.initialized {
+        // (or honor the trailing time window). bounds_external means
+        // the widget owns the viewport — never clobber it.
+        if !self.initialized && !self.bounds_external {
             self.bounds = Self::fit_bounds(scope, traces, self.bounds);
+            // fit may have changed the bounds the shift was computed
+            // from — recompute so data+viewport stay consistent.
+            let x_span = (self.bounds.0[1] - self.bounds.0[0]).abs().max(1e-12);
+            let y_span = (self.bounds.1[1] - self.bounds.1[0]).abs().max(1e-12);
+            self.shift.0 = if self.bounds.0[0].abs() > x_span * 1e4 { self.bounds.0[0] } else { 0.0 };
+            self.shift.1 = if self.bounds.1[0].abs() > y_span * 1e4 { self.bounds.1[0] } else { 0.0 };
         }
-        // f32-precision-safe translate: when the bounds magnitude is
-        // huge relative to its span, shift data+viewport by the lower
-        // bound so the plotted range sits near 0 (labels then show the
-        // shifted range — same trade-off the offset text makes anyway).
         let (xb, yb) = self.bounds;
-        let x_span = (xb[1] - xb[0]).abs().max(1e-12);
-        let y_span = (yb[1] - yb[0]).abs().max(1e-12);
-        self.shift.0 = if xb[0].abs() > x_span * 1e4 { xb[0] } else { 0.0 };
-        self.shift.1 = if yb[0].abs() > y_span * 1e4 { yb[0] } else { 0.0 };
+
         fig.set_viewport(
             xb[0] - self.shift.0,
             xb[1] - self.shift.0,
