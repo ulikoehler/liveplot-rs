@@ -36,12 +36,10 @@ fn main() {
     // Vulkan/shaderc locations differ per platform.
     let (vk_include, vk_library, shaderc_lib) = if windows {
         // LunarG SDK on Windows exposes VULKAN_SDK.
-        let sdk = std::env::var("VULKAN_SDK")
-            .map(PathBuf::from)
-            .expect(
-                "volcano feature on Windows requires the LunarG Vulkan SDK \
+        let sdk = std::env::var("VULKAN_SDK").map(PathBuf::from).expect(
+            "volcano feature on Windows requires the LunarG Vulkan SDK \
                  (VULKAN_SDK env var). See docs/volcano-integration.md",
-            );
+        );
         (
             sdk.join("Include"),
             sdk.join("Lib").join("vulkan-1.lib"),
@@ -159,13 +157,15 @@ fn main() {
         "volcano_core_static".to_string(),
     ];
     let mut dylibs = Vec::new();
-    let pick = |names: &[&str]| -> Option<String> {
-        search.iter().find_map(|d| first_existing(d, names))
-    };
+    let pick =
+        |names: &[&str]| -> Option<String> { search.iter().find_map(|d| first_existing(d, names)) };
     for (names, sys) in [
         (&["harfbuzz"][..], "harfbuzz"),
         (&["freetype"][..], "freetype"),
-        (&["png_static", "libpng16_static", "libpng", "png"][..], "png"),
+        (
+            &["png_static", "libpng16_static", "libpng", "png"][..],
+            "png",
+        ),
         (&["zlibstatic", "zlib", "z"][..], "z"),
     ] {
         match pick(names) {
