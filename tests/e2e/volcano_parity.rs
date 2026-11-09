@@ -1157,3 +1157,40 @@ fn parity_wheel_over_legend_no_zoom() {
         );
     }
 }
+
+/// T-FFT-001: the FFT panel's embedded scope renders through the
+/// volcano path too — spectrum bounds + render flag on both arms.
+#[cfg(feature = "fft")]
+#[test]
+fn parity_fft_embedded_scope() {
+    use liveplot::panels::fft_ui::FftPanel;
+    use liveplot::panels::Panel;
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "tone", 8192, 1.0, 1000.0, 0.0);
+        {
+            let fp = find_panel_mut::<FftPanel>(&mut bed).expect("FftPanel");
+            fp.state_mut().visible = true;
+            fp.scope_ui.get_data_mut().volcano_enabled = vol;
+        }
+        steps(&mut bed, 30);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let data = find_panel::<FftPanel>(&bed)
+            .unwrap()
+            .scope_ui
+            .get_data();
+        // Embedded scope must render and produce sane bounds — the
+        // volcano path uses the same ScopePanel code.
+        assert!(
+            data.rendered_this_frame,
+            "fft scope renders (vol={vol})"
+        );
+        let b = data.last_plot_bounds.expect("fft plot bounds");
+        assert!(
+            b.0[1] > b.0[0] && b.1[1] > b.1[0],
+            "sane fft bounds (vol={vol}): {b:?}"
+        );
+    }
+}
