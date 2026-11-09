@@ -96,6 +96,16 @@ pub struct VolcanoSurface {
     /// sub-window precision. Shift data and bounds by the same offset
     /// so the plotted range stays in representable f32 space.
     shift: (f64, f64),
+    /// Persistent shift reference — set ONCE when the bounds first
+    /// become huge, so the label space is `x - ref` = elapsed values
+    /// that ADVANCE with the data (recomputing to xb0 every frame
+    /// froze the axis at 0..window — looked like no autoscroll).
+    shift_ref: Option<(f64, f64)>,
+    /// User-owned viewport (pan/zoom/box-zoom) — takes precedence over
+    /// `data.x_axis.bounds`, which `live_update` rewrites to the
+    /// trailing window every frame (that's what made zoom impossible).
+    /// Cleared when the scope's auto-fit is re-enabled.
+    pub user_bounds: Option<([f64; 2], [f64; 2])>,
     initialized: bool,
 }
 
@@ -117,6 +127,8 @@ impl VolcanoSurface {
             bounds: ([0.0, 1.0], [0.0, 1.0]),
             bounds_external: false,
             shift: (0.0, 0.0),
+            shift_ref: None,
+            user_bounds: None,
             initialized: false,
         }
     }
@@ -250,8 +262,31 @@ impl VolcanoSurface {
         let (xb, yb) = self.bounds;
         let x_span = (xb[1] - xb[0]).abs().max(1e-12);
         let y_span = (yb[1] - yb[0]).abs().max(1e-12);
-        self.shift.0 = if xb[0].abs() > x_span * 1e4 { xb[0] } else { 0.0 };
-        self.shift.1 = if yb[0].abs() > y_span * 1e4 { yb[0] } else { 0.0 };
+        // Persistent ref: first time the bounds look huge, anchor the
+        // shift there — the viewport then shows `x - ref` (elapsed
+        // values advancing with the stream, like the egui axis labels).
+        // Re-anchor if the data drifts so far the ref stops helping.
+        let needs_x = xb[0].abs() > x_span * 1e4 || xb[1].abs() > x_span * 1e4;
+        let needs_y = yb[0].abs() > y_span * 1e4 || yb[1].abs() > y_span * 1e4;
+        if needs_x && self.shift_ref.is_none() {
+            self.shift_ref = Some((xb[0], 0.0));
+        }
+        if needs_y {
+            self.shift_ref =
+                Some((self.shift_ref.map_or(0.0, |r| r.0), yb[0]));
+        }
+        if let Some(r) = self.shift_ref {
+            // Re-anchor when the bounds move too far from the ref —
+            // the shifted range must stay f32-safe.
+            if !needs_x && !needs_y {
+                self.shift = (0.0, 0.0);
+            } else {
+                self.shift = (
+                    if needs_x && (xb[0] - r.0).abs() > x_span * 1e7 { xb[0] } else { r.0 },
+                    if needs_y && (yb[0] - r.1).abs() > y_span * 1e7 { yb[0] } else { r.1 },
+                );
+            }
+        }
         let (sx, sy) = self.shift;
         // A changed shift must force re-upload — fold it into the
         // per-trace sig so the stale unshifted data gets replaced.

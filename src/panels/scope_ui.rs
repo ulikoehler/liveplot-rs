@@ -1083,15 +1083,27 @@ impl ScopePanel {
         let plot_id = ui.make_persistent_id(format!("scope_plot_{}", self.data.name));
         self.data.plot_id = Some(plot_id);
 
-        // Viewport: the app owns data bounds; write them into the
-        // surface so the figure renders the same range.
-        let (x0, x1) = self.data.x_axis.bounds;
-        let (y0, y1) = self.data.y_axis.bounds;
+        // The current VIEW = the user's zoomed bounds when present,
+        // else the data bounds. `live_update` rewrites
+        // `data.x_axis.bounds` to the trailing window every frame, so
+        // pan/zoom must compound on `surf.user_bounds` (egui_plot's
+        // auto_bounds=false equivalent) — else the first decayed scroll
+        // step re-bases onto the live window and zoom is lost.
         let (w, h) = (rect.width() as u32, rect.height() as u32);
         let dark = ui.visuals().dark_mode;
         let mut surf = self.data.volcano_surface.take().unwrap_or_default();
-        // Only feed valid bounds — degenerate/non-finite ranges (e.g. an
-        // FFT scope before its first spectrum) must not poison setXlim.
+        // Auto-fit hands control back to the data.
+        if self.data.x_axis.auto_fit || self.data.y_axis.auto_fit {
+            surf.user_bounds = None;
+        }
+        let (x0, x1) = surf
+            .user_bounds
+            .map(|(xb, _)| (xb[0], xb[1]))
+            .unwrap_or(self.data.x_axis.bounds);
+        let (y0, y1) = surf
+            .user_bounds
+            .map(|(_, yb)| (yb[0], yb[1]))
+            .unwrap_or(self.data.y_axis.bounds);
         if x0.is_finite() && x1.is_finite() && x1 > x0
             && y0.is_finite() && y1.is_finite() && y1 > y0
         {
@@ -1155,6 +1167,8 @@ impl ScopePanel {
             let dy = (d.y as f64) / axes.height() as f64 * (y1 - y0);
             self.data.x_axis.bounds = (x0 + dx, x1 + dx);
             self.data.y_axis.bounds = (y0 + dy, y1 + dy);
+            self.data.x_axis.auto_fit = false;
+            self.data.y_axis.auto_fit = false;
             bounds_changed = true;
         }
         if resp.contains_pointer() {
@@ -1183,6 +1197,8 @@ impl ScopePanel {
                     }
                     self.data.x_axis.bounds = (nx0, nx1);
                     self.data.y_axis.bounds = (ny0, ny1);
+                    self.data.x_axis.auto_fit = false;
+                    self.data.y_axis.auto_fit = false;
                     bounds_changed = true;
                 }
             }
@@ -1212,6 +1228,8 @@ impl ScopePanel {
                 if (hi[0] - lo[0]).abs() > 1e-12 && (hi[1] - lo[1]).abs() > 1e-12 {
                     self.data.x_axis.bounds = (lo[0], hi[0]);
                     self.data.y_axis.bounds = (lo[1], hi[1]);
+                    self.data.x_axis.auto_fit = false;
+                    self.data.y_axis.auto_fit = false;
                     bounds_changed = true;
                 }
                 self.box_zoom_start = None;
@@ -1247,6 +1265,21 @@ impl ScopePanel {
             }
         }
         if bounds_changed {
+            // Pan/zoom owns the view — disable auto-fit so the manual
+            // bounds persist (same as the egui_plot path at ~2211).
+            // Double-click/fit re-enables it and releases user_bounds.
+            let user_zoom = !(self.data.x_axis.auto_fit
+                && self.data.y_axis.auto_fit);
+            if let Some(s) = self.data.volcano_surface.as_mut() {
+                s.user_bounds = if user_zoom {
+                    Some((
+                        [self.data.x_axis.bounds.0, self.data.x_axis.bounds.1],
+                        [self.data.y_axis.bounds.0, self.data.y_axis.bounds.1],
+                    ))
+                } else {
+                    None
+                };
+            }
             self.pending_view_change = Some(crate::events::ViewChangeMeta {
                 x_range: Some(self.data.x_axis.bounds),
                 y_range: Some(self.data.y_axis.bounds),
