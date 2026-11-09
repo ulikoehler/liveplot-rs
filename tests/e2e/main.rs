@@ -45,9 +45,10 @@ mod ui_menus;
 mod ui_thresholds;
 #[cfg(feature = "volcano")]
 mod volcano_parity;
+#[cfg(feature = "volcano")]
 mod volcano_scope;
-mod zz_snap;
 mod xy_scope;
+mod zz_snap;
 
 #[cfg(feature = "fft")]
 mod fft;

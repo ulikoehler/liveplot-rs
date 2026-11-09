@@ -71,53 +71,57 @@ pub fn render_trace_look_editor_inner(
     }
     // Render mode selector
     if !volcano {
-egui::ComboBox::from_label("Render mode")
-        .selected_text(match look.render_mode {
-            RenderMode::Downsampled => "Downsampled",
-            RenderMode::MinMaxEnvelope => "Min/Max Envelope",
-            RenderMode::Line => "Line",
-            RenderMode::DensitySplatting => "Density Splatting (experimental)",
-        })
-        .show_ui(ui, |ui| {
-            if ui
-                .selectable_label(
-                    matches!(look.render_mode, RenderMode::Downsampled),
-                    "Downsampled",
-                )
-                .on_hover_text("Bucketed first/last point downsampling — best for large datasets")
-                .clicked()
-            {
-                look.render_mode = RenderMode::Downsampled;
-            }
-            if ui
-                .selectable_label(
-                    matches!(look.render_mode, RenderMode::MinMaxEnvelope),
-                    "Min/Max Envelope",
-                )
-                .on_hover_text("Bucketed min/max envelope — shows full vertical extent per pixel")
-                .clicked()
-            {
-                look.render_mode = RenderMode::MinMaxEnvelope;
-            }
-            if ui
-                .selectable_label(matches!(look.render_mode, RenderMode::Line), "Line")
-                .on_hover_text("Legacy stride-decimated line rendering")
-                .clicked()
-            {
-                look.render_mode = RenderMode::Line;
-            }
-            if ui
-                .selectable_label(
-                    matches!(look.render_mode, RenderMode::DensitySplatting),
-                    "Density Splatting (experimental)",
-                )
-                .on_hover_text("Density-based heat map rendering")
-                .clicked()
-            {
-                look.render_mode = RenderMode::DensitySplatting;
-            }
-        });
-}
+        egui::ComboBox::from_label("Render mode")
+            .selected_text(match look.render_mode {
+                RenderMode::Downsampled => "Downsampled",
+                RenderMode::MinMaxEnvelope => "Min/Max Envelope",
+                RenderMode::Line => "Line",
+                RenderMode::DensitySplatting => "Density Splatting (experimental)",
+            })
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(
+                        matches!(look.render_mode, RenderMode::Downsampled),
+                        "Downsampled",
+                    )
+                    .on_hover_text(
+                        "Bucketed first/last point downsampling — best for large datasets",
+                    )
+                    .clicked()
+                {
+                    look.render_mode = RenderMode::Downsampled;
+                }
+                if ui
+                    .selectable_label(
+                        matches!(look.render_mode, RenderMode::MinMaxEnvelope),
+                        "Min/Max Envelope",
+                    )
+                    .on_hover_text(
+                        "Bucketed min/max envelope — shows full vertical extent per pixel",
+                    )
+                    .clicked()
+                {
+                    look.render_mode = RenderMode::MinMaxEnvelope;
+                }
+                if ui
+                    .selectable_label(matches!(look.render_mode, RenderMode::Line), "Line")
+                    .on_hover_text("Legacy stride-decimated line rendering")
+                    .clicked()
+                {
+                    look.render_mode = RenderMode::Line;
+                }
+                if ui
+                    .selectable_label(
+                        matches!(look.render_mode, RenderMode::DensitySplatting),
+                        "Density Splatting (experimental)",
+                    )
+                    .on_hover_text("Density-based heat map rendering")
+                    .clicked()
+                {
+                    look.render_mode = RenderMode::DensitySplatting;
+                }
+            });
+    }
     if look.render_mode == RenderMode::DensitySplatting {
         ui.horizontal(|ui| {
             ui.label("Brightness");

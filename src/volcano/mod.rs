@@ -28,13 +28,7 @@ extern "C" {
         style: i32,
     );
     fn vp_trace_remove(fig: *mut VpFigure, id: u64);
-    fn vp_set_viewport(
-        fig: *mut VpFigure,
-        xmin: f64,
-        xmax: f64,
-        ymin: f64,
-        ymax: f64,
-    );
+    fn vp_set_viewport(fig: *mut VpFigure, xmin: f64, xmax: f64, ymin: f64, ymax: f64);
     fn vp_set_axis_labels(
         fig: *mut VpFigure,
         x_label: *const std::ffi::c_char,

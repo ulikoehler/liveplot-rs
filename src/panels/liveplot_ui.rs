@@ -91,6 +91,23 @@ impl LiveplotPanel {
         panels
     }
 
+    /// Mutable references to all scope panels, sorted by scope id.
+    /// Needed by e2e tests for panel-level setters (e.g.
+    /// `set_zoom_mode`) that are not part of `ScopeData`.
+    pub fn scope_panels_mut(&mut self) -> Vec<&mut ScopePanel> {
+        let mut panels: Vec<&mut ScopePanel> = self
+            .tree
+            .tiles
+            .tiles_mut()
+            .filter_map(|tile| match tile {
+                Tile::Pane(pane) => Some(pane),
+                _ => None,
+            })
+            .collect();
+        panels.sort_by_key(|p| p.id());
+        panels
+    }
+
     pub fn get_data_mut(&mut self) -> Vec<&mut ScopeData> {
         let scopes_data: Vec<&mut ScopeData> = self
             .tree

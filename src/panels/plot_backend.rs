@@ -10,6 +10,25 @@
 use std::ops::RangeInclusive;
 
 use egui::{Context, Pos2, Rect, Response, Vec2b};
+
+/// The egui path writes data bounds into the plot transform padded by
+/// 5 % per side (`x_space`/`y_space` in `render_plot`), then subtracts
+/// `0.05/1.1` of the transform span on read-back. The volcano path
+/// must map the same padded view onto its axes rect so overlays,
+/// pointer math and `last_plot_bounds` agree — these helpers are the
+/// single source of that convention.
+#[cfg(feature = "volcano")]
+pub(crate) fn pad_axis_bounds(b: [f64; 2]) -> [f64; 2] {
+    let s = (b[1] - b[0]) * 0.05;
+    [b[0] - s, b[1] + s]
+}
+
+/// Inverse of [`pad_axis_bounds`]: view span -> inner data bounds.
+#[cfg(feature = "volcano")]
+pub(crate) fn unpad_axis_bounds(v: [f64; 2]) -> [f64; 2] {
+    let s = (v[1] - v[0]) * (0.05 / 1.1);
+    [v[0] + s, v[1] - s]
+}
 use egui_plot::{
     HLine, Line, PlotBounds, PlotImage, PlotPoint, PlotTransform, PlotUi, Points, Polygon, Text,
     VLine,
@@ -163,25 +182,25 @@ impl PlotBackend for VolcanoPainterBackend<'_> {
         self.response
     }
     fn pointer_coordinate(&self) -> Option<PlotPoint> {
-        self.response
-            .hover_pos()
-            .map(|p| self.plot_from_screen(p))
+        self.response.hover_pos().map(|p| self.plot_from_screen(p))
     }
     fn plot_from_screen(&self, pos: Pos2) -> PlotPoint {
         self.transform.value_from_position(pos)
     }
     fn set_plot_bounds_x(&mut self, range: RangeInclusive<f64>) {
-        let [_, y0, _, y1] = [self.bounds.min()[0], self.bounds.min()[1],
-                              self.bounds.max()[0], self.bounds.max()[1]];
-        self.bounds = PlotBounds::from_min_max(
-            [*range.start(), y0], [*range.end(), y1]);
+        let [_, y0, _, y1] = [
+            self.bounds.min()[0],
+            self.bounds.min()[1],
+            self.bounds.max()[0],
+            self.bounds.max()[1],
+        ];
+        self.bounds = PlotBounds::from_min_max([*range.start(), y0], [*range.end(), y1]);
         self.transform.set_bounds(self.bounds);
     }
     fn set_plot_bounds_y(&mut self, range: RangeInclusive<f64>) {
         let x0 = self.bounds.min()[0];
         let x1 = self.bounds.max()[0];
-        self.bounds = PlotBounds::from_min_max(
-            [x0, *range.start()], [x1, *range.end()]);
+        self.bounds = PlotBounds::from_min_max([x0, *range.start()], [x1, *range.end()]);
         self.transform.set_bounds(self.bounds);
     }
     fn zoom_bounds_around_hovered(&mut self, _zoom_factor: egui::Vec2) {

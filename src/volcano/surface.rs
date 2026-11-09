@@ -79,13 +79,10 @@ pub struct VolcanoSurface {
     last_sig: u64,
     /// In-flight render+readback on a worker thread — keeps the UI at
     /// 60fps while Vulkan renders (~7ms/frame) in the background.
-    pending: Option<
-        std::thread::JoinHandle<
-            (Option<VolcanoFigure>, Option<(u32, u32, Vec<u8>)>),
-        >,
-    >,
-    /// Current data-space viewport (x, y) — written back from the
-    /// plot transform by the caller after each frame.
+    pending: Option<std::thread::JoinHandle<(Option<VolcanoFigure>, Option<(u32, u32, Vec<u8>)>)>>,
+    /// Current data-space viewport (x, y) — the PADDED view bounds
+    /// (data bounds + 5 % per side, matching the egui transform),
+    /// written back from the caller each frame.
     pub bounds: ([f64; 2], [f64; 2]),
     /// True when the caller owns `bounds` — fit_bounds defers to it
     /// (without this the first-frame fit clobbered the real viewport,
@@ -101,11 +98,11 @@ pub struct VolcanoSurface {
     /// that ADVANCE with the data (recomputing to xb0 every frame
     /// froze the axis at 0..window — looked like no autoscroll).
     shift_ref: Option<(f64, f64)>,
-    /// User-owned viewport (pan/zoom/box-zoom) — takes precedence over
-    /// `data.x_axis.bounds`, which `live_update` rewrites to the
-    /// trailing window every frame (that's what made zoom impossible).
-    /// Cleared when the scope's auto-fit is re-enabled.
-    pub user_bounds: Option<([f64; 2], [f64; 2])>,
+    /// Frames rendered+uploaded so far — parity-test observability.
+    pub frames_rendered: u64,
+    /// FFI frames dropped on size-mismatch readback — parity-test
+    /// observability (`ScopeData::volcano_dropped_frames` mirrors).
+    pub dropped_frames: u32,
     initialized: bool,
 }
 
@@ -128,7 +125,8 @@ impl VolcanoSurface {
             bounds_external: false,
             shift: (0.0, 0.0),
             shift_ref: None,
-            user_bounds: None,
+            frames_rendered: 0,
+            dropped_frames: 0,
             initialized: false,
         }
     }
@@ -138,7 +136,10 @@ impl VolcanoSurface {
     }
 
     /// Sync + render + upload into the egui texture. Painting the
-    /// texture is the caller's job (see `texture_id()`). Returns
+    /// texture is the caller's job (see `texture_id()`). `margins` is
+    /// the pixel margin table `(left, right, bottom, top)` the caller
+    /// also uses for its overlay axes-rect — one source of truth keeps
+    /// the figure's axes aligned with the overlay transform. Returns
     /// false when Vulkan is unavailable → caller falls back.
     pub fn sync_and_render(
         &mut self,
@@ -149,6 +150,7 @@ impl VolcanoSurface {
         h: u32,
         dark: bool,
         panel_bg: egui::Color32,
+        margins: (f32, f32, f32, f32),
     ) -> bool {
         let w = w.max(8);
         let h = h.max(8);
@@ -177,6 +179,9 @@ impl VolcanoSurface {
                         });
                         tex.set(image, egui::TextureOptions::LINEAR);
                         self.initialized = true;
+                        self.frames_rendered += 1;
+                    } else {
+                        self.dropped_frames += 1;
                     }
                 }
             } else {
@@ -210,7 +215,9 @@ impl VolcanoSurface {
         std::mem::discriminant(&scope.scope_type).hash(&mut sh);
         let mut frame_sigs: Vec<(String, u64)> = Vec::new();
         for name in scope.trace_order.iter() {
-            let Some(tr) = traces.get_trace(name) else { continue };
+            let Some(tr) = traces.get_trace(name) else {
+                continue;
+            };
             if !tr.look.visible {
                 continue;
             }
@@ -221,17 +228,17 @@ impl VolcanoSurface {
         }
         if scope.scope_type == ScopeType::XYScope {
             for (xn, yn, pl) in scope.xy_pairs.iter() {
-                let (Some(xn), Some(yn)) = (xn, yn) else { continue };
+                let (Some(xn), Some(yn)) = (xn, yn) else {
+                    continue;
+                };
                 if !pl.visible {
                     continue;
                 }
-                let (Some(xt), Some(yt)) =
-                    (traces.get_trace(xn), traces.get_trace(yn))
-                else {
+                let (Some(xt), Some(yt)) = (traces.get_trace(xn), traces.get_trace(yn)) else {
                     continue;
                 };
-                let a = trace_sig(&xt.live, pl, xt.offset, (false, false));
-                let b = trace_sig(&yt.live, pl, yt.offset, (false, false));
+                let a = trace_sig(&xt.live, pl, xt.offset, log_xy);
+                let b = trace_sig(&yt.live, pl, yt.offset, log_xy);
                 format!("xy:{}:{}", xn.0, yn.0).hash(&mut sh);
                 a.hash(&mut sh);
                 b.hash(&mut sh);
@@ -272,8 +279,7 @@ impl VolcanoSurface {
             self.shift_ref = Some((xb[0], 0.0));
         }
         if needs_y {
-            self.shift_ref =
-                Some((self.shift_ref.map_or(0.0, |r| r.0), yb[0]));
+            self.shift_ref = Some((self.shift_ref.map_or(0.0, |r| r.0), yb[0]));
         }
         if let Some(r) = self.shift_ref {
             // Re-anchor when the bounds move too far from the ref —
@@ -282,8 +288,16 @@ impl VolcanoSurface {
                 self.shift = (0.0, 0.0);
             } else {
                 self.shift = (
-                    if needs_x && (xb[0] - r.0).abs() > x_span * 1e7 { xb[0] } else { r.0 },
-                    if needs_y && (yb[0] - r.1).abs() > y_span * 1e7 { yb[0] } else { r.1 },
+                    if needs_x && (xb[0] - r.0).abs() > x_span * 1e7 {
+                        xb[0]
+                    } else {
+                        r.0
+                    },
+                    if needs_y && (yb[0] - r.1).abs() > y_span * 1e7 {
+                        yb[0]
+                    } else {
+                        r.1
+                    },
                 );
             }
         }
@@ -295,7 +309,9 @@ impl VolcanoSurface {
         // Sync trace set: add missing, update data+style.
         let mut seen = std::collections::HashSet::new();
         for name in scope.trace_order.iter() {
-            let Some(tr) = traces.get_trace(name) else { continue };
+            let Some(tr) = traces.get_trace(name) else {
+                continue;
+            };
             if !tr.look.visible {
                 continue;
             }
@@ -324,17 +340,36 @@ impl VolcanoSurface {
                 .live
                 .iter()
                 .map(|p| {
-                    let x = if x_log && p[0] > 0.0 { p[0].log10() } else { p[0] - sx };
-                    let y = if y_log { (p[1] + tr.offset).log10() } else { p[1] - sy + tr.offset };
+                    let x = if x_log && p[0] > 0.0 {
+                        p[0].log10()
+                    } else {
+                        p[0] - sx
+                    };
+                    let y = if y_log {
+                        (p[1] + tr.offset).log10()
+                    } else {
+                        p[1] - sy + tr.offset
+                    };
                     [x, if y.is_finite() { y } else { f64::NAN }]
                 })
                 .collect();
-            fig.set_trace(id, &xy, rgba8(tr.look.color), tr.look.width, vp_style(&tr.look));
+            fig.set_trace(
+                id,
+                &xy,
+                rgba8(tr.look.color),
+                tr.look.width,
+                vp_style(&tr.look),
+            );
             self.trace_sigs.insert(name.0.clone(), new_sig);
         }
-        // XY-scope pairs: join x/y traces on timestamp within 1e-9.
+        // XY-scope pairs: join x/y traces on timestamp within 1e-9 —
+        // same merge as the egui draw loop (`join_xy_points`), then
+        // the same per-axis transform: offset first, log10 of the
+        // (offset) value when the axis is log, otherwise the f32-safe
+        // shift. The egui path drops non-positive log values to NaN.
         if scope.scope_type == ScopeType::XYScope {
             const TOL: f64 = 1e-9;
+            let (x_log, y_log) = log_xy;
             for (x_name, y_name, pair_look) in scope.xy_pairs.iter() {
                 let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
                     continue;
@@ -342,8 +377,7 @@ impl VolcanoSurface {
                 if !pair_look.visible {
                     continue;
                 }
-                let (Some(x_tr), Some(y_tr)) =
-                    (traces.get_trace(x_name), traces.get_trace(y_name))
+                let (Some(x_tr), Some(y_tr)) = (traces.get_trace(x_name), traces.get_trace(y_name))
                 else {
                     continue;
                 };
@@ -353,31 +387,53 @@ impl VolcanoSurface {
                 ) else {
                     continue;
                 };
-                let mut derived: Vec<[f64; 2]> = Vec::new();
-                let (mut i, mut j) = (0usize, 0usize);
-                while i < x_pts.len() && j < y_pts.len() {
-                    let tx = x_pts[i][0];
-                    let ty = y_pts[j][0];
-                    let dt = tx - ty;
-                    if dt.abs() <= TOL {
-                        derived.push([x_pts[i][1] - sx + x_tr.offset,
-                                      y_pts[j][1] - sy + y_tr.offset]);
-                        i += 1;
-                        j += 1;
-                    } else if dt < 0.0 {
-                        i += 1;
-                    } else {
-                        j += 1;
-                    }
-                }
+                let joined = TracesCollection::join_xy_points(x_pts, y_pts, TOL);
                 let key = format!("xy:{}:{}", x_name.0, y_name.0);
+                if joined.is_empty() {
+                    // egui draws nothing for an empty join — drop the
+                    // stale vp trace rather than leave the last frame
+                    // lingering.
+                    if let Some(id) = self.trace_ids.remove(&key) {
+                        fig.remove_trace(id);
+                    }
+                    self.trace_sigs.remove(&key);
+                    continue;
+                }
+                let derived: Vec<[f64; 2]> = joined
+                    .iter()
+                    .map(|p| {
+                        let x_lin = p[0] + x_tr.offset;
+                        let y_lin = p[1] + y_tr.offset;
+                        let x = if x_log {
+                            if x_lin > 0.0 {
+                                x_lin.log10()
+                            } else {
+                                f64::NAN
+                            }
+                        } else {
+                            x_lin - sx
+                        };
+                        let y = if y_log {
+                            if y_lin > 0.0 {
+                                y_lin.log10()
+                            } else {
+                                f64::NAN
+                            }
+                        } else {
+                            y_lin - sy
+                        };
+                        [x, y]
+                    })
+                    .collect();
                 seen.insert(key.clone());
-                let id = *self
-                    .trace_ids
-                    .entry(key)
-                    .or_insert_with(|| fig.add_trace());
-                fig.set_trace(id, &derived, rgba8(pair_look.color),
-                              pair_look.width, vp_style(pair_look));
+                let id = *self.trace_ids.entry(key).or_insert_with(|| fig.add_trace());
+                fig.set_trace(
+                    id,
+                    &derived,
+                    rgba8(pair_look.color),
+                    pair_look.width,
+                    vp_style(pair_look),
+                );
             }
         }
 
@@ -397,15 +453,29 @@ impl VolcanoSurface {
 
         // Until the caller writes back real plot bounds, auto-fit data
         // (or honor the trailing time window). bounds_external means
-        // the widget owns the viewport — never clobber it.
+        // the widget owns the viewport — never clobber it. `bounds` is
+        // the PADDED view — the fit produces data (inner) bounds, so
+        // pad here exactly like the caller does for `data.*_bounds`.
         if !self.initialized && !self.bounds_external {
-            self.bounds = Self::fit_bounds(scope, traces, self.bounds);
+            let inner = Self::fit_bounds(scope, traces, self.bounds);
+            self.bounds = (
+                crate::panels::plot_backend::pad_axis_bounds(inner.0),
+                crate::panels::plot_backend::pad_axis_bounds(inner.1),
+            );
             // fit may have changed the bounds the shift was computed
             // from — recompute so data+viewport stay consistent.
             let x_span = (self.bounds.0[1] - self.bounds.0[0]).abs().max(1e-12);
             let y_span = (self.bounds.1[1] - self.bounds.1[0]).abs().max(1e-12);
-            self.shift.0 = if self.bounds.0[0].abs() > x_span * 1e4 { self.bounds.0[0] } else { 0.0 };
-            self.shift.1 = if self.bounds.1[0].abs() > y_span * 1e4 { self.bounds.1[0] } else { 0.0 };
+            self.shift.0 = if self.bounds.0[0].abs() > x_span * 1e4 {
+                self.bounds.0[0]
+            } else {
+                0.0
+            };
+            self.shift.1 = if self.bounds.1[0].abs() > y_span * 1e4 {
+                self.bounds.1[0]
+            } else {
+                0.0
+            };
         }
         let (xb, yb) = self.bounds;
 
@@ -416,14 +486,10 @@ impl VolcanoSurface {
             yb[1] - self.shift.1,
         );
         fig.set_background(!dark);
-        // Pixel margins as canvas fractions — keeps the figure's axes
-        // rect aligned with the overlay axes-rect the caller computes
-        // (see render_volcano_plot: 60/12/56/8 px, 52/10/34/6 when short).
-        let (ml, mr, mb, mt) = if (h as f32) < 160.0 {
-            (52.0, 10.0, 34.0, 6.0)
-        } else {
-            (60.0, 12.0, 56.0, 8.0)
-        };
+        // Pixel margins as canvas fractions — the caller's
+        // `volcano_margins_px` table, identical to the values used for
+        // the overlay axes-rect (single source of truth).
+        let (ml, mr, mb, mt) = margins;
         let (wf, hf) = (w as f32, h as f32);
         fig.set_margins(ml / wf, 1.0 - mr / wf, mb / hf, 1.0 - mt / hf);
         fig.set_background_rgba(
@@ -456,8 +522,49 @@ impl VolcanoSurface {
     ) -> ([f64; 2], [f64; 2]) {
         let mut xb = [f64::INFINITY, f64::NEG_INFINITY];
         let mut yb = [f64::INFINITY, f64::NEG_INFINITY];
+        if scope.scope_type == ScopeType::XYScope {
+            // XY scopes keep no entries in `trace_order` — fit over
+            // the joined pairs like `ScopeData::fit_*_bounds` does.
+            const TOL: f64 = 1e-9;
+            for (x_name, y_name, pl) in scope.xy_pairs.iter() {
+                let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
+                    continue;
+                };
+                if !pl.visible {
+                    continue;
+                }
+                let (Some(x_tr), Some(y_tr)) = (traces.get_trace(x_name), traces.get_trace(y_name))
+                else {
+                    continue;
+                };
+                if !x_tr.look.visible || !y_tr.look.visible {
+                    continue;
+                }
+                let (Some(x_pts), Some(y_pts)) = (
+                    traces.get_points_ref(x_name, scope.paused),
+                    traces.get_points_ref(y_name, scope.paused),
+                ) else {
+                    continue;
+                };
+                for p in TracesCollection::join_xy_points(x_pts, y_pts, TOL) {
+                    xb[0] = xb[0].min(p[0] + x_tr.offset);
+                    xb[1] = xb[1].max(p[0] + x_tr.offset);
+                    yb[0] = yb[0].min(p[1] + y_tr.offset);
+                    yb[1] = yb[1].max(p[1] + y_tr.offset);
+                }
+            }
+            if !xb[0].is_finite() {
+                xb = bounds.0;
+            }
+            if !yb[0].is_finite() {
+                yb = bounds.1;
+            }
+            return (xb, yb);
+        }
         for name in scope.trace_order.iter() {
-            let Some(tr) = traces.get_trace(name) else { continue };
+            let Some(tr) = traces.get_trace(name) else {
+                continue;
+            };
             for p in tr.live.iter() {
                 xb[0] = xb[0].min(p[0]);
                 xb[1] = xb[1].max(p[0]);

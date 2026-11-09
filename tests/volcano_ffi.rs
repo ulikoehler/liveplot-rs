@@ -22,7 +22,13 @@ fn volcano_renders_sine_framebuffer() {
     let mut fig = VolcanoFigure::new(640, 480).expect("vp_figure_create");
     let id = fig.add_trace();
     assert!(id != 0);
-    fig.set_trace(id, &sine(500, 100.0, 1.0), 0xFF6600FF, 2.0, VolcanoLineStyle::Solid);
+    fig.set_trace(
+        id,
+        &sine(500, 100.0, 1.0),
+        0xFF6600FF,
+        2.0,
+        VolcanoLineStyle::Solid,
+    );
     fig.set_axis_labels(Some("time [s]"), Some("amp"));
     let px = fig.render_rgba().expect("render frame");
     assert_eq!(px.len(), 640 * 480 * 4);
@@ -37,9 +43,9 @@ fn volcano_renders_sine_framebuffer() {
     );
     // The 0xFF6600 (orange) trace line should be present somewhere —
     // antialiasing shifts channels, so match with tolerance.
-    let orange = px.chunks_exact(4).any(|c| {
-        c[0] > 200 && c[1] > 60 && c[1] < 160 && c[2] < 80 && c[3] == 255
-    });
+    let orange = px
+        .chunks_exact(4)
+        .any(|c| c[0] > 200 && c[1] > 60 && c[1] < 160 && c[2] < 80 && c[3] == 255);
     assert!(orange, "trace color 0xFF6600 not found in framebuffer");
 }
 
@@ -49,8 +55,20 @@ fn volcano_viewport_and_styles() {
     let mut fig = VolcanoFigure::new(320, 200).expect("figure");
     let a = fig.add_trace();
     let b = fig.add_trace();
-    fig.set_trace(a, &sine(200, 100.0, 2.0), 0xFF0000FF, 1.0, VolcanoLineStyle::Dashed);
-    fig.set_trace(b, &sine(200, 100.0, 0.5), 0x00FF00FF, 1.0, VolcanoLineStyle::PointsOnly);
+    fig.set_trace(
+        a,
+        &sine(200, 100.0, 2.0),
+        0xFF0000FF,
+        1.0,
+        VolcanoLineStyle::Dashed,
+    );
+    fig.set_trace(
+        b,
+        &sine(200, 100.0, 0.5),
+        0x00FF00FF,
+        1.0,
+        VolcanoLineStyle::PointsOnly,
+    );
     fig.set_viewport(0.0, 1.0, -0.5, 0.5);
     assert!(fig.render_rgba().is_some());
     fig.remove_trace(a);
@@ -82,8 +100,11 @@ fn volcano_perf_200k_points() {
         assert!(fig.render_rgba().is_some());
         times.push(t.elapsed());
     }
-    eprintln!("render+readback 1280x720 x5: {:?} (avg {:?})",
-              times, times.iter().sum::<std::time::Duration>() / 5);
+    eprintln!(
+        "render+readback 1280x720 x5: {:?} (avg {:?})",
+        times,
+        times.iter().sum::<std::time::Duration>() / 5
+    );
 }
 
 /// Tiny heights must not fail — the FFT scope can be as short as ~50px.
@@ -92,10 +113,19 @@ fn volcano_tiny_height_renders() {
     for (w, h) in [(1122, 51), (100, 8), (64, 64)] {
         let mut fig = match VolcanoFigure::new(w, h) {
             Some(f) => f,
-            None => { eprintln!("figure {w}x{h} create failed"); continue; }
+            None => {
+                eprintln!("figure {w}x{h} create failed");
+                continue;
+            }
         };
         let id = fig.add_trace();
-        fig.set_trace(id, &[[0.0, 0.0], [1.0, 1.0]], 0xFF8800FF, 1.5, VolcanoLineStyle::Solid);
+        fig.set_trace(
+            id,
+            &[[0.0, 0.0], [1.0, 1.0]],
+            0xFF8800FF,
+            1.5,
+            VolcanoLineStyle::Solid,
+        );
         fig.set_viewport(0.0, 1.0, 0.0, 1.0);
         let ok = fig.render_rgba().is_some();
         eprintln!("{w}x{h}: render ok={ok}");
@@ -112,7 +142,13 @@ fn volcano_degenerate_state() {
     let id = fig.add_trace();
     fig.set_trace(id, &[], 0xFF8800FF, 1.5, VolcanoLineStyle::Solid);
     eprintln!("empty trace: {:?}", fig.render_rgba().map(|v| v.len()));
-    fig.set_trace(id, &[[5.0, f64::NAN], [6.0, 1.0]], 0xFF8800FF, 1.5, VolcanoLineStyle::Solid);
+    fig.set_trace(
+        id,
+        &[[5.0, f64::NAN], [6.0, 1.0]],
+        0xFF8800FF,
+        1.5,
+        VolcanoLineStyle::Solid,
+    );
     eprintln!("nan point: {:?}", fig.render_rgba().map(|v| v.len()));
     fig.set_viewport(5.0, 5.0, 0.0, 1.0);
     eprintln!("degenerate xlim: {:?}", fig.render_rgba().map(|v| v.len()));

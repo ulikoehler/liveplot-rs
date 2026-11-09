@@ -598,6 +598,33 @@ impl TracesCollection {
         }
     }
 
+    /// Timestamp-merge of two point buffers (XY scopes): pairs points
+    /// whose timestamps differ by at most `tol`, advancing whichever
+    /// side lags. Returns `(x_value, y_value)` pairs in arrival order.
+    /// Shared by the egui draw path, the fit functions and the
+    /// VolcanoPlot upload so all three join identically.
+    pub fn join_xy_points(
+        x_pts: &VecDeque<[f64; 2]>,
+        y_pts: &VecDeque<[f64; 2]>,
+        tol: f64,
+    ) -> Vec<[f64; 2]> {
+        let mut out = Vec::new();
+        let (mut i, mut j) = (0usize, 0usize);
+        while i < x_pts.len() && j < y_pts.len() {
+            let dt = x_pts[i][0] - y_pts[j][0];
+            if dt.abs() <= tol {
+                out.push([x_pts[i][1], y_pts[j][1]]);
+                i += 1;
+                j += 1;
+            } else if dt < 0.0 {
+                i += 1;
+            } else {
+                j += 1;
+            }
+        }
+        out
+    }
+
     /// Return a reference to the point buffer without cloning.
     /// When `snapshot` is true, returns the snapshot buffer if available,
     /// otherwise falls back to the live buffer.

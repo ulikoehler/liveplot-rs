@@ -19,22 +19,23 @@ fn real_app_volcano_legend() {
     // fft_demo feeds two_tone + swept_freq.
     let two = bed.sink.create_trace("two_tone", None);
     bed.sink
-        .send_points(&two, crate::signals::gen(&SignalSpec::sine(5.0), 4096, 1000.0, 0.0))
+        .send_points(
+            &two,
+            crate::signals::gen(&SignalSpec::sine(5.0), 4096, 1000.0, 0.0),
+        )
         .unwrap();
     let sw = bed.sink.create_trace("swept_freq", None);
     bed.sink
-        .send_points(&sw, crate::signals::gen(&SignalSpec::sine(50.0), 4096, 1000.0, 0.0))
+        .send_points(
+            &sw,
+            crate::signals::gen(&SignalSpec::sine(50.0), 4096, 1000.0, 0.0),
+        )
         .unwrap();
     for _ in 0..40 {
         bed.harness.step();
     }
     let (lr, tr, rd) = {
-        let scopes = bed
-            .harness
-            .state()
-            .main_panel
-            .liveplot_panel
-            .get_data();
+        let scopes = bed.harness.state().main_panel.liveplot_panel.get_data();
         (
             scopes[0].legend_overlay_rect,
             scopes[0].trace_order.len(),

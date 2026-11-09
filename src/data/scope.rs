@@ -288,6 +288,11 @@ pub struct ScopeData {
     pub plot_id: Option<egui::Id>,
     pub last_plot_bounds: Option<([f64; 2], [f64; 2])>,
     pub last_plot_screen_rect: Option<[f32; 4]>,
+    /// Axes (inner plot) rect `[left, top, right, bottom]` in screen
+    /// space — the rect data coordinates map onto. The egui path
+    /// records `transform.frame()`; the volcano path records the
+    /// margin-derived axes rect. Observability for parity tests.
+    pub last_axes_screen_rect: Option<[f32; 4]>,
     /// Last frame's legend overlay rect (min.x,min.y,max.x,max.y) —
     /// observable for parity/E2E checks; `None` when no legend drew.
     pub legend_overlay_rect: Option<[f32; 4]>,
@@ -299,6 +304,10 @@ pub struct ScopeData {
     pub volcano_surface: Option<crate::volcano::VolcanoSurface>,
     #[cfg(feature = "volcano")]
     pub volcano_enabled: bool,
+    /// Frames the VolcanoPlot FFI dropped (size-mismatch readback) —
+    /// observability for parity/robustness tests.
+    #[cfg(feature = "volcano")]
+    pub volcano_dropped_frames: u32,
     /// When `true`, newly discovered traces are auto-assigned to this scope
     /// instead of the primary (first) scope.  Managed by
     /// `LiveplotPanel::set_default_scope`; at most one scope should have it set.
@@ -340,12 +349,15 @@ impl Default for ScopeData {
             plot_id: None,
             last_plot_bounds: None,
             last_plot_screen_rect: None,
+            last_axes_screen_rect: None,
             legend_overlay_rect: None,
             rendered_this_frame: false,
             #[cfg(feature = "volcano")]
             volcano_surface: None,
             #[cfg(feature = "volcano")]
             volcano_enabled: std::env::var_os("LIVEPLOT_VOLCANO").is_some(),
+            #[cfg(feature = "volcano")]
+            volcano_dropped_frames: 0,
             is_default_target: false,
             wants_default_target: false,
             cached_y_fit_key: None,

@@ -264,6 +264,9 @@ impl ScopePanel {
         let rect = plot_response.response.rect;
         self.data.last_plot_screen_rect =
             Some([rect.left(), rect.top(), rect.right(), rect.bottom()]);
+        let frame = *plot_response.transform.frame();
+        self.data.last_axes_screen_rect =
+            Some([frame.left(), frame.top(), frame.right(), frame.bottom()]);
         self.data.rendered_this_frame = true;
     }
 
@@ -368,12 +371,15 @@ impl ScopePanel {
         }
     }
 
-    fn capture_clicked_plot_point(&mut self, plot_response: &egui_plot::PlotResponse<bool>) {
-        let Some(screen_pos) = plot_response.response.interact_pointer_pos() else {
+    fn capture_clicked_plot_point(
+        &mut self,
+        response: &egui::Response,
+        transform: &egui_plot::PlotTransform,
+    ) {
+        let Some(screen_pos) = response.interact_pointer_pos() else {
             return;
         };
 
-        let transform = plot_response.transform;
         let plot_pos = transform.value_from_position(screen_pos);
         let x_plot = if self.data.x_axis.log_scale {
             if plot_pos.x > 0.0 {
@@ -1055,10 +1061,31 @@ impl ScopePanel {
         }
     }
 
+    /// Pixel margins `(left, right, bottom, top)` of the VolcanoPlot
+    /// axes inside its canvas — the SINGLE source feeding both
+    /// `vp_set_margins` (via `sync_and_render`) and the overlay
+    /// axes-rect. Short strips (FFT) get the reduced table.
+    #[cfg(feature = "volcano")]
+    fn volcano_margins_px(h: u32) -> (f32, f32, f32, f32) {
+        if (h as f32) < 160.0 {
+            (52.0, 10.0, 34.0, 6.0)
+        } else {
+            (60.0, 12.0, 56.0, 8.0)
+        }
+    }
+
     /// VolcanoPlot render path — replaces `egui_plot::Plot` entirely:
     /// series come from the Vulkan-rendered texture, interaction and
     /// overlays are handled here (egui widgets on top, painter for
     /// overlay items via `VolcanoPainterBackend`).
+    ///
+    /// Parity model (see docs/volcano-parity-verification-plan.md):
+    /// `data.*_axis.bounds` holds the unpadded "inner" bounds exactly
+    /// like the egui path's read-back; the VIEW shown to the user is
+    /// `pad_axis_bounds(inner)` — the same 5 %-per-side pad the egui
+    /// transform applies. `live_update`/`fit_*`/`update` run upstream
+    /// and keep `data.*_bounds` current on both paths, so the volcano
+    /// path never needs a parallel user-bounds store.
     #[cfg(feature = "volcano")]
     fn render_volcano_plot<F>(
         &mut self,
@@ -1074,40 +1101,35 @@ impl ScopePanel {
             &mut Vec<crate::panels::scope_legend::LegendEntryData>,
         ),
     {
-        use crate::panels::plot_backend::VolcanoPainterBackend;
+        use crate::panels::plot_backend::{
+            pad_axis_bounds, unpad_axis_bounds, PlotBackend as _, VolcanoPainterBackend,
+        };
         use egui::epaint::RectShape;
 
         let desired = ui.available_size();
-        let (rect, resp) =
-            ui.allocate_exact_size(desired, egui::Sense::click_and_drag());
+        let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::click_and_drag());
         let plot_id = ui.make_persistent_id(format!("scope_plot_{}", self.data.name));
         self.data.plot_id = Some(plot_id);
 
-        // The current VIEW = the user's zoomed bounds when present,
-        // else the data bounds. `live_update` rewrites
-        // `data.x_axis.bounds` to the trailing window every frame, so
-        // pan/zoom must compound on `surf.user_bounds` (egui_plot's
-        // auto_bounds=false equivalent) — else the first decayed scroll
-        // step re-bases onto the live window and zoom is lost.
         let (w, h) = (rect.width() as u32, rect.height() as u32);
         let dark = ui.visuals().dark_mode;
         let mut surf = self.data.volcano_surface.take().unwrap_or_default();
-        // Auto-fit hands control back to the data.
-        if self.data.x_axis.auto_fit || self.data.y_axis.auto_fit {
-            surf.user_bounds = None;
-        }
-        let (x0, x1) = surf
-            .user_bounds
-            .map(|(xb, _)| (xb[0], xb[1]))
-            .unwrap_or(self.data.x_axis.bounds);
-        let (y0, y1) = surf
-            .user_bounds
-            .map(|(_, yb)| (yb[0], yb[1]))
-            .unwrap_or(self.data.y_axis.bounds);
-        if x0.is_finite() && x1.is_finite() && x1 > x0
-            && y0.is_finite() && y1.is_finite() && y1 > y0
+        // The viewport is `pad(data.bounds)` — identical to what the
+        // egui path writes into its transform each frame
+        // (`x_space`/`y_space` block). `live_update` keeps
+        // `data.x_axis.bounds` on the trailing window when live, so
+        // a zoomed span (recorded into `time_window` below) keeps
+        // scrolling exactly like the egui path.
+        let (ix0, ix1) = self.data.x_axis.bounds;
+        let (iy0, iy1) = self.data.y_axis.bounds;
+        if ix0.is_finite()
+            && ix1.is_finite()
+            && ix1 > ix0
+            && iy0.is_finite()
+            && iy1.is_finite()
+            && iy1 > iy0
         {
-            surf.bounds = ([x0, x1], [y0, y1]);
+            surf.bounds = (pad_axis_bounds([ix0, ix1]), pad_axis_bounds([iy0, iy1]));
             surf.bounds_external = true;
         }
         let ok = surf.sync_and_render(
@@ -1118,6 +1140,7 @@ impl ScopePanel {
             h,
             dark,
             ui.visuals().panel_fill,
+            Self::volcano_margins_px(h),
         );
         if !ok {
             // Vulkan unavailable — permanently fall back to egui_plot.
@@ -1133,152 +1156,188 @@ impl ScopePanel {
                 egui::Color32::WHITE,
             );
         }
+        // The surface may have fitted the first frame — read back the
+        // VIEW bounds it actually used (padded).
+        let view_initial = surf.bounds;
+        self.data.volcano_dropped_frames = surf.dropped_frames;
         self.data.volcano_surface = Some(surf);
 
-        // Axes rect inside the texture (VolcanoPlot's grid margins —
-        // keep in sync with volcano_ffi.cpp: left .11, right .985,
-        // bottom .14, top .985).
-        const ML: f32 = 0.07;
-        const MR: f32 = 0.985;
-        const MB: f32 = 0.20;
-        const MT: f32 = 0.985;
+        // Axes rect inside the texture — the same pixel margins passed
+        // to `vp_set_margins` via `volcano_margins_px` (single source).
+        let (ml, mr, mb, mt) = Self::volcano_margins_px(h);
         let axes = egui::Rect::from_min_max(
-            egui::pos2(
-                rect.left() + rect.width() * ML,
-                rect.bottom() - rect.height() * MT,
-            ),
-            egui::pos2(
-                rect.left() + rect.width() * MR,
-                rect.bottom() - rect.height() * MB,
-            ),
+            egui::pos2(rect.left() + ml, rect.top() + mt),
+            egui::pos2(rect.right() - mr, rect.bottom() - mb),
         );
 
-        // Input → data bounds.
+        // Input handling: everything happens in VIEW space (the padded
+        // bounds) — the same space egui_plot's transform exposes. On a
+        // change we store `unpad(view)` back into `data.*_axis.bounds`
+        // plus `time_window` — identical to the egui read-back block.
+        let mut view = view_initial;
         let mut bounds_changed = false;
-        let to_data = |p: egui::Pos2| -> [f64; 2] {
+        let (mut changed_x, mut changed_y) = (false, false);
+        let to_view = |v: ([f64; 2], [f64; 2]), p: egui::Pos2| -> [f64; 2] {
             [
-                x0 + (p.x - axes.left()) as f64 / axes.width() as f64 * (x1 - x0),
-                y0 + (axes.bottom() - p.y) as f64 / axes.height() as f64 * (y1 - y0),
+                v.0[0] + (p.x - axes.left()) as f64 / axes.width() as f64 * (v.0[1] - v.0[0]),
+                v.1[0] + (axes.bottom() - p.y) as f64 / axes.height() as f64 * (v.1[1] - v.1[0]),
             ]
         };
+
+        // Primary-drag pan (both axes — same as egui_plot).
         if resp.dragged_by(egui::PointerButton::Primary) {
             let d = resp.drag_delta();
-            let dx = -(d.x as f64) / axes.width() as f64 * (x1 - x0);
-            let dy = (d.y as f64) / axes.height() as f64 * (y1 - y0);
-            self.data.x_axis.bounds = (x0 + dx, x1 + dx);
-            self.data.y_axis.bounds = (y0 + dy, y1 + dy);
-            self.data.x_axis.auto_fit = false;
-            self.data.y_axis.auto_fit = false;
+            let dx = -(d.x as f64) / axes.width() as f64 * (view.0[1] - view.0[0]);
+            let dy = (d.y as f64) / axes.height() as f64 * (view.1[1] - view.1[0]);
+            view.0 = [view.0[0] + dx, view.0[1] + dx];
+            view.1 = [view.1[0] + dy, view.1[1] + dy];
             bounds_changed = true;
+            changed_x = true;
+            changed_y = true;
         }
-        if resp.contains_pointer() {
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-            if scroll.abs() > 0.01 {
-                let zoom_x = matches!(
-                    self.zoom_mode,
-                    ZoomMode::Both | ZoomMode::X
-                );
-                let zoom_y = matches!(
-                    self.zoom_mode,
-                    ZoomMode::Both | ZoomMode::Y
-                );
-                let f = (1.0 - scroll as f64 * 0.002).clamp(0.5, 2.0);
-                if let Some(pos) = resp.hover_pos() {
-                    let c = to_data(pos);
-                    let (mut nx0, mut nx1) = (x0, x1);
-                    let (mut ny0, mut ny1) = (y0, y1);
-                    if zoom_x {
-                        nx0 = c[0] + (x0 - c[0]) * f;
-                        nx1 = c[0] + (x1 - c[0]) * f;
-                    }
-                    if zoom_y {
-                        ny0 = c[1] + (y0 - c[1]) * f;
-                        ny1 = c[1] + (y1 - c[1]) * f;
-                    }
-                    self.data.x_axis.bounds = (nx0, nx1);
-                    self.data.y_axis.bounds = (ny0, ny1);
-                    self.data.x_axis.auto_fit = false;
-                    self.data.y_axis.auto_fit = false;
+
+        // Wheel zoom around the hovered point — same factor math as
+        // the egui path (`1 ± scroll·0.001`, new = c + (old−c)/f), incl.
+        // horizontal-scroll → x zoom and the over-legend guard so the
+        // wheel scrolls the legend instead of zooming the plot.
+        let scroll = ui.input(|i| i.smooth_scroll_delta);
+        let hover_pos = resp.hover_pos();
+        let over_legend = self
+            .legend_overlay_rect
+            .is_some_and(|r| hover_pos.is_some_and(|p| r.contains(p)));
+        if (scroll.x != 0.0 || scroll.y != 0.0) && resp.hovered() && !over_legend {
+            let mut f = egui::vec2(1.0, 1.0);
+            if scroll.y != 0.0 && matches!(self.zoom_mode, ZoomMode::X | ZoomMode::Both) {
+                f.x = 1.0 + scroll.y * 0.001;
+            } else if scroll.x != 0.0 {
+                f.x = 1.0 - scroll.x * 0.001;
+            }
+            if matches!(self.zoom_mode, ZoomMode::Y | ZoomMode::Both) {
+                f.y = 1.0 + scroll.y * 0.001;
+            }
+            if (f.x != 1.0 || f.y != 1.0)
+                && matches!(self.zoom_mode, ZoomMode::X | ZoomMode::Y | ZoomMode::Both)
+            {
+                if let Some(pos) = hover_pos {
+                    let c = to_view(view, pos);
+                    view.0 = [
+                        c[0] + (view.0[0] - c[0]) / f.x as f64,
+                        c[0] + (view.0[1] - c[0]) / f.x as f64,
+                    ];
+                    view.1 = [
+                        c[1] + (view.1[0] - c[1]) / f.y as f64,
+                        c[1] + (view.1[1] - c[1]) / f.y as f64,
+                    ];
                     bounds_changed = true;
+                    changed_x |= f.x != 1.0;
+                    changed_y |= f.y != 1.0;
                 }
             }
         }
-        // Box zoom: secondary drag.
+
+        // Box zoom: secondary drag, honoring ZoomMode (X → full-height
+        // band + x-only bounds, Y → transposed, Off → cancelled), with
+        // the same clipped band strokes the egui path draws.
         let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
-        if resp.drag_started_by(egui::PointerButton::Secondary) {
+        if self.zoom_mode == ZoomMode::Off {
+            self.box_zoom_start = None;
+        } else if resp.drag_started_by(egui::PointerButton::Secondary) {
             self.box_zoom_start = resp.interact_pointer_pos();
         }
         if self.box_zoom_start.is_some() && escape {
             self.box_zoom_start = None;
         }
-        if let (Some(a), Some(b)) =
-            (self.box_zoom_start, resp.interact_pointer_pos())
-        {
+        let box_pos = resp.interact_pointer_pos().or(hover_pos);
+        if let (Some(a), Some(b)) = (self.box_zoom_start, box_pos) {
             if resp.dragged_by(egui::PointerButton::Secondary) {
-                let r = egui::Rect::from_two_pos(a, b);
-                ui.painter().add(RectShape::stroke(
-                    r,
+                let band = match self.zoom_mode {
+                    ZoomMode::X => {
+                        egui::Rect::from_x_y_ranges(a.x.min(b.x)..=a.x.max(b.x), axes.y_range())
+                    }
+                    ZoomMode::Y => {
+                        egui::Rect::from_x_y_ranges(axes.x_range(), a.y.min(b.y)..=a.y.max(b.y))
+                    }
+                    _ => egui::Rect::from_two_pos(a, b),
+                };
+                let painter = ui.painter().with_clip_rect(axes);
+                painter.add(RectShape::stroke(
+                    band,
                     0.0,
-                    egui::Stroke::new(1.0, egui::Color32::LIGHT_BLUE),
-                    egui::StrokeKind::Inside,
+                    egui::Stroke::new(4.0, egui::Color32::DARK_BLUE),
+                    egui::StrokeKind::Middle,
+                ));
+                painter.add(RectShape::stroke(
+                    band,
+                    0.0,
+                    egui::Stroke::new(2.0, egui::Color32::WHITE),
+                    egui::StrokeKind::Middle,
                 ));
             }
             if resp.drag_stopped_by(egui::PointerButton::Secondary) {
-                let (lo, hi) = (to_data(a.min(b)), to_data(a.max(b)));
-                if (hi[0] - lo[0]).abs() > 1e-12 && (hi[1] - lo[1]).abs() > 1e-12 {
-                    self.data.x_axis.bounds = (lo[0], hi[0]);
-                    self.data.y_axis.bounds = (lo[1], hi[1]);
-                    self.data.x_axis.auto_fit = false;
-                    self.data.y_axis.auto_fit = false;
-                    bounds_changed = true;
+                let (lo, hi) = (to_view(view, a.min(b)), to_view(view, a.max(b)));
+                match self.zoom_mode {
+                    ZoomMode::X => {
+                        if (hi[0] - lo[0]).abs() > 1e-12 {
+                            view.0 = [lo[0], hi[0]];
+                            changed_x = true;
+                        }
+                    }
+                    ZoomMode::Y => {
+                        if (hi[1] - lo[1]).abs() > 1e-12 {
+                            view.1 = [lo[1], hi[1]];
+                            changed_y = true;
+                        }
+                    }
+                    ZoomMode::Both => {
+                        if (hi[0] - lo[0]).abs() > 1e-12 {
+                            view.0 = [lo[0], hi[0]];
+                            changed_x = true;
+                        }
+                        if (hi[1] - lo[1]).abs() > 1e-12 {
+                            view.1 = [lo[1], hi[1]];
+                            changed_y = true;
+                        }
+                    }
+                    ZoomMode::Off => {}
                 }
+                bounds_changed |= changed_x || changed_y;
                 self.box_zoom_start = None;
             }
         }
-        if resp.double_clicked() {
-            self.data.x_axis.auto_fit = true;
-            self.data.y_axis.auto_fit = true;
-            bounds_changed = true;
-        }
-        // Click: measurement point + pause (same semantics as egui path).
-        if resp.clicked() {
-            if let Some(pos) = resp.interact_pointer_pos() {
-                let p = to_data(pos);
-                let xp = if self.data.x_axis.log_scale && p[0] > 0.0 {
-                    p[0].log10()
-                } else {
-                    p[0]
-                };
-                let yp = if self.data.y_axis.log_scale && p[1] > 0.0 {
-                    p[1].log10()
-                } else {
-                    p[1]
-                };
-                self.data.clicked_point = Some([xp, yp]);
-                self.data.clicked_screen_pos = Some([pos.x, pos.y]);
-            }
-            if !self.data.pause_on_click && self.data.measurement_active
-                && !self.data.paused
-            {
-                self.data.paused = true;
-                self.pending_pause = Some(true);
-            }
-        }
+
         if bounds_changed {
-            // Pan/zoom owns the view — disable auto-fit so the manual
-            // bounds persist (same as the egui_plot path at ~2211).
-            // Double-click/fit re-enables it and releases user_bounds.
-            let user_zoom = !(self.data.x_axis.auto_fit
-                && self.data.y_axis.auto_fit);
-            if let Some(s) = self.data.volcano_surface.as_mut() {
-                s.user_bounds = if user_zoom {
-                    Some((
-                        [self.data.x_axis.bounds.0, self.data.x_axis.bounds.1],
-                        [self.data.y_axis.bounds.0, self.data.y_axis.bounds.1],
-                    ))
-                } else {
-                    None
-                };
+            // Identical to the egui read-back block (~2196): store the
+            // INNER bounds, update `time_window` on x changes (this is
+            // what keeps autoscroll running at the zoomed span), and
+            // clear auto_fit on the changed axes.
+            let (nx0, nx1) = {
+                let r = unpad_axis_bounds(view.0);
+                (r[0], r[1])
+            };
+            let (ny0, ny1) = {
+                let r = unpad_axis_bounds(view.1);
+                (r[0], r[1])
+            };
+            self.data.x_axis.bounds = (nx0, nx1);
+            self.data.y_axis.bounds = (ny0, ny1);
+            if changed_x {
+                self.data.x_axis.auto_fit = false;
+                self.data.time_window = nx1 - nx0;
+            }
+            if changed_y {
+                self.data.y_axis.auto_fit = false;
+            }
+            if let Some(ctrl) = &self.event_ctrl {
+                let mut evt = crate::events::PlotEvent::new(
+                    crate::events::EventKind::ZOOM | crate::events::EventKind::PAN,
+                );
+                evt.view_change = Some(crate::events::ViewChangeMeta {
+                    x_range: Some(self.data.x_axis.bounds),
+                    y_range: Some(self.data.y_axis.bounds),
+                    scope_id: Some(self.data.id),
+                    scope_type: Some(self.data.scope_type),
+                });
+                ctrl.emit_filtered(evt);
             }
             self.pending_view_change = Some(crate::events::ViewChangeMeta {
                 x_range: Some(self.data.x_axis.bounds),
@@ -1288,60 +1347,163 @@ impl ScopePanel {
             });
         }
 
-        // Legend entries + overlays via the painter backend.
-        let mut legend_entries: Vec<crate::panels::scope_legend::LegendEntryData> =
-            Vec::new();
-        for name in self.data.trace_order.iter() {
-            let Some(tr) = traces.get_trace(name) else { continue };
-            legend_entries.push(crate::panels::scope_legend::LegendEntryData {
-                id: crate::panels::scope_legend::trace_item_id(name),
-                label: traces.display_label(name),
-                color: tr.look.color,
-            });
-        }
-        if self.data.scope_type == crate::data::scope::ScopeType::XYScope {
-            for (xn, yn, pl) in self.data.xy_pairs.iter() {
-                let (Some(xn), Some(yn)) = (xn, yn) else { continue };
+        // Legend entries — identical labels/ids/order to the egui
+        // path: XY scopes list pairs (plus `(last)` markers) only;
+        // time scopes list traces.
+        let mut legend_entries: Vec<crate::panels::scope_legend::LegendEntryData> = Vec::new();
+        let mut xy_last_marks: Vec<(
+            crate::panels::scope_legend::LegendEntryData,
+            [f64; 2],
+            crate::data::trace_look::TraceLook,
+        )> = Vec::new();
+        if self.data.scope_type == ScopeType::XYScope && !self.data.xy_pairs.is_empty() {
+            const TOL: f64 = 1e-9;
+            for (x_name, y_name, pair_look) in self.data.xy_pairs.iter() {
+                let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
+                    continue;
+                };
+                let (Some(x_tr), Some(y_tr)) = (traces.get_trace(x_name), traces.get_trace(y_name))
+                else {
+                    continue;
+                };
+                let (Some(x_pts), Some(y_pts)) = (
+                    traces.get_points_ref(x_name, self.data.paused),
+                    traces.get_points_ref(y_name, self.data.paused),
+                ) else {
+                    continue;
+                };
+                let joined = TracesCollection::join_xy_points(x_pts, y_pts, TOL);
+                if joined.is_empty() {
+                    continue;
+                }
+                let pair_id = crate::panels::scope_legend::xy_pair_item_id(x_name, y_name);
+                let legend_label = xy_pair_legend_label(
+                    self.data.show_info_in_legend,
+                    traces,
+                    x_name,
+                    y_name,
+                    &y_tr.info,
+                );
                 legend_entries.push(crate::panels::scope_legend::LegendEntryData {
-                    id: crate::panels::scope_legend::xy_pair_item_id(xn, yn),
-                    label: format!("{}/{}", xn.0, yn.0),
-                    color: pl.color,
+                    id: pair_id,
+                    label: legend_label.clone(),
+                    color: pair_look.color,
+                });
+                if pair_look.highlight_newest_point {
+                    let last = *joined.last().unwrap();
+                    let last_id = crate::panels::scope_legend::xy_last_point_item_id(pair_id);
+                    let entry = crate::panels::scope_legend::LegendEntryData {
+                        id: last_id,
+                        label: format!("{legend_label} (last)"),
+                        color: pair_look.color,
+                    };
+                    legend_entries.push(entry.clone());
+                    // last-point in *linear* space — the overlay painter
+                    // applies log like the egui path does on push.
+                    xy_last_marks.push((
+                        entry,
+                        [last[0] + x_tr.offset, last[1] + y_tr.offset],
+                        pair_look.clone(),
+                    ));
+                }
+            }
+        } else {
+            for name in self.data.trace_order.iter() {
+                let Some(tr) = traces.get_trace(name) else {
+                    continue;
+                };
+                legend_entries.push(crate::panels::scope_legend::LegendEntryData {
+                    id: crate::panels::scope_legend::trace_item_id(name),
+                    label: trace_legend_label(
+                        self.data.show_info_in_legend,
+                        traces,
+                        name,
+                        &tr.info,
+                    ),
+                    color: tr.look.color,
                 });
             }
         }
-        let bounds = if self.data.x_axis.bounds.0.is_finite()
-            && self.data.x_axis.bounds.1.is_finite()
-            && self.data.x_axis.bounds.1 > self.data.x_axis.bounds.0
-            && self.data.y_axis.bounds.0.is_finite()
-            && self.data.y_axis.bounds.1.is_finite()
-            && self.data.y_axis.bounds.1 > self.data.y_axis.bounds.0
+
+        // Overlay items (thresholds, triggers, measurement markers and
+        // the XY last-point markers) render through the painter backend
+        // with the VIEW bounds — the same transform egui_plot exposes.
+        let mut vpb_transform = egui_plot::PlotTransform::new(
+            axes,
+            egui_plot::PlotBounds::from_min_max([view.0[0], view.1[0]], [view.0[1], view.1[1]]),
+            egui::Vec2b::new(false, false),
+        );
         {
-            egui_plot::PlotBounds::from_min_max(
-                [self.data.x_axis.bounds.0, self.data.y_axis.bounds.0],
-                [self.data.x_axis.bounds.1, self.data.y_axis.bounds.1],
-            )
-        } else {
-            egui_plot::PlotBounds::from_min_max([0.0, 0.0], [1.0, 1.0])
-        };
-        use crate::panels::plot_backend::PlotBackend as _;
-        let mut vpb = VolcanoPainterBackend::new(ui, &resp, axes, bounds);
-        draw_overlays(&mut vpb, &self.data, traces, &mut legend_entries);
-        let (nx0, nx1) = (vpb.plot_bounds().min()[0], vpb.plot_bounds().max()[0]);
-        let (ny0, ny1) = (vpb.plot_bounds().min()[1], vpb.plot_bounds().max()[1]);
-        if (nx0, nx1) != self.data.x_axis.bounds {
-            self.data.x_axis.bounds = (nx0, nx1);
-        }
-        if (ny0, ny1) != self.data.y_axis.bounds {
-            self.data.y_axis.bounds = (ny0, ny1);
+            let bounds =
+                egui_plot::PlotBounds::from_min_max([view.0[0], view.1[0]], [view.0[1], view.1[1]]);
+            let mut vpb = VolcanoPainterBackend::new(ui, &resp, axes, bounds);
+            // XY newest-point markers — same `Points` item the egui
+            // path draws inside the pair loop.
+            for (entry, p, pl) in xy_last_marks.iter() {
+                let (lx, ly) = {
+                    let x = if self.data.x_axis.log_scale && p[0] > 0.0 {
+                        p[0].log10()
+                    } else {
+                        p[0]
+                    };
+                    let y = if self.data.y_axis.log_scale && p[1] > 0.0 {
+                        p[1].log10()
+                    } else {
+                        p[1]
+                    };
+                    (x, y)
+                };
+                if lx.is_finite() && ly.is_finite() {
+                    let radius = (pl.point_size.max(0.5) * 2.0).max(2.0);
+                    vpb.points(
+                        egui_plot::Points::new(entry.label.clone(), vec![[lx, ly]])
+                            .id(entry.id)
+                            .radius(radius)
+                            .shape(pl.marker)
+                            .color(pl.color),
+                    );
+                }
+            }
+            draw_overlays(&mut vpb, &self.data, traces, &mut legend_entries);
+            // Overlays may mutate bounds (set_plot_bounds_x/y) — write
+            // the new VIEW back as inner bounds, like the egui
+            // read-back.
+            let vb = vpb.plot_bounds();
+            let (nx0, nx1) = (vb.min()[0], vb.max()[0]);
+            let (ny0, ny1) = (vb.min()[1], vb.max()[1]);
+            if (nx0, nx1) != (view.0[0], view.0[1]) || (ny0, ny1) != (view.1[0], view.1[1]) {
+                view.0 = [nx0, nx1];
+                view.1 = [ny0, ny1];
+                let ix = unpad_axis_bounds(view.0);
+                let iy = unpad_axis_bounds(view.1);
+                if ix != [self.data.x_axis.bounds.0, self.data.x_axis.bounds.1] {
+                    self.data.x_axis.bounds = (ix[0], ix[1]);
+                    self.data.x_axis.auto_fit = false;
+                    self.data.time_window = ix[1] - ix[0];
+                }
+                if iy != [self.data.y_axis.bounds.0, self.data.y_axis.bounds.1] {
+                    self.data.y_axis.bounds = (iy[0], iy[1]);
+                    self.data.y_axis.auto_fit = false;
+                }
+                vpb_transform = egui_plot::PlotTransform::new(
+                    axes,
+                    egui_plot::PlotBounds::from_min_max(
+                        [view.0[0], view.1[0]],
+                        [view.0[1], view.1[1]],
+                    ),
+                    egui::Vec2b::new(false, false),
+                );
+            }
         }
 
         // Legend overlay (same Area + PlotMemory channel as egui path).
-        // Same suppression conditions: force-hide + size thresholds.
+        // Suppression mirrors the egui path: force-hide + thresholds
+        // against the TOTAL widget size (not the plot rect).
         let hide_legend = self.data.force_hide_legend
             || (self.min_width_for_legend > 0.0
-                && rect.width() < self.min_width_for_legend)
+                && self.total_widget_size.x < self.min_width_for_legend)
             || (self.min_height_for_legend > 0.0
-                && rect.height() < self.min_height_for_legend);
+                && self.total_widget_size.y < self.min_height_for_legend);
         self.legend_overlay_rect = None;
         self.data.legend_overlay_rect = None;
         if self.data.show_legend && !hide_legend && !legend_entries.is_empty() {
@@ -1355,25 +1517,24 @@ impl ScopePanel {
                     |id| mem.hidden_items.contains(id),
                 ) {
                     self.legend_overlay_rect = res.rect;
-            self.data.legend_overlay_rect = res
-                .rect
-                .map(|r| [r.left(), r.top(), r.right(), r.bottom()]);
+                    self.data.legend_overlay_rect =
+                        res.rect.map(|r| [r.left(), r.top(), r.right(), r.bottom()]);
                     mem.hidden_items.clear();
                     mem.hidden_items.extend(res.hidden_items.iter().copied());
                     mem.hovered_legend_item = res.hovered_item;
                     mem.store(ui.ctx(), plot_id);
                 }
             }
+            // Right-click on the hovered legend item: isolate it, or
+            // re-show everything when already isolated (same as egui).
             if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), plot_id) {
                 if let Some(hovered_id) = mem.hovered_legend_item {
-                    if ui.input(|i| i.pointer.secondary_clicked())
-                        && resp.contains_pointer()
-                    {
+                    if ui.input(|i| i.pointer.secondary_clicked()) && resp.contains_pointer() {
                         let all_ids: Vec<egui_plot::ItemId> =
                             legend_entries.iter().map(|e| e.id).collect();
-                        let is_isolated = all_ids.iter().all(|id| {
-                            *id == hovered_id || mem.hidden_items.contains(id)
-                        });
+                        let is_isolated = all_ids
+                            .iter()
+                            .all(|id| *id == hovered_id || mem.hidden_items.contains(id));
                         mem.hidden_items.clear();
                         if !is_isolated {
                             for id in &all_ids {
@@ -1388,13 +1549,26 @@ impl ScopePanel {
             }
         }
 
-        // Geometry for tests/debug.
+        // Hidden items → look.visible + published set — the same
+        // post-legend sync the egui path runs (shared helper).
+        self.sync_legend_hidden_to_looks(ui.ctx(), plot_id, traces, hide_legend);
+
+        // Click / double-click semantics — identical to the egui path
+        // via the shared handler (fit-on-double-click, clicked_point,
+        // pause-on-click, measurement capture, CLICK/PAUSE events).
+        self.handle_plot_click(&resp, &vpb_transform, traces);
+
+        // Drag-and-drop of traces from the traces panel — same as egui.
+        self.handle_trace_drop(ui, &resp);
+
+        // Geometry for tests/debug — `[l,t,r,b]` like the egui path;
+        // `last_plot_bounds` reports the VIEW (padded) bounds like the
+        // egui transform does.
         self.data.last_plot_screen_rect =
-            Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
-        self.data.last_plot_bounds = Some((
-            [self.data.x_axis.bounds.0, self.data.x_axis.bounds.1],
-            [self.data.y_axis.bounds.0, self.data.y_axis.bounds.1],
-        ));
+            Some([rect.left(), rect.top(), rect.right(), rect.bottom()]);
+        self.data.last_axes_screen_rect =
+            Some([axes.left(), axes.top(), axes.right(), axes.bottom()]);
+        self.data.last_plot_bounds = Some((view.0, view.1));
         self.data.rendered_this_frame = true;
         true
     }
@@ -1692,13 +1866,13 @@ impl ScopePanel {
                     let mut width: f32 = pair_look.width.max(0.1);
                     let style = pair_look.style;
 
-                    let x_label = traces.display_label(&x_name);
-                    let y_label = traces.display_label(&y_name);
-                    let legend_label = if self.data.show_info_in_legend && !y_tr.info.is_empty() {
-                        format!("{} vs {} — {}", y_label, x_label, y_tr.info)
-                    } else {
-                        format!("{} vs {}", y_label, x_label)
-                    };
+                    let legend_label = xy_pair_legend_label(
+                        self.data.show_info_in_legend,
+                        traces,
+                        &x_name,
+                        &y_name,
+                        &y_tr.info,
+                    );
                     // Canonical item id, independent of display aliases.
                     let pair_id = crate::panels::scope_legend::xy_pair_item_id(&x_name, &y_name);
                     legend_entries.push(crate::panels::scope_legend::LegendEntryData {
@@ -1723,29 +1897,31 @@ impl ScopePanel {
                     }
 
                     if !volcano_ok {
-                    plot_ui.line(
-                        Line::new(legend_label.clone(), derived.clone())
-                            .id(pair_id)
-                            .name(legend_label.clone())
-                            .color(color)
-                            .width(width)
-                            .style(style),
-                    );                    }
+                        plot_ui.line(
+                            Line::new(legend_label.clone(), derived.clone())
+                                .id(pair_id)
+                                .name(legend_label.clone())
+                                .color(color)
+                                .width(width)
+                                .style(style),
+                        );
+                    }
 
                     let highlight_newest = pair_look.highlight_newest_point;
 
                     if pair_look.show_points {
                         let radius = pair_look.point_size.max(0.5);
                         if !volcano_ok {
-                        plot_ui.points(
-                            Points::new(legend_label.clone(), derived.clone())
-                                // Same id as the pair line so they merge into
-                                // one legend entry (as before via shared name).
-                                .id(pair_id)
-                                .radius(radius)
-                                .shape(pair_look.marker)
-                                .color(color),
-                        );                        }
+                            plot_ui.points(
+                                Points::new(legend_label.clone(), derived.clone())
+                                    // Same id as the pair line so they merge into
+                                    // one legend entry (as before via shared name).
+                                    .id(pair_id)
+                                    .radius(radius)
+                                    .shape(pair_look.marker)
+                                    .color(color),
+                            );
+                        }
                     }
 
                     if highlight_newest {
@@ -1759,13 +1935,14 @@ impl ScopePanel {
                             color: pair_look.color,
                         });
                         if !volcano_ok {
-                        plot_ui.points(
-                            Points::new(format!("{legend_label} (last)"), vec![last])
-                                .id(last_id)
-                                .radius(radius)
-                                .shape(pair_look.marker)
-                                .color(color),
-                        );                        }
+                            plot_ui.points(
+                                Points::new(format!("{legend_label} (last)"), vec![last])
+                                    .id(last_id)
+                                    .radius(radius)
+                                    .shape(pair_look.marker)
+                                    .color(color),
+                            );
+                        }
                     }
                 }
             } else {
@@ -1827,14 +2004,15 @@ impl ScopePanel {
                             let resp = plot_ui.response();
                             let painter = resp.ctx.layer_painter(resp.layer_id);
                             if !volcano_ok {
-                            paint_density(
-                                &painter,
-                                transform,
-                                dcache,
-                                color,
-                                brightness_gain,
-                                self.data.x_axis.bounds,
-                            );                            }
+                                paint_density(
+                                    &painter,
+                                    transform,
+                                    dcache,
+                                    color,
+                                    brightness_gain,
+                                    self.data.x_axis.bounds,
+                                );
+                            }
                         }
                         // Still draw a thin outline line for context
                         let shown_pts = match traces.get_drawn_points_envelope(
@@ -1872,12 +2050,8 @@ impl ScopePanel {
                                 [x, y]
                             })
                             .collect();
-                        let display = traces.display_label(name);
-                        let legend_label = if self.data.show_info_in_legend && !info.is_empty() {
-                            format!("{} — {}", display, info)
-                        } else {
-                            display
-                        };
+                        let legend_label =
+                            trace_legend_label(self.data.show_info_in_legend, traces, name, &info);
                         legend_entries.push(crate::panels::scope_legend::LegendEntryData {
                             id: crate::panels::scope_legend::trace_item_id(name),
                             label: legend_label.clone(),
@@ -1894,7 +2068,8 @@ impl ScopePanel {
                             .style(style)
                             .name(legend_label);
                         if !volcano_ok {
-                        plot_ui.line(line);                        }
+                            plot_ui.line(line);
+                        }
                         continue;
                     }
 
@@ -1983,12 +2158,8 @@ impl ScopePanel {
                         .color(color)
                         .width(width)
                         .style(style);
-                    let display = traces.display_label(name);
-                    let legend_label = if self.data.show_info_in_legend && !info.is_empty() {
-                        format!("{} — {}", display, info)
-                    } else {
-                        display
-                    };
+                    let legend_label =
+                        trace_legend_label(self.data.show_info_in_legend, traces, name, &info);
                     line = line.name(legend_label.clone());
                     legend_entries.push(crate::panels::scope_legend::LegendEntryData {
                         id: crate::panels::scope_legend::trace_item_id(name),
@@ -1996,7 +2167,8 @@ impl ScopePanel {
                         color: base_color,
                     });
                     if !volcano_ok {
-                    plot_ui.line(line);                    }
+                        plot_ui.line(line);
+                    }
 
                     // Optional point markers for each datapoint
                     if show_points && !pts_vec.is_empty() {
@@ -2014,7 +2186,8 @@ impl ScopePanel {
                             .shape(marker)
                             .color(color);
                         if !volcano_ok {
-                        plot_ui.points(points);                        }
+                            plot_ui.points(points);
+                        }
                     }
                 }
             }
@@ -2055,9 +2228,8 @@ impl ScopePanel {
                     |id| mem.hidden_items.contains(id),
                 ) {
                     self.legend_overlay_rect = res.rect;
-            self.data.legend_overlay_rect = res
-                .rect
-                .map(|r| [r.left(), r.top(), r.right(), r.bottom()]);
+                    self.data.legend_overlay_rect =
+                        res.rect.map(|r| [r.left(), r.top(), r.right(), r.bottom()]);
                     mem.hidden_items.clear();
                     mem.hidden_items.extend(res.hidden_items.iter().copied());
                     mem.hovered_legend_item = res.hovered_item;
@@ -2099,51 +2271,9 @@ impl ScopePanel {
             }
         }
 
-        // Sync legend hidden_items back to trace.look.visible so that
-        // auto-fit (which checks trace.look.visible) respects legend toggling.
-        if self.data.show_legend && !hide_legend {
-            if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
-                if self.data.scope_type == ScopeType::XYScope && !self.data.xy_pairs.is_empty() {
-                    for (x_name, y_name, pair_look) in self.data.xy_pairs.iter_mut() {
-                        let (Some(x_name), Some(y_name)) = (x_name.as_ref(), y_name.as_ref())
-                        else {
-                            continue;
-                        };
-                        let (Some(x_tr), Some(y_tr)) =
-                            (traces.get_trace(x_name), traces.get_trace(y_name))
-                        else {
-                            continue;
-                        };
-                        let id = crate::panels::scope_legend::xy_pair_item_id(x_name, y_name);
-                        let was_visible =
-                            pair_look.visible && x_tr.look.visible && y_tr.look.visible;
-                        let now_visible = !mem.hidden_items.contains(&id);
-                        if was_visible != now_visible {
-                            pair_look.visible = now_visible;
-                        }
-                    }
-                } else {
-                    for name in self.data.trace_order.iter() {
-                        let Some(tr) = traces.get_trace_mut(name) else {
-                            continue;
-                        };
-                        let id = crate::panels::scope_legend::trace_item_id(name);
-                        let now_visible = !mem.hidden_items.contains(&id);
-                        if tr.look.visible != now_visible {
-                            tr.look.visible = now_visible;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Publish the set of legend-hidden item ids so other systems
-        // (measurements, markers) can exclude hidden overlays from bounds.
-        // Kept in sync even when the legend is off so hidden items still
-        // match what is actually drawn.
-        if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
-            self.data.legend_hidden_items = mem.hidden_items.iter().copied().collect();
-        }
+        // Hidden items → look.visible + published set (shared with the
+        // volcano path).
+        self.sync_legend_hidden_to_looks(ui.ctx(), plot_id, traces, hide_legend);
 
         // Draw box zoom selection rectangle if active
         if let Some(start) = self.box_zoom_start {
@@ -2245,7 +2375,7 @@ impl ScopePanel {
             });
         }
 
-        self.handle_plot_click(&plot_resp, traces);
+        self.handle_plot_click(&plot_resp.response, &plot_resp.transform, traces);
 
         // Handle drag-drop of traces from the traces list onto the scope plot.
         self.handle_trace_drop(ui, &plot_resp.response);
@@ -2348,14 +2478,71 @@ impl ScopePanel {
     }
 
     /// Handle click selection on the plot using nearest point logic.
+    /// Sync `PlotMemory::hidden_items` back to `TraceLook::visible` /
+    /// `pair_look.visible` so auto-fit and the renderers respect legend
+    /// toggling, and publish `legend_hidden_items` for overlay bounds.
+    /// Shared by the egui_plot path and the VolcanoPlot path.
+    fn sync_legend_hidden_to_looks(
+        &mut self,
+        ctx: &egui::Context,
+        plot_id: egui::Id,
+        traces: &mut TracesCollection,
+        hide_legend: bool,
+    ) {
+        if self.data.show_legend && !hide_legend {
+            if let Some(mem) = PlotMemory::load(ctx, plot_id) {
+                if self.data.scope_type == ScopeType::XYScope && !self.data.xy_pairs.is_empty() {
+                    for (x_name, y_name, pair_look) in self.data.xy_pairs.iter_mut() {
+                        let (Some(x_name), Some(y_name)) = (x_name.as_ref(), y_name.as_ref())
+                        else {
+                            continue;
+                        };
+                        let (Some(x_tr), Some(y_tr)) =
+                            (traces.get_trace(x_name), traces.get_trace(y_name))
+                        else {
+                            continue;
+                        };
+                        let id = crate::panels::scope_legend::xy_pair_item_id(x_name, y_name);
+                        let was_visible =
+                            pair_look.visible && x_tr.look.visible && y_tr.look.visible;
+                        let now_visible = !mem.hidden_items.contains(&id);
+                        if was_visible != now_visible {
+                            pair_look.visible = now_visible;
+                        }
+                    }
+                } else {
+                    for name in self.data.trace_order.iter() {
+                        let Some(tr) = traces.get_trace_mut(name) else {
+                            continue;
+                        };
+                        let id = crate::panels::scope_legend::trace_item_id(name);
+                        let now_visible = !mem.hidden_items.contains(&id);
+                        if tr.look.visible != now_visible {
+                            tr.look.visible = now_visible;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Publish the set of legend-hidden item ids so other systems
+        // (measurements, markers) can exclude hidden overlays from bounds.
+        // Kept in sync even when the legend is off so hidden items still
+        // match what is actually drawn.
+        if let Some(mem) = PlotMemory::load(ctx, plot_id) {
+            self.data.legend_hidden_items = mem.hidden_items.iter().copied().collect();
+        }
+    }
+
     fn handle_plot_click(
         &mut self,
-        plot_response: &egui_plot::PlotResponse<bool>,
+        response: &egui::Response,
+        transform: &egui_plot::PlotTransform,
         traces: &mut TracesCollection,
     ) {
         self.data.clicked_point = None;
         self.data.clicked_screen_pos = None;
-        if plot_response.response.double_clicked() {
+        if response.double_clicked() {
             self.data.fit_bounds(traces, false);
             let (xmin, xmax) = self.data.x_axis.bounds;
             let (ymin, ymax) = self.data.y_axis.bounds;
@@ -2365,8 +2552,7 @@ impl ScopePanel {
                     crate::events::EventKind::DOUBLE_CLICK | crate::events::EventKind::FIT_TO_VIEW;
                 let mut evt = crate::events::PlotEvent::new(kinds);
                 // Try to get click position for metadata
-                if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
-                    let transform = plot_response.transform;
+                if let Some(screen_pos) = response.interact_pointer_pos() {
                     let plot_pos = transform.value_from_position(screen_pos);
                     evt.click = Some(crate::events::ClickMeta {
                         screen_pos: Some(crate::events::ScreenPos {
@@ -2395,7 +2581,7 @@ impl ScopePanel {
                 scope_id: Some(self.data.id),
                 scope_type: Some(self.data.scope_type),
             });
-        } else if plot_response.response.clicked() {
+        } else if response.clicked() {
             // optional feature flag – allow callers to turn off pause/resume-on-click
             if !self.data.pause_on_click {
                 if self.data.measurement_active {
@@ -2409,7 +2595,7 @@ impl ScopePanel {
                         // Propagate the pause so hosts can sync it to other plots.
                         self.pending_pause = Some(true);
                     }
-                    self.capture_clicked_plot_point(plot_response);
+                    self.capture_clicked_plot_point(response, transform);
                     if let Some(ctrl) = &self.event_ctrl {
                         let mut evt = crate::events::PlotEvent::new(
                             crate::events::EventKind::CLICK
@@ -2419,7 +2605,7 @@ impl ScopePanel {
                                     crate::events::EventKind::PAUSE
                                 },
                         );
-                        if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
+                        if let Some(screen_pos) = response.interact_pointer_pos() {
                             evt.click = Some(crate::events::ClickMeta {
                                 screen_pos: Some(crate::events::ScreenPos {
                                     x: screen_pos.x,
@@ -2437,8 +2623,7 @@ impl ScopePanel {
                     }
                 } else if let Some(ctrl) = &self.event_ctrl {
                     let mut evt = crate::events::PlotEvent::new(crate::events::EventKind::CLICK);
-                    if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
-                        let transform = plot_response.transform;
+                    if let Some(screen_pos) = response.interact_pointer_pos() {
                         let plot_pos = transform.value_from_position(screen_pos);
                         evt.click = Some(crate::events::ClickMeta {
                             screen_pos: Some(crate::events::ScreenPos {
@@ -2462,8 +2647,8 @@ impl ScopePanel {
                 if self.data.measurement_active {
                     // Measurement is active – set clicked point without resuming
                     // so the measurement panel can pick up the new point.
-                    if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
-                        self.capture_clicked_plot_point(plot_response);
+                    if let Some(screen_pos) = response.interact_pointer_pos() {
+                        self.capture_clicked_plot_point(response, transform);
                         // Emit click event (measurement point will be emitted by measurement panel)
                         if let Some(ctrl) = &self.event_ctrl {
                             let mut evt =
@@ -2493,8 +2678,7 @@ impl ScopePanel {
                         evt.pause = Some(crate::events::PauseMeta {
                             scope_id: Some(self.data.id),
                         });
-                        if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
-                            let transform = plot_response.transform;
+                        if let Some(screen_pos) = response.interact_pointer_pos() {
                             let plot_pos = transform.value_from_position(screen_pos);
                             evt.click = Some(crate::events::ClickMeta {
                                 screen_pos: Some(crate::events::ScreenPos {
@@ -2521,8 +2705,8 @@ impl ScopePanel {
                     self.pending_pause = Some(true);
                 }
 
-                if let Some(screen_pos) = plot_response.response.interact_pointer_pos() {
-                    self.capture_clicked_plot_point(plot_response);
+                if let Some(screen_pos) = response.interact_pointer_pos() {
+                    self.capture_clicked_plot_point(response, transform);
 
                     // Emit click + pause events
                     if let Some(ctrl) = &self.event_ctrl {
@@ -2553,5 +2737,40 @@ impl ScopePanel {
 
     pub fn fit_all(&mut self, traces: &TracesCollection) {
         self.data.fit_bounds(traces, false);
+    }
+}
+
+/// Legend label for a time-scope trace — shared between the egui
+/// draw loop and the volcano legend so display aliases and the
+/// info suffix can't drift.
+fn trace_legend_label(
+    show_info: bool,
+    traces: &TracesCollection,
+    name: &TraceRef,
+    info: &str,
+) -> String {
+    let display = traces.display_label(name);
+    if show_info && !info.is_empty() {
+        format!("{} — {}", display, info)
+    } else {
+        display
+    }
+}
+
+/// Legend label for an XY pair: `"{y} vs {x}"` (+ optional info
+/// suffix) — identical to the egui path's pair loop.
+fn xy_pair_legend_label(
+    show_info: bool,
+    traces: &TracesCollection,
+    x_name: &TraceRef,
+    y_name: &TraceRef,
+    y_info: &str,
+) -> String {
+    let x_label = traces.display_label(x_name);
+    let y_label = traces.display_label(y_name);
+    if show_info && !y_info.is_empty() {
+        format!("{} vs {} — {}", y_label, x_label, y_info)
+    } else {
+        format!("{} vs {}", y_label, x_label)
     }
 }

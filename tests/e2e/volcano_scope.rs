@@ -35,9 +35,16 @@ fn volcano_scope_pan_moves_bounds() {
     steps(&mut bed, 25);
     let (xb0, _) = scope(&bed, 0).last_plot_bounds.unwrap();
     let rect = scope(&bed, 0).last_plot_screen_rect.unwrap();
-    let c = egui::pos2(rect[0] + (rect[2] - rect[0]) / 2.0,
-                       rect[1] + (rect[3] - rect[1]) / 2.0);
-    drag(&mut bed, c, egui::pos2(c.x + 80.0, c.y), egui::PointerButton::Primary);
+    let c = egui::pos2(
+        rect[0] + (rect[2] - rect[0]) / 2.0,
+        rect[1] + (rect[3] - rect[1]) / 2.0,
+    );
+    drag(
+        &mut bed,
+        c,
+        egui::pos2(c.x + 80.0, c.y),
+        egui::PointerButton::Primary,
+    );
     steps(&mut bed, 5);
     let (xb1, _) = scope(&bed, 0).last_plot_bounds.unwrap();
     assert!(
@@ -76,9 +83,16 @@ fn egui_path_pan_control() {
     steps(&mut bed, 25);
     let (xb0, _) = scope(&bed, 0).last_plot_bounds.unwrap();
     let rect = scope(&bed, 0).last_plot_screen_rect.unwrap();
-    let c = egui::pos2(rect[0] + (rect[2] - rect[0]) / 2.0,
-                       rect[1] + (rect[3] - rect[1]) / 2.0);
-    drag(&mut bed, c, egui::pos2(c.x + 80.0, c.y), egui::PointerButton::Primary);
+    let c = egui::pos2(
+        rect[0] + (rect[2] - rect[0]) / 2.0,
+        rect[1] + (rect[3] - rect[1]) / 2.0,
+    );
+    drag(
+        &mut bed,
+        c,
+        egui::pos2(c.x + 80.0, c.y),
+        egui::PointerButton::Primary,
+    );
     steps(&mut bed, 5);
     let (xb1, _) = scope(&bed, 0).last_plot_bounds.unwrap();
     assert!(
@@ -129,13 +143,17 @@ fn volcano_fft_scope_renders() {
     steps(&mut bed, 60);
     let fp = find_panel::<FftPanel>(&bed).unwrap();
     let data = fp.scope_ui.get_data();
-    eprintln!("fft: enabled={} initialized={:?} rendered={} rect={:?}",
+    eprintln!(
+        "fft: enabled={} initialized={:?} rendered={} rect={:?}",
         data.volcano_enabled,
         data.volcano_surface.as_ref().map(|v| v.initialized()),
         data.rendered_this_frame,
-        data.last_plot_screen_rect);
+        data.last_plot_screen_rect
+    );
     assert!(
-        data.volcano_surface.as_ref().is_some_and(|v| v.initialized()),
+        data.volcano_surface
+            .as_ref()
+            .is_some_and(|v| v.initialized()),
         "FFT scope should render through VolcanoPlot"
     );
 }

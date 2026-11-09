@@ -183,9 +183,7 @@ impl Panel for TracesPanel {
                                     .is_some_and(|s| s.volcano_enabled);
                                 #[cfg(not(feature = "volcano"))]
                                 let volcano = false;
-                                render_trace_look_editor_inner(
-                                    &mut tr.look, ui, true, volcano,
-                                );
+                                render_trace_look_editor_inner(&mut tr.look, ui, true, volcano);
                             });
                         } else {
                             ui.label("Trace not found.");
@@ -216,7 +214,7 @@ impl Panel for TracesPanel {
                                 let volcano = scope.volcano_enabled;
                                 #[cfg(not(feature = "volcano"))]
                                 let volcano = false;
-                            if let Some((_x, _y, look)) = scope.xy_pairs.get_mut(pair_idx) {
+                                if let Some((_x, _y, look)) = scope.xy_pairs.get_mut(pair_idx) {
                                     render_trace_look_editor_inner(look, ui, true, volcano);
                                 } else {
                                     ui.label("XY pair not found.");

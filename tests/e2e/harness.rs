@@ -201,6 +201,101 @@ pub fn click_at(bed: &mut TestBed, pos: egui::Pos2) {
     }
 }
 
+/// Plot widget rect `[l,t,r,b]` of scope `idx` — includes margins.
+pub fn plot_rect(bed: &TestBed, idx: usize) -> egui::Rect {
+    let r = scope(bed, idx).last_plot_screen_rect.expect("plot rect");
+    egui::Rect::from_min_max(egui::pos2(r[0], r[1]), egui::pos2(r[2], r[3]))
+}
+
+/// Axes (inner) rect `[l,t,r,b]` — data coords map onto this rect.
+/// Pointer targets for plot interactions should land inside it.
+pub fn axes_rect(bed: &TestBed, idx: usize) -> egui::Rect {
+    let r = scope(bed, idx).last_axes_screen_rect.expect("axes rect");
+    egui::Rect::from_min_max(egui::pos2(r[0], r[1]), egui::pos2(r[2], r[3]))
+}
+
+/// `last_plot_bounds` (view-space) of scope `idx`.
+pub fn view_bounds(bed: &TestBed, idx: usize) -> ([f64; 2], [f64; 2]) {
+    scope(bed, idx).last_plot_bounds.expect("plot bounds")
+}
+
+/// Move the pointer to `pos` without pressing (one frame).
+pub fn hover_at(bed: &mut TestBed, pos: egui::Pos2) {
+    bed.harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(pos));
+    bed.harness.step();
+}
+
+/// `n` wheel-scroll steps of `(dx, dy)` logical px at `pos`.
+/// Positive `dy` = scroll up = zoom in (egui convention).
+pub fn scroll_at(bed: &mut TestBed, pos: egui::Pos2, dx: f32, dy: f32, n: usize) {
+    bed.harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(pos));
+    for _ in 0..n {
+        bed.harness
+            .input_mut()
+            .events
+            .push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(dx, dy),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+                source: egui::MouseWheelSource::Wheel,
+            });
+        bed.harness.step();
+    }
+}
+
+/// Two click cycles at `pos` — registers as a double-click.
+pub fn double_click_at(bed: &mut TestBed, pos: egui::Pos2) {
+    click_at(bed, pos);
+    click_at(bed, pos);
+}
+
+/// Multi-segment drag: press at `from`, move through `path`, release.
+/// Needed for box-zoom — intermediate moves keep `dragged` alive.
+pub fn drag_path(
+    bed: &mut TestBed,
+    from: egui::Pos2,
+    path: &[egui::Pos2],
+    button: egui::PointerButton,
+) {
+    use egui::Event;
+    let ev = |pos, pressed| Event::PointerButton {
+        pos,
+        button,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    for e in [Event::PointerMoved(from), ev(from, true)] {
+        bed.harness.input_mut().events.push(e);
+        bed.harness.step();
+    }
+    for &p in path {
+        bed.harness.input_mut().events.push(Event::PointerMoved(p));
+        bed.harness.step();
+    }
+    let last = *path.last().unwrap_or(&from);
+    bed.harness.input_mut().events.push(ev(last, false));
+    bed.harness.step();
+}
+
+/// `true` when the scope's volcano surface initialized (i.e. Vulkan is
+/// available on this box). Volcano-arm tests call this after enabling
+/// the flag + a few steps; `false` → skip arm gracefully.
+#[cfg(feature = "volcano")]
+pub fn vol_available(bed: &mut TestBed, idx: usize) -> bool {
+    steps(bed, 4);
+    scope(bed, idx)
+        .volcano_surface
+        .as_ref()
+        .is_some_and(|s| s.initialized())
+}
+
 /// Drag with the given pointer button between two screen positions.
 pub fn drag(bed: &mut TestBed, from: egui::Pos2, to: egui::Pos2, button: egui::PointerButton) {
     use egui::Event;
