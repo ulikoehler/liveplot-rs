@@ -91,6 +91,11 @@ pub struct VolcanoSurface {
     /// (without this the first-frame fit clobbered the real viewport,
     /// which is what made early frames render the full data range).
     pub bounds_external: bool,
+    /// Data→viewport translate offsets — VolcanoPlot's viewport is f32,
+    /// so huge data magnitudes (e.g. epoch timestamps ~1.79e9) lose all
+    /// sub-window precision. Shift data and bounds by the same offset
+    /// so the plotted range stays in representable f32 space.
+    shift: (f64, f64),
     initialized: bool,
 }
 
@@ -111,6 +116,7 @@ impl VolcanoSurface {
             pending: None,
             bounds: ([0.0, 1.0], [0.0, 1.0]),
             bounds_external: false,
+            shift: (0.0, 0.0),
             initialized: false,
         }
     }
@@ -295,6 +301,7 @@ impl VolcanoSurface {
                 ) else {
                     continue;
                 };
+                let (sx, sy) = self.shift;
                 let mut derived: Vec<[f64; 2]> = Vec::new();
                 let (mut i, mut j) = (0usize, 0usize);
                 while i < x_pts.len() && j < y_pts.len() {
@@ -302,8 +309,8 @@ impl VolcanoSurface {
                     let ty = y_pts[j][0];
                     let dt = tx - ty;
                     if dt.abs() <= TOL {
-                        derived.push([x_pts[i][1] + x_tr.offset,
-                                      y_pts[j][1] + y_tr.offset]);
+                        derived.push([x_pts[i][1] - sx + x_tr.offset,
+                                      y_pts[j][1] - sy + y_tr.offset]);
                         i += 1;
                         j += 1;
                     } else if dt < 0.0 {
@@ -342,8 +349,21 @@ impl VolcanoSurface {
         if !self.initialized {
             self.bounds = Self::fit_bounds(scope, traces, self.bounds);
         }
+        // f32-precision-safe translate: when the bounds magnitude is
+        // huge relative to its span, shift data+viewport by the lower
+        // bound so the plotted range sits near 0 (labels then show the
+        // shifted range — same trade-off the offset text makes anyway).
         let (xb, yb) = self.bounds;
-        fig.set_viewport(xb[0], xb[1], yb[0], yb[1]);
+        let x_span = (xb[1] - xb[0]).abs().max(1e-12);
+        let y_span = (yb[1] - yb[0]).abs().max(1e-12);
+        self.shift.0 = if xb[0].abs() > x_span * 1e4 { xb[0] } else { 0.0 };
+        self.shift.1 = if yb[0].abs() > y_span * 1e4 { yb[0] } else { 0.0 };
+        fig.set_viewport(
+            xb[0] - self.shift.0,
+            xb[1] - self.shift.0,
+            yb[0] - self.shift.1,
+            yb[1] - self.shift.1,
+        );
         fig.set_background(!dark);
         // Pixel margins as canvas fractions — keeps the figure's axes
         // rect aligned with the overlay axes-rect the caller computes
