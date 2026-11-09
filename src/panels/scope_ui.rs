@@ -167,6 +167,10 @@ pub struct ScopePanel {
     /// Rect covered by the scrollable legend overlay last frame — used to keep
     /// the plot from consuming wheel/pointer input that lands on the legend.
     legend_overlay_rect: Option<egui::Rect>,
+    /// Volcano-path legend hover slot — PlotMemory only exists once
+    /// the egui plot.show path has run, so the volcano path tracks the
+    /// hovered legend item here (drives right-click isolate).
+    legend_hovered_item: Option<egui_plot::ItemId>,
 }
 
 impl Default for ScopePanel {
@@ -195,6 +199,7 @@ impl Default for ScopePanel {
             pending_trace_moves: Vec::new(),
             box_zoom_start: None,
             legend_overlay_rect: None,
+            legend_hovered_item: None,
         }
     }
 }
@@ -1411,42 +1416,62 @@ impl ScopePanel {
         self.legend_overlay_rect = None;
         self.data.legend_overlay_rect = None;
         if self.data.show_legend && !hide_legend && !legend_entries.is_empty() {
-            if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), plot_id) {
-                if let Some(res) = crate::panels::scope_legend::render_scope_legend(
-                    ui,
-                    axes,
-                    self.data.legend_position,
-                    &legend_entries,
-                    self.data.id,
-                    |id| mem.hidden_items.contains(id),
-                ) {
-                    self.legend_overlay_rect = res.rect;
-                    self.data.legend_overlay_rect =
-                        res.rect.map(|r| [r.left(), r.top(), r.right(), r.bottom()]);
+            // Volcano path: `data.legend_hidden_items` is the source of
+            // truth — PlotMemory only exists once the egui plot.show
+            // path ran, which on a volcano-only machine is never, and
+            // used to skip the legend block entirely (legend never shown).
+            let mut hidden = std::mem::take(&mut self.data.legend_hidden_items);
+            // Union in PlotMemory's set when it exists — externally
+            // injected hidden items (or a prior egui-path render) must
+            // not be wiped by the mirror-back below.
+            if let Some(mem) = egui_plot::PlotMemory::load(ui.ctx(), plot_id) {
+                hidden.extend(mem.hidden_items.iter().copied());
+            }
+            if let Some(res) = crate::panels::scope_legend::render_scope_legend(
+                ui,
+                axes,
+                self.data.legend_position,
+                &legend_entries,
+                self.data.id,
+                |id| hidden.contains(id),
+            ) {
+                self.legend_overlay_rect = res.rect;
+                self.data.legend_overlay_rect =
+                    res.rect.map(|r| [r.left(), r.top(), r.right(), r.bottom()]);
+                hidden.clear();
+                hidden.extend(res.hidden_items.iter().copied());
+                self.legend_hovered_item = res.hovered_item;
+                // Keep PlotMemory in sync when it exists (hybrid use).
+                if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), plot_id) {
                     mem.hidden_items.clear();
                     mem.hidden_items.extend(res.hidden_items.iter().copied());
                     mem.hovered_legend_item = res.hovered_item;
                     mem.store(ui.ctx(), plot_id);
                 }
             }
+            self.data.legend_hidden_items = hidden;
             // Right-click on the hovered legend item: isolate it, or
             // re-show everything when already isolated (same as egui).
-            if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), plot_id) {
-                if let Some(hovered_id) = mem.hovered_legend_item {
-                    if ui.input(|i| i.pointer.secondary_clicked()) && resp.contains_pointer() {
-                        let all_ids: Vec<egui_plot::ItemId> =
-                            legend_entries.iter().map(|e| e.id).collect();
-                        let is_isolated = all_ids
-                            .iter()
-                            .all(|id| *id == hovered_id || mem.hidden_items.contains(id));
-                        mem.hidden_items.clear();
-                        if !is_isolated {
-                            for id in &all_ids {
-                                if *id != hovered_id {
-                                    mem.hidden_items.insert(*id);
-                                }
+            if let Some(hovered_id) = self.legend_hovered_item {
+                if ui.input(|i| i.pointer.secondary_clicked()) && resp.contains_pointer() {
+                    let all_ids: Vec<egui_plot::ItemId> =
+                        legend_entries.iter().map(|e| e.id).collect();
+                    let hidden = &mut self.data.legend_hidden_items;
+                    let is_isolated = all_ids
+                        .iter()
+                        .all(|id| *id == hovered_id || hidden.contains(id));
+                    hidden.clear();
+                    if !is_isolated {
+                        for id in &all_ids {
+                            if *id != hovered_id {
+                                hidden.insert(*id);
                             }
                         }
+                    }
+                    // Mirror into PlotMemory when present (hybrid use).
+                    if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), plot_id) {
+                        mem.hidden_items.clear();
+                        mem.hidden_items.extend(hidden.iter().copied());
                         mem.store(ui.ctx(), plot_id);
                     }
                 }
@@ -2426,36 +2451,38 @@ impl ScopePanel {
         hide_legend: bool,
     ) {
         if self.data.show_legend && !hide_legend {
-            if let Some(mem) = PlotMemory::load(ctx, plot_id) {
-                if self.data.scope_type == ScopeType::XYScope && !self.data.xy_pairs.is_empty() {
-                    for (x_name, y_name, pair_look) in self.data.xy_pairs.iter_mut() {
-                        let (Some(x_name), Some(y_name)) = (x_name.as_ref(), y_name.as_ref())
-                        else {
-                            continue;
-                        };
-                        let (Some(x_tr), Some(y_tr)) =
-                            (traces.get_trace(x_name), traces.get_trace(y_name))
-                        else {
-                            continue;
-                        };
-                        let id = crate::panels::scope_legend::xy_pair_item_id(x_name, y_name);
-                        let was_visible =
-                            pair_look.visible && x_tr.look.visible && y_tr.look.visible;
-                        let now_visible = !mem.hidden_items.contains(&id);
-                        if was_visible != now_visible {
-                            pair_look.visible = now_visible;
-                        }
+            // PlotMemory when it exists (egui path), else the volcano
+            // path's own persistent set on ScopeData.
+            let hidden: std::collections::HashSet<egui_plot::ItemId> =
+                PlotMemory::load(ctx, plot_id)
+                    .map(|m| m.hidden_items.iter().copied().collect())
+                    .unwrap_or_else(|| self.data.legend_hidden_items.clone());
+            if self.data.scope_type == ScopeType::XYScope && !self.data.xy_pairs.is_empty() {
+                for (x_name, y_name, pair_look) in self.data.xy_pairs.iter_mut() {
+                    let (Some(x_name), Some(y_name)) = (x_name.as_ref(), y_name.as_ref()) else {
+                        continue;
+                    };
+                    let (Some(x_tr), Some(y_tr)) =
+                        (traces.get_trace(x_name), traces.get_trace(y_name))
+                    else {
+                        continue;
+                    };
+                    let id = crate::panels::scope_legend::xy_pair_item_id(x_name, y_name);
+                    let was_visible = pair_look.visible && x_tr.look.visible && y_tr.look.visible;
+                    let now_visible = !hidden.contains(&id);
+                    if was_visible != now_visible {
+                        pair_look.visible = now_visible;
                     }
-                } else {
-                    for name in self.data.trace_order.iter() {
-                        let Some(tr) = traces.get_trace_mut(name) else {
-                            continue;
-                        };
-                        let id = crate::panels::scope_legend::trace_item_id(name);
-                        let now_visible = !mem.hidden_items.contains(&id);
-                        if tr.look.visible != now_visible {
-                            tr.look.visible = now_visible;
-                        }
+                }
+            } else {
+                for name in self.data.trace_order.iter() {
+                    let Some(tr) = traces.get_trace_mut(name) else {
+                        continue;
+                    };
+                    let id = crate::panels::scope_legend::trace_item_id(name);
+                    let now_visible = !hidden.contains(&id);
+                    if tr.look.visible != now_visible {
+                        tr.look.visible = now_visible;
                     }
                 }
             }

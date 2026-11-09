@@ -243,7 +243,10 @@ impl VolcanoSurface {
             if !tr.look.visible {
                 continue;
             }
-            let sig = trace_sig(&tr.live, &tr.look, tr.offset, log_xy);
+            let sig = traces
+                .get_points_ref(name, scope.paused)
+                .map(|p| trace_sig(p, &tr.look, tr.offset, log_xy))
+                .unwrap_or(0);
             name.0.hash(&mut sh);
             sig.hash(&mut sh);
             frame_sigs.push((name.0.clone(), sig));
@@ -259,8 +262,14 @@ impl VolcanoSurface {
                 let (Some(xt), Some(yt)) = (traces.get_trace(xn), traces.get_trace(yn)) else {
                     continue;
                 };
-                let a = trace_sig(&xt.live, pl, xt.offset, log_xy);
-                let b = trace_sig(&yt.live, pl, yt.offset, log_xy);
+                let a = traces
+                    .get_points_ref(xn, scope.paused)
+                    .map(|p| trace_sig(p, pl, xt.offset, log_xy))
+                    .unwrap_or(0);
+                let b = traces
+                    .get_points_ref(yn, scope.paused)
+                    .map(|p| trace_sig(p, pl, yt.offset, log_xy))
+                    .unwrap_or(0);
                 format!("xy:{}:{}", xn.0, yn.0).hash(&mut sh);
                 a.hash(&mut sh);
                 b.hash(&mut sh);
@@ -340,7 +349,10 @@ impl VolcanoSurface {
             // Skip before add_trace — an empty LinePlot breaks
             // VolcanoPlot's renderFrame (and not marking it `seen`
             // lets the dead-trace cleanup remove a stale plot).
-            if tr.live.is_empty() {
+            let Some(pts) = traces.get_points_ref(name, scope.paused) else {
+                continue;
+            };
+            if pts.is_empty() {
                 continue;
             }
             seen.insert(name.0.clone());
@@ -358,8 +370,7 @@ impl VolcanoSurface {
             if self.trace_sigs.get(&name.0) == Some(&new_sig) {
                 continue;
             }
-            let xy: Vec<[f64; 2]> = tr
-                .live
+            let xy: Vec<[f64; 2]> = pts
                 .iter()
                 .map(|p| {
                     let x = if x_log && p[0] > 0.0 {
@@ -594,7 +605,10 @@ impl VolcanoSurface {
             let Some(tr) = traces.get_trace(name) else {
                 continue;
             };
-            for p in tr.live.iter() {
+            let Some(pts) = traces.get_points_ref(name, scope.paused) else {
+                continue;
+            };
+            for p in pts.iter() {
                 xb[0] = xb[0].min(p[0]);
                 xb[1] = xb[1].max(p[0]);
                 yb[0] = yb[0].min(p[1] + tr.offset);
