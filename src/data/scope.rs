@@ -288,6 +288,9 @@ pub struct ScopeData {
     pub plot_id: Option<egui::Id>,
     pub last_plot_bounds: Option<([f64; 2], [f64; 2])>,
     pub last_plot_screen_rect: Option<[f32; 4]>,
+    /// Last frame's legend overlay rect (min.x,min.y,max.x,max.y) —
+    /// observable for parity/E2E checks; `None` when no legend drew.
+    pub legend_overlay_rect: Option<[f32; 4]>,
     pub rendered_this_frame: bool,
     /// VolcanoPlot render surface + enable flag (feature `volcano`).
     /// Seeded from `LIVEPLOT_VOLCANO` at construction; embedders/tests
@@ -337,6 +340,7 @@ impl Default for ScopeData {
             plot_id: None,
             last_plot_bounds: None,
             last_plot_screen_rect: None,
+            legend_overlay_rect: None,
             rendered_this_frame: false,
             #[cfg(feature = "volcano")]
             volcano_surface: None,

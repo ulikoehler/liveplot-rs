@@ -1310,6 +1310,7 @@ impl ScopePanel {
             || (self.min_height_for_legend > 0.0
                 && rect.height() < self.min_height_for_legend);
         self.legend_overlay_rect = None;
+        self.data.legend_overlay_rect = None;
         if self.data.show_legend && !hide_legend && !legend_entries.is_empty() {
             if let Some(mut mem) = egui_plot::PlotMemory::load(ui.ctx(), plot_id) {
                 if let Some(res) = crate::panels::scope_legend::render_scope_legend(
@@ -1321,6 +1322,9 @@ impl ScopePanel {
                     |id| mem.hidden_items.contains(id),
                 ) {
                     self.legend_overlay_rect = res.rect;
+            self.data.legend_overlay_rect = res
+                .rect
+                .map(|r| [r.left(), r.top(), r.right(), r.bottom()]);
                     mem.hidden_items.clear();
                     mem.hidden_items.extend(res.hidden_items.iter().copied());
                     mem.hovered_legend_item = res.hovered_item;
@@ -2020,6 +2024,9 @@ impl ScopePanel {
                     |id| mem.hidden_items.contains(id),
                 ) {
                     self.legend_overlay_rect = res.rect;
+            self.data.legend_overlay_rect = res
+                .rect
+                .map(|r| [r.left(), r.top(), r.right(), r.bottom()]);
                     mem.hidden_items.clear();
                     mem.hidden_items.extend(res.hidden_items.iter().copied());
                     mem.hovered_legend_item = res.hovered_item;

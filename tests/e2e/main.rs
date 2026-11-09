@@ -44,6 +44,7 @@ mod ui_controls4;
 mod ui_menus;
 mod ui_thresholds;
 #[cfg(feature = "volcano")]
+mod volcano_parity;
 mod volcano_scope;
 mod xy_scope;
 
