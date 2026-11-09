@@ -35,6 +35,7 @@ extern "C" {
         x_label: *const std::ffi::c_char,
         y_label: *const std::ffi::c_char,
     );
+    fn vp_set_grid(fig: *mut VpFigure, on: i32);
     fn vp_set_background(fig: *mut VpFigure, white: i32);
     fn vp_set_margins(fig: *mut VpFigure, l: f32, r: f32, b: f32, t: f32);
     fn vp_set_background_rgba(fig: *mut VpFigure, r: f32, g: f32, b: f32);
@@ -129,6 +130,11 @@ impl VolcanoFigure {
 
     pub fn remove_trace(&mut self, id: u64) {
         unsafe { vp_trace_remove(self.ptr, id) }
+    }
+
+    /// Grid lines on/off (egui `show_grid` equivalent).
+    pub fn set_grid(&mut self, on: bool) {
+        unsafe { vp_set_grid(self.ptr, on as i32) }
     }
 
     /// Set viewport bounds; pass `f64::NAN` pairs to keep autoscale.

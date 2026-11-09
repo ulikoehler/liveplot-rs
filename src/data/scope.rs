@@ -814,4 +814,103 @@ impl ScopeData {
         }
         result
     }
+    /// Names of visible traces feeding this axis (shared by both render paths).
+    pub fn generated_axis_trace_names(&self, traces: &TracesCollection, is_x: bool) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        let mut push_name = |trace: &TraceRef| {
+            if let Some(tr) = traces.get_trace(trace) {
+                if tr.look.visible && !names.iter().any(|name| name == &trace.0) {
+                    names.push(trace.0.clone());
+                }
+            }
+        };
+
+        match (self.scope_type, is_x) {
+            (ScopeType::TimeScope, true) => return vec!["Time".to_string()],
+            (ScopeType::TimeScope, false) => {
+                for trace in &self.trace_order {
+                    push_name(trace);
+                }
+            }
+            (ScopeType::XYScope, true) => {
+                for (x, _, _) in &self.xy_pairs {
+                    if let Some(trace) = x {
+                        push_name(trace);
+                    }
+                }
+            }
+            (ScopeType::XYScope, false) => {
+                for (_, y, _) in &self.xy_pairs {
+                    if let Some(trace) = y {
+                        push_name(trace);
+                    }
+                }
+            }
+        }
+
+        if names.is_empty() {
+            match (self.scope_type, is_x) {
+                (ScopeType::TimeScope, false) => {
+                    for trace in &self.trace_order {
+                        if !names.iter().any(|name| name == &trace.0) {
+                            names.push(trace.0.clone());
+                        }
+                    }
+                }
+                (ScopeType::XYScope, true) => {
+                    for (x, _, _) in &self.xy_pairs {
+                        if let Some(trace) = x {
+                            if !names.iter().any(|name| name == &trace.0) {
+                                names.push(trace.0.clone());
+                            }
+                        }
+                    }
+                }
+                (ScopeType::XYScope, false) => {
+                    for (_, y, _) in &self.xy_pairs {
+                        if let Some(trace) = y {
+                            if !names.iter().any(|name| name == &trace.0) {
+                                names.push(trace.0.clone());
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        names
+    }
+
+    /// Axis label text: explicit name, auto-generated trace names, or
+    /// None when `show_label` is off — shared by egui + volcano paths.
+    pub fn axis_label_text(&self, traces: &TracesCollection, is_x: bool) -> Option<String> {
+        let show_label = if is_x {
+            self.x_axis.show_label
+        } else {
+            self.y_axis.show_label
+        };
+        if !show_label {
+            return None;
+        }
+
+        let axis = if is_x { &self.x_axis } else { &self.y_axis };
+        if axis.name.is_some() {
+            return axis.name.clone();
+        }
+
+        let names = self.generated_axis_trace_names(traces, is_x);
+        if names.is_empty() {
+            if is_x {
+                Some(match self.scope_type {
+                    ScopeType::TimeScope => "Time".to_string(),
+                    ScopeType::XYScope => "X".to_string(),
+                })
+            } else {
+                Some("Y".to_string())
+            }
+        } else {
+            Some(names.join(", "))
+        }
+    }
 }

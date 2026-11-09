@@ -521,7 +521,12 @@ impl VolcanoSurface {
             panel_bg.g() as f32 / 255.0,
             panel_bg.b() as f32 / 255.0,
         );
-        fig.set_axis_labels(scope.x_axis.name.as_deref(), scope.y_axis.name.as_deref());
+        // Same label text the egui path computes (explicit name,
+        // auto-generated trace names, or None when show_label is off).
+        let x_label = scope.axis_label_text(traces, true);
+        let y_label = scope.axis_label_text(traces, false);
+        fig.set_axis_labels(x_label.as_deref(), y_label.as_deref());
+        fig.set_grid(scope.show_grid);
 
         // Render + readback on a worker thread — the expensive part
         // (prepare/renderFrame/readback ~7ms) never blocks the UI.

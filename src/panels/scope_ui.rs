@@ -270,107 +270,6 @@ impl ScopePanel {
         self.data.rendered_this_frame = true;
     }
 
-    fn generated_axis_trace_names(&self, traces: &TracesCollection, is_x: bool) -> Vec<String> {
-        let mut names: Vec<String> = Vec::new();
-        let mut push_name = |trace: &TraceRef| {
-            if let Some(tr) = traces.get_trace(trace) {
-                if tr.look.visible && !names.iter().any(|name| name == &trace.0) {
-                    names.push(trace.0.clone());
-                }
-            }
-        };
-
-        match (self.data.scope_type, is_x) {
-            (ScopeType::TimeScope, true) => return vec!["Time".to_string()],
-            (ScopeType::TimeScope, false) => {
-                for trace in &self.data.trace_order {
-                    push_name(trace);
-                }
-            }
-            (ScopeType::XYScope, true) => {
-                for (x, _, _) in &self.data.xy_pairs {
-                    if let Some(trace) = x {
-                        push_name(trace);
-                    }
-                }
-            }
-            (ScopeType::XYScope, false) => {
-                for (_, y, _) in &self.data.xy_pairs {
-                    if let Some(trace) = y {
-                        push_name(trace);
-                    }
-                }
-            }
-        }
-
-        if names.is_empty() {
-            match (self.data.scope_type, is_x) {
-                (ScopeType::TimeScope, false) => {
-                    for trace in &self.data.trace_order {
-                        if !names.iter().any(|name| name == &trace.0) {
-                            names.push(trace.0.clone());
-                        }
-                    }
-                }
-                (ScopeType::XYScope, true) => {
-                    for (x, _, _) in &self.data.xy_pairs {
-                        if let Some(trace) = x {
-                            if !names.iter().any(|name| name == &trace.0) {
-                                names.push(trace.0.clone());
-                            }
-                        }
-                    }
-                }
-                (ScopeType::XYScope, false) => {
-                    for (_, y, _) in &self.data.xy_pairs {
-                        if let Some(trace) = y {
-                            if !names.iter().any(|name| name == &trace.0) {
-                                names.push(trace.0.clone());
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        names
-    }
-
-    fn axis_label_text(&self, traces: &TracesCollection, is_x: bool) -> Option<String> {
-        let show_label = if is_x {
-            self.data.x_axis.show_label
-        } else {
-            self.data.y_axis.show_label
-        };
-        if !show_label {
-            return None;
-        }
-
-        let axis = if is_x {
-            &self.data.x_axis
-        } else {
-            &self.data.y_axis
-        };
-        if axis.name.is_some() {
-            return axis.name.clone();
-        }
-
-        let names = self.generated_axis_trace_names(traces, is_x);
-        if names.is_empty() {
-            if is_x {
-                Some(match self.data.scope_type {
-                    ScopeType::TimeScope => "Time".to_string(),
-                    ScopeType::XYScope => "X".to_string(),
-                })
-            } else {
-                Some("Y".to_string())
-            }
-        } else {
-            Some(names.join(", "))
-        }
-    }
-
     fn capture_clicked_plot_point(
         &mut self,
         response: &egui::Response,
@@ -1671,12 +1570,12 @@ impl ScopePanel {
             return;
         }
         if !hide_x_labels {
-            if let Some(label) = self.axis_label_text(traces, true) {
+            if let Some(label) = self.data.axis_label_text(traces, true) {
                 plot = plot.x_axis_label(label);
             }
         }
         if !hide_y_labels {
-            if let Some(label) = self.axis_label_text(traces, false) {
+            if let Some(label) = self.data.axis_label_text(traces, false) {
                 plot = plot.y_axis_label(label);
             }
         }
