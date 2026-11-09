@@ -355,7 +355,10 @@ impl Default for ScopeData {
             #[cfg(feature = "volcano")]
             volcano_surface: None,
             #[cfg(feature = "volcano")]
-            volcano_enabled: std::env::var_os("LIVEPLOT_VOLCANO").is_some(),
+            // LIVEPLOT_VOLCANO opts in; LIVEPLOT_VOLCANO_DISABLE is an
+            // escape hatch that always wins (e.g. bug reports, bisects).
+            volcano_enabled: std::env::var_os("LIVEPLOT_VOLCANO").is_some()
+                && std::env::var_os("LIVEPLOT_VOLCANO_DISABLE").is_none(),
             #[cfg(feature = "volcano")]
             volcano_dropped_frames: 0,
             is_default_target: false,
