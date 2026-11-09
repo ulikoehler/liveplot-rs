@@ -1103,25 +1103,29 @@ fn parity_legend_alt_click_isolates() {
         let lr = scope(&bed, 0).legend_overlay_rect.expect("legend");
         let row = egui::pos2(lr[0] + 24.0, lr[1] + 12.0);
         // alt-click isolates the FIRST entry (highest in the list).
-        bed.harness.input_mut().events.push(egui::Event::PointerMoved(row));
+        bed.harness
+            .input_mut()
+            .events
+            .push(egui::Event::PointerMoved(row));
         bed.harness.step();
         for pressed in [true, false] {
-            bed.harness.input_mut().events.push(egui::Event::PointerButton {
-                pos: row,
-                button: egui::PointerButton::Primary,
-                pressed,
-                modifiers: egui::Modifiers::ALT,
-            });
+            bed.harness
+                .input_mut()
+                .events
+                .push(egui::Event::PointerButton {
+                    pos: row,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::ALT,
+                });
             bed.harness.step();
         }
         steps(&mut bed, 5);
         // Exactly one of the two trace ids must be hidden afterwards.
-        let id_a = liveplot::panels::scope_legend::trace_item_id(
-            &liveplot::TraceRef("sig_a".into()),
-        );
-        let id_b = liveplot::panels::scope_legend::trace_item_id(
-            &liveplot::TraceRef("sig_b".into()),
-        );
+        let id_a =
+            liveplot::panels::scope_legend::trace_item_id(&liveplot::TraceRef("sig_a".into()));
+        let id_b =
+            liveplot::panels::scope_legend::trace_item_id(&liveplot::TraceRef("sig_b".into()));
         let hidden = &scope(&bed, 0).legend_hidden_items;
         let (ha, hb) = (hidden.contains(&id_a), hidden.contains(&id_b));
         assert_ne!(
@@ -1151,8 +1155,10 @@ fn parity_wheel_over_legend_no_zoom() {
         let (xb1, yb1) = view_bounds(&bed, 0);
         let tol = (xb0[1] - xb0[0]).abs().max(1e-9) * 1e-6;
         assert!(
-            (xb1[0] - xb0[0]).abs() < tol && (xb1[1] - xb0[1]).abs() < tol
-                && (yb1[0] - yb0[0]).abs() < tol && (yb1[1] - yb0[1]).abs() < tol,
+            (xb1[0] - xb0[0]).abs() < tol
+                && (xb1[1] - xb0[1]).abs() < tol
+                && (yb1[0] - yb0[0]).abs() < tol
+                && (yb1[1] - yb0[1]).abs() < tol,
             "wheel over legend must not zoom (vol={vol}): {xb0:?}->{xb1:?}"
         );
     }
@@ -1177,16 +1183,10 @@ fn parity_fft_embedded_scope() {
         if vol && !vol_available(&mut bed, 0) {
             continue;
         }
-        let data = find_panel::<FftPanel>(&bed)
-            .unwrap()
-            .scope_ui
-            .get_data();
+        let data = find_panel::<FftPanel>(&bed).unwrap().scope_ui.get_data();
         // Embedded scope must render and produce sane bounds — the
         // volcano path uses the same ScopePanel code.
-        assert!(
-            data.rendered_this_frame,
-            "fft scope renders (vol={vol})"
-        );
+        assert!(data.rendered_this_frame, "fft scope renders (vol={vol})");
         let b = data.last_plot_bounds.expect("fft plot bounds");
         assert!(
             b.0[1] > b.0[0] && b.1[1] > b.1[0],
@@ -1230,17 +1230,73 @@ fn parity_app_level_legend_and_screenshot() {
     }
     let (lr, rd) = {
         let scopes = bed.harness.state().main_panel.liveplot_panel.get_data();
-        (
-            scopes[0].legend_overlay_rect,
-            scopes[0].rendered_this_frame,
-        )
+        (scopes[0].legend_overlay_rect, scopes[0].rendered_this_frame)
     };
     assert!(lr.is_some(), "legend must render in the real app");
     assert!(rd, "scope renders in the real app");
     // wgpu render path (software rasterizer) — proves the volcano
     // texture composits into a real frame.
-    assert!(
-        bed.harness.render().is_ok(),
-        "screenshot frame renders"
-    );
+    assert!(bed.harness.render().is_ok(), "screenshot frame renders");
+}
+
+/// T-TRC-004: `show_points` + marker style changes re-upload and keep
+/// rendering on both paths (W-14 sig coverage — marker/size folded
+/// into the per-trace signature).
+#[test]
+fn parity_show_points_marker() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.volcano_enabled = vol;
+            s.paused = true;
+        }
+        steps(&mut bed, 20);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        // Toggle show_points + change marker — must not break rendering.
+        for (sp, marker) in [
+            (true, egui_plot::MarkerShape::Diamond),
+            (true, egui_plot::MarkerShape::Square),
+            (false, egui_plot::MarkerShape::Circle),
+        ] {
+            {
+                let name = liveplot::TraceRef("sig".into());
+                if let Some(tr) = bed.harness.state_mut().traces_data.get_trace_mut(&name) {
+                    tr.look.show_points = sp;
+                    tr.look.marker = marker;
+                }
+            }
+            steps(&mut bed, 6);
+            assert!(
+                scope(&bed, 0).rendered_this_frame,
+                "renders with marker (vol={vol}, sp={sp}, {marker:?})"
+            );
+        }
+    }
+}
+
+/// T-RND-bg: dark/light visuals keep the frame healthy on both paths
+/// (the surface picks up `ui.visuals().dark_mode` + `panel_fill`).
+#[test]
+fn parity_dark_light_background() {
+    for vol in [false, true] {
+        let mut bed = make_test_bed();
+        feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        for v in [egui::Visuals::dark(), egui::Visuals::light()] {
+            bed.harness.ctx.set_visuals(v.clone());
+            steps(&mut bed, 6);
+            if vol && !vol_available(&mut bed, 0) {
+                break;
+            }
+            assert!(
+                scope(&bed, 0).rendered_this_frame,
+                "renders in {:?} (vol={vol})",
+                if v.dark_mode { "dark" } else { "light" }
+            );
+        }
+    }
 }
