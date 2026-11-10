@@ -1395,11 +1395,136 @@ fn parity_pause_keeps_rendered_snapshot() {
         let (xb1, yb1) = view_bounds(&bed, 0);
         let tol = (xb0[1] - xb0[0]).abs().max(1e-9) * 0.05;
         assert!(
-            (xb1[0] - xb0[0]).abs() < tol && (xb1[1] - xb0[1]).abs() < tol
-                && (yb1[0] - yb0[0]).abs() < tol && (yb1[1] - yb0[1]).abs() < tol,
+            (xb1[0] - xb0[0]).abs() < tol
+                && (xb1[1] - xb0[1]).abs() < tol
+                && (yb1[0] - yb0[0]).abs() < tol
+                && (yb1[1] - yb0[1]).abs() < tol,
             "paused view frozen despite new data (vol={vol}): {xb0:?}->{xb1:?}"
         );
         // And the scope is still rendering the snapshot, not blank.
         assert!(scope(&bed, 0).rendered_this_frame, "renders (vol={vol})");
     }
+}
+
+// ---------- performance comparison (opt-in, Linux /proc) ----------
+
+fn proc_cpu_ms() -> u64 {
+    // utime+stime in clock ticks (fields 14,15); HZ=100 on Linux.
+    let s = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let f: Vec<&str> = s.split(' ').collect();
+    let u: u64 = f.get(13).and_then(|x| x.parse().ok()).unwrap_or(0);
+    let st: u64 = f.get(14).and_then(|x| x.parse().ok()).unwrap_or(0);
+    (u + st) * 10
+}
+
+fn proc_rss_kb() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .unwrap_or_default()
+        .lines()
+        .find(|l| l.starts_with("VmRSS:"))
+        .and_then(|l| l.split_whitespace().nth(1).and_then(|v| v.parse().ok()))
+        .unwrap_or(0)
+}
+
+struct BenchRow {
+    label: String,
+    frames: u64,
+    wall_ms: u128,
+    cpu_ms: u64,
+    rss_delta_kb: i64,
+    rendered: u64,
+    dropped: u64,
+}
+
+/// CPU/RSS/frame-time comparison of egui_plot vs VolcanoPlot.
+/// Two scenarios: PAUSED (static view — isolates render cost) and
+/// LIVE (data churn each frame — worst case). GPU note: this host
+/// uses llvmpipe (software Vulkan) — VP's render+readback lands on
+/// CPU here; on hardware Vulkan it would move off-CPU.
+/// Run: cargo test --features volcano --test e2e -- --ignored bench_render_perf
+#[test]
+#[ignore]
+fn bench_render_perf() {
+    const TRACES: usize = 4;
+    const POINTS: usize = 20_000;
+    const FRAMES: usize = 120;
+    let mut rows = Vec::new();
+
+    for paused in [true, false] {
+        for vol in [false, true] {
+            let mut bed = make_test_bed();
+            for i in 0..TRACES {
+                feed_sine(&bed, &format!("sig{i}"), POINTS, 1.0 + i as f64, 100.0, 0.0);
+            }
+            {
+                let s = scope_mut(&mut bed, 0);
+                s.volcano_enabled = vol;
+                s.paused = paused;
+            }
+            steps(&mut bed, 15); // warm-up: init, JIT, allocators
+            let rss0 = proc_rss_kb();
+            let cpu0 = proc_cpu_ms();
+            let t0 = std::time::Instant::now();
+            let mut rss_peak = rss0;
+            for f in 0..FRAMES {
+                if !paused && f % 4 == 0 {
+                    feed_sine(&bed, "sig0", 800, 1.0, 100.0, 100.0 + f as f64 * 8.0);
+                }
+                bed.harness.step();
+                // Pace frames ~1ms so the async volcano worker can
+                // actually complete renders — a bare loop starves it
+                // (frames_rendered would read ~1).
+                std::thread::sleep(std::time::Duration::from_millis(1));
+                rss_peak = rss_peak.max(proc_rss_kb());
+            }
+            let wall = t0.elapsed();
+            let cpu = proc_cpu_ms() - cpu0;
+            let s = scope(&bed, 0);
+            let (rd, dp) = if let Some(surf) = s.volcano_surface.as_ref() {
+                (surf.frames_rendered, surf.dropped_frames as u64)
+            } else {
+                (0, 0)
+            };
+            rows.push(BenchRow {
+                label: format!(
+                    "{} {}",
+                    if vol { "volcano" } else { "egui   " },
+                    if paused { "paused" } else { "live  " }
+                ),
+                frames: FRAMES as u64,
+                wall_ms: wall.as_millis(),
+                cpu_ms: cpu,
+                rss_delta_kb: rss_peak as i64 - rss0 as i64,
+                rendered: rd,
+                dropped: dp,
+            });
+        }
+    }
+
+    eprintln!(
+        "\n========= render-path perf ({} traces x {} pts, {} frames) =========",
+        TRACES, POINTS, FRAMES
+    );
+    eprintln!(
+        "{:<16} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
+        "path", "wall", "ms/frame", "cpu", "ms/frame", "RSS Δ", "rendered"
+    );
+    eprintln!(
+        "{:<16} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
+        "", "(ms)", "wall", "(ms)", "cpu", "(KB)", "dropped"
+    );
+    for r in &rows {
+        eprintln!(
+            "{:<16} {:>9} {:>9.2} {:>9} {:>9.2} {:>9} {:>3}/{}",
+            r.label,
+            r.wall_ms,
+            r.wall_ms as f64 / r.frames as f64,
+            r.cpu_ms,
+            r.cpu_ms as f64 / r.frames as f64,
+            r.rss_delta_kb,
+            r.rendered,
+            r.dropped
+        );
+    }
+    eprintln!("=================================================================\n");
 }
