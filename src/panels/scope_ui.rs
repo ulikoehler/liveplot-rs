@@ -1513,9 +1513,19 @@ impl ScopePanel {
                 } else {
                     format!("{name}\nx = {x_str}\ny = {y_str}")
                 };
-                resp.show_tooltip_ui(|ui| {
-                    ui.label(text);
-                });
+                // `resp.show_tooltip_ui` anchors to the whole widget
+                // rect (top-left). Position an explicit Area at the
+                // pointer instead — egui_plot's tooltip follows it.
+                egui::Area::new(egui::Id::new("vol_hover_tip"))
+                    .order(egui::Order::Tooltip)
+                    .pivot(egui::Align2::LEFT_BOTTOM)
+                    .fixed_pos(pos + egui::vec2(14.0, -8.0))
+                    .interactable(false)
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.label(text);
+                        });
+                    });
             }
         }
 

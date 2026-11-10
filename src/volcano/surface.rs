@@ -70,6 +70,37 @@ fn vp_style(look: &TraceLook) -> VolcanoLineStyle {
 
 /// egui `MarkerShape` → `plot::MarkerStyle` ordinal; `MARKER_NONE`
 /// when `show_points` is off (egui draws points only on request too).
+
+/// Hashable hover-state tag for `trace_sig` — 0 no hover set, 1
+/// hovered/emphasized, 2 dimmed.
+fn hover_state_bits(names: &[crate::data::traces::TraceRef], traces: &TracesCollection) -> u8 {
+    match &traces.hover_trace {
+        Some(hov) if names.iter().all(|n| !hov.contains(n)) => 2,
+        Some(_) => 1,
+        None => 0,
+    }
+}
+
+/// egui-path hover emphasis (scope_ui.rs): when `traces.hover_trace`
+/// is set, non-hovered traces dim to alpha 40 and hovered traces get
+/// width x1.6. Returns (rgba, width).
+fn hover_look(
+    look: &TraceLook,
+    names: Option<&[crate::data::traces::TraceRef]>,
+    traces: &TracesCollection,
+) -> (u32, f32) {
+    let mut color = rgba8(look.color);
+    let mut width = look.width;
+    if let (Some(hov), Some(names)) = (&traces.hover_trace, names) {
+        if names.iter().all(|n| !hov.contains(n)) {
+            color = (color & 0xFFFF_FF00) | 40;
+        } else {
+            width = (width * 1.6).max(width + 1.0);
+        }
+    }
+    (color, width)
+}
+
 fn vp_marker(look: &TraceLook) -> i32 {
     use egui_plot::MarkerShape;
     if !look.show_points {
@@ -96,6 +127,10 @@ pub struct VolcanoSurface {
     trace_ids: HashMap<String, u64>,
     /// Last pushed data signature per trace key — skips re-uploads.
     trace_sigs: HashMap<String, u64>,
+    /// Scratch upload buffers — reused across frames so the per-frame
+    /// point collect doesn't allocate O(N) fresh Vecs (alloc churn is
+    /// a real UI-thread stutter source on live data).
+    upload_scratch: HashMap<String, Vec<[f64; 2]>>,
     /// Signature of the whole render input — skips the Vulkan render
     /// + readback + texture upload when nothing changed.
     last_sig: u64,
@@ -141,6 +176,7 @@ impl VolcanoSurface {
             tex: None,
             trace_ids: HashMap::new(),
             trace_sigs: HashMap::new(),
+            upload_scratch: HashMap::new(),
             last_sig: 0,
             pending: None,
             bounds: ([0.0, 1.0], [0.0, 1.0]),
@@ -366,34 +402,31 @@ impl VolcanoSurface {
                 .find(|(k, _)| k == &name.0)
                 .map(|(_, s)| *s)
                 .unwrap_or(0)
-                ^ shift_bits;
+                ^ shift_bits
+                // hover emphasis changes effective color/width — must
+                // re-upload even when data/style are unchanged.
+                ^ hover_state_bits(std::slice::from_ref(name), traces) as u64;
             if self.trace_sigs.get(&name.0) == Some(&new_sig) {
                 continue;
             }
-            let xy: Vec<[f64; 2]> = pts
-                .iter()
-                .map(|p| {
-                    let x = if x_log && p[0] > 0.0 {
-                        p[0].log10()
-                    } else {
-                        p[0] - sx
-                    };
-                    let y = if y_log {
-                        (p[1] + tr.offset).log10()
-                    } else {
-                        p[1] - sy + tr.offset
-                    };
-                    [x, if y.is_finite() { y } else { f64::NAN }]
-                })
-                .collect();
-            fig.set_trace(
-                id,
-                &xy,
-                rgba8(tr.look.color),
-                tr.look.width,
-                vp_style(&tr.look),
-            );
-            fig.set_marker(id, vp_marker(&tr.look), tr.look.point_size);
+            let xy = self.upload_scratch.entry(name.0.clone()).or_default();
+            xy.clear();
+            xy.extend(pts.iter().filter_map(|p| {
+                let x = if x_log && p[0] > 0.0 {
+                    p[0].log10()
+                } else {
+                    p[0] - sx
+                };
+                let y = if y_log {
+                    (p[1] + tr.offset).log10()
+                } else {
+                    p[1] - sy + tr.offset
+                };
+                (x.is_finite() && y.is_finite()).then_some([x, y])
+            }));
+            let (color, width) = hover_look(&tr.look, Some(std::slice::from_ref(name)), traces);
+            fig.set_trace(id, &xy, color, width, vp_style(&tr.look));
+            fig.set_marker(id, vp_marker(&tr.look), tr.look.point_size * 2.0);
             self.trace_sigs.insert(name.0.clone(), new_sig);
         }
         // XY-scope pairs: join x/y traces on timestamp within 1e-9 —
@@ -433,42 +466,37 @@ impl VolcanoSurface {
                     self.trace_sigs.remove(&key);
                     continue;
                 }
-                let derived: Vec<[f64; 2]> = joined
-                    .iter()
-                    .map(|p| {
-                        let x_lin = p[0] + x_tr.offset;
-                        let y_lin = p[1] + y_tr.offset;
-                        let x = if x_log {
-                            if x_lin > 0.0 {
-                                x_lin.log10()
-                            } else {
-                                f64::NAN
-                            }
+                let derived = self.upload_scratch.entry(key.clone()).or_default();
+                derived.clear();
+                derived.extend(joined.iter().filter_map(|p| {
+                    let x_lin = p[0] + x_tr.offset;
+                    let y_lin = p[1] + y_tr.offset;
+                    let x = if x_log {
+                        if x_lin > 0.0 {
+                            x_lin.log10()
                         } else {
-                            x_lin - sx
-                        };
-                        let y = if y_log {
-                            if y_lin > 0.0 {
-                                y_lin.log10()
-                            } else {
-                                f64::NAN
-                            }
+                            f64::NAN
+                        }
+                    } else {
+                        x_lin - sx
+                    };
+                    let y = if y_log {
+                        if y_lin > 0.0 {
+                            y_lin.log10()
                         } else {
-                            y_lin - sy
-                        };
-                        [x, y]
-                    })
-                    .collect();
+                            f64::NAN
+                        }
+                    } else {
+                        y_lin - sy
+                    };
+                    (x.is_finite() && y.is_finite()).then_some([x, y])
+                }));
                 seen.insert(key.clone());
                 let id = *self.trace_ids.entry(key).or_insert_with(|| fig.add_trace());
-                fig.set_trace(
-                    id,
-                    &derived,
-                    rgba8(pair_look.color),
-                    pair_look.width,
-                    vp_style(pair_look),
-                );
-                fig.set_marker(id, vp_marker(pair_look), pair_look.point_size);
+                let (color, width) =
+                    hover_look(pair_look, Some(&[x_name.clone(), y_name.clone()]), traces);
+                fig.set_trace(id, &derived, color, width, vp_style(pair_look));
+                fig.set_marker(id, vp_marker(pair_look), pair_look.point_size * 2.0);
             }
         }
 
