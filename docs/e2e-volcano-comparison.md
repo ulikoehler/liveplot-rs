@@ -137,31 +137,40 @@ rasterized, which flatters egui slightly — see caveats).
 
 | path | wall ms/f | CPU ms/f | RSS Δ | GPU renders |
 |---|---|---|---|---|
-| egui paused 4×20k | 1.46 | **0.42** | ~0.1 MB | — |
-| volcano paused 4×20k | 1.27 | **0.17** | ~0 | 1/120 |
-| egui live 4×20k | 1.39 | **0.25** | ~0.2 MB | — |
-| volcano live 4×20k | 1.32 | **1.50** | +6.3 MB | 7/120 |
-| egui paused 8×200k | 1.60 | **0.67** | ~0 | — |
-| volcano paused 8×200k | 1.27 | **0.17** | ~0 | 1/120 |
-| egui live 8×200k | 1.46 | **0.50** | ~0.4 MB | — |
-| volcano live 8×200k | 1.40 | **1.50** | +11.7 MB | 17/120 |
+| egui paused 4×20k | 1.45 | **0.33** | ~0.1 MB | — |
+| volcano paused 4×20k | 1.26 | **0.25** | ~0 | 1/120 |
+| egui live 4×20k | 1.39 | **0.33** | ~0.2 MB | — |
+| volcano live 4×20k | 1.29 | **1.42** | +4.5 MB | 7/120 |
+| egui paused 8×200k | 1.62 | **0.58** | ~0 | — |
+| volcano paused 8×200k | 1.27 | **0.25** | ~0 | 1/120 |
+| egui live 8×200k | 1.47 | **0.42** | ~0.4 MB | — |
+| volcano live 8×200k | 1.39 | **1.42** | +11.9 MB | 18/120 |
+
+Post-optimization run (persistent worker + ~30 fps cap +
+`dataDirty_`-gated uploads; earlier pre-optimization numbers were
+volcano live 1.50, paused 0.17).
 
 Reading:
 
-- **Static view: volcano uses ~2.5–4× less CPU** (0.17 vs 0.42–0.67
+- **Static view: volcano uses ~1.3–2.3× less CPU** (0.25 vs 0.33–0.58
   ms/f) — the whole-render signature short-circuits before any work.
-- **Live churn: volcano uses more CPU** (flat ~1.5 ms/f vs 0.25–0.50) —
-  per-frame signature hashing, changed-trace re-collect, a thread
-  spawn per render, FFI upload, and the 3.7 MB texture update stay on
-  CPU. Notably the volcano CPU cost is *flat in point count*
-  (0.42→0.50 for egui at 10× points; volcano stays 1.50) — at larger
-  buffers the curves cross in volcano's favor.
+- **Live churn: volcano still uses more CPU** (flat ~1.42 ms/f vs
+  0.33–0.42) — but after instrumentation the reason is clear: ~95%
+  is the upstream `vp_render_rgba` itself (~5–7 ms render + GPU→CPU
+  readback per frame; see §5b), not per-frame Rust overhead. The
+  volcano CPU cost is *flat in point count* (egui grows 0.33→0.42 at
+  10× points; volcano stays ~1.42) — at larger buffers the curves
+  cross in volcano's favor.
 - `rendered` counts are pipelining, not loss: the worker renders
   1-frame-behind and busy frames paint the last completed texture.
+- In a real 60 fps eframe app (vs this harness's ~1.4 ms effective
+  pacing where the worker never catches up) the 30 fps cap bounds
+  volcano render CPU to ~30×6 ms ≈ **180 ms/s** — roughly halved
+  versus uncapped rendering.
 - GPU memory: ~85 MB per process (NVIDIA, per `nvidia-smi`); each scope
   figure owns a device — shared-device is a documented TODO.
 - Caveats: measured while the box was loaded (load avg ~7–17, an
-  unrelated clippy job); relative ordering is stable across 3 runs,
+  unrelated clippy job); relative ordering is stable across runs,
   absolute values will vary. In a real eframe/wgpu app egui additionally
   pays GPU-submit + paint costs the harness skips, so the live-mode gap
   narrows in production.
@@ -245,7 +254,10 @@ pipelining, incremental point upload) or a lower cap.
   tests, XY scope, FFT embedded scope, FFI suite 6/6.
 - **Volcano renders on the NVIDIA RTX 5060 Ti** (proven via nvidia-smi,
   fd table, ioctl counts, render-time delta vs llvmpipe).
-- **CPU: lower than egui on static views (~2.5–4×), higher on
-  continuous data churn (~1.5 ms/f flat vs 0.25–0.50)** — the GPU does
-  all rasterization/decimation; the remaining CPU is upload/sync
-  overhead that shrinks with the worker-pool + incremental-upload TODOs.
+- **CPU: lower than egui on static views (~1.3–2.3×), higher on
+  continuous data churn (~1.42 ms/f flat vs 0.33–0.42)** — after the
+  worker/cap/dirty-gating optimizations, ~95% of the remaining live
+  cost is upstream `vp_render_rgba` itself (render + GPU→CPU
+  readback); getting under egui needs async readback or incremental
+  upload upstream, or a lower update rate. At a real 60 fps UI the
+  30 fps cap bounds render CPU to ~180 ms/s.
