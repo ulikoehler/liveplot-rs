@@ -175,25 +175,62 @@ Reading:
    the worker could still be inside `vp_render_rgba`/`vp_figure_destroy`
    during teardown. Fix: `impl Drop for VolcanoSurface` joins the
    worker first (`src/volcano/surface.rs`). Exit is now clean (EXIT=0).
-2. **OPEN — flaky hang at high test concurrency.** One run of the full
-   suite stalled with all ~190–255 threads parked in
+2. **OPEN — flaky hang at high test concurrency.** Two runs of the
+   full suite stalled with all ~190–255 threads parked in
    `futex_do_wait`/`rt_mutex_schedule`/`poll_schedule_timeout`
    (NVIDIA driver mutex + fence waits) at 2.4 GB RSS; no runnable
    thread → deadlock. Correlates with dozens of parallel
    `VolcanoFigure` create/render/destroy cycles; **not seen with
-   `--test-threads=4`** and not reproducible on demand. Mitigation:
-   re-run with `--test-threads=4`, or investigate shared Vulkan-device
-   creation serialization upstream.
+   `--test-threads=4`** and not reproducible on demand (serial and
+   reduced-parallelism runs pass). Mitigation: re-run with
+   `--test-threads=4`, or investigate shared Vulkan-device creation
+   serialization upstream.
 3. `nvidia-smi` process listing needs a live figure — short runs
    finish before sampling; use `volcano_hold_device_probe`.
+
+## 5b. Live-mode CPU deep-dive (instrumented)
+
+`dbg_*` counters + per-render timing show where the live-mode CPU
+actually goes (~1.4 ms CPU/f vs egui ~0.3):
+
+- **~95% is the render+readback itself**: each
+  `vp_render_rgba` = `prepare` + `renderFrame` + GPU→CPU readback of
+  ~3.7 MB + `to_vec` ≈ **5–7 ms steady-state** on the RTX 5060 Ti at
+  1122×635 (first render ~230 ms device+shader init, 2nd/3rd ~45–75 ms
+  pipeline warm-up). 7–18 renders per 120-frame window ≈ the whole
+  volcano overhead.
+- Uploads/sig-hashing/thread-spawn were noise by comparison (the
+  `spawn`-per-render cost ~20-60 µs — removed anyway).
+- `LinePlot::prepare` re-uploaded **every** trace's full point buffer
+  into the host-visible GPU buffer on **every** render
+  (`updatePoints`, `dataDirty_` never checked — 12.8 MB/render at
+  8×200k). Patched upstream (`liveplot-ffi`): upload only when
+  `dataDirty_`.
+
+Changes shipped (this commit):
+
+- **Persistent `RenderWorker`** (mpsc job/result channels) replaces
+  `thread::spawn` per render; `Drop` closes the channel and joins.
+- **~30 fps texture cap** (`min_render_interval`, egui *virtual* time
+  so kittest `step_dt` stays deterministic; bypassed until first
+  frame; `LIVEPLOT_VOLCANO_MIN_FRAME_MS` env override, 0 = uncapped).
+  At real 60 fps UI rates this halves renders (~60→30/s ≈ 180 ms/s of
+  worker CPU); the egui overlay stays at full rate.
+- Per-frame `frame_sigs` Vec + `String` clones removed (raw sig
+  recomputed O(1) in the upload loop).
+
+Honest bound: with ~5-7 ms of upstream render+readback per frame,
+volcano can't dip under egui's live CPU while updating at display
+rate — the remaining lever is upstream (async readback/fence
+pipelining, incremental point upload) or a lower cap.
 
 ## 6. Remaining gaps / TODO
 
 - Shared Vulkan device across figures (upstream FFI work — biggest
   memory win, likely also removes the concurrency hang).
-- Reuse one render worker per surface instead of `thread::spawn` per
-  frame — would cut the live-mode CPU overhead (thread spawn +
-  texture clone per frame dominate the 1.5 ms/f).
+- Upstream: async readback (fence+staging) to pipeline the ~5-7 ms
+  render+readback; incremental `vp_trace_append` to avoid O(N)
+  re-upload of append-only live traces.
 - Live-mode CPU: incremental upload (append-only ranges) instead of
   full re-collect when a trace changes.
 - Legend-position persistence round-trip on the volcano path.

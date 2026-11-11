@@ -1484,6 +1484,15 @@ fn bench_render_perf() {
             let cpu = proc_cpu_ms() - cpu0;
             let s = scope(&bed, 0);
             let (rd, dp) = if let Some(surf) = s.volcano_surface.as_ref() {
+                eprintln!(
+                    "    [{}] dispatches={} sig_frames={} throttled={} busy_skips={} uploads={}",
+                    if vol { "volcano" } else { "egui" },
+                    surf.dbg_dispatches,
+                    surf.dbg_sig_frames,
+                    surf.dbg_throttled,
+                    surf.dbg_busy_skips,
+                    surf.dbg_uploads,
+                );
                 (surf.frames_rendered, surf.dropped_frames as u64)
             } else {
                 (0, 0)
