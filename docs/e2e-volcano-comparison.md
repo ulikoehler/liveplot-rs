@@ -143,26 +143,29 @@ Final uncapped run — **no FPS cap, identical pacing for both paths**
 | egui paused 4×20k | 1.46 | **0.42** | ~0.1 MB | — |
 | volcano paused 4×20k | 1.27 | **0.25** | ~0 | 1/120 |
 | egui live 4×20k | 1.40 | **0.42** | ~0 | — |
-| volcano live 4×20k | 1.29 | **1.33** | +5.4 MB | 10/120 |
+| volcano live 4×20k | 1.28 | **1.17** | +2.8 MB | 11/120 |
 | egui paused 8×200k | 1.60 | **0.50** | ~0 | — |
-| volcano paused 8×200k | 1.27 | **0.25** | ~0 | 1/120 |
-| egui live 8×200k | 1.48 | **0.50** | ~0.4 MB | — |
-| volcano live 8×200k | 1.32 | **0.83** | +4.9 MB | 23/120 |
+| volcano paused 8×200k | 1.27 | **0.17** | ~0 | 1/120 |
+| egui live 8×200k | 1.48 | **0.42** | ~0.4 MB | — |
+| volcano live 8×200k | 1.30 | **0.67** | +3.4 MB | 24/120 |
 
-All run with the upstream fixes in §5b plus the f64-upload /
-device-transform round below (§5c). History: volcano live was 1.50
-at first measurement, 1.25–1.42 after the §5b fixes, now **0.83 at
-8×200k / 1.33 at 4×20k**. Paused stays ~0.25.
+All run with the upstream fixes in §5b, the f64-upload /
+device-transform round (§5c), and the command-recording round (§5d).
+History: volcano live was 1.50 at first measurement, 1.25–1.42 after
+the §5b fixes, 0.83/1.33 after §5c, now **0.67 at 8×200k / 1.17 at
+4×20k**. Paused stays ~0.17–0.25.
 
 Reading:
 
-- **Static view: volcano uses ~1.7–2× less CPU** (0.25 vs 0.42–0.50
-  ms/f) — the whole-render signature short-circuits before any work.
-- **Live churn: volcano still uses more CPU than egui** (0.83–1.33 vs
-  0.42–0.50) but the gap narrowed ~2×: the GPU-resident transform +
-  tessellation removed the per-trace O(N) host pass that dominated
-  the worker's per-render cost (steady-state `vp_render_rgba_view`
-  is ~1.6 ms wall, ~all command recording — GPU waits cost ~0 CPU).
+- **Static view: volcano uses ~2–3× less CPU** (0.17–0.25 vs
+  0.42–0.50 ms/f) — the whole-render signature short-circuits before
+  any work.
+- **Live churn: volcano still uses more CPU than egui** (0.67–1.17 vs
+  0.42) but the gap narrowed ~2.2×: the GPU-resident transform +
+  tessellation removed the per-trace O(N) host pass, and the §5d round
+  cut per-trace barriers + the ColorImage conversion (steady-state
+  `vp_render_rgba_view` ~1.4 ms wall; the worker thread is ~all
+  command recording + submit — GPU waits cost ~0 CPU).
 - `rendered` counts are pipelining, not loss: the worker renders
   1-frame-behind and busy frames paint the last completed texture —
   same cadence as egui, just fewer *unique* frames when the worker is
@@ -294,22 +297,61 @@ Effect: steady-state `vp_render_rgba_view` wall ~3.3 ms → ~1.6 ms;
 volcano live 8×200k CPU 1.25 → **0.83 ms/f**; worker CPU per render
 ~5.5 → ~2.6 ms.
 
-Remaining live-mode cost (~0.83–1.33 ms/f, still above egui's
-0.42–0.50 at these trace sizes):
+### 5d. Command-recording reduction round
 
-- Per-render command recording + submit (~0.9 ms `draws` phase
-  measured inside `renderFrameSubset`).
+Phase timing inside `renderFrameSubset` showed the draw pass is
+negligible (**0.07 ms/f**) — prepass (0.86) and `endFrame`
+submit/fence (0.47) dominated. That killed the static-layer
+command-buffer-cache idea and focused the round on the compute prepass:
+
+- **Fused f64 narrow into the transform** (`transformPointsF64`): a
+  `dvec2`-sourcing variant of the data→pixel shader narrows inline
+  (`vec2(dvec2)` keeps the CPU path's rounding), removing one
+  dispatch + barrier + descriptor bind per trace per frame. The f32
+  `pointBuffer_` now only materializes when a consumer actually reads
+  it.
+- **xform arena**: transform outputs bump-allocate disjoint regions of
+  a shared device buffer (`xformBuf_` + `outBase` push constant), so
+  the per-trace WAR barrier on the previously shared buffer is gone;
+  `tessellateDevice` takes an `inBase` offset.
+- **Merged submissions**: the compute prepass records into the frame
+  command buffer before `beginRenderPass()` (new `IBackend` hook) —
+  one `vkQueueSubmit` + fence wait per frame instead of two.
+- **Batched vertex barriers**: `GpuLineRenderer::endPreDraw()` records
+  a single compute→vertex-input barrier after the preDraw loop instead
+  of one per `tessellateDevice` (the host-upload `tessellateChunk`
+  path keeps its own — `MplCanvas` drives it from a separate pre-pass
+  command buffer).
+- **`ColorImage` via memcpy** (Rust): `Color32` is `repr(C) [u8;4]` in
+  RGBA order — identical layout to the readback view, so a flat copy
+  replaces `from_rgba_unmultiplied`'s per-pixel map (~0.64 → ~0.09 ms
+  on the worker).
+
+Effect: `vp_render_rgba_view` wall ~1.6 → ~1.4 ms
+(prep ~0.28 + renderFrame ~1.18 + view ~0); live 8×200k CPU 0.83 →
+**0.67 ms/f**, live 4×20k 1.33 → **1.17 ms/f**.
+
+`vp_trace_append` was evaluated and deferred: the live data source is
+a bounded `VecDeque` sliding window — front-trim makes cheap
+prefix-anchored append detection unreliable, and a GPU ring buffer
+(head-offset shader reads + linearization for CPU consumers) is a much
+larger change for the ~0.3 ms it would save. Documented as a TODO.
+
+Remaining live-mode cost (~0.67–1.17 ms/f, still above egui's ~0.42
+at these trace sizes):
+
+- Per-render command recording + submit + fence wait (~1.2 ms wall in
+  `renderFrame`; GPU-side waits sleep-poll at ~0 CPU — the rest is
+  vkCmd*/VMA/descriptor work).
 - `vp_trace_set` memcpy into `rawF64_` + `updatePointsF64` memcpy into
   the f64 GPU buffer per changed trace (~0.3 ms per 200k-point trace,
   split UI/worker).
-- `ColorImage` construction (~0.5 ms per 1280×720 frame on the worker)
-  + egui texture `set_partial` on the UI thread.
-- `prepare` + barriers + fence bookkeeping (~0.4 ms).
+- `ColorImage` memcpy (~0.09 ms) + egui texture `set_partial` on the
+  UI thread.
 
 Getting under egui needs bigger restructures upstream: deferred
-readback (present frame N-1 while N renders), `vp_trace_append` for
-incremental upload (avoids the O(N) re-upload per dispatch), cached
-command buffers for the static layer, or shared-device contexts.
+readback (present frame N-1 while N renders — throughput, not CPU),
+a GPU-ring `vp_trace_append`, or shared-device contexts.
 
 ## 6. Remaining gaps / TODO
 
@@ -318,13 +360,12 @@ command buffers for the static layer, or shared-device contexts.
   `sharedGpuContext()` exists upstream but needs queue/pool
   synchronization across worker threads).
 - Upstream: deferred/pipelined readback (present frame N-1 while N
-  renders); incremental `vp_trace_append` to avoid O(N) f64→f32
-  re-upload of append-only live traces; cached command buffers for
-  the static layer (`DrawSubset::StaticOnly` machinery exists);
-  batched `envelopeColumns` (one submission for all traces) if the
-  envelope path is re-enabled.
-- Live-mode CPU: incremental upload (append-only ranges) instead of
-  full re-collect when a trace changes.
+  renders); GPU-ring `vp_trace_append` for sliding-window live traces
+  (see §5d — needs head-offset shader reads + CPU-consumer
+  linearization); batched `envelopeColumns` (one submission for all
+  traces) if the envelope path is re-enabled.
+- ~~Cached command buffers for the static layer~~ — evaluated in §5d:
+  draw-call recording is ~0.07 ms/f, not worth the complexity.
 - Legend-position persistence round-trip on the volcano path.
 - Pixel-level snapshot pairs under `LIVEPLOT_SNAPSHOT=1` (wgpu bed).
 - Soak/stress opt-ins were not part of this run
@@ -337,14 +378,14 @@ command buffers for the static layer, or shared-device contexts.
   tests, XY scope, FFT embedded scope, FFI suite 6/6.
 - **Volcano renders on the NVIDIA RTX 5060 Ti** (proven via nvidia-smi,
   fd table, ioctl counts, render-time delta vs llvmpipe).
-- **CPU: lower than egui on static views (~1.7–2×), higher on
-  continuous data churn (~0.83–1.33 ms/f vs 0.42–0.50)** — fair,
+- **CPU: lower than egui on static views (~2–3×), higher on
+  continuous data churn (~0.67–1.17 ms/f vs 0.42)** — fair,
   uncapped, identical pacing for both paths. GPU waits cost ~0 CPU;
-  the remainder is command recording, one f64 upload memcpy per
-  changed trace, and the worker-side `ColorImage` + texture upload
-  per rendered frame (§5c). Volcano's live cost is *flat in point
-  count* while egui grows with data — the curves cross at larger
-  buffers.
+  the remainder is command recording/submit, one f64 upload memcpy
+  per changed trace, and the worker-side `ColorImage` memcpy +
+  texture upload per rendered frame (§5c/§5d). Volcano's live cost
+  is *flat in point count* while egui grows with data — the curves
+  cross at larger buffers.
 - **f64 data path**: traces upload as raw interleaved `dvec2` and are
   narrowed to f32 on the GPU (`shaderFloat64`-gated, CPU fallback);
   CPU consumers materialize `series_.points` lazily.
