@@ -126,7 +126,7 @@ fn vp_marker(look: &TraceLook) -> i32 {
 /// real CPU.
 struct RenderWorker {
     job_tx: std::sync::mpsc::Sender<(VolcanoFigure, Vec<u8>)>,
-    res_rx: std::sync::mpsc::Receiver<(VolcanoFigure, Option<(u32, u32, Vec<u8>)>)>,
+    res_rx: std::sync::mpsc::Receiver<(VolcanoFigure, Option<egui::ColorImage>)>,
     handle: std::thread::JoinHandle<()>,
     /// A job is in flight — paint the last texture meanwhile.
     busy: bool,
@@ -138,8 +138,22 @@ impl RenderWorker {
         let (res_tx, res_rx) = std::sync::mpsc::channel();
         let handle = std::thread::spawn(move || {
             while let Ok((mut fig, mut px)) = job_rx.recv() {
-                let dims = fig.render_rgba_into(&mut px);
-                let res = dims.map(|(rw, rh)| (rw, rh, px));
+                // Build the ColorImage here — keeps both the readback
+                // and the rgba→Color32 conversion off the UI thread.
+                // The view path borrows the C++ staging buffer (one
+                // copy total); render_rgba_into is the fallback.
+                let res = match fig.render_rgba_view() {
+                    Some((rw, rh, view)) => Some(egui::ColorImage::from_rgba_unmultiplied(
+                        [rw as usize, rh as usize],
+                        view,
+                    )),
+                    None => fig.render_rgba_into(&mut px).map(|(rw, rh)| {
+                        egui::ColorImage::from_rgba_unmultiplied(
+                            [rw as usize, rh as usize],
+                            &px,
+                        )
+                    }),
+                };
                 if res_tx.send((fig, res)).is_err() {
                     return;
                 }
@@ -277,7 +291,7 @@ impl VolcanoSurface {
         // output aren't left with a blank texture; afterwards renders
         // pipeline behind — the UI paints the last completed texture.
         enum Poll {
-            Done(VolcanoFigure, Option<(u32, u32, Vec<u8>)>),
+            Done(VolcanoFigure, Option<egui::ColorImage>),
             Busy,
             Dead,
         }
@@ -297,16 +311,13 @@ impl VolcanoSurface {
                     }
                 };
                 match poll {
-                    Poll::Done(fig, px) => {
+                    Poll::Done(fig, image) => {
                         w.busy = false;
                         self.fig = Some(fig);
-                        if let Some((rw, rh, px)) = px {
-                            // rw/rh are the RENDERED size — may lag the
-                            // current w/h if a resize raced this frame.
-                            let image = egui::ColorImage::from_rgba_unmultiplied(
-                                [rw as usize, rh as usize],
-                                &px,
-                            );
+                        if let Some(image) = image {
+                            // The image is the RENDERED size — may lag
+                            // the current w/h if a resize raced this
+                            // frame; tex.set handles a size change.
                             let tex = self.tex.get_or_insert_with(|| {
                                 ctx.load_texture(
                                     "volcano_scope",
@@ -317,8 +328,6 @@ impl VolcanoSurface {
                             tex.set(image, egui::TextureOptions::LINEAR);
                             self.initialized = true;
                             self.frames_rendered += 1;
-                            // Reclaim the buffer for the next dispatch.
-                            self.pixel_scratch = px;
                         } else {
                             self.dropped_frames += 1;
                         }

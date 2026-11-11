@@ -40,6 +40,7 @@ extern "C" {
     fn vp_set_margins(fig: *mut VpFigure, l: f32, r: f32, b: f32, t: f32);
     fn vp_set_background_rgba(fig: *mut VpFigure, r: f32, g: f32, b: f32);
     fn vp_render_rgba(fig: *mut VpFigure, out: *mut u8, out_len: usize) -> usize;
+    fn vp_render_rgba_view(fig: *mut VpFigure, out_len: *mut usize) -> *const u8;
 }
 
 /// Trace line style matching the FFI `style` argument.
@@ -182,6 +183,23 @@ impl VolcanoFigure {
         out.resize((self.w * self.h * 4) as usize, 0);
         let n = unsafe { vp_render_rgba(self.ptr, out.as_mut_ptr(), out.len()) };
         (n == out.len()).then_some((self.w as u32, self.h as u32))
+    }
+
+    /// Render one frame and borrow the backend's staging buffer —
+    /// skips the staging→caller memcpy entirely. The slice is valid
+    /// until the next render call on this figure. Returns None when
+    /// the backend has no view support (fall back to render_rgba_into).
+    pub fn render_rgba_view(&mut self) -> Option<(u32, u32, &[u8])> {
+        let mut len = 0usize;
+        let p = unsafe { vp_render_rgba_view(self.ptr, &mut len) };
+        if p.is_null() || len == 0 {
+            return None;
+        }
+        // SAFETY: `p` points into the figure's host-mapped staging
+        // buffer, valid for `len` bytes until the next render call.
+        Some((self.w as u32, self.h as u32, unsafe {
+            std::slice::from_raw_parts(p, len)
+        }))
     }
 }
 
