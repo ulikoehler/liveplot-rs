@@ -337,6 +337,32 @@ prefix-anchored append detection unreliable, and a GPU ring buffer
 (head-offset shader reads + linearization for CPU consumers) is a much
 larger change for the ~0.3 ms it would save. Documented as a TODO.
 
+### 5e. Persistent per-trace mesh cache (pan-reuse)
+
+preDraw used to re-record transform + tessellate dispatches for *every*
+trace every render, while live figures typically churn only one.
+`LinePlot` now owns a persistent region inside `outBuf_`
+(`[0, persistOff_)`, ahead of the per-frame scratch arena) and caches
+the tessellated `Mesh` against a key covering every input: data
+version, transform view/scales, axes rect, stroke params, color.
+
+- **Identical key** → the cached mesh is re-stamped, zero dispatches.
+- **Pure viewport pan** (viewMin moved, everything else equal — the
+  dominant live-scroll case): the mesh is baked for all N points, so
+  the change is an exact rigid pixel translate. Reused via a new
+  `u_off` push-constant term in the spine fill vertex shader
+  (`drawTrianglesGpu`'s `offset` arg, default 0).
+- **Anything else** → re-tessellate into the plot's persistent region.
+
+`outBuf_` regrow bumps `gpuLine().meshEpoch()` so stale buffer handles
+can never be drawn; destroyed stores return regions to a free list.
+Measured in the bench: `pan=160 hit=11 miss=71` — all 7 unchanged
+traces reuse every render; only the churned trace re-tessellates.
+The bench's per-frame CPU stayed ~flat (~0.7 ms/f) because its
+remaining cost is submit + fence + driver + memcpy paths, not dispatch
+recording — the win is real GPU+recording headroom that matters more
+at higher render rates and trace counts.
+
 Remaining live-mode cost (~0.67–1.17 ms/f, still above egui's ~0.42
 at these trace sizes):
 
