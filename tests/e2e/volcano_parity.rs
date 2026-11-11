@@ -1437,24 +1437,27 @@ struct BenchRow {
 }
 
 /// CPU/RSS/frame-time comparison of egui_plot vs VolcanoPlot.
-/// Two scenarios: PAUSED (static view — isolates render cost) and
-/// LIVE (data churn each frame — worst case). GPU note: this host
-/// uses llvmpipe (software Vulkan) — VP's render+readback lands on
-/// CPU here; on hardware Vulkan it would move off-CPU.
+/// Three workloads: BASE (4x20k pts) PAUSED (static view — isolates
+/// render cost) + LIVE (data churn — worst case), and HEAVY LIVE
+/// (8x200k pts — where egui CPU tessellation dominates and the GPU
+/// path is supposed to win).
 /// Run: cargo test --features volcano --test e2e -- --ignored bench_render_perf
 #[test]
 #[ignore]
 fn bench_render_perf() {
-    const TRACES: usize = 4;
-    const POINTS: usize = 20_000;
     const FRAMES: usize = 120;
     let mut rows = Vec::new();
 
-    for paused in [true, false] {
+    for (traces, points, paused) in [
+        (4usize, 20_000usize, true),
+        (4, 20_000, false),
+        (8, 200_000, true),
+        (8, 200_000, false),
+    ] {
         for vol in [false, true] {
             let mut bed = make_test_bed();
-            for i in 0..TRACES {
-                feed_sine(&bed, &format!("sig{i}"), POINTS, 1.0 + i as f64, 100.0, 0.0);
+            for i in 0..traces {
+                feed_sine(&bed, &format!("sig{i}"), points, 1.0 + i as f64, 100.0, 0.0);
             }
             {
                 let s = scope_mut(&mut bed, 0);
@@ -1487,9 +1490,11 @@ fn bench_render_perf() {
             };
             rows.push(BenchRow {
                 label: format!(
-                    "{} {}",
+                    "{} {} {}x{}k",
                     if vol { "volcano" } else { "egui   " },
-                    if paused { "paused" } else { "live  " }
+                    if paused { "paused" } else { "live  " },
+                    traces,
+                    points / 1000,
                 ),
                 frames: FRAMES as u64,
                 wall_ms: wall.as_millis(),
@@ -1501,21 +1506,18 @@ fn bench_render_perf() {
         }
     }
 
+    eprintln!("\n========= render-path perf ({} frames) =========", FRAMES);
     eprintln!(
-        "\n========= render-path perf ({} traces x {} pts, {} frames) =========",
-        TRACES, POINTS, FRAMES
-    );
-    eprintln!(
-        "{:<16} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
+        "{:<22} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
         "path", "wall", "ms/frame", "cpu", "ms/frame", "RSS Δ", "rendered"
     );
     eprintln!(
-        "{:<16} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
+        "{:<22} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}",
         "", "(ms)", "wall", "(ms)", "cpu", "(KB)", "dropped"
     );
     for r in &rows {
         eprintln!(
-            "{:<16} {:>9} {:>9.2} {:>9} {:>9.2} {:>9} {:>3}/{}",
+            "{:<22} {:>9} {:>9.2} {:>9} {:>9.2} {:>9} {:>3}/{}",
             r.label,
             r.wall_ms,
             r.wall_ms as f64 / r.frames as f64,

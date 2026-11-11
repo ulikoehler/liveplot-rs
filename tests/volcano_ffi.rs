@@ -154,6 +154,26 @@ fn volcano_degenerate_state() {
     eprintln!("degenerate xlim: {:?}", fig.render_rgba().map(|v| v.len()));
 }
 
+/// Temporary probe: keep a figure alive ~10s so external tools can
+/// observe which GPU device the process holds.
+#[test]
+#[ignore]
+fn volcano_hold_device_probe() {
+    let mut fig = VolcanoFigure::new(640, 480).expect("figure");
+    let id = fig.add_trace();
+    fig.set_trace(
+        id,
+        &sine(500, 100.0, 1.0),
+        0xFF6600FF,
+        2.0,
+        VolcanoLineStyle::Solid,
+    );
+    for _ in 0..20 {
+        fig.render_rgba();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
 /// Diagnostic: render with axis labels and dump the framebuffer to PNG.
 #[test]
 fn volcano_debug_render_png() {

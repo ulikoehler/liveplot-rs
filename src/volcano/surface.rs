@@ -663,3 +663,15 @@ impl std::fmt::Debug for VolcanoSurface {
             .finish()
     }
 }
+
+impl Drop for VolcanoSurface {
+    /// The in-flight worker owns the figure until it finishes —
+    /// dropping the JoinHandle would detach it, leaving a thread
+    /// inside `vp_render_rgba`/`vp_figure_destroy` while the process
+    /// (and the Vulkan instance) tears down. Join it first.
+    fn drop(&mut self) {
+        if let Some(handle) = self.pending.take() {
+            let _ = handle.join();
+        }
+    }
+}

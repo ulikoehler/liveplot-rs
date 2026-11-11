@@ -281,13 +281,16 @@ wgpu pixel      ✓        ✓   (colored px, legend px, label px)
 soak/stress     ✓        ✓   (LIVEPLOT_STRESS=1 opt-in)
 ```
 
-Current state: `volcano_scope` (6) + `volcano_parity` (8) +
-`zz_snap` regression set — 156/161 e2e green on both paths.
+Current state: `volcano_scope` (6) + `volcano_parity` (40+, zz_snap
+merged) — 181/187 e2e green on both paths (6 ignored opt-ins).
+Measured GPU/CPU comparison: `docs/e2e-volcano-comparison.md`.
 
 ## 17. Gaps / TODO
 
-- CPU/RAM measurement test (needs a timing harness around `step()`)
+- CPU/RAM measurement: `bench_render_perf` exists (opt-in `--ignored`,
+  paused+live, 4×20k + 8×200k workloads) — done; keep widening
 - Shared-Vulkan-device across figures (upstream FFI work — biggest
-  remaining memory win)
+  remaining memory win; may also resolve the flaky high-concurrency
+  hang, see `docs/e2e-volcano-comparison.md` §5)
 - Legend-position persistence round-trip on volcano path
-- The `zz_snap` set should merge into `volcano_parity` once stable.
+- The `zz_snap` set is merged into `volcano_parity` (done — W-19).
