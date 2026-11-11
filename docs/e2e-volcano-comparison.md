@@ -135,45 +135,44 @@ Measured proof (all taken during `volcano_hold_device_probe` /
 real UI path incl. egui tessellation; egui pixel *painting* isn't
 rasterized, which flatters egui slightly — see caveats).
 
+Final uncapped run — **no FPS cap, identical pacing for both paths**
+(per user requirement: any throttling invalidates the comparison):
+
 | path | wall ms/f | CPU ms/f | RSS Δ | GPU renders |
 |---|---|---|---|---|
-| egui paused 4×20k | 1.45 | **0.33** | ~0.1 MB | — |
-| volcano paused 4×20k | 1.26 | **0.25** | ~0 | 1/120 |
-| egui live 4×20k | 1.39 | **0.33** | ~0.2 MB | — |
-| volcano live 4×20k | 1.29 | **1.42** | +4.5 MB | 7/120 |
-| egui paused 8×200k | 1.62 | **0.58** | ~0 | — |
+| egui paused 4×20k | 1.46 | **0.33** | ~0.1 MB | — |
+| volcano paused 4×20k | 1.25 | **0.25** | ~0 | 1/120 |
+| egui live 4×20k | 1.38 | **0.33** | ~0.3 MB | — |
+| volcano live 4×20k | 1.29 | **1.42** | +0.8 MB | 7–23/120 |
+| egui paused 8×200k | 1.60 | **0.67** | ~0 | — |
 | volcano paused 8×200k | 1.27 | **0.25** | ~0 | 1/120 |
 | egui live 8×200k | 1.47 | **0.42** | ~0.4 MB | — |
-| volcano live 8×200k | 1.39 | **1.42** | +11.9 MB | 18/120 |
+| volcano live 8×200k | 1.39 | **1.25** | +0.4 MB | 21/120 |
 
-Post-optimization run (persistent worker + ~30 fps cap +
-`dataDirty_`-gated uploads; earlier pre-optimization numbers were
-volcano live 1.50, paused 0.17).
+All run with the upstream fixes in §5b (persistent worker, folded
+readback submit, persistent staging, fence-poll waits,
+dirty-gated uploads, GPU-resident tessellation for large traces).
+Pre-optimization baseline: volcano live 1.50 ms/f, paused 0.17.
 
 Reading:
 
-- **Static view: volcano uses ~1.3–2.3× less CPU** (0.25 vs 0.33–0.58
+- **Static view: volcano uses ~1.3–2.7× less CPU** (0.25 vs 0.33–0.67
   ms/f) — the whole-render signature short-circuits before any work.
-- **Live churn: volcano still uses more CPU** (flat ~1.42 ms/f vs
-  0.33–0.42) — but after instrumentation the reason is clear: ~95%
-  is the upstream `vp_render_rgba` itself (~5–7 ms render + GPU→CPU
-  readback per frame; see §5b), not per-frame Rust overhead. The
-  volcano CPU cost is *flat in point count* (egui grows 0.33→0.42 at
-  10× points; volcano stays ~1.42) — at larger buffers the curves
-  cross in volcano's favor.
+- **Live churn: volcano still uses more CPU** (1.25–1.42 vs
+  0.33–0.42). The remaining cost is spread across: per-render command
+  recording + submit (~1 ms), f64→f32 trace upload conversion on the
+  UI thread, and the 3.7 MB readback memcpy + egui texture upload —
+  see §5b. Render waits no longer burn CPU (sleep-poll fences).
 - `rendered` counts are pipelining, not loss: the worker renders
-  1-frame-behind and busy frames paint the last completed texture.
-- In a real 60 fps eframe app (vs this harness's ~1.4 ms effective
-  pacing where the worker never catches up) the 30 fps cap bounds
-  volcano render CPU to ~30×6 ms ≈ **180 ms/s** — roughly halved
-  versus uncapped rendering.
+  1-frame-behind and busy frames paint the last completed texture —
+  same cadence as egui, just fewer *unique* frames when the worker is
+  saturated.
 - GPU memory: ~85 MB per process (NVIDIA, per `nvidia-smi`); each scope
   figure owns a device — shared-device is a documented TODO.
-- Caveats: measured while the box was loaded (load avg ~7–17, an
-  unrelated clippy job); relative ordering is stable across runs,
-  absolute values will vary. In a real eframe/wgpu app egui additionally
-  pays GPU-submit + paint costs the harness skips, so the live-mode gap
-  narrows in production.
+- Caveats: measured while the box was loaded (load avg ~7–17);
+  relative ordering is stable across runs, absolute values will vary.
+  In a real eframe/wgpu app egui additionally pays GPU-submit + paint
+  costs the harness skips, so the live-mode gap narrows in production.
 
 ## 5. Findings from this run
 
@@ -199,47 +198,84 @@ Reading:
 
 ## 5b. Live-mode CPU deep-dive (instrumented)
 
-`dbg_*` counters + per-render timing show where the live-mode CPU
-actually goes (~1.4 ms CPU/f vs egui ~0.3):
+Phase-by-phase instrumentation (`prepare`/`renderFrame`/`readback`,
+pre-pass timing, per-thread CPU via `/proc/thread-self/stat`) showed
+where the ~1.3–1.4 ms CPU/f went, and each identified hotspot was
+fixed:
 
-- **~95% is the render+readback itself**: each
-  `vp_render_rgba` = `prepare` + `renderFrame` + GPU→CPU readback of
-  ~3.7 MB + `to_vec` ≈ **5–7 ms steady-state** on the RTX 5060 Ti at
-  1122×635 (first render ~230 ms device+shader init, 2nd/3rd ~45–75 ms
-  pipeline warm-up). 7–18 renders per 120-frame window ≈ the whole
-  volcano overhead.
-- Uploads/sig-hashing/thread-spawn were noise by comparison (the
-  `spawn`-per-render cost ~20-60 µs — removed anyway).
-- `LinePlot::prepare` re-uploaded **every** trace's full point buffer
-  into the host-visible GPU buffer on **every** render
-  (`updatePoints`, `dataDirty_` never checked — 12.8 MB/render at
-  8×200k). Patched upstream (`liveplot-ffi`): upload only when
-  `dataDirty_`.
+1. **Per-frame readback allocation + double submit** —
+   `vp_render_rgba` ran `renderFrame` (with its own sync), then
+   `readbackRgba8` VMA-allocated a fresh 3.7 MB staging buffer,
+   allocated a one-time command buffer, did a *second* submit +
+   `queue.waitIdle`, then memcpy'd staging → vector → FFI buffer →
+   Rust `to_vec`. Now: the image→staging copy is recorded in the
+   *same* command buffer as the render (one submit, one fence), the
+   staging buffer + fence are persistent (`HeadlessBackend`), and
+   `readbackRgba8Into` memcpy's once into the caller's recycled
+   buffer (`render_rgba_into` + `pixel_scratch` in Rust).
+   Result: `readback` phase 1 ms → **0.1 ms**.
+2. **Spin-waits burning CPU** — `endFrame`'s `waitForFences`,
+   `VulkanGpuServices::submitPrePass`'s `queue.waitIdle`, and
+   `OneTimeCommands`'s `queue.waitIdle` all spun in the driver while
+   the GPU ran (~4.5 ms compute pre-pass). All three now poll
+   `getFenceStatus` with a 100 µs sleep — same synchronous semantics,
+   measured ~**0 ms thread-CPU** per render (was the dominant CPU
+   sink).
+3. **Per-trace GPU→CPU round-trips** — for traces > 50k points,
+   `LinePlot::preDraw` ran `envelopeColumns` (compute min/max
+   reduction) **per trace per frame**, each call allocating an output
+   buffer + descriptor pool + `OneTimeCommands` submit/wait, then
+   copying all columns back to host vectors. `renderFrame` measured
+   ~5.2 ms, of which ~3.5 ms was this pre-pass — mostly CPU. The
+   FFI now sets `OffloadConfig.envelope = Cpu` so large traces take
+   the fully GPU-resident `transformPoints` + `tessellateDevice`
+   path instead (same all-points stroking semantics as egui — no
+   host round-trip). `preDraw` now also honors the existing
+   `OffloadConfig.envelope`/`xform` switches (previously ignored on
+   the native path). Result: `renderFrame` 5.2 → **3.3 ms**, pre-pass
+   3.5 → 1.8 ms.
+4. **Per-frame full point re-upload** — `LinePlot::prepare` memcpy'd
+   every trace's full buffer into the host-visible GPU buffer every
+   render (12.8 MB/render at 8×200k) despite `dataDirty_`. Now gated.
+   (VolcanoPlot `liveplot-ffi` commit 5d63520.)
+5. **Rust-side overhead** — `thread::spawn` per render → persistent
+   `RenderWorker` (mpsc job/result channels; `Drop` joins);
+   per-frame `frame_sigs` Vec + `String` clones removed; pixel
+   buffer recycled through the channel instead of `to_vec`.
 
-Changes shipped (this commit):
+**No FPS cap**: an earlier ~30 fps texture-update cap was removed —
+it made the egui-vs-volcano comparison invalid (different effective
+rates). Both paths now update at identical pacing.
 
-- **Persistent `RenderWorker`** (mpsc job/result channels) replaces
-  `thread::spawn` per render; `Drop` closes the channel and joins.
-- **~30 fps texture cap** (`min_render_interval`, egui *virtual* time
-  so kittest `step_dt` stays deterministic; bypassed until first
-  frame; `LIVEPLOT_VOLCANO_MIN_FRAME_MS` env override, 0 = uncapped).
-  At real 60 fps UI rates this halves renders (~60→30/s ≈ 180 ms/s of
-  worker CPU); the egui overlay stays at full rate.
-- Per-frame `frame_sigs` Vec + `String` clones removed (raw sig
-  recomputed O(1) in the upload loop).
+Remaining live-mode cost (~1.25–1.42 ms/f, still above egui's
+0.33–0.42 at these trace sizes):
 
-Honest bound: with ~5-7 ms of upstream render+readback per frame,
-volcano can't dip under egui's live CPU while updating at display
-rate — the remaining lever is upstream (async readback/fence
-pipelining, incremental point upload) or a lower cap.
+- Per-render command recording + submit (~0.9 ms `draws` phase
+  measured inside `renderFrameSubset`).
+- f64→f32 conversion + upload of changed traces on the UI thread
+  (~1.5 ms per 200k-point upload; `main_cpu` ≈ 40 ms/window at
+  8×200k).
+- One 3.7 MB readback memcpy + `ColorImage` conversion + egui
+  texture `set_partial` per rendered frame.
+- `prepare` + barriers + fence bookkeeping (~0.4 ms).
+
+Getting under egui needs bigger restructures upstream: deferred
+readback (present frame N-1 while N renders), `vp_trace_append` for
+incremental upload (avoids the O(N) re-upload per dispatch), cached
+command buffers for the static layer, or shared-device contexts.
 
 ## 6. Remaining gaps / TODO
 
 - Shared Vulkan device across figures (upstream FFI work — biggest
-  memory win, likely also removes the concurrency hang).
-- Upstream: async readback (fence+staging) to pipeline the ~5-7 ms
-  render+readback; incremental `vp_trace_append` to avoid O(N)
-  re-upload of append-only live traces.
+  memory win, likely also removes the concurrency hang;
+  `sharedGpuContext()` exists upstream but needs queue/pool
+  synchronization across worker threads).
+- Upstream: deferred/pipelined readback (present frame N-1 while N
+  renders); incremental `vp_trace_append` to avoid O(N) f64→f32
+  re-upload of append-only live traces; cached command buffers for
+  the static layer (`DrawSubset::StaticOnly` machinery exists);
+  batched `envelopeColumns` (one submission for all traces) if the
+  envelope path is re-enabled.
 - Live-mode CPU: incremental upload (append-only ranges) instead of
   full re-collect when a trace changes.
 - Legend-position persistence round-trip on the volcano path.
@@ -249,15 +285,16 @@ pipelining, incremental point upload) or a lower cap.
 
 ## 7. Result summary
 
-- **e2e suite: 181 passed / 0 failed** (6 ignored opt-ins) —
+- **e2e suite: 173 passed / 0 failed** (6 ignored opt-ins) —
   `--features "volcano,fft"`, both paths, incl. all 40+ volcano parity
   tests, XY scope, FFT embedded scope, FFI suite 6/6.
 - **Volcano renders on the NVIDIA RTX 5060 Ti** (proven via nvidia-smi,
   fd table, ioctl counts, render-time delta vs llvmpipe).
-- **CPU: lower than egui on static views (~1.3–2.3×), higher on
-  continuous data churn (~1.42 ms/f flat vs 0.33–0.42)** — after the
-  worker/cap/dirty-gating optimizations, ~95% of the remaining live
-  cost is upstream `vp_render_rgba` itself (render + GPU→CPU
-  readback); getting under egui needs async readback or incremental
-  upload upstream, or a lower update rate. At a real 60 fps UI the
-  30 fps cap bounds render CPU to ~180 ms/s.
+- **CPU: lower than egui on static views (~1.3–2.7×), higher on
+  continuous data churn (~1.25–1.42 ms/f vs 0.33–0.42)** — fair,
+  uncapped, identical pacing for both paths. After the fixes in §5b
+  the render waits cost ~0 CPU; the remainder is spread across
+  command recording, trace-upload conversion, and one readback
+  memcpy + texture upload per rendered frame (§5b). Volcano's live
+  cost is *flat in point count* while egui grows with data — the
+  curves cross at larger buffers.

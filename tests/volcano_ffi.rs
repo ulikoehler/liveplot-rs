@@ -174,6 +174,36 @@ fn volcano_hold_device_probe() {
     }
 }
 
+/// Temporary probe: is renderFrame's ~5ms GPU-bound or CPU-bound?
+/// Same 200k-point render at 64x64 (near-zero raster work) vs full
+/// size — if time scales with pixels it's the GPU wait (spin = CPU),
+/// if constant it's CPU-side scene building.
+#[test]
+#[ignore]
+fn volcano_render_scaling_probe() {
+    use std::time::Instant;
+    let n = 200_000usize;
+    let xy: Vec<[f64; 2]> = (0..n)
+        .map(|i| {
+            let t = i as f64 * 0.001;
+            [t, t.sin() * (1.0 + 0.05 * (t * 8.0).cos())]
+        })
+        .collect();
+    for (w, h) in [(64, 64), (320, 200), (1122, 635)] {
+        let mut fig = VolcanoFigure::new(w, h).expect("figure");
+        let id = fig.add_trace();
+        fig.set_trace(id, &xy, 0xFF8800FF, 1.5, VolcanoLineStyle::Solid);
+        fig.set_viewport(0.0, 200.0, -1.2, 1.2);
+        let mut times = Vec::new();
+        for _ in 0..6 {
+            let t = Instant::now();
+            assert!(fig.render_rgba().is_some());
+            times.push(t.elapsed().as_secs_f64() * 1e3);
+        }
+        eprintln!("{w}x{h}: renders(ms) {times:?}");
+    }
+}
+
 /// Diagnostic: render with axis labels and dump the framebuffer to PNG.
 #[test]
 fn volcano_debug_render_png() {

@@ -1417,6 +1417,17 @@ fn proc_cpu_ms() -> u64 {
     (u + st) * 10
 }
 
+/// CPU of the calling thread only (render workers excluded) — splits
+/// UI-side work from render-worker work in the volcano path.
+/// `/proc/thread-self` resolves to the calling thread's task dir.
+fn main_thread_cpu_ms() -> u64 {
+    let s = std::fs::read_to_string("/proc/thread-self/stat").unwrap_or_default();
+    let f: Vec<&str> = s.split(' ').collect();
+    let u: u64 = f.get(13).and_then(|x| x.parse().ok()).unwrap_or(0);
+    let st: u64 = f.get(14).and_then(|x| x.parse().ok()).unwrap_or(0);
+    (u + st) * 10
+}
+
 fn proc_rss_kb() -> u64 {
     std::fs::read_to_string("/proc/self/status")
         .unwrap_or_default()
@@ -1467,6 +1478,7 @@ fn bench_render_perf() {
             steps(&mut bed, 15); // warm-up: init, JIT, allocators
             let rss0 = proc_rss_kb();
             let cpu0 = proc_cpu_ms();
+            let mcpu0 = main_thread_cpu_ms();
             let t0 = std::time::Instant::now();
             let mut rss_peak = rss0;
             for f in 0..FRAMES {
@@ -1482,14 +1494,16 @@ fn bench_render_perf() {
             }
             let wall = t0.elapsed();
             let cpu = proc_cpu_ms() - cpu0;
+            let mcpu = main_thread_cpu_ms() - mcpu0;
             let s = scope(&bed, 0);
             let (rd, dp) = if let Some(surf) = s.volcano_surface.as_ref() {
                 eprintln!(
-                    "    [{}] dispatches={} sig_frames={} throttled={} busy_skips={} uploads={}",
+                    "    [{}] main_cpu={}ms worker_cpu={}ms dispatches={} sig_frames={} busy_skips={} uploads={}",
                     if vol { "volcano" } else { "egui" },
+                    mcpu,
+                    cpu as i64 - mcpu as i64,
                     surf.dbg_dispatches,
                     surf.dbg_sig_frames,
-                    surf.dbg_throttled,
                     surf.dbg_busy_skips,
                     surf.dbg_uploads,
                 );

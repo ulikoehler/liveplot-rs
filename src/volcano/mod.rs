@@ -174,6 +174,15 @@ impl VolcanoFigure {
         let n = unsafe { vp_render_rgba(self.ptr, self.buf.as_mut_ptr(), self.buf.len()) };
         (n == self.buf.len()).then_some(&self.buf[..])
     }
+
+    /// Render one frame straight into `out` (resized to w*h*4) —
+    /// skips the internal `buf` so the result can travel without an
+    /// extra copy.
+    pub fn render_rgba_into(&mut self, out: &mut Vec<u8>) -> Option<(u32, u32)> {
+        out.resize((self.w * self.h * 4) as usize, 0);
+        let n = unsafe { vp_render_rgba(self.ptr, out.as_mut_ptr(), out.len()) };
+        (n == out.len()).then_some((self.w as u32, self.h as u32))
+    }
 }
 
 impl Drop for VolcanoFigure {

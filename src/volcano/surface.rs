@@ -120,17 +120,12 @@ fn vp_marker(look: &TraceLook) -> i32 {
     }
 }
 
-/// Default cap on GPU-texture updates — ~30fps. The egui overlay runs
-/// at full UI rate regardless; re-rendering faster than the display
-/// just burns CPU on render+readback+upload nobody sees. Override via
-/// `LIVEPLOT_VOLCANO_MIN_FRAME_MS` (milliseconds, 0 = uncapped).
-const DEFAULT_MIN_RENDER_INTERVAL: f64 = 0.033;
-
-/// Long-lived render thread — one channel'd job slot (the figure
-/// itself) in, one result out. Replaces per-frame `thread::spawn`:
-/// thread creation + teardown per rendered frame is real CPU.
+/// Long-lived render thread — one channel'd job slot (figure + a
+/// recycled pixel scratch) in, one result out. Replaces per-frame
+/// `thread::spawn`: thread creation + teardown per rendered frame is
+/// real CPU.
 struct RenderWorker {
-    job_tx: std::sync::mpsc::Sender<VolcanoFigure>,
+    job_tx: std::sync::mpsc::Sender<(VolcanoFigure, Vec<u8>)>,
     res_rx: std::sync::mpsc::Receiver<(VolcanoFigure, Option<(u32, u32, Vec<u8>)>)>,
     handle: std::thread::JoinHandle<()>,
     /// A job is in flight — paint the last texture meanwhile.
@@ -139,13 +134,13 @@ struct RenderWorker {
 
 impl RenderWorker {
     fn spawn() -> Self {
-        let (job_tx, job_rx) = std::sync::mpsc::channel::<VolcanoFigure>();
+        let (job_tx, job_rx) = std::sync::mpsc::channel::<(VolcanoFigure, Vec<u8>)>();
         let (res_tx, res_rx) = std::sync::mpsc::channel();
         let handle = std::thread::spawn(move || {
-            while let Ok(mut fig) = job_rx.recv() {
-                let (rw, rh) = fig.size();
-                let px = fig.render_rgba().map(|b| (rw, rh, b.to_vec()));
-                if res_tx.send((fig, px)).is_err() {
+            while let Ok((mut fig, mut px)) = job_rx.recv() {
+                let dims = fig.render_rgba_into(&mut px);
+                let res = dims.map(|(rw, rh)| (rw, rh, px));
+                if res_tx.send((fig, res)).is_err() {
                     return;
                 }
             }
@@ -158,9 +153,9 @@ impl RenderWorker {
         }
     }
 
-    /// Hand the figure to the worker for the next render.
-    fn dispatch(&mut self, fig: VolcanoFigure) -> bool {
-        if self.job_tx.send(fig).is_ok() {
+    /// Hand the figure + recycled pixel scratch to the worker.
+    fn dispatch(&mut self, fig: VolcanoFigure, px: Vec<u8>) -> bool {
+        if self.job_tx.send((fig, px)).is_ok() {
             self.busy = true;
             true
         } else {
@@ -186,11 +181,9 @@ pub struct VolcanoSurface {
     /// Persistent render+readback worker — keeps the UI at full rate
     /// while Vulkan renders (~2-7ms/frame) in the background.
     worker: Option<RenderWorker>,
-    /// egui virtual time of the last render dispatch — texture updates
-    /// are capped at `min_render_interval`.
-    last_render_time: Option<f64>,
-    /// Min seconds between texture updates (egui `ctx` time).
-    min_render_interval: f64,
+    /// Recycled w*h*4 pixel buffer — travels to the worker and back,
+    /// so rendered frames don't allocate/copy a fresh Vec each time.
+    pixel_scratch: Vec<u8>,
     /// Current data-space viewport (x, y) — the PADDED view bounds
     /// (data bounds + 5 % per side, matching the egui transform),
     /// written back from the caller each frame.
@@ -215,11 +208,10 @@ pub struct VolcanoSurface {
     /// observability (`ScopeData::volcano_dropped_frames` mirrors).
     pub dropped_frames: u32,
     /// Perf observability: dispatches sent to the worker, frames that
-    /// reached signature computation, frames skipped by the rate cap,
-    /// frames skipped while the worker was busy, traces re-uploaded.
+    /// reached signature computation, frames skipped while the worker
+    /// was busy, traces re-uploaded.
     pub dbg_dispatches: u64,
     pub dbg_sig_frames: u64,
-    pub dbg_throttled: u64,
     pub dbg_busy_skips: u64,
     pub dbg_uploads: u64,
     initialized: bool,
@@ -241,12 +233,7 @@ impl VolcanoSurface {
             upload_scratch: HashMap::new(),
             last_sig: 0,
             worker: None,
-            last_render_time: None,
-            min_render_interval: std::env::var("LIVEPLOT_VOLCANO_MIN_FRAME_MS")
-                .ok()
-                .and_then(|v| v.parse::<f64>().ok())
-                .map(|ms| (ms / 1000.0).max(0.0))
-                .unwrap_or(DEFAULT_MIN_RENDER_INTERVAL),
+            pixel_scratch: Vec::new(),
             bounds: ([0.0, 1.0], [0.0, 1.0]),
             bounds_external: false,
             shift: (0.0, 0.0),
@@ -255,7 +242,6 @@ impl VolcanoSurface {
             dropped_frames: 0,
             dbg_dispatches: 0,
             dbg_sig_frames: 0,
-            dbg_throttled: 0,
             dbg_busy_skips: 0,
             dbg_uploads: 0,
             initialized: false,
@@ -331,6 +317,8 @@ impl VolcanoSurface {
                             tex.set(image, egui::TextureOptions::LINEAR);
                             self.initialized = true;
                             self.frames_rendered += 1;
+                            // Reclaim the buffer for the next dispatch.
+                            self.pixel_scratch = px;
                         } else {
                             self.dropped_frames += 1;
                         }
@@ -413,21 +401,7 @@ impl VolcanoSurface {
         if self.initialized && sig == self.last_sig {
             return true;
         }
-        // Texture update cap — autoscroll/data churn otherwise triggers
-        // a render+readback+upload every UI frame. egui's virtual time
-        // (not Instant) so harnesses with fixed step_dt stay
-        // deterministic; bypassed until the first frame is painted.
-        let now = ctx.input(|i| i.time);
-        if self.initialized
-            && self
-                .last_render_time
-                .is_some_and(|t| now - t < self.min_render_interval)
-        {
-            self.dbg_throttled += 1;
-            return true; // last_sig untouched — retry once the interval lapses
-        }
         self.last_sig = sig;
-        self.last_render_time = Some(now);
 
         let (fw, fh) = fig.size();
         // Debounce: resizing rebuilds the whole Vulkan backend —
@@ -684,11 +658,12 @@ impl VolcanoSurface {
         // UI. A dead worker (send fails) is dropped and respawned on
         // the next sync; the figure is recreated below if lost.
         let owned = self.fig.take().unwrap();
+        let px = std::mem::take(&mut self.pixel_scratch);
         self.dbg_dispatches += 1;
         if !self
             .worker
             .get_or_insert_with(RenderWorker::spawn)
-            .dispatch(owned)
+            .dispatch(owned, px)
         {
             self.worker = None;
         }
