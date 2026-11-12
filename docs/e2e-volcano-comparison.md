@@ -376,8 +376,34 @@ at these trace sizes):
   UI thread.
 
 Getting under egui needs bigger restructures upstream: deferred
-readback (present frame N-1 while N renders — throughput, not CPU),
-a GPU-ring `vp_trace_append`, or shared-device contexts.
+readback (present frame N-1 while N renders — throughput, not CPU)
+or shared-device contexts.
+
+### 5f. Ring-buffered sliding-window upload + phase-grouped barriers
+
+Two of the remaining levers landed this round:
+
+- **`vp_trace_slide` (ring upload)** — the Rust side tracks
+  `live_pushes`/`live_pops` counters on the deque store, so each sync
+  gets the exact dropped-front count `d` and tail length in O(1)
+  instead of anchor scanning (the old heuristic failed whenever the
+  window slid past a full buffer between syncs, which happens at high
+  feed rates). `LinePlot::slideDataF64` advances `rawFront_` (amortized
+  prefix compaction when dead storage crosses a threshold), appends the
+  transformed tail, and `LineRendererVk::updatePointsF64Append` writes
+  the tail into the f64 ring at `(head + count) % cap` in at most two
+  memcpy segments — no full re-upload. GPU shaders index ring data as
+  `(srcHead + i) % srcCap`; `srcCap >= point_count` is the readback
+  contract. Empty tails (`tail_n == 0`) still flow through so
+  style-only updates aren't dropped. Bench: 22/30 live uploads take the
+  slide path; the rest fall back to full upload when the window can't
+  be proven contiguous.
+- **Phase-grouped barriers** — `preDraw` now records transforms with a
+  deferred barrier, `GpuLineRendererVk::endTransforms` emits one shared
+  compute→compute barrier for all traces, and `preDraw2` records the
+  dependent tessellation (stashed in `LinePlot::PendingTess` keyed by
+  frame seq). N+1 per-trace RAW barriers collapse to one per frame;
+  the final compute→vertex visibility barrier is unchanged.
 
 ## 6. Remaining gaps / TODO
 
@@ -386,10 +412,11 @@ a GPU-ring `vp_trace_append`, or shared-device contexts.
   `sharedGpuContext()` exists upstream but needs queue/pool
   synchronization across worker threads).
 - Upstream: deferred/pipelined readback (present frame N-1 while N
-  renders); GPU-ring `vp_trace_append` for sliding-window live traces
-  (see §5d — needs head-offset shader reads + CPU-consumer
-  linearization); batched `envelopeColumns` (one submission for all
-  traces) if the envelope path is re-enabled.
+  renders); GPU-resident `envelopeColumns` decimation without host
+  readback (needs a device-visible envelope output feeding the
+  tessellator + a stroker that tolerates 2-vert columns).
+- ~~GPU-ring `vp_trace_append` for sliding-window live traces~~ —
+  landed as `vp_trace_slide` in §5f.
 - ~~Cached command buffers for the static layer~~ — evaluated in §5d:
   draw-call recording is ~0.07 ms/f, not worth the complexity.
 - Legend-position persistence round-trip on the volcano path.
