@@ -428,3 +428,64 @@ fn volcano_slide_screenshot() {
         );
     }
 }
+
+/// The device-resident envelope→polyline path (compute reduce + emit,
+/// no host readback) must produce the same pixels as the legacy
+/// submit+readback envelope. `VOLCANO_ENVDEV=0` latches the second
+/// figure's renderer onto the legacy path for a same-process A/B.
+#[test]
+fn volcano_envelope_device_matches_readback() {
+    let (w, h) = (640u32, 480u32);
+    // >8192 pts → envelopeOk path; a NaN gap exercises the emit
+    // shader's run-parity scan (alternating order restarts per run).
+    let mut pts: Vec<[f64; 2]> = (0..20000)
+        .map(|i| {
+            let x = i as f64 * 0.001;
+            [x, (x * 2.3).sin() * 0.8 + (x * 31.0).sin() * 0.15]
+        })
+        .collect();
+    pts[7000] = [f64::NAN, f64::NAN];
+    pts[7010] = [f64::NAN, f64::NAN];
+    pts[15000] = [f64::NAN, f64::NAN];
+
+    let render = || {
+        let mut fig = VolcanoFigure::new(w, h).unwrap();
+        fig.set_background(true);
+        fig.set_viewport(0.0, 20.0, -1.3, 1.3);
+        let id = fig.add_trace();
+        fig.set_trace(id, &pts, 0xFF2222FF, 1.5, VolcanoLineStyle::Solid);
+        fig.render_rgba().unwrap().to_vec()
+    };
+
+    let dev_px = render();
+    image::RgbaImage::from_raw(w, h, dev_px.clone())
+        .unwrap()
+        .save("/tmp/env_dev.png")
+        .unwrap();
+    unsafe { std::env::set_var("VOLCANO_ENVDEV", "0") };
+    let rb_px = render();
+    unsafe { std::env::remove_var("VOLCANO_ENVDEV") };
+    image::RgbaImage::from_raw(w, h, rb_px.clone())
+        .unwrap()
+        .save("/tmp/env_rb.png")
+        .unwrap();
+
+    let diff = dev_px
+        .iter()
+        .zip(rb_px.iter())
+        .filter(|(a, b)| a != b)
+        .count();
+    eprintln!("envdev A/B differing bytes: {diff} / {}", dev_px.len());
+    // FMA contraction inside the emit shader can shift an edge by a
+    // ulp — a handful of pixels, not a silhouette change.
+    assert!(
+        diff <= dev_px.len() / 50,
+        "device envelope diverged from readback envelope: {diff} bytes"
+    );
+    // And the device render must actually contain the trace.
+    let red = dev_px
+        .chunks_exact(4)
+        .filter(|c| c[0] > 200 && c[1] < 100 && c[2] < 100)
+        .count();
+    assert!(red > 100, "device envelope drew {red} trace px");
+}
