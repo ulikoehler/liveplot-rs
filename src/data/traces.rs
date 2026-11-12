@@ -243,6 +243,9 @@ impl TracesCollection {
                                     look,
                                     offset,
                                     live: VecDeque::new(),
+                                    live_gen: 0,
+                                    live_pushes: 0,
+                                    live_pops: 0,
                                     snap: None,
                                     info: String::new(),
                                     display_name: pending_name,
@@ -283,6 +286,9 @@ impl TracesCollection {
                                         look,
                                         offset,
                                         live: VecDeque::new(),
+                                        live_gen: 0,
+                                        live_pushes: 0,
+                                        live_pops: 0,
                                         snap: None,
                                         info: String::new(),
                                         display_name: pending_name,
@@ -295,14 +301,14 @@ impl TracesCollection {
                                     })
                                 }
                             };
-                            entry.live.push_back([point.x, point.y]);
+                            entry.live_push([point.x, point.y]);
                             if entry.snap.is_none() {
                                 entry.envelope_add_point([point.x, point.y]);
                                 entry.decimation_add_point([point.x, point.y]);
                                 entry.density_add_point([point.x, point.y]);
                             }
                             if entry.live.len() > self.max_points {
-                                if let Some(removed) = entry.live.pop_front() {
+                                if let Some(removed) = entry.live_pop_seq() {
                                     if entry.snap.is_none() {
                                         entry.envelope_remove_point(removed);
                                         entry.decimation_remove_point(removed);
@@ -326,6 +332,9 @@ impl TracesCollection {
                                     look,
                                     offset,
                                     live: VecDeque::new(),
+                                    live_gen: 0,
+                                    live_pushes: 0,
+                                    live_pops: 0,
                                     snap: None,
                                     info: String::new(),
                                     display_name: pending_name,
@@ -337,7 +346,7 @@ impl TracesCollection {
                                     density_cache: None,
                                 }
                             });
-                            entry.live.push_back([point.x, point.y]);
+                            entry.live_push([point.x, point.y]);
                             if entry.snap.is_none() {
                                 entry.envelope_add_point([point.x, point.y]);
                                 entry.decimation_add_point([point.x, point.y]);
@@ -361,6 +370,9 @@ impl TracesCollection {
                                         look,
                                         offset,
                                         live: VecDeque::new(),
+                                        live_gen: 0,
+                                        live_pushes: 0,
+                                        live_pops: 0,
                                         snap: None,
                                         info: String::new(),
                                         display_name: pending_name,
@@ -374,7 +386,7 @@ impl TracesCollection {
                                 }
                             };
                             for p in points {
-                                entry.live.push_back([p.x, p.y]);
+                                entry.live_push([p.x, p.y]);
                                 if entry.snap.is_none() {
                                     entry.envelope_add_point([p.x, p.y]);
                                     entry.decimation_add_point([p.x, p.y]);
@@ -382,7 +394,7 @@ impl TracesCollection {
                                 }
                             }
                             while entry.live.len() > self.max_points {
-                                if let Some(removed) = entry.live.pop_front() {
+                                if let Some(removed) = entry.live_pop_seq() {
                                     if entry.snap.is_none() {
                                         entry.envelope_remove_point(removed);
                                         entry.decimation_remove_point(removed);
@@ -408,6 +420,9 @@ impl TracesCollection {
                                         look,
                                         offset,
                                         live: VecDeque::new(),
+                                        live_gen: 0,
+                                        live_pushes: 0,
+                                        live_pops: 0,
                                         snap: None,
                                         info: String::new(),
                                         display_name: pending_name,
@@ -421,11 +436,12 @@ impl TracesCollection {
                                 }
                             };
                             entry.live.clear();
+                            entry.live_gen += 1;
                             entry.envelope_cache = None;
                             entry.decimation_cache = None;
                             entry.density_cache = None;
                             for p in points {
-                                entry.live.push_back([p.x, p.y]);
+                                entry.live_push([p.x, p.y]);
                             }
                         }
                     }
@@ -434,6 +450,7 @@ impl TracesCollection {
                             let tref = TraceRef(name);
                             if let Some(tr) = self.traces.get_mut(&tref) {
                                 tr.live.clear();
+                                tr.live_gen += 1;
                                 tr.envelope_cache = None;
                                 tr.decimation_cache = None;
                                 tr.density_cache = None;
@@ -449,6 +466,7 @@ impl TracesCollection {
                                         pt[1] = y;
                                     }
                                 }
+                                tr.live_gen += 1;
                             }
                         }
                     }
@@ -458,6 +476,7 @@ impl TracesCollection {
                             if let Some(tr) = self.traces.get_mut(&tref) {
                                 tr.live
                                     .retain(|pt| !xs.iter().any(|&x| (x - pt[0]).abs() < 1e-12));
+                                tr.live_gen += 1;
                             }
                         }
                     }
@@ -470,6 +489,7 @@ impl TracesCollection {
                             let tref = TraceRef(name);
                             if let Some(tr) = self.traces.get_mut(&tref) {
                                 tr.live.retain(|pt| pt[0] < x_min || pt[0] > x_max);
+                                tr.live_gen += 1;
                             }
                         }
                     }
@@ -482,6 +502,7 @@ impl TracesCollection {
                                         pt[1] = f(pt[1]);
                                     }
                                 }
+                                tr.live_gen += 1;
                             }
                         }
                     }
@@ -499,6 +520,7 @@ impl TracesCollection {
                                         pt[1] = f(pt[1]);
                                     }
                                 }
+                                tr.live_gen += 1;
                             }
                         }
                     }
@@ -567,6 +589,9 @@ impl TracesCollection {
                     look,
                     offset,
                     live: VecDeque::new(),
+                    live_gen: 0,
+                    live_pushes: 0,
+                    live_pops: 0,
                     snap: None,
                     info: String::new(),
                     display_name: pending_name,
@@ -635,6 +660,25 @@ impl TracesCollection {
         } else {
             Some(&trace.live)
         }
+    }
+
+    /// Points + mutation sequence (gen, pushes, pops) for ring-append
+    /// upload detection — see `TraceData::live_seq`. The seq describes
+    /// `live`; with `snapshot` it only tells the caller "the live
+    /// buffer moved on", which still validates/fails correctly.
+    pub fn get_points_seq(
+        &self,
+        name: &TraceRef,
+        snapshot: bool,
+    ) -> Option<(&VecDeque<[f64; 2]>, u64, u64, u64)> {
+        let trace = self.traces.get(name)?;
+        let (g, pu, po) = trace.live_seq();
+        let pts = if snapshot {
+            trace.snap.as_ref().unwrap_or(&trace.live)
+        } else {
+            &trace.live
+        };
+        Some((pts, g, pu, po))
     }
 
     /// Return decimated points for a trace, filtering by x-bounds and
@@ -1171,6 +1215,12 @@ pub struct TraceData {
     pub look: TraceLook,
     pub offset: f64,
     pub live: VecDeque<[f64; 2]>,
+    /// Ring-append detection counters: monotonic pushes/pops since the
+    /// last `live_gen` bump. Any mutation that isn't "pop_front /
+    /// push_back" bumps `live_gen`, invalidating seq-based diffs.
+    pub live_gen: u64,
+    pub live_pushes: u64,
+    pub live_pops: u64,
     pub snap: Option<VecDeque<[f64; 2]>>,
     pub info: String,
     /// Optional display alias shown in legends and labels.  The canonical
@@ -1216,9 +1266,29 @@ pub struct DecimationCache {
 }
 
 impl TraceData {
+    /// Append + sequence accounting (ring-append upload detection).
+    pub fn live_push(&mut self, p: [f64; 2]) {
+        self.live.push_back(p);
+        self.live_pushes += 1;
+    }
+    /// Front-pop + sequence accounting.
+    pub fn live_pop_seq(&mut self) -> Option<[f64; 2]> {
+        let r = self.live.pop_front();
+        if r.is_some() {
+            self.live_pops += 1;
+        }
+        r
+    }
+    /// (gen, pushes, pops) — consumers diff pushes/pops between calls;
+    /// a `gen` change means the buffer was mutated non-incrementally
+    /// (clear / replace / retain / in-place writes) and deltas are void.
+    pub fn live_seq(&self) -> (u64, u64, u64) {
+        (self.live_gen, self.live_pushes, self.live_pops)
+    }
+
     pub fn prune_by_points(&mut self, max_points: usize) {
         while self.live.len() > max_points {
-            if let Some(removed) = self.live.pop_front() {
+            if let Some(removed) = self.live_pop_seq() {
                 if self.snap.is_none() {
                     self.envelope_remove_point(removed);
                     self.decimation_remove_point(removed);
@@ -1240,7 +1310,7 @@ impl TraceData {
         let cutoff = newest_x - max_age_secs;
         while let Some(&front) = self.live.front() {
             if front[0] < cutoff {
-                self.live.pop_front();
+                self.live_pop_seq();
                 if self.snap.is_none() {
                     self.envelope_remove_point(front);
                     self.decimation_remove_point(front);
@@ -1254,6 +1324,7 @@ impl TraceData {
 
     pub fn clear_all(&mut self) {
         self.live.clear();
+        self.live_gen += 1;
         self.snap = None;
         self.envelope_cache = None;
         self.decimation_cache = None;
@@ -1297,7 +1368,7 @@ impl TraceData {
         if is_extension {
             let track_caches = self.snap.is_none();
             for &p in &points[old_len..] {
-                self.live.push_back(p);
+                self.live_push(p);
                 if track_caches {
                     self.envelope_add_point(p);
                     self.decimation_add_point(p);
@@ -1306,6 +1377,7 @@ impl TraceData {
             }
         } else {
             self.live = points.iter().copied().collect();
+            self.live_gen += 1;
             if self.snap.is_none() {
                 self.envelope_cache = None;
                 self.decimation_cache = None;

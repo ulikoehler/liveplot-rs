@@ -27,6 +27,16 @@ extern "C" {
         width: f32,
         style: i32,
     );
+    fn vp_trace_slide(
+        fig: *mut VpFigure,
+        id: u64,
+        drop: u32,
+        tail: *const f64,
+        tail_n: usize,
+        rgba8: u32,
+        width: f32,
+        style: i32,
+    );
     fn vp_trace_set_marker(fig: *mut VpFigure, id: u64, marker: i32, size: f32);
     fn vp_trace_remove(fig: *mut VpFigure, id: u64);
     fn vp_set_viewport(fig: *mut VpFigure, xmin: f64, xmax: f64, ymin: f64, ymax: f64);
@@ -116,6 +126,31 @@ impl VolcanoFigure {
                 id,
                 xy.as_ptr() as *const f64,
                 xy.len(),
+                rgba8,
+                width,
+                style as i32,
+            )
+        }
+    }
+
+    /// Sliding-window update: `drop` points evicted at the front,
+    /// `tail` appended at the back — uploads only the tail.
+    pub fn set_trace_slide(
+        &mut self,
+        id: u64,
+        drop: u32,
+        tail: &[[f64; 2]],
+        rgba8: u32,
+        width: f32,
+        style: VolcanoLineStyle,
+    ) {
+        unsafe {
+            vp_trace_slide(
+                self.ptr,
+                id,
+                drop,
+                tail.as_ptr() as *const f64,
+                tail.len(),
                 rgba8,
                 width,
                 style as i32,

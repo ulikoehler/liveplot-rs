@@ -1498,7 +1498,7 @@ fn bench_render_perf() {
             let s = scope(&bed, 0);
             let (rd, dp) = if let Some(surf) = s.volcano_surface.as_ref() {
                 eprintln!(
-                    "    [{}] main_cpu={}ms worker_cpu={}ms dispatches={} sig_frames={} busy_skips={} uploads={}",
+                    "    [{}] main_cpu={}ms worker_cpu={}ms dispatches={} sig_frames={} busy_skips={} uploads={} slides={}",
                     if vol { "volcano" } else { "egui" },
                     mcpu,
                     cpu as i64 - mcpu as i64,
@@ -1506,6 +1506,7 @@ fn bench_render_perf() {
                     surf.dbg_sig_frames,
                     surf.dbg_busy_skips,
                     surf.dbg_uploads,
+                    surf.dbg_slides,
                 );
                 (surf.frames_rendered, surf.dropped_frames as u64)
             } else {

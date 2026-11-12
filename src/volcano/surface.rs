@@ -55,6 +55,19 @@ fn trace_sig(
     h.finish()
 }
 
+/// Slide-detection state for the ring-append upload: mutation seq of
+/// the last uploaded window plus the transform params the GPU copy was
+/// baked with — any param/gen change forces a full re-upload.
+struct SlideState {
+    len: usize,
+    uploaded: usize,
+    gen: u64,
+    pushes: u64,
+    pops: u64,
+    last: [f64; 2],
+    params: u64,
+}
+
 fn rgba8(c: egui::Color32) -> u32 {
     let [r, g, b, a] = c.to_array();
     ((r as u32) << 24) | ((g as u32) << 16) | ((b as u32) << 8) | a as u32
@@ -203,6 +216,7 @@ pub struct VolcanoSurface {
     /// point collect doesn't allocate O(N) fresh Vecs (alloc churn is
     /// a real UI-thread stutter source on live data).
     upload_scratch: HashMap<String, Vec<[f64; 2]>>,
+    slide_state: HashMap<String, SlideState>,
     /// Signature of the whole render input — skips the Vulkan render
     /// + readback + texture upload when nothing changed.
     last_sig: u64,
@@ -242,6 +256,7 @@ pub struct VolcanoSurface {
     pub dbg_sig_frames: u64,
     pub dbg_busy_skips: u64,
     pub dbg_uploads: u64,
+    pub dbg_slides: u64,
     initialized: bool,
 }
 
@@ -259,6 +274,7 @@ impl VolcanoSurface {
             trace_ids: HashMap::new(),
             trace_sigs: HashMap::new(),
             upload_scratch: HashMap::new(),
+            slide_state: HashMap::new(),
             last_sig: 0,
             worker: None,
             pixel_scratch: Vec::new(),
@@ -272,6 +288,7 @@ impl VolcanoSurface {
             dbg_sig_frames: 0,
             dbg_busy_skips: 0,
             dbg_uploads: 0,
+            dbg_slides: 0,
             initialized: false,
         }
     }
@@ -517,9 +534,41 @@ impl VolcanoSurface {
             if self.trace_sigs.get(&name.0) == Some(&new_sig) {
                 continue;
             }
-            let xy = self.upload_scratch.entry(name.0.clone()).or_default();
-            xy.clear();
-            xy.extend(pts.iter().filter_map(|p| {
+            // Params the uploaded data is baked with — a change
+            // invalidates the GPU copy even for a pure slide.
+            let mut params_h = DefaultHasher::new();
+            x_log.hash(&mut params_h);
+            y_log.hash(&mut params_h);
+            tr.offset.to_bits().hash(&mut params_h);
+            sx.to_bits().hash(&mut params_h);
+            sy.to_bits().hash(&mut params_h);
+            let params = params_h.finish();
+            // Slide detection via the store's mutation counters:
+            // pushes/pops since the last upload give drop + tail
+            // exactly, O(1). The kept-tail anchor (new[kept-1] ==
+            // old.last) double-checks that the retained suffix really
+            // is the old window's tail — anything else falls back to
+            // a full upload.
+            let seq = traces.get_points_seq(name, scope.paused);
+            let slide = seq.and_then(|(_, gen, pushes, pops)| {
+                let s = self.slide_state.get(&name.0)?;
+                if s.params != params
+                    || s.gen != gen
+                    || s.uploaded != s.len
+                    || pts.len() > u32::MAX as usize
+                {
+                    return None;
+                }
+                let d = usize::try_from(pops.checked_sub(s.pops)?).ok()?;
+                let tail_n = usize::try_from(pushes.checked_sub(s.pushes)?).ok()?;
+                let kept = s.len.checked_sub(d)?;
+                (tail_n > 0
+                    && kept <= pts.len()
+                    && pts.len() - kept == tail_n
+                    && (kept == 0 || pts.get(kept.wrapping_sub(1)) == Some(&s.last)))
+                    .then_some((d.min(u32::MAX as usize) as u32, kept))
+            });
+            let xform = |p: &[f64; 2]| {
                 let x = if x_log && p[0] > 0.0 {
                     p[0].log10()
                 } else {
@@ -531,11 +580,44 @@ impl VolcanoSurface {
                     p[1] - sy + tr.offset
                 };
                 (x.is_finite() && y.is_finite()).then_some([x, y])
-            }));
+            };
+            let xy = self.upload_scratch.entry(name.0.clone()).or_default();
+            xy.clear();
             let (color, width) = hover_look(&tr.look, Some(std::slice::from_ref(name)), traces);
-            self.dbg_uploads += 1;
-            fig.set_trace(id, &xy, color, width, vp_style(&tr.look));
+            let mut uploaded = 0usize;
+            let slid = slide.is_some_and(|(d, kept)| {
+                xy.extend(pts.iter().skip(kept).filter_map(xform));
+                if xy.len() != pts.len() - kept {
+                    return false; // non-finite tail points — full upload
+                }
+                self.dbg_uploads += 1;
+                self.dbg_slides += 1;
+                fig.set_trace_slide(id, d, &xy, color, width, vp_style(&tr.look));
+                uploaded = pts.len();
+                true
+            });
+            if !slid {
+                xy.clear();
+                xy.extend(pts.iter().filter_map(xform));
+                uploaded = xy.len();
+                self.dbg_uploads += 1;
+                fig.set_trace(id, &xy, color, width, vp_style(&tr.look));
+            }
             fig.set_marker(id, vp_marker(&tr.look), tr.look.point_size * 2.0);
+            if let Some((_, gen, pushes, pops)) = seq {
+                self.slide_state.insert(
+                    name.0.clone(),
+                    SlideState {
+                        len: pts.len(),
+                        uploaded,
+                        gen,
+                        pushes,
+                        pops,
+                        last: *pts.back().unwrap_or(&[0.0; 2]),
+                        params,
+                    },
+                );
+            }
             self.trace_sigs.insert(name.0.clone(), new_sig);
         }
         // XY-scope pairs: join x/y traces on timestamp within 1e-9 —
@@ -573,6 +655,7 @@ impl VolcanoSurface {
                         fig.remove_trace(id);
                     }
                     self.trace_sigs.remove(&key);
+                    self.slide_state.remove(&key);
                     continue;
                 }
                 let derived = self.upload_scratch.entry(key.clone()).or_default();
@@ -621,6 +704,7 @@ impl VolcanoSurface {
                 fig.remove_trace(id);
             }
             self.trace_sigs.remove(&k);
+            self.slide_state.remove(&k);
         }
 
         // Until the caller writes back real plot bounds, auto-fit data
