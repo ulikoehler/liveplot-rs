@@ -423,6 +423,40 @@ Rust opt-in: `LIVEPLOT_VOLCANO_DEFERRED_PRESENT=1` (default off so
 tests keep exact-frame semantics). Trade-off: one frame of present
 latency under GPU load.
 
+### 5h. Device-resident envelope decimation (`envelopePolyline`)
+
+The FFI previously forced `envelope=Cpu` because the only GPU envelope
+path was a synchronous OneTimeCommands submit+wait+readback **per
+trace per frame**. The new device path removes that entirely:
+
+- `kEnvelopeDevGlsl` — same per-pixel-column min/max atomics, but
+  writes into a scratch region of the shared transform arena
+  (`xformBuf_`) at a push-constant word offset; no dedicated buffer,
+  reuses the `xformDsets_` descriptor cache (same 2-binding shape).
+- `kEnvEmitGlsl` — one thread per column expands cmn/cmx into the
+  2-verts-per-column stroker input with the exact `envelopeRuns`
+  zigzag (alternating lo/hi inside each valid run, NaN pairs for
+  gaps). Run parity comes from a backward scan over ord-coded words
+  (`cmn[i] <= cmx[i]` is validity — no decode needed).
+- Emitted polyline flows through `PendingTess`/`tessellateDevice(To)`
+  like transform output, so the phased-barrier model covers it; mesh
+  caching applies to **exact** key hits only (the column grid is
+  pixel-anchored, so pan-reuse is not valid here).
+- `VOLCANO_ENVDEV=0` pins the legacy readback path for A/B tests;
+  `vp_figure_create` restores `envelope=Auto` unless the user set an
+  explicit `envelope=` override.
+
+**Verification**: `volcano_envelope_device_matches_readback` renders
+the same 20k-pt trace (with NaN gaps exercising the parity scan) via
+the device path and the readback path — **byte-identical** output.
+Envelope-vs-full-res screenshots are visually equivalent (min/max
+column silhouette ≈ polyline band).
+
+**Perf**: single 200k-pt trace render+readback steady state
+~1.4ms → ~1.0ms; GPU-side the stroker now sees 2·W verts instead of
+6·N — ~100× less tessellation work for huge traces, which is the
+scalability win for many-line high-frequency scopes.
+
 ## 6. Remaining gaps / TODO
 
 - Shared Vulkan device across figures (upstream FFI work — biggest
@@ -431,11 +465,10 @@ latency under GPU load.
   synchronization across worker threads).
 - ~~Upstream: deferred/pipelined readback (present frame N-1 while N
   renders)~~ — landed in §5g (opt-in).
-- Upstream: GPU-resident `envelopeColumns` decimation without host
-  readback — biggest remaining GPU-side lever for huge traces (200k→
-  ~2.5k verts), but needs a device-visible envelope feeding the
-  tessellator and changes the stroked silhouette subtly — needs
-  visual sign-off first.
+- ~~Upstream: GPU-resident `envelopeColumns` decimation without host
+  readback~~ — landed in §5h: the whole reduce→emit→tessellate chain
+  runs inside the frame's compute stream (200k-pt trace → ~2.5k
+  stroked verts), verified byte-identical to the readback envelope.
 - Rust: worker-side O(N) collect — the slide path already makes the
   common case O(tail); what remains on the UI thread is the
   whole-window-turnover fallback (inherently O(N) — all data is new)
