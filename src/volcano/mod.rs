@@ -36,7 +36,7 @@ extern "C" {
         rgba8: u32,
         width: f32,
         style: i32,
-    );
+    ) -> i32;
     fn vp_trace_set_marker(fig: *mut VpFigure, id: u64, marker: i32, size: f32);
     fn vp_trace_remove(fig: *mut VpFigure, id: u64);
     fn vp_set_viewport(fig: *mut VpFigure, xmin: f64, xmax: f64, ymin: f64, ymax: f64);
@@ -136,6 +136,8 @@ impl VolcanoFigure {
 
     /// Sliding-window update: `drop` points evicted at the front,
     /// `tail` appended at the back — uploads only the tail.
+    /// Returns false when the plot no longer exists — the caller
+    /// must then send a full set_trace or the trace stays lost.
     pub fn set_trace_slide(
         &mut self,
         id: u64,
@@ -144,7 +146,7 @@ impl VolcanoFigure {
         rgba8: u32,
         width: f32,
         style: VolcanoLineStyle,
-    ) {
+    ) -> bool {
         unsafe {
             vp_trace_slide(
                 self.ptr,
@@ -155,7 +157,7 @@ impl VolcanoFigure {
                 rgba8,
                 width,
                 style as i32,
-            )
+            ) != 0
         }
     }
 

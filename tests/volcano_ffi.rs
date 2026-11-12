@@ -223,3 +223,208 @@ fn volcano_debug_render_png() {
         eprintln!("saved /tmp/volcano_debug.png {w}x{h}");
     }
 }
+
+/// Count columns containing the trace color (tolerant match), return
+/// (min_col, max_col) in canvas x pixels or None when absent.
+fn trace_x_extent(px: &[u8], w: usize, rgba: [u8; 3]) -> Option<(usize, usize)> {
+    let mut lo = usize::MAX;
+    let mut hi = 0usize;
+    for (i, c) in px.chunks_exact(4).enumerate() {
+        let close = c[0].abs_diff(rgba[0]) < 60
+            && c[1].abs_diff(rgba[1]) < 60
+            && c[2].abs_diff(rgba[2]) < 60
+            && c[3] > 200;
+        if close {
+            let x = i % w;
+            lo = lo.min(x);
+            hi = hi.max(x);
+        }
+    }
+    (lo <= hi).then_some((lo, hi))
+}
+
+/// Regression: a slide landing BEFORE the first prepare must not
+/// upload the evicted prefix — the cold path used to ship rawF64_
+/// from index 0, stroking dead points joined to the newest data.
+#[test]
+fn volcano_slide_before_first_render_drops_old_points() {
+    let w = 640;
+    let mut fig = VolcanoFigure::new(w as u32, 300).expect("figure");
+    let id = fig.add_trace();
+    // Old window: x in [0,5]. Then drop ALL of it and append x in [7,9]
+    // — before the first render, so prepare() takes the cold path.
+    let old: Vec<[f64; 2]> =
+        (0..50).map(|i| [i as f64 * 0.1, (i as f64 * 0.4).sin()]).collect();
+    fig.set_trace(id, &old, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid);
+    let tail: Vec<[f64; 2]> = (0..20)
+        .map(|i| [7.0 + i as f64 * 0.1, (i as f64 * 0.4).sin()])
+        .collect();
+    assert!(fig.set_trace_slide(
+        id,
+        50,
+        &tail,
+        0xFF0000FF,
+        2.0,
+        VolcanoLineStyle::Solid
+    ));
+    fig.set_viewport(0.0, 10.0, -1.0, 1.0);
+    let px = fig.render_rgba().expect("render");
+    let (lo, hi) = trace_x_extent(px, w, [255, 0, 0])
+        .expect("red trace not rendered at all");
+    // Axes fill ~11%..98% of the canvas; x∈[7,9] of viewport [0,10]
+    // maps to roughly the right third. Any red in the left ~half means
+    // the evicted prefix leaked into the upload.
+    assert!(
+        lo as f64 > w as f64 * 0.45,
+        "stale prefix rendered: red starts at x={lo} (w={w})"
+    );
+    assert!(hi > lo, "no stroke");
+}
+
+/// Regression: a slide sent while the plot is gone (removed by an
+/// empty upload) must report failure — silently dropping it lost the
+/// trace permanently.
+#[test]
+fn volcano_slide_on_missing_plot_reports_failure() {
+    let mut fig = VolcanoFigure::new(320, 200).expect("figure");
+    let id = fig.add_trace();
+    let pts: Vec<[f64; 2]> =
+        (0..10).map(|i| [i as f64, (i as f64 * 0.6).sin()]).collect();
+    fig.set_trace(id, &pts, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid);
+    assert!(fig.render_rgba().is_some());
+    // Empty upload removes the LinePlot (empty plots crash render).
+    fig.set_trace(id, &[], 0xFF0000FF, 2.0, VolcanoLineStyle::Solid);
+    // The slide cannot be applied — the caller must see failure.
+    assert!(
+        !fig.set_trace_slide(id, 0, &pts, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid),
+        "slide on a removed plot must report failure"
+    );
+    // Full upload resurrects the trace.
+    fig.set_trace(id, &pts, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid);
+    fig.set_viewport(0.0, 10.0, -1.0, 1.0);
+    for k in 0..3 {
+        let px = fig.render_rgba().expect("render");
+        let red = px.chunks_exact(4)
+            .filter(|c| c[0].abs_diff(255) < 60 && c[1] < 60 && c[2] < 60 && c[3] > 200)
+            .count();
+        eprintln!("render {k}: red_px={red}");
+        if k == 2 {
+            assert!(trace_x_extent(px, 320usize, [255, 0, 0]).is_some());
+        }
+    }
+}
+
+/// Regression: repeated slides must keep the GPU window aligned with
+/// the data — the stroked x-extent tracks the sliding window.
+#[test]
+fn volcano_repeated_slides_track_window() {
+    let w = 640;
+    let mut fig = VolcanoFigure::new(w as u32, 300).expect("figure");
+    let id = fig.add_trace();
+    // Window x∈[0,10].
+    let mut data: Vec<[f64; 2]> = (0..100)
+        .map(|i| [i as f64 * 0.1, (i as f64 * 0.1).sin()])
+        .collect();
+    fig.set_trace(id, &data, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid);
+    fig.set_viewport(0.0, 20.0, -1.0, 1.0);
+    assert!(fig.render_rgba().is_some());
+    // Slide five times: evict 20, append 20 (window → x∈[2,12]), then
+    // again (x∈[4,14]) ... ending x∈[10,20].
+    for _ in 0..5 {
+        data.drain(..20);
+        for _ in 0..20 {
+            let x = data.last().unwrap()[0] + 0.1;
+            data.push([x, (x * 1.0).sin()]);
+        }
+        assert!(fig.set_trace_slide(
+            id,
+            20,
+            &data[data.len() - 20..],
+            0xFF0000FF,
+            2.0,
+            VolcanoLineStyle::Solid
+        ));
+        assert!(fig.render_rgba().is_some());
+    }
+    let px = fig.render_rgba().expect("render");
+    let (lo, hi) = trace_x_extent(px, w, [255, 0, 0])
+        .expect("red trace not rendered");
+    // Window x∈[10,20] of viewport [0,20] → right half only.
+    assert!(
+        lo as f64 > w as f64 * 0.4,
+        "window did not slide: red starts at x={lo} (w={w})"
+    );
+    assert!(
+        hi as f64 > w as f64 * 0.8,
+        "tail missing: red ends at x={hi} (w={w})"
+    );
+}
+
+/// Screenshot repro of the sliding-window corruption: 4 traces, each
+/// sliding via ring-append drops, dumped to PNG after several slides —
+/// the rendered window must match the data window exactly (no stale
+/// prefix stroked to the newest point).
+#[test]
+fn volcano_slide_screenshot() {
+    let (w, h) = (900u32, 500u32);
+    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    fig.set_background(true);
+    fig.set_axis_labels(Some("t"), Some("y"));
+    fig.set_viewport(0.0, 20.0, -1.3, 1.3);
+
+    let colors = [0xFF4444FFu32, 0x44FF44FF, 0x4444FFFF, 0xFF44FFFF];
+    let mut windows: Vec<Vec<[f64; 2]>> = (0..4)
+        .map(|t| {
+            (0..200)
+                .map(|i| {
+                    let x = i as f64 * 0.1;
+                    [x, (x * (0.7 + t as f64 * 0.4)).sin() * (0.4 + t as f64 * 0.15)]
+                })
+                .collect()
+        })
+        .collect();
+    let ids: Vec<u64> = (0..4).map(|_| fig.add_trace()).collect();
+    for (k, id) in ids.iter().enumerate() {
+        fig.set_trace(*id, &windows[k], colors[k], 1.8, VolcanoLineStyle::Solid);
+    }
+    assert!(fig.render_rgba().is_some());
+
+    // 8 slides × drop 25 / append 25 → window moves x: [0,20) → [20,40)
+    for _ in 0..8 {
+        for (k, id) in ids.iter().enumerate() {
+            windows[k].drain(..25);
+            for _ in 0..25 {
+                let x = windows[k].last().unwrap()[0] + 0.1;
+                windows[k].push([x, (x * (0.7 + k as f64 * 0.4)).sin() * (0.4 + k as f64 * 0.15)]);
+            }
+            assert!(fig.set_trace_slide(
+                *id, 25, &windows[k][175..], colors[k], 1.8, VolcanoLineStyle::Solid
+            ));
+        }
+        assert!(fig.render_rgba().is_some());
+    }
+
+    // Viewport follows the data window — the traces should fill the
+    // frame; a stale prefix would leave a bogus segment in the left.
+    fig.set_viewport(20.0, 40.0, -1.3, 1.3);
+    let px = fig.render_rgba().expect("final render");
+    image::RgbaImage::from_raw(w, h, px.to_vec())
+        .unwrap()
+        .save("/tmp/volcano_slide_after.png")
+        .unwrap();
+    eprintln!("saved /tmp/volcano_slide_after.png");
+
+    // Every trace color present, and each spans ~the full width (the
+    // data window covers the whole viewport — a stale/missing trace
+    // would leave one color absent or clipped).
+    for (k, c) in colors.iter().enumerate() {
+        let rgb = [(c >> 24) as u8, (c >> 16) as u8, (c >> 8) as u8];
+        let ext = trace_x_extent(px, w as usize, rgb);
+        eprintln!("trace {k}: ext={ext:?}");
+        let (lo, hi) = ext.expect("trace missing");
+        assert!(
+            lo as f64 <= w as f64 * 0.35 && hi as f64 >= w as f64 * 0.65,
+            "trace {k} extent [{lo},{hi}] does not span the window"
+        );
+    }
+}

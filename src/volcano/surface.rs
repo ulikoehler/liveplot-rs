@@ -380,6 +380,14 @@ impl VolcanoSurface {
             Some(f) => f,
             None => match VolcanoFigure::new(w, h) {
                 Some(mut f) => {
+                    // A fresh figure has NO trace data — stale sig /
+                    // slide bookkeeping would gate re-uploads forever
+                    // and leave the scope permanently empty (the
+                    // "only one trace" bug after a worker restart).
+                    self.trace_sigs.clear();
+                    self.slide_state.clear();
+                    self.last_sig = 0;
+                    self.initialized = false;
                     // Deferred present: the render worker submits frame
                     // N and presents the newest *completed* frame
                     // instead of blocking on the fence — keeps the
@@ -602,9 +610,15 @@ impl VolcanoSurface {
                 if xy.len() != pts.len() - kept {
                     return false; // non-finite tail points — full upload
                 }
+                // FFI reports 0 when the plot was removed (empty
+                // upload, figure recreation) — a silent slide would
+                // lose the trace permanently; fall through to the
+                // full upload which recreates it.
+                if !fig.set_trace_slide(id, d, &xy, color, width, vp_style(&tr.look)) {
+                    return false;
+                }
                 self.dbg_uploads += 1;
                 self.dbg_slides += 1;
-                fig.set_trace_slide(id, d, &xy, color, width, vp_style(&tr.look));
                 uploaded = pts.len();
                 true
             });
