@@ -405,16 +405,43 @@ Two of the remaining levers landed this round:
   frame seq). N+1 per-trace RAW barriers collapse to one per frame;
   the final compute→vertex visibility barrier is unchanged.
 
+### 5g. Deferred readback (ping-pong present)
+
+`HeadlessBackend` now double-buffers the frame slot (command buffer +
+fence + staging). `endFrame` submits and returns without blocking;
+`presentSlot()` hands readback the newest *signaled* frame — N when
+the GPU beat the caller (zero added latency), else N-1. First frame
+still waits so callers always get a valid image; sync mode (default)
+keeps identical semantics.
+
+Measured on the live bench (`LIVEPLOT_VOLCANO_DEFERRED_PRESENT=1`):
+`render_rgba_view` wall dropped **1355µs → ~350µs** per job. The
+worker is no longer the bottleneck — remaining `busy_skips` are the
+one-job-in-flight UI poll cadence, not GPU waits.
+
+Rust opt-in: `LIVEPLOT_VOLCANO_DEFERRED_PRESENT=1` (default off so
+tests keep exact-frame semantics). Trade-off: one frame of present
+latency under GPU load.
+
 ## 6. Remaining gaps / TODO
 
 - Shared Vulkan device across figures (upstream FFI work — biggest
   memory win, likely also removes the concurrency hang;
   `sharedGpuContext()` exists upstream but needs queue/pool
   synchronization across worker threads).
-- Upstream: deferred/pipelined readback (present frame N-1 while N
-  renders); GPU-resident `envelopeColumns` decimation without host
-  readback (needs a device-visible envelope output feeding the
-  tessellator + a stroker that tolerates 2-vert columns).
+- ~~Upstream: deferred/pipelined readback (present frame N-1 while N
+  renders)~~ — landed in §5g (opt-in).
+- Upstream: GPU-resident `envelopeColumns` decimation without host
+  readback — biggest remaining GPU-side lever for huge traces (200k→
+  ~2.5k verts), but needs a device-visible envelope feeding the
+  tessellator and changes the stroked silhouette subtly — needs
+  visual sign-off first.
+- Rust: worker-side O(N) collect — the slide path already makes the
+  common case O(tail); what remains on the UI thread is the
+  whole-window-turnover fallback (inherently O(N) — all data is new)
+  and `join_xy_points` for XY scopes. Moving them to the worker
+  requires shipping an O(N) snapshot, so the honest gain is small
+  unless trace storage itself becomes shared/double-buffered.
 - ~~GPU-ring `vp_trace_append` for sliding-window live traces~~ —
   landed as `vp_trace_slide` in §5f.
 - ~~Cached command buffers for the static layer~~ — evaluated in §5d:
