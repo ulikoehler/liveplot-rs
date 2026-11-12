@@ -379,7 +379,19 @@ impl VolcanoSurface {
         let fig = match &mut self.fig {
             Some(f) => f,
             None => match VolcanoFigure::new(w, h) {
-                Some(f) => self.fig.insert(f),
+                Some(mut f) => {
+                    // Deferred present: the render worker submits frame
+                    // N and presents the newest *completed* frame
+                    // instead of blocking on the fence — keeps the
+                    // worker producing frames while the GPU executes.
+                    // Opt-in (env) so tests keep exact-frame semantics.
+                    if std::env::var_os("LIVEPLOT_VOLCANO_DEFERRED_PRESENT")
+                        .is_some_and(|v| v != "0")
+                    {
+                        f.set_deferred_present(true);
+                    }
+                    self.fig.insert(f)
+                }
                 None => return false,
             },
         };

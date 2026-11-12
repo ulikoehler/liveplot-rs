@@ -51,6 +51,7 @@ extern "C" {
     fn vp_set_background_rgba(fig: *mut VpFigure, r: f32, g: f32, b: f32);
     fn vp_render_rgba(fig: *mut VpFigure, out: *mut u8, out_len: usize) -> usize;
     fn vp_render_rgba_view(fig: *mut VpFigure, out_len: *mut usize) -> *const u8;
+    fn vp_figure_set_deferred_present(fig: *mut VpFigure, on: i32);
 }
 
 /// Trace line style matching the FFI `style` argument.
@@ -235,6 +236,15 @@ impl VolcanoFigure {
         Some((self.w as u32, self.h as u32, unsafe {
             std::slice::from_raw_parts(p, len)
         }))
+    }
+
+    /// Deferred present mode: renderFrame submits without blocking and
+    /// readback returns the newest *completed* frame (N-1 while N is
+    /// in flight). One frame of latency, but the render call never
+    /// stalls on the GPU fence — the worker stays busy instead of
+    /// spinning. First frame still renders synchronously.
+    pub fn set_deferred_present(&mut self, on: bool) {
+        unsafe { vp_figure_set_deferred_present(self.ptr, on as i32) };
     }
 }
 
