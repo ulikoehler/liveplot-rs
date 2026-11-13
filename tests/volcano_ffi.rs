@@ -644,6 +644,11 @@ fn volcano_ramp_bisect() {
         for (k, c) in colors.iter().enumerate() {
             let rgb = [(c >> 24) as u8, (c >> 16) as u8, (c >> 8) as u8];
             let ext = trace_x_extent(px, w as usize, rgb);
+            if ext.is_none() {
+                image::RgbaImage::from_raw(w, h, px.to_vec()).unwrap()
+                    .save(format!("/tmp/ramp_dead_{chunk}_{k}.png")).unwrap();
+                eprintln!("saved /tmp/ramp_dead_{chunk}_{k}.png");
+            }
             assert!(ext.is_some(),
                     "chunk {chunk}: trace {k} missing from framebuffer");
         }
@@ -682,6 +687,11 @@ fn volcano_ramp_single() {
         fig.set_viewport(x0 - 1.5, x1 + 0.5, -1.0, 1.0);
         let px = fig.render_rgba().expect("render");
         let ext = trace_x_extent(px, w as usize, rgb);
+        if ext.is_none() {
+            image::RgbaImage::from_raw(w, h, px.to_vec()).unwrap()
+                .save(format!("/tmp/ramp_single_dead_{chunk}.png")).unwrap();
+            eprintln!("saved /tmp/ramp_single_dead_{chunk}.png");
+        }
         assert!(ext.is_some(),
                 "chunk {chunk} len={}: trace missing from framebuffer",
                 win.len());
