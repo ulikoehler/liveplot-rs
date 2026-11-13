@@ -78,6 +78,37 @@ pub fn steps(bed: &mut TestBed, n: usize) {
     }
 }
 
+/// Step until `frames_rendered` exceeds `prev` or `timeout` elapses —
+/// the wait shape for "the surface kept rendering after X" tests.
+/// Harness steps are wall-clock-instant, so a busy render worker (GPU
+/// contention under parallel tests) needs real sleeps to make
+/// progress — plain `steps(n)` can starve it forever.
+/// Returns `true` when a new frame landed.
+#[cfg(feature = "volcano")]
+pub fn wait_for_frame(
+    bed: &mut TestBed,
+    idx: usize,
+    prev: u64,
+    timeout: std::time::Duration,
+) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        bed.harness.step();
+        let now = scope(bed, idx)
+            .volcano_surface
+            .as_ref()
+            .map(|s| s.frames_rendered)
+            .unwrap_or(prev);
+        if now > prev {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+}
+
 // ── Feeding ─────────────────────────────────────────────────────────────────
 
 pub fn feed_spec(bed: &TestBed, name: &str, spec: &SignalSpec, n: usize, fs: f64, t0: f64) {

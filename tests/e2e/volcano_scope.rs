@@ -146,13 +146,15 @@ fn volcano_scope_remove_trace_still_renders() {
     let surf = s.volcano_surface.as_ref().unwrap();
     let before = (surf.frames_rendered, surf.dropped_frames);
     feed_sine(&bed, "sig2", 200, 2.0, 100.0, 10.0);
-    steps(&mut bed, 10);
-    let surf = scope(&bed, 0).volcano_surface.as_ref().unwrap();
+    // A busy worker under GPU contention needs wall-clock, not steps.
     assert!(
-        surf.frames_rendered > before.0,
-        "surface stopped after remove_trace: {before:?} -> ({}, {})",
-        surf.frames_rendered,
-        surf.dropped_frames,
+        wait_for_frame(&mut bed, 0, before.0, std::time::Duration::from_secs(10)),
+        "surface stopped after remove_trace: {before:?}",
+    );
+    let surf = scope(&bed, 0).volcano_surface.as_ref().unwrap();
+    assert_eq!(
+        surf.dropped_frames, before.1,
+        "renders failing after remove_trace"
     );
     assert!(scope(&bed, 0).rendered_this_frame);
 }
@@ -182,12 +184,11 @@ fn volcano_scope_first_eviction_still_renders() {
     eprintln!("eviction: {dbg:?} (frames, dropped, dispatched, uploads, slides)");
     // Keep feeding past the cap — every subsequent frame is a slide.
     feed_sine(&bed, "sig", 400, 1.0, 100.0, 18.0);
-    steps(&mut bed, 30);
-    let surf = scope(&bed, 0).volcano_surface.as_ref().unwrap();
     assert!(
-        surf.frames_rendered > before,
+        wait_for_frame(&mut bed, 0, before, std::time::Duration::from_secs(10)),
         "surface stopped producing frames after first eviction: {dbg:?}"
     );
+    let surf = scope(&bed, 0).volcano_surface.as_ref().unwrap();
     assert_eq!(surf.dropped_frames, 0, "renders failing after eviction");
     assert!(scope(&bed, 0).rendered_this_frame);
 }
@@ -220,10 +221,14 @@ fn volcano_scope_clear_all_still_renders() {
         surf.dbg_busy_skips,
     );
     eprintln!("clear_all: {before:?} -> {after:?} (frames, dropped, dispatched, busy)");
-    assert!(
-        surf.frames_rendered > before.0,
-        "surface stopped producing frames after clear_all"
-    );
+    if after.0 <= before.0 {
+        // A busy worker under GPU contention needs wall-clock, not steps.
+        assert!(
+            wait_for_frame(&mut bed, 0, before.0, std::time::Duration::from_secs(10)),
+            "surface stopped producing frames after clear_all"
+        );
+    }
+    let s = scope(&bed, 0);
     assert!(s.rendered_this_frame);
 }
 
@@ -289,13 +294,26 @@ fn volcano_scope_plot_hover_marks_trace() {
         hov.iter().any(|t| t.0 == "sig"),
         "hovering the plotted trace must mark it, got {hov:?}"
     );
-    // Hover changes the render signature → a new frame is dispatched.
-    let disp1 = scope(&bed, 0)
-        .volcano_surface
-        .as_ref()
-        .map(|s| s.dbg_dispatches)
-        .unwrap_or(0);
-    assert!(disp1 > disp0, "hover emphasis must trigger a re-render");
+    // Hover changes the render signature → a new frame is dispatched
+    // (a busy worker may need a few frames to pick it up).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let disp1 = loop {
+        let d = scope(&bed, 0)
+            .volcano_surface
+            .as_ref()
+            .map(|s| s.dbg_dispatches)
+            .unwrap_or(0);
+        if d > disp0 {
+            break d;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "hover emphasis must trigger a re-render"
+        );
+        hover_at(&mut bed, center);
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    };
+    let _ = disp1;
     // Moving the pointer off the scope clears the hover.
     hover_at(&mut bed, egui::pos2(4.0, 4.0));
     assert!(

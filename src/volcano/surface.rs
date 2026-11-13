@@ -140,17 +140,94 @@ fn vp_marker(look: &TraceLook) -> i32 {
     }
 }
 
+/// A figure mutation applied on the render worker — the point
+/// transform, the `Vec` collection and the FFI upload (GPU staging
+/// memcpy) all happen off the UI thread. Points travel raw; the
+/// worker bakes the same log/offset/shift transform the UI used to.
+enum TraceCmd {
+    /// Full upload — the post-filter count is reported back.
+    Set {
+        key: String,
+        id: u64,
+        raw: std::collections::VecDeque<[f64; 2]>,
+        off: f64,
+        look: (u32, f32, VolcanoLineStyle),
+        marker: (i32, f32),
+    },
+    /// Ring slide: evict `drop`, append the transformed `tail`.
+    /// `drop == 0 && tail.is_empty()` is a pure look update (hover /
+    /// style change) — `vp_trace_slide` accepts an empty tail.
+    Slide {
+        key: String,
+        id: u64,
+        drop: u32,
+        tail: Vec<[f64; 2]>,
+        off: f64,
+        look: (u32, f32, VolcanoLineStyle),
+        marker: (i32, f32),
+    },
+    /// XY pair — the timestamp join + transform runs on the worker.
+    XySet {
+        key: String,
+        id: u64,
+        xs: std::collections::VecDeque<[f64; 2]>,
+        ys: std::collections::VecDeque<[f64; 2]>,
+        off: (f64, f64),
+        look: (u32, f32, VolcanoLineStyle),
+        marker: (i32, f32),
+    },
+    Remove(u64),
+}
+
+/// What the worker's trace sync produced — lets the UI keep
+/// `slide_state`/`trace_sigs`/`trace_ids` honest without running the
+/// uploads itself.
+#[derive(Default)]
+struct SyncReport {
+    /// `Set` results: key → points actually written (post-filter) —
+    /// feeds `SlideState::uploaded`.
+    uploaded: Vec<(String, usize)>,
+    /// Slides that failed (stale plot, non-finite tail) — the caller
+    /// drops their sigs so the next frame sends a full `Set`.
+    failed: Vec<String>,
+    /// XY joins that came up empty — the vp trace was removed on the
+    /// worker; the caller forgets its id but keeps the sig.
+    removed: Vec<String>,
+}
+
+/// One render job: figure + pixel scratch + this frame's trace sync
+/// commands + the shared transform context `(sx, sy, log_x, log_y)`.
+struct FigJob {
+    fig: VolcanoFigure,
+    px: Vec<u8>,
+    cmds: Vec<TraceCmd>,
+    sx: f64,
+    sy: f64,
+    log_xy: (bool, bool),
+}
+
 /// Long-lived render thread — one channel'd job slot (figure + a
-/// recycled pixel scratch) in, one result out. Replaces per-frame
-/// `thread::spawn`: thread creation + teardown per rendered frame is
-/// real CPU.
+/// recycled pixel scratch + trace sync cmds) in, one result out.
+/// Replaces per-frame `thread::spawn`: thread creation + teardown per
+/// rendered frame is real CPU.
 struct RenderWorker {
-    job_tx: std::sync::mpsc::Sender<(VolcanoFigure, Vec<u8>)>,
-    res_rx: std::sync::mpsc::Receiver<(VolcanoFigure, Option<egui::ColorImage>)>,
+    job_tx: std::sync::mpsc::Sender<FigJob>,
+    res_rx: std::sync::mpsc::Receiver<(VolcanoFigure, Option<egui::ColorImage>, SyncReport)>,
     handle: std::thread::JoinHandle<()>,
     /// A job is in flight — paint the last texture meanwhile.
     busy: bool,
+    /// When the in-flight job was dispatched — a job that never comes
+    /// back (GPU wedge, wedged submission ahead on the shared queue)
+    /// would otherwise leave `busy` set forever and freeze the scope
+    /// on the stale texture until a resize. Past `JOB_TIMEOUT` the
+    /// worker is declared dead and the figure is rebuilt.
+    busy_since: Option<std::time::Instant>,
 }
+
+/// Upper bound on one render job's wall-clock time before the worker
+/// is abandoned and respawned. Generous — a job this far over budget
+/// is wedged, not merely slow.
+const JOB_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// `Color32` is `repr(C) [u8;4]` in RGBA order — a flat copy is identical
 /// to `ColorImage::from_rgba_unmultiplied`'s per-pixel map, but ~4x faster
@@ -169,12 +246,149 @@ fn color_image_from_rgba(size: [usize; 2], rgba: &[u8]) -> egui::ColorImage {
     egui::ColorImage::new(size, pixels)
 }
 
+/// Normal-trace point transform — the same formula the UI loop used:
+/// offset folds into y before log, the f32-safe shift applies on the
+/// linear path. Non-finite results are dropped.
+fn xform_pt(
+    p: [f64; 2],
+    off: f64,
+    sx: f64,
+    sy: f64,
+    log_xy: (bool, bool),
+) -> Option<[f64; 2]> {
+    let x = if log_xy.0 && p[0] > 0.0 {
+        p[0].log10()
+    } else {
+        p[0] - sx
+    };
+    let y = if log_xy.1 {
+        (p[1] + off).log10()
+    } else {
+        p[1] - sy + off
+    };
+    (x.is_finite() && y.is_finite()).then_some([x, y])
+}
+
+/// XY-pair transform — per-trace offset pre-log on BOTH axes; log
+/// failures map to NaN and get filtered (matches the UI branch).
+fn xform_xy(
+    p: [f64; 2],
+    off: (f64, f64),
+    sx: f64,
+    sy: f64,
+    log_xy: (bool, bool),
+) -> Option<[f64; 2]> {
+    let x_lin = p[0] + off.0;
+    let y_lin = p[1] + off.1;
+    let x = if log_xy.0 {
+        if x_lin > 0.0 {
+            x_lin.log10()
+        } else {
+            f64::NAN
+        }
+    } else {
+        x_lin - sx
+    };
+    let y = if log_xy.1 {
+        if y_lin > 0.0 {
+            y_lin.log10()
+        } else {
+            f64::NAN
+        }
+    } else {
+        y_lin - sy
+    };
+    (x.is_finite() && y.is_finite()).then_some([x, y])
+}
+
 impl RenderWorker {
     fn spawn() -> Self {
-        let (job_tx, job_rx) = std::sync::mpsc::channel::<(VolcanoFigure, Vec<u8>)>();
+        let (job_tx, job_rx) = std::sync::mpsc::channel::<FigJob>();
         let (res_tx, res_rx) = std::sync::mpsc::channel();
         let handle = std::thread::spawn(move || {
-            while let Ok((mut fig, mut px)) = job_rx.recv() {
+            // Transform scratch — reused across jobs so uploads don't
+            // allocate a fresh Vec each frame.
+            let mut xy: Vec<[f64; 2]> = Vec::new();
+            while let Ok(job) = job_rx.recv() {
+                let FigJob {
+                    mut fig,
+                    mut px,
+                    cmds,
+                    sx,
+                    sy,
+                    log_xy,
+                } = job;
+                let mut rep = SyncReport::default();
+                for cmd in cmds {
+                    match cmd {
+                        TraceCmd::Set {
+                            key,
+                            id,
+                            raw,
+                            off,
+                            look,
+                            marker,
+                        } => {
+                            xy.clear();
+                            xy.extend(
+                                raw.iter().filter_map(|p| xform_pt(*p, off, sx, sy, log_xy)),
+                            );
+                            rep.uploaded.push((key, xy.len()));
+                            fig.set_trace(id, &xy, look.0, look.1, look.2);
+                            fig.set_marker(id, marker.0, marker.1);
+                        }
+                        TraceCmd::Slide {
+                            key,
+                            id,
+                            drop,
+                            tail,
+                            off,
+                            look,
+                            marker,
+                        } => {
+                            xy.clear();
+                            xy.extend(
+                                tail.iter().filter_map(|p| xform_pt(*p, off, sx, sy, log_xy)),
+                            );
+                            // A non-finite tail or a stale plot means
+                            // the ring state diverged — report failure
+                            // so the UI sends a full Set next frame.
+                            if xy.len() != tail.len()
+                                || !fig.set_trace_slide(id, drop, &xy, look.0, look.1, look.2)
+                            {
+                                rep.failed.push(key);
+                            } else {
+                                fig.set_marker(id, marker.0, marker.1);
+                            }
+                        }
+                        TraceCmd::XySet {
+                            key,
+                            id,
+                            xs,
+                            ys,
+                            off,
+                            look,
+                            marker,
+                        } => {
+                            let joined =
+                                TracesCollection::join_xy_points(&xs, &ys, 1e-9);
+                            if joined.is_empty() {
+                                fig.remove_trace(id);
+                                rep.removed.push(key);
+                            } else {
+                                xy.clear();
+                                xy.extend(
+                                    joined
+                                        .iter()
+                                        .filter_map(|p| xform_xy(*p, off, sx, sy, log_xy)),
+                                );
+                                fig.set_trace(id, &xy, look.0, look.1, look.2);
+                                fig.set_marker(id, marker.0, marker.1);
+                            }
+                        }
+                        TraceCmd::Remove(id) => fig.remove_trace(id),
+                    }
+                }
                 // Build the ColorImage here — keeps both the readback
                 // and the rgba→Color32 conversion off the UI thread.
                 // The view path borrows the C++ staging buffer (one
@@ -188,7 +402,7 @@ impl RenderWorker {
                         color_image_from_rgba([rw as usize, rh as usize], &px)
                     }),
                 };
-                if res_tx.send((fig, res)).is_err() {
+                if res_tx.send((fig, res, rep)).is_err() {
                     return;
                 }
             }
@@ -198,13 +412,16 @@ impl RenderWorker {
             res_rx,
             handle,
             busy: false,
+            busy_since: None,
         }
     }
 
-    /// Hand the figure + recycled pixel scratch to the worker.
-    fn dispatch(&mut self, fig: VolcanoFigure, px: Vec<u8>) -> bool {
-        if self.job_tx.send((fig, px)).is_ok() {
+    /// Hand the figure + sync cmds + recycled pixel scratch to the
+    /// worker.
+    fn dispatch(&mut self, job: FigJob) -> bool {
+        if self.job_tx.send(job).is_ok() {
             self.busy = true;
+            self.busy_since = Some(std::time::Instant::now());
             true
         } else {
             false
@@ -219,10 +436,6 @@ pub struct VolcanoSurface {
     trace_ids: HashMap<String, u64>,
     /// Last pushed data signature per trace key — skips re-uploads.
     trace_sigs: HashMap<String, u64>,
-    /// Scratch upload buffers — reused across frames so the per-frame
-    /// point collect doesn't allocate O(N) fresh Vecs (alloc churn is
-    /// a real UI-thread stutter source on live data).
-    upload_scratch: HashMap<String, Vec<[f64; 2]>>,
     slide_state: HashMap<String, SlideState>,
     /// Signature of the last frame that actually produced a texture —
     /// skips the Vulkan render + readback + upload when nothing
@@ -290,7 +503,6 @@ impl VolcanoSurface {
             tex: None,
             trace_ids: HashMap::new(),
             trace_sigs: HashMap::new(),
-            upload_scratch: HashMap::new(),
             slide_state: HashMap::new(),
             last_sig: 0,
             pending_sig: 0,
@@ -343,30 +555,69 @@ impl VolcanoSurface {
         // First render blocks once (~2-7ms) so callers waiting for real
         // output aren't left with a blank texture; afterwards renders
         // pipeline behind — the UI paints the last completed texture.
+        // The blocking wait is BOUNDED: a stalled job (GPU wedge,
+        // queue starvation) must not freeze the scope forever — a
+        // timeout marks the worker dead and the figure is rebuilt.
         enum Poll {
-            Done(VolcanoFigure, Option<egui::ColorImage>),
+            Done(VolcanoFigure, Option<egui::ColorImage>, SyncReport),
             Busy,
             Dead,
         }
         let mut worker_dead = false;
         if let Some(w) = &mut self.worker {
             if w.busy {
-                let poll = if !self.initialized {
-                    match w.res_rx.recv() {
-                        Ok((f, px)) => Poll::Done(f, px),
+                // Block for the first frame ever (no texture to paint
+                // yet) — afterwards always poll: a rebuilt worker's
+                // job must not re-block the UI while the last texture
+                // is still paintable, or a persistent GPU wedge would
+                // freeze the scope 5s per frame.
+                let poll = if self.tex.is_none() {
+                    match w
+                        .res_rx
+                        .recv_timeout(std::time::Duration::from_secs(5))
+                    {
+                        Ok((f, px, rep)) => Poll::Done(f, px, rep),
                         Err(_) => Poll::Dead,
                     }
                 } else {
                     match w.res_rx.try_recv() {
-                        Ok((f, px)) => Poll::Done(f, px),
-                        Err(std::sync::mpsc::TryRecvError::Empty) => Poll::Busy,
+                        Ok((f, px, rep)) => Poll::Done(f, px, rep),
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            // A job that never comes back would keep
+                            // `busy` set forever — the sig gate then
+                            // never re-dispatches and the scope freezes
+                            // on the stale texture until a resize (the
+                            // reported "freeze after first cleanup").
+                            // Past JOB_TIMEOUT the worker is declared
+                            // dead; the figure is rebuilt below.
+                            if w.busy_since.is_some_and(|t| t.elapsed() > JOB_TIMEOUT) {
+                                Poll::Dead
+                            } else {
+                                Poll::Busy
+                            }
+                        }
                         Err(std::sync::mpsc::TryRecvError::Disconnected) => Poll::Dead,
                     }
                 };
                 match poll {
-                    Poll::Done(fig, image) => {
+                    Poll::Done(fig, image, rep) => {
                         w.busy = false;
+                        w.busy_since = None;
                         self.fig = Some(fig);
+                        // Reconcile the worker's upload report with the
+                        // optimistic bookkeeping done at dispatch.
+                        for (k, n) in rep.uploaded {
+                            if let Some(s) = self.slide_state.get_mut(&k) {
+                                s.uploaded = n;
+                            }
+                        }
+                        for k in rep.failed {
+                            self.trace_sigs.remove(&k);
+                            self.slide_state.remove(&k);
+                        }
+                        for k in rep.removed {
+                            self.trace_ids.remove(&k);
+                        }
                         if let Some(image) = image {
                             // The image is the RENDERED size — may lag
                             // the current w/h if a resize raced this
@@ -569,7 +820,10 @@ impl VolcanoSurface {
         // per-trace sig so the stale unshifted data gets replaced.
         let shift_bits = (self.shift.0.to_bits() ^ self.shift.1.to_bits()) as u64;
 
-        // Sync trace set: add missing, update data+style.
+        // Sync trace set: add missing, update data+style. All figure
+        // mutations are batched into `cmds` and applied on the render
+        // worker — the UI thread only copies raw points.
+        let mut cmds: Vec<TraceCmd> = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for name in scope.trace_order.iter() {
             let Some(tr) = traces.get_trace(name) else {
@@ -638,77 +892,87 @@ impl VolcanoSurface {
                     && (kept == 0 || pts.get(kept.wrapping_sub(1)) == Some(&s.last)))
                     .then_some((d.min(u32::MAX as usize) as u32, kept))
             });
-            let xform = |p: &[f64; 2]| {
-                let x = if x_log && p[0] > 0.0 {
-                    p[0].log10()
-                } else {
-                    p[0] - sx
-                };
-                let y = if y_log {
-                    (p[1] + tr.offset).log10()
-                } else {
-                    p[1] - sy + tr.offset
-                };
-                (x.is_finite() && y.is_finite()).then_some([x, y])
-            };
-            let xy = self.upload_scratch.entry(name.0.clone()).or_default();
-            xy.clear();
+            // Data-identical but style-different (hover emphasis,
+            // color/width change): a zero-drop, empty-tail slide
+            // applies just the look — no point upload at all.
+            let look_only = seq.is_some_and(|(_, gen, pushes, pops)| {
+                self.slide_state.get(&name.0).is_some_and(|s| {
+                    s.params == params
+                        && s.gen == gen
+                        && s.pushes == pushes
+                        && s.pops == pops
+                        && s.len == pts.len()
+                        && s.uploaded == s.len
+                })
+            });
             let (color, width) = hover_look(
                 &tr.look,
                 Some(std::slice::from_ref(name)),
                 has_hover,
                 &hover_list,
             );
-            let mut uploaded = 0usize;
-            let slid = slide.is_some_and(|(d, kept)| {
-                xy.extend(pts.iter().skip(kept).filter_map(xform));
-                if xy.len() != pts.len() - kept {
-                    return false; // non-finite tail points — full upload
-                }
-                // FFI reports 0 when the plot was removed (empty
-                // upload, figure recreation) — a silent slide would
-                // lose the trace permanently; fall through to the
-                // full upload which recreates it.
-                if !fig.set_trace_slide(id, d, &xy, color, width, vp_style(&tr.look)) {
-                    return false;
-                }
+            let look = (color, width, vp_style(&tr.look));
+            let marker = (vp_marker(&tr.look), tr.look.point_size * 2.0);
+            if look_only {
+                cmds.push(TraceCmd::Slide {
+                    key: name.0.clone(),
+                    id,
+                    drop: 0,
+                    tail: Vec::new(),
+                    off: tr.offset,
+                    look,
+                    marker,
+                });
+            } else if let Some((d, kept)) = slide {
+                cmds.push(TraceCmd::Slide {
+                    key: name.0.clone(),
+                    id,
+                    drop: d,
+                    tail: pts.iter().skip(kept).copied().collect(),
+                    off: tr.offset,
+                    look,
+                    marker,
+                });
                 self.dbg_uploads += 1;
                 self.dbg_slides += 1;
-                uploaded = pts.len();
-                true
-            });
-            if !slid {
-                xy.clear();
-                xy.extend(pts.iter().filter_map(xform));
-                uploaded = xy.len();
+            } else {
+                // Raw copy only — the transform + Vec collection +
+                // FFI staging memcpy happen on the worker.
+                cmds.push(TraceCmd::Set {
+                    key: name.0.clone(),
+                    id,
+                    raw: pts.clone(),
+                    off: tr.offset,
+                    look,
+                    marker,
+                });
                 self.dbg_uploads += 1;
-                fig.set_trace(id, &xy, color, width, vp_style(&tr.look));
             }
-            fig.set_marker(id, vp_marker(&tr.look), tr.look.point_size * 2.0);
-            if let Some((_, gen, pushes, pops)) = seq {
-                self.slide_state.insert(
-                    name.0.clone(),
-                    SlideState {
-                        len: pts.len(),
-                        uploaded,
-                        gen,
-                        pushes,
-                        pops,
-                        last: *pts.back().unwrap_or(&[0.0; 2]),
-                        params,
-                    },
-                );
+            // Optimistic bookkeeping — the worker report corrects
+            // `uploaded` with the post-filter count (or clears the
+            // sigs entirely on a failed slide).
+            if !look_only {
+                if let Some((_, gen, pushes, pops)) = seq {
+                    self.slide_state.insert(
+                        name.0.clone(),
+                        SlideState {
+                            len: pts.len(),
+                            uploaded: pts.len(),
+                            gen,
+                            pushes,
+                            pops,
+                            last: *pts.back().unwrap_or(&[0.0; 2]),
+                            params,
+                        },
+                    );
+                }
             }
             self.trace_sigs.insert(name.0.clone(), new_sig);
         }
-        // XY-scope pairs: join x/y traces on timestamp within 1e-9 —
-        // same merge as the egui draw loop (`join_xy_points`), then
-        // the same per-axis transform: offset first, log10 of the
-        // (offset) value when the axis is log, otherwise the f32-safe
-        // shift. The egui path drops non-positive log values to NaN.
+        // XY-scope pairs: the timestamp join (1e-9) and per-axis
+        // transform run on the worker. The sig gate is new — the
+        // join+upload used to run O(N) every frame.
         if scope.scope_type == ScopeType::XYScope {
-            const TOL: f64 = 1e-9;
-            let (x_log, y_log) = log_xy;
             for (x_name, y_name, pair_look) in scope.xy_pairs.iter() {
                 let (Some(x_name), Some(y_name)) = (x_name, y_name) else {
                     continue;
@@ -726,55 +990,50 @@ impl VolcanoSurface {
                 ) else {
                     continue;
                 };
-                let joined = TracesCollection::join_xy_points(x_pts, y_pts, TOL);
                 let key = format!("xy:{}:{}", x_name.0, y_name.0);
-                if joined.is_empty() {
-                    // egui draws nothing for an empty join — drop the
-                    // stale vp trace rather than leave the last frame
-                    // lingering.
-                    if let Some(id) = self.trace_ids.remove(&key) {
-                        fig.remove_trace(id);
+                seen.insert(key.clone());
+                // Change detection over the pair: both traces' seq
+                // counters + look/offset/transform params + hover.
+                let mut ph = DefaultHasher::new();
+                for (n, off) in [(x_name, x_tr.offset), (y_name, y_tr.offset)] {
+                    if let Some((_, g, pu, po)) = traces.get_points_seq(n, scope.paused) {
+                        g.hash(&mut ph);
+                        pu.hash(&mut ph);
+                        po.hash(&mut ph);
                     }
-                    self.trace_sigs.remove(&key);
-                    self.slide_state.remove(&key);
+                    off.to_bits().hash(&mut ph);
+                }
+                x_pts.len().hash(&mut ph);
+                y_pts.len().hash(&mut ph);
+                log_xy.hash(&mut ph);
+                shift_bits.hash(&mut ph);
+                hover_state_bits(&[x_name.clone(), y_name.clone()], has_hover, &hover_list)
+                    .hash(&mut ph);
+                pair_look.color.to_array().hash(&mut ph);
+                pair_look.width.to_bits().hash(&mut ph);
+                style_bits(pair_look).hash(&mut ph);
+                let new_sig = ph.finish();
+                if self.trace_sigs.get(&key) == Some(&new_sig) {
                     continue;
                 }
-                let derived = self.upload_scratch.entry(key.clone()).or_default();
-                derived.clear();
-                derived.extend(joined.iter().filter_map(|p| {
-                    let x_lin = p[0] + x_tr.offset;
-                    let y_lin = p[1] + y_tr.offset;
-                    let x = if x_log {
-                        if x_lin > 0.0 {
-                            x_lin.log10()
-                        } else {
-                            f64::NAN
-                        }
-                    } else {
-                        x_lin - sx
-                    };
-                    let y = if y_log {
-                        if y_lin > 0.0 {
-                            y_lin.log10()
-                        } else {
-                            f64::NAN
-                        }
-                    } else {
-                        y_lin - sy
-                    };
-                    (x.is_finite() && y.is_finite()).then_some([x, y])
-                }));
-                seen.insert(key.clone());
-                let id = *self.trace_ids.entry(key).or_insert_with(|| fig.add_trace());
-                let (color, width) =
-                    hover_look(
-                        pair_look,
-                        Some(&[x_name.clone(), y_name.clone()]),
-                        has_hover,
-                        &hover_list,
-                    );
-                fig.set_trace(id, &derived, color, width, vp_style(pair_look));
-                fig.set_marker(id, vp_marker(pair_look), pair_look.point_size * 2.0);
+                let id = *self.trace_ids.entry(key.clone()).or_insert_with(|| fig.add_trace());
+                let (color, width) = hover_look(
+                    pair_look,
+                    Some(&[x_name.clone(), y_name.clone()]),
+                    has_hover,
+                    &hover_list,
+                );
+                cmds.push(TraceCmd::XySet {
+                    key: key.clone(),
+                    id,
+                    xs: x_pts.clone(),
+                    ys: y_pts.clone(),
+                    off: (x_tr.offset, y_tr.offset),
+                    look: (color, width, vp_style(pair_look)),
+                    marker: (vp_marker(pair_look), pair_look.point_size * 2.0),
+                });
+                self.dbg_uploads += 1;
+                self.trace_sigs.insert(key, new_sig);
             }
         }
 
@@ -787,7 +1046,7 @@ impl VolcanoSurface {
             .collect();
         for k in dead {
             if let Some(id) = self.trace_ids.remove(&k) {
-                fig.remove_trace(id);
+                cmds.push(TraceCmd::Remove(id));
             }
             self.trace_sigs.remove(&k);
             self.slide_state.remove(&k);
@@ -886,7 +1145,14 @@ impl VolcanoSurface {
         if !self
             .worker
             .get_or_insert_with(RenderWorker::spawn)
-            .dispatch(owned, px)
+            .dispatch(FigJob {
+                fig: owned,
+                px,
+                cmds,
+                sx,
+                sy,
+                log_xy,
+            })
         {
             self.worker = None;
         }

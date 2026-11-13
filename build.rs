@@ -232,11 +232,18 @@ fn main() {
     println!("cargo:rerun-if-changed=vendor/VolcanoPlot/include/volcano/ffi");
     // Renderer/plot changes must relink the test binaries too — without
     // these, cargo keeps a stale .a and silently benchmarks old code.
+    // Every compiled component dir must be listed: core (Device/
+    // CommandBuffer), text (atlas renderer) and their headers were
+    // missing and edits there silently kept the stale .a.
+    println!("cargo:rerun-if-changed=vendor/VolcanoPlot/src/core");
     println!("cargo:rerun-if-changed=vendor/VolcanoPlot/src/render");
     println!("cargo:rerun-if-changed=vendor/VolcanoPlot/src/plot");
     println!("cargo:rerun-if-changed=vendor/VolcanoPlot/src/backend");
+    println!("cargo:rerun-if-changed=vendor/VolcanoPlot/src/text");
+    println!("cargo:rerun-if-changed=vendor/VolcanoPlot/include/volcano/core");
     println!("cargo:rerun-if-changed=vendor/VolcanoPlot/include/volcano/render");
     println!("cargo:rerun-if-changed=vendor/VolcanoPlot/include/volcano/plot");
+    println!("cargo:rerun-if-changed=vendor/VolcanoPlot/include/volcano/backend");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_VOLCANO");
     println!("cargo:rerun-if-env-changed=VULKAN_SDK");
 }
