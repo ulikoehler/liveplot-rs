@@ -1036,6 +1036,11 @@ impl ScopePanel {
             surf.bounds = (pad_axis_bounds([ix0, ix1]), pad_axis_bounds([iy0, iy1]));
             surf.bounds_external = true;
         }
+        // Same tiny-widget label suppression the egui path applies.
+        let hide_labels = (
+            self.total_widget_size.y < self.min_height_for_x_ticklabels,
+            self.total_widget_size.x < self.min_width_for_y_ticklabels,
+        );
         let ok = surf.sync_and_render(
             ui.ctx(),
             &self.data,
@@ -1045,6 +1050,7 @@ impl ScopePanel {
             dark,
             ui.visuals().panel_fill,
             Self::volcano_margins_px(h),
+            hide_labels,
         );
         if !ok {
             // Vulkan unavailable — permanently fall back to egui_plot.

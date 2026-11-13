@@ -301,8 +301,10 @@ impl VolcanoSurface {
     /// texture is the caller's job (see `texture_id()`). `margins` is
     /// the pixel margin table `(left, right, bottom, top)` the caller
     /// also uses for its overlay axes-rect — one source of truth keeps
-    /// the figure's axes aligned with the overlay transform. Returns
-    /// false when Vulkan is unavailable → caller falls back.
+    /// the figure's axes aligned with the overlay transform.
+    /// `hide_labels` mirrors the egui path's tiny-widget suppression of
+    /// x/y tick labels. Returns false when Vulkan is unavailable →
+    /// caller falls back.
     pub fn sync_and_render(
         &mut self,
         ctx: &egui::Context,
@@ -313,6 +315,7 @@ impl VolcanoSurface {
         dark: bool,
         panel_bg: egui::Color32,
         margins: (f32, f32, f32, f32),
+        hide_labels: (bool, bool),
     ) -> bool {
         let w = w.max(8);
         let h = h.max(8);
@@ -786,6 +789,36 @@ impl VolcanoSurface {
         fig.set_axis_labels(x_label.as_deref(), y_label.as_deref());
         fig.set_grid(scope.show_grid);
 
+        // Tick positions+labels mirroring the egui axis: same
+        // power-of-10 step levels, same spacing thresholds, and the
+        // same `AxisSettings::format_value` text — so an epoch x axis
+        // shows `16:13:23.0000` clock labels rather than raw shifted
+        // seconds. Positions are given in the shifted viewport space
+        // the figure renders in.
+        let (x_px, y_px) = ((wf - ml - mr).max(1.0) as f64, (hf - mb - mt).max(1.0) as f64);
+        let x_ticks = egui_style_ticks(
+            xb[0] - sx,
+            xb[1] - sx,
+            sx,
+            log_xy.0,
+            x_px,
+            false,
+            hide_labels.0,
+            |v, step| scope.x_axis.format_value(v, Some(step)),
+        );
+        let y_ticks = egui_style_ticks(
+            yb[0] - sy,
+            yb[1] - sy,
+            sy,
+            log_xy.1,
+            y_px,
+            true,
+            hide_labels.1,
+            |v, step| scope.y_axis.format_value(v, Some(step)),
+        );
+        fig.set_ticks(0, &x_ticks);
+        fig.set_ticks(1, &y_ticks);
+
         // Render + readback on the persistent worker — the expensive
         // part (prepare/renderFrame/readback ~2-7ms) never blocks the
         // UI. A dead worker (send fails) is dropped and respawned on
@@ -879,6 +912,102 @@ impl VolcanoSurface {
         }
         (xb, yb)
     }
+}
+
+/// Mirror of the egui path's axis ticks. The egui plot feeds
+/// `uniform_grid_spacer(grid_step_sizes)`: power-of-10 step levels
+/// `[u, 10u, 100u]` where `u = 10^ceil(log10(span/axis_px * 8))`
+/// (`GridInput.base_step_size` = value-per-px × `grid_spacing.min`
+/// = 8). A mark gets a label only when its step spans more than
+/// `label_spacing.min` px (60 on X, 20 on Y) *and* the text fits
+/// inside that spacing — both rules are reproduced here so the
+/// Volcano axis shows the same ticks and label text as the egui
+/// axis. `fmt` is `AxisSettings::format_value`.
+///
+/// Ticks anchor in DISPLAY space (unshifted) so epoch x values land
+/// on whole-second multiples (clean `HH:MM:SS.ffff` labels); the
+/// returned positions map back into the shifted axis space the figure
+/// renders in. Log axes anchor in axis (log) space like egui's
+/// marks, with `display = 10^v`.
+#[allow(clippy::too_many_arguments)]
+fn egui_style_ticks(
+    lo_ax: f64,
+    hi_ax: f64,
+    shift: f64,
+    log: bool,
+    axis_px: f64,
+    y_axis: bool,
+    hide_labels: bool,
+    fmt: impl Fn(f64, f64) -> String,
+) -> Vec<(f32, String)> {
+    let span = hi_ax - lo_ax;
+    if !(span.is_finite() && span > 0.0 && axis_px > 1.0) {
+        return Vec::new();
+    }
+    let base = span / axis_px * 8.0;
+    let u = 10f64.powi(base.abs().log10().ceil() as i32);
+    if !u.is_finite() || u <= 0.0 {
+        return Vec::new();
+    }
+    let px_per = axis_px / span;
+    let min_label_px = if y_axis { 20.0 } else { 60.0 };
+    let (a_lo, a_hi) = if log {
+        (lo_ax, hi_ax)
+    } else {
+        (lo_ax + shift, hi_ax + shift)
+    };
+    let mut marks: Vec<(f64, f64)> = Vec::new(); // (anchor value, step)
+    for level in [u, u * 10.0, u * 100.0] {
+        // egui: marks below label_spacing.min are grid-only, never
+        // labeled — skip the whole level (Volcano tick *marks* at
+        // that density would look wrong anyway).
+        if px_per * level <= min_label_px {
+            continue;
+        }
+        let k0 = (a_lo / level).ceil() as i64;
+        let k1 = (a_hi / level).floor() as i64;
+        if k1 < k0 || k1 - k0 > 512 {
+            continue;
+        }
+        marks.extend((k0..=k1).map(|k| (k as f64 * level, level)));
+    }
+    marks.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // generate_marks dedups coincident marks keeping the larger step.
+    let eps = u * 0.01;
+    marks.dedup_by(|next, prev| {
+        if (next.0 - prev.0).abs() < eps {
+            if next.1 > prev.1 {
+                *prev = *next;
+            }
+            true
+        } else {
+            false
+        }
+    });
+    marks
+        .into_iter()
+        .filter_map(|(anchor, step)| {
+            let spacing = px_per * step;
+            let display = if log { 10f64.powf(anchor) } else { anchor };
+            let text = if hide_labels {
+                String::new()
+            } else {
+                fmt(display, step)
+            };
+            // egui drops a label whose galley is wider than the mark
+            // spacing (~6.5px/char at body size).
+            let text = if !y_axis
+                && text.chars().count() as f64 * 6.5 > spacing
+            {
+                String::new()
+            } else {
+                text
+            };
+            let pos = if log { anchor } else { anchor - shift };
+            let pos = pos as f32;
+            (pos.is_finite() && pos as f64 >= lo_ax && pos as f64 <= hi_ax).then_some((pos, text))
+        })
+        .collect()
 }
 
 impl std::fmt::Debug for VolcanoSurface {

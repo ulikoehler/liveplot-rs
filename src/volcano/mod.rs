@@ -45,6 +45,13 @@ extern "C" {
         x_label: *const std::ffi::c_char,
         y_label: *const std::ffi::c_char,
     );
+    fn vp_set_ticks(
+        fig: *mut VpFigure,
+        axis: i32,
+        count: i32,
+        positions: *const f32,
+        labels: *const *const std::ffi::c_char,
+    );
     fn vp_set_grid(fig: *mut VpFigure, on: i32);
     fn vp_set_background(fig: *mut VpFigure, white: i32);
     fn vp_set_margins(fig: *mut VpFigure, l: f32, r: f32, b: f32, t: f32);
@@ -201,6 +208,28 @@ impl VolcanoFigure {
         let x_p = x_c.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null());
         let y_p = y_c.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null());
         unsafe { vp_set_axis_labels(self.ptr, x_p, y_p) }
+    }
+
+    /// Explicit major-tick positions (data coords of the shifted
+    /// viewport space) + label text. `axis`: 0 = x, 1 = y. An empty
+    /// `ticks` restores the automatic locator/formatter.
+    pub fn set_ticks(&mut self, axis: i32, ticks: &[(f32, String)]) {
+        let positions: Vec<f32> = ticks.iter().map(|t| t.0).collect();
+        let labels: Vec<CString> = ticks
+            .iter()
+            .map(|t| CString::new(t.1.as_str()).unwrap_or_default())
+            .collect();
+        let label_ptrs: Vec<*const std::ffi::c_char> =
+            labels.iter().map(|c| c.as_ptr()).collect();
+        unsafe {
+            vp_set_ticks(
+                self.ptr,
+                axis,
+                ticks.len() as i32,
+                positions.as_ptr(),
+                label_ptrs.as_ptr(),
+            )
+        }
     }
 
     /// Light vs dark figure styling.
