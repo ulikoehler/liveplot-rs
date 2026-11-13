@@ -1342,13 +1342,18 @@ impl std::fmt::Debug for VolcanoSurface {
 }
 
 impl Drop for VolcanoSurface {
-    /// Close the job channel and join the worker — a detached render
-    /// thread could still be inside `vp_render_rgba`/`vp_figure_destroy`
-    /// while the process (and the Vulkan instance) tears down.
+    /// Close the job channel and detach the worker. Joining used to be
+    /// required so a detached thread couldn't outlive the Vulkan
+    /// device — but a worker wedged inside a driver call blocks
+    /// `join()` forever, freezing whichever thread drops the surface
+    /// (the scope-close freeze). Every C++ queue/fence wait is now
+    /// bounded, and the shared GPU context is process-lifetime, so a
+    /// detached worker unwedges on its own and tears the figure down
+    /// safely without pinning the UI thread.
     fn drop(&mut self) {
         if let Some(w) = self.worker.take() {
             drop(w.job_tx);
-            let _ = w.handle.join();
+            drop(w.handle);
         }
     }
 }
