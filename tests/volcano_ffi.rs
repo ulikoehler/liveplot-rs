@@ -489,3 +489,201 @@ fn volcano_envelope_device_matches_readback() {
         .count();
     assert!(red > 100, "device envelope drew {red} trace px");
 }
+
+/// Ring slides at envelope scale (10k pts > 8192 → GPU envelope path):
+/// the drawn window must track the data window, not leave a stale
+/// prefix segment.
+#[test]
+fn volcano_slide_screenshot_envelope_scale() {
+    let (w, h) = (900u32, 500u32);
+    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    fig.set_background(true);
+    fig.set_axis_labels(Some("t"), Some("y"));
+
+    let colors = [0xFF4444FFu32, 0x44FF44FF];
+    let mut windows: Vec<Vec<[f64; 2]>> = (0..2)
+        .map(|t| {
+            (0..10000)
+                .map(|i| {
+                    let x = i as f64 * 0.001;
+                    [x, (x * (40.0 + t as f64 * 30.0)).sin() * (0.4 + t as f64 * 0.3)]
+                })
+                .collect()
+        })
+        .collect();
+    let ids: Vec<u64> = (0..2).map(|_| fig.add_trace()).collect();
+    for (k, id) in ids.iter().enumerate() {
+        fig.set_trace(*id, &windows[k], colors[k], 1.8, VolcanoLineStyle::Solid);
+    }
+    fig.set_viewport(0.0, 10.0, -1.0, 1.0);
+    assert!(fig.render_rgba().is_some());
+
+    // 20 slides × drop 200 / append 200 → window moves x: [0,10) → [4,14)
+    for _ in 0..20 {
+        for (k, id) in ids.iter().enumerate() {
+            windows[k].drain(..200);
+            for _ in 0..200 {
+                let x = windows[k].last().unwrap()[0] + 0.001;
+                windows[k].push([x, (x * (40.0 + k as f64 * 30.0)).sin() * (0.4 + k as f64 * 0.3)]);
+            }
+            assert!(fig.set_trace_slide(
+                *id, 200, &windows[k][9800..], colors[k], 1.8, VolcanoLineStyle::Solid
+            ));
+        }
+        fig.set_viewport(windows[0].first().unwrap()[0], windows[0].last().unwrap()[0], -1.0, 1.0);
+        assert!(fig.render_rgba().is_some());
+    }
+
+    let px = fig.render_rgba().expect("final render");
+    image::RgbaImage::from_raw(w, h, px.to_vec())
+        .unwrap()
+        .save("/tmp/volcano_env_slide.png")
+        .unwrap();
+    for (k, c) in colors.iter().enumerate() {
+        let rgb = [(c >> 24) as u8, (c >> 16) as u8, (c >> 8) as u8];
+        let ext = trace_x_extent(px, w as usize, rgb);
+        eprintln!("trace {k}: ext={ext:?}");
+        let (lo, hi) = ext.expect("trace missing");
+        assert!(
+            lo as f64 <= w as f64 * 0.35 && hi as f64 >= w as f64 * 0.65,
+            "trace {k} extent [{lo},{hi}] does not span the window"
+        );
+    }
+}
+
+
+/// Ramp-up + sliding window at envelope scale — mirrors the e2e app
+/// feed (200-pt chunks appended via slides, growing to the 10k cap,
+/// viewport padded like the scope's data bounds).
+#[test]
+fn volcano_ramp_slide_screenshot() {
+    let (w, h) = (1100u32, 600u32);
+    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    fig.set_background(true);
+    fig.set_axis_labels(Some("t"), Some("y"));
+
+    let colors = [0xFF4444FFu32, 0x44FF44FF];
+    let ids: Vec<u64> = (0..2).map(|_| fig.add_trace()).collect();
+    let mut windows: Vec<Vec<[f64; 2]>> = vec![vec![], vec![]];
+    let mut next_x = 0.0f64;
+    let mut gen = |k: usize, n: usize| -> Vec<[f64; 2]> {
+        (0..n).map(|_| {
+            let x = next_x;
+            next_x += 0.001;
+            [x, (x * (40.0 + k as f64 * 30.0)).sin() * (0.4 + k as f64 * 0.3)]
+        }).collect()
+    };
+
+    // 70 chunks of 200 pts — window caps at 10000, then slides.
+    for chunk in 0..70 {
+        for (k, id) in ids.iter().enumerate() {
+            let tail = gen(k, 200);
+            windows[k].extend(tail.iter().copied());
+            let over = windows[k].len().saturating_sub(10000);
+            if over > 0 { windows[k].drain(..over); }
+            if windows[k].len() == 200 {
+                fig.set_trace(*id, &windows[k], colors[k], 1.8, VolcanoLineStyle::Solid);
+            } else {
+                assert!(fig.set_trace_slide(
+                    *id, over as u32, &tail, colors[k], 1.8, VolcanoLineStyle::Solid
+                ));
+            }
+        }
+        let (x0, x1) = (windows[0].first().unwrap()[0], windows[0].last().unwrap()[0]);
+        fig.set_viewport(x0 - 1.5, x1 + 0.5, -1.0, 1.0);
+        assert!(fig.render_rgba().is_some());
+        if chunk == 69 {
+            let px = fig.render_rgba().unwrap();
+            image::RgbaImage::from_raw(w, h, px.to_vec()).unwrap()
+                .save("/tmp/volcano_ramp.png").unwrap();
+            for (k, c) in colors.iter().enumerate() {
+                let rgb = [(c >> 24) as u8, (c >> 16) as u8, (c >> 8) as u8];
+                eprintln!("trace {k}: ext={:?}", trace_x_extent(px, w as usize, rgb));
+            }
+        }
+    }
+}
+
+
+/// Growing f64 traces that cross the 8192-point envelope threshold and
+/// then keep sliding: both traces must keep drawing their full window
+/// every frame. Regression coverage for the stale-descriptor bug —
+/// recycled VkBuffer handles made the envelope reduce bind retired
+/// buffers, leaving traces frozen or missing entirely.
+#[test]
+fn volcano_ramp_bisect() {
+    let (w, h) = (1100u32, 600u32);
+    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    fig.set_background(true);
+    fig.set_axis_labels(Some("t"), Some("y"));
+    let colors = [0xFF4444FFu32, 0x44FF44FF];
+    let ids: Vec<u64> = (0..2).map(|_| fig.add_trace()).collect();
+    let mut windows: Vec<Vec<[f64; 2]>> = vec![vec![], vec![]];
+    let mut next_x = 0.0f64;
+    for chunk in 0..70usize {
+        for (k, id) in ids.iter().enumerate() {
+            let tail: Vec<[f64; 2]> = (0..200).map(|_| {
+                let x = next_x;
+                next_x += 0.001;
+                [x, (x * (40.0 + k as f64 * 30.0)).sin() * (0.4 + k as f64 * 0.3)]
+            }).collect();
+            windows[k].extend(tail.iter().copied());
+            let over = windows[k].len().saturating_sub(10000);
+            if over > 0 { windows[k].drain(..over); }
+            if windows[k].len() == 200 {
+                fig.set_trace(*id, &windows[k], colors[k], 1.8, VolcanoLineStyle::Solid);
+            } else {
+                assert!(fig.set_trace_slide(
+                    *id, over as u32, &tail, colors[k], 1.8, VolcanoLineStyle::Solid
+                ));
+            }
+        }
+        let (x0, x1) = (windows[0].first().unwrap()[0], windows[0].last().unwrap()[0]);
+        fig.set_viewport(x0 - 1.5, x1 + 0.5, -1.0, 1.0);
+        let px = fig.render_rgba().expect("render");
+        for (k, c) in colors.iter().enumerate() {
+            let rgb = [(c >> 24) as u8, (c >> 16) as u8, (c >> 8) as u8];
+            let ext = trace_x_extent(px, w as usize, rgb);
+            assert!(ext.is_some(),
+                    "chunk {chunk}: trace {k} missing from framebuffer");
+        }
+    }
+}
+
+
+/// Single-trace ramp: the envelope path engages at >8192 points; the
+/// trace must keep rendering the full sliding window afterwards.
+#[test]
+fn volcano_ramp_single() {
+    let (w, h) = (1100u32, 600u32);
+    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    fig.set_background(true);
+    let id = fig.add_trace();
+    let color = 0xFF4444FFu32;
+    let rgb = [(color >> 24) as u8, (color >> 16) as u8, (color >> 8) as u8];
+    let mut win: Vec<[f64; 2]> = vec![];
+    let mut next_x = 0.0f64;
+    for chunk in 0..60usize {
+        let tail: Vec<[f64; 2]> = (0..200).map(|_| {
+            let x = next_x;
+            next_x += 0.001;
+            [x, (x * 40.0).sin() * 0.4]
+        }).collect();
+        win.extend(tail.iter().copied());
+        let over = win.len().saturating_sub(10000);
+        if over > 0 { win.drain(..over); }
+        if win.len() == 200 {
+            fig.set_trace(id, &win, color, 1.8, VolcanoLineStyle::Solid);
+        } else {
+            assert!(fig.set_trace_slide(id, over as u32, &tail, color,
+                                      1.8, VolcanoLineStyle::Solid));
+        }
+        let (x0, x1) = (win.first().unwrap()[0], win.last().unwrap()[0]);
+        fig.set_viewport(x0 - 1.5, x1 + 0.5, -1.0, 1.0);
+        let px = fig.render_rgba().expect("render");
+        let ext = trace_x_extent(px, w as usize, rgb);
+        assert!(ext.is_some(),
+                "chunk {chunk} len={}: trace missing from framebuffer",
+                win.len());
+    }
+}

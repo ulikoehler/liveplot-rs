@@ -1554,3 +1554,55 @@ fn bench_render_perf() {
     }
     eprintln!("=================================================================\n");
 }
+
+/// Screenshot probe: epoch-timestamped trace through both renderers.
+#[test]
+fn probe_epoch_screenshots() {
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        feed_sine(&bed, "sig", 20000, 8.0, 1000.0, 1_790_000_000.0);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        steps(&mut bed, 30);
+        let Ok(img) = bed.harness.render() else { return };
+        let path = format!("/tmp/epoch_vol{vol}.png");
+        img.save(&path).unwrap();
+        eprintln!("saved {path}");
+    }
+}
+
+
+/// Screenshot probe: live-streamed epoch data (fft_demo-like), both
+/// renderers, captures at matched feed positions.
+#[test]
+fn probe_live_epoch_screenshots() {
+    use crate::signals::{gen, SignalSpec};
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        let t_two = bed.sink.create_trace("two_tone", None);
+        let t_swe = bed.sink.create_trace("swept", None);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        let mut shot = 0;
+        let spec_two = SignalSpec::SumOfSines(vec![(5.0, 1.0), (50.0, 0.5)]);
+        let spec_swe = SignalSpec::sine(25.0);
+        // 70 chunks x 200 pts @ 1kHz = 14 s of stream — past the 10k
+        // store cap, so ring slides + the GPU envelope path both engage.
+        // Screenshots at ~6 s intervals.
+        for chunk in 0..70 {
+            let t0 = 1_790_000_000.0 + chunk as f64 * 0.2;
+            bed.sink
+                .send_points(&t_two, gen(&spec_two, 200, 1000.0, t0))
+                .unwrap();
+            bed.sink
+                .send_points(&t_swe, gen(&spec_swe, 200, 1000.0, t0))
+                .unwrap();
+            steps(&mut bed, 3);
+            if (chunk + 1) % 22 == 0 {
+                let Ok(img) = bed.harness.render() else { return };
+                shot += 1;
+                let path = format!("/tmp/live_vol{vol}_s{shot}.png");
+                img.save(&path).unwrap();
+                eprintln!("saved {path}");
+            }
+        }
+    }
+}
