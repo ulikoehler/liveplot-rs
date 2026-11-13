@@ -1041,6 +1041,18 @@ impl ScopePanel {
             self.total_widget_size.y < self.min_height_for_x_ticklabels,
             self.total_widget_size.x < self.min_width_for_y_ticklabels,
         );
+        // Trace hover inside the scope — published ahead of the surface
+        // sync so emphasis lands on the frame being rendered (the
+        // renderer unions this with `traces.hover_trace` list-hover).
+        let (ml, mr, mb, mt) = Self::volcano_margins_px(h);
+        let axes = egui::Rect::from_min_max(
+            egui::pos2(rect.left() + ml, rect.top() + mt),
+            egui::pos2(rect.right() - mr, rect.bottom() - mb),
+        );
+        self.data.volcano_scope_hover = resp
+            .hover_pos()
+            .map(|pos| volcano_nearest(surf.bounds, axes, pos, &self.data, traces).names)
+            .unwrap_or_default();
         let ok = surf.sync_and_render(
             ui.ctx(),
             &self.data,
@@ -1071,14 +1083,6 @@ impl ScopePanel {
         let view_initial = surf.bounds;
         self.data.volcano_dropped_frames = surf.dropped_frames;
         self.data.volcano_surface = Some(surf);
-
-        // Axes rect inside the texture — the same pixel margins passed
-        // to `vp_set_margins` via `volcano_margins_px` (single source).
-        let (ml, mr, mb, mt) = Self::volcano_margins_px(h);
-        let axes = egui::Rect::from_min_max(
-            egui::pos2(rect.left() + ml, rect.top() + mt),
-            egui::pos2(rect.right() - mr, rect.bottom() - mb),
-        );
 
         // Input handling: everything happens in VIEW space (the padded
         // bounds) — the same space egui_plot's transform exposes. On a
@@ -1498,9 +1502,9 @@ impl ScopePanel {
         // shows its label + coords; elsewhere just the hovered coords.
         if resp.hovered() {
             if let Some(pos) = hover_pos {
-                let near = volcano_nearest_point(view, axes, pos, &self.data, traces);
+                let near = volcano_nearest(view, axes, pos, &self.data, traces);
                 let ([px, py], name) = near
-                    .map(|(p, n)| (p, n))
+                    .tip
                     .unwrap_or((to_view(view, pos), String::new()));
                 let x = if self.data.x_axis.log_scale {
                     10f64.powf(px)
@@ -1522,7 +1526,7 @@ impl ScopePanel {
                 // `resp.show_tooltip_ui` anchors to the whole widget
                 // rect (top-left). Position an explicit Area at the
                 // pointer instead — egui_plot's tooltip follows it.
-                egui::Area::new(egui::Id::new("vol_hover_tip"))
+                egui::Area::new(egui::Id::unique("vol_hover_tip"))
                     .order(egui::Order::Tooltip)
                     .pivot(egui::Align2::LEFT_BOTTOM)
                     .fixed_pos(pos + egui::vec2(14.0, -8.0))
@@ -2754,18 +2758,42 @@ fn xy_pair_legend_label(
     }
 }
 
-/// Nearest visible data point within ~10pt of `pos` (screen px) —
-/// the volcano equivalent of egui_plot's `HoverPosition::NearDataPoint`.
-/// Returns the point's VIEW-space (post-log) coords + its legend label.
+/// Point-to-segment distance² in screen px — the segment form of
+/// `Pos2::distance_sq` (egui_plot hit-tests line *segments*, not
+/// just samples, so sparse traces are hoverable between points).
 #[cfg(feature = "volcano")]
-fn volcano_nearest_point(
+fn seg_d2(a: egui::Pos2, b: egui::Pos2, p: egui::Pos2) -> f32 {
+    let ab = b - a;
+    let len2 = ab.length_sq();
+    if len2 <= f32::EPSILON {
+        return p.distance_sq(a);
+    }
+    let t = ((p - a).dot(ab) / len2).clamp(0.0, 1.0);
+    p.distance_sq(a + ab * t)
+}
+
+/// Result of `volcano_nearest` — the nearest data *point* for the
+/// coordinate tooltip (`tip`, ≤10 px) and the trace refs under the
+/// pointer for hover emphasis (`names`, nearest *segment* ≤8 px,
+/// falling back to the point hit for single-point traces).
+#[cfg(feature = "volcano")]
+struct VolcanoNear {
+    tip: Option<([f64; 2], String)>,
+    names: Vec<TraceRef>,
+}
+
+/// Nearest rendered point/segment to `pos` (screen px) — the volcano
+/// equivalent of egui_plot's item hit test + NearDataPoint tooltip.
+#[cfg(feature = "volcano")]
+fn volcano_nearest(
     view: ([f64; 2], [f64; 2]),
     axes: egui::Rect,
     pos: egui::Pos2,
     data: &ScopeData,
     traces: &TracesCollection,
-) -> Option<([f64; 2], String)> {
-    const MAX_D2: f32 = 10.0 * 10.0;
+) -> VolcanoNear {
+    const POINT_D2: f32 = 10.0 * 10.0;
+    const SEG_D2: f32 = 8.0 * 8.0;
     let (x_log, y_log) = (data.x_axis.log_scale, data.y_axis.log_scale);
     let to_screen = |v: [f64; 2]| -> egui::Pos2 {
         egui::pos2(
@@ -2773,29 +2801,36 @@ fn volcano_nearest_point(
             axes.bottom() - ((v[1] - view.1[0]) / (view.1[1] - view.1[0])) as f32 * axes.height(),
         )
     };
-    let mut best: Option<(f32, [f64; 2], String)> = None;
-    // Offset is folded in first (same order as the draw path), then
-    // log — matching what the series actually renders at.
-    macro_rules! consider {
-        ($plin:expr, $label:expr) => {{
-            let lx = if x_log && $plin[0] > 0.0 {
-                $plin[0].log10()
-            } else {
-                $plin[0]
-            };
-            let ly = if y_log && $plin[1] > 0.0 {
-                $plin[1].log10()
-            } else {
-                $plin[1]
-            };
-            if lx.is_finite() && ly.is_finite() {
-                let d2 = to_screen([lx, ly]).distance_sq(pos);
-                if d2 < MAX_D2 && best.as_ref().map_or(true, |(d, _, _)| d2 < *d) {
-                    best = Some((d2, [lx, ly], $label.clone()));
+    let mut best_pt: Option<(f32, [f64; 2], String, Vec<TraceRef>)> = None;
+    let mut best_seg: Option<(f32, Vec<TraceRef>)> = None;
+    // Walk one trace's points: track the nearest sample (tooltip) and
+    // the nearest segment (hover). Offset folds in before log — the
+    // same order the draw path uses.
+    let mut scan = |plin: &mut dyn Iterator<Item = [f64; 2]>,
+                    label: &str,
+                    names: Vec<TraceRef>| {
+        let mut prev: Option<egui::Pos2> = None;
+        for p in plin {
+            let lx = if x_log && p[0] > 0.0 { p[0].log10() } else { p[0] };
+            let ly = if y_log && p[1] > 0.0 { p[1].log10() } else { p[1] };
+            if !(lx.is_finite() && ly.is_finite()) {
+                prev = None;
+                continue;
+            }
+            let s = to_screen([lx, ly]);
+            let d2 = s.distance_sq(pos);
+            if d2 < POINT_D2 && best_pt.as_ref().is_none_or(|(d, _, _, _)| d2 < *d) {
+                best_pt = Some((d2, [lx, ly], label.to_string(), names.clone()));
+            }
+            if let Some(pv) = prev {
+                let sd2 = seg_d2(pv, s, pos);
+                if sd2 < SEG_D2 && best_seg.as_ref().is_none_or(|(d, _)| sd2 < *d) {
+                    best_seg = Some((sd2, names.clone()));
                 }
             }
-        }};
-    }
+            prev = Some(s);
+        }
+    };
     if data.scope_type == ScopeType::XYScope && !data.xy_pairs.is_empty() {
         const TOL: f64 = 1e-9;
         for (xn, yn, pl) in data.xy_pairs.iter() {
@@ -2815,9 +2850,12 @@ fn volcano_nearest_point(
                 continue;
             };
             let label = xy_pair_legend_label(data.show_info_in_legend, traces, xn, yn, &yt.info);
-            for p in TracesCollection::join_xy_points(xs, ys, TOL) {
-                consider!([p[0] + xt.offset, p[1] + yt.offset], label);
-            }
+            let names = vec![xn.clone(), yn.clone()];
+            let (xo, yo) = (xt.offset, yt.offset);
+            let mut it = TracesCollection::join_xy_points(xs, ys, TOL)
+                .into_iter()
+                .map(move |p| [p[0] + xo, p[1] + yo]);
+            scan(&mut it, &label, names);
         }
     } else {
         for name in data.trace_order.iter() {
@@ -2831,10 +2869,17 @@ fn volcano_nearest_point(
                 continue;
             };
             let label = trace_legend_label(data.show_info_in_legend, traces, name, &tr.info);
-            for p in pts.iter() {
-                consider!([p[0], p[1] + tr.offset], label);
-            }
+            let off = tr.offset;
+            let mut it = pts.iter().map(move |p| [p[0], p[1] + off]);
+            scan(&mut it, &label, vec![name.clone()]);
         }
     }
-    best.map(|(_, p, n)| (p, n))
+    // A point hit on a segment-less trace (single marker) is also a
+    // hover hit.
+    let names = match best_seg {
+        Some((_, n)) => n,
+        None => best_pt.as_ref().map(|(_, _, _, n)| n.clone()).unwrap_or_default(),
+    };
+    let tip = best_pt.map(|(_, p, l, _)| (p, l));
+    VolcanoNear { tip, names }
 }

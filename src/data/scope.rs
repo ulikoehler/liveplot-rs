@@ -304,6 +304,13 @@ pub struct ScopeData {
     pub volcano_surface: Option<crate::volcano::VolcanoSurface>,
     #[cfg(feature = "volcano")]
     pub volcano_enabled: bool,
+    /// Traces the pointer hovers over *inside* this scope's plot area
+    /// (volcano path — egui_plot does its own item hover). Refreshed
+    /// each frame by the scope renderer; unioned with
+    /// `traces.hover_trace` (traces-list hover) for emphasis.
+    /// Transient, not serialized.
+    #[cfg(feature = "volcano")]
+    pub volcano_scope_hover: Vec<TraceRef>,
     /// Frames the VolcanoPlot FFI dropped (size-mismatch readback) —
     /// observability for parity/robustness tests.
     #[cfg(feature = "volcano")]
@@ -359,6 +366,8 @@ impl Default for ScopeData {
             // escape hatch that always wins (e.g. bug reports, bisects).
             volcano_enabled: std::env::var_os("LIVEPLOT_VOLCANO").is_some()
                 && std::env::var_os("LIVEPLOT_VOLCANO_DISABLE").is_none(),
+            #[cfg(feature = "volcano")]
+            volcano_scope_hover: Vec::new(),
             #[cfg(feature = "volcano")]
             volcano_dropped_frames: 0,
             is_default_target: false,

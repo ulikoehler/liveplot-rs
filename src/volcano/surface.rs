@@ -86,26 +86,33 @@ fn vp_style(look: &TraceLook) -> VolcanoLineStyle {
 
 /// Hashable hover-state tag for `trace_sig` — 0 no hover set, 1
 /// hovered/emphasized, 2 dimmed.
-fn hover_state_bits(names: &[crate::data::traces::TraceRef], traces: &TracesCollection) -> u8 {
-    match &traces.hover_trace {
-        Some(hov) if names.iter().all(|n| !hov.contains(n)) => 2,
-        Some(_) => 1,
-        None => 0,
+fn hover_state_bits(
+    names: &[crate::data::traces::TraceRef],
+    has_hover: bool,
+    hover: &[crate::data::traces::TraceRef],
+) -> u8 {
+    if !has_hover {
+        0
+    } else if names.iter().all(|n| !hover.contains(n)) {
+        2
+    } else {
+        1
     }
 }
 
-/// egui-path hover emphasis (scope_ui.rs): when `traces.hover_trace`
-/// is set, non-hovered traces dim to alpha 40 and hovered traces get
+/// egui-path hover emphasis (scope_ui.rs): while a hover set is
+/// active, non-hovered traces dim to alpha 40 and hovered traces get
 /// width x1.6. Returns (rgba, width).
 fn hover_look(
     look: &TraceLook,
     names: Option<&[crate::data::traces::TraceRef]>,
-    traces: &TracesCollection,
+    has_hover: bool,
+    hover: &[crate::data::traces::TraceRef],
 ) -> (u32, f32) {
     let mut color = rgba8(look.color);
     let mut width = look.width;
-    if let (Some(hov), Some(names)) = (&traces.hover_trace, names) {
-        if names.iter().all(|n| !hov.contains(n)) {
+    if let (true, Some(names)) = (has_hover, names) {
+        if names.iter().all(|n| !hover.contains(n)) {
             color = (color & 0xFFFF_FF00) | 40;
         } else {
             width = (width * 1.6).max(width + 1.0);
@@ -217,9 +224,19 @@ pub struct VolcanoSurface {
     /// a real UI-thread stutter source on live data).
     upload_scratch: HashMap<String, Vec<[f64; 2]>>,
     slide_state: HashMap<String, SlideState>,
-    /// Signature of the whole render input — skips the Vulkan render
-    /// + readback + texture upload when nothing changed.
+    /// Signature of the last frame that actually produced a texture —
+    /// skips the Vulkan render + readback + upload when nothing
+    /// changed. Committed only when a rendered image lands, so a
+    /// dropped/failed render retries instead of freezing on the
+    /// stale texture (the "frozen until resize" bug — a dropped
+    /// post-cleanup frame used to stick `last_sig` forever).
     last_sig: u64,
+    /// Signature of the in-flight dispatch — becomes `last_sig` when
+    /// its image arrives.
+    pending_sig: u64,
+    /// Consecutive renders that produced no image — a wedged figure
+    /// is rebuilt after a few drops instead of freezing forever.
+    consec_drops: u32,
     /// Persistent render+readback worker — keeps the UI at full rate
     /// while Vulkan renders (~2-7ms/frame) in the background.
     worker: Option<RenderWorker>,
@@ -276,6 +293,8 @@ impl VolcanoSurface {
             upload_scratch: HashMap::new(),
             slide_state: HashMap::new(),
             last_sig: 0,
+            pending_sig: 0,
+            consec_drops: 0,
             worker: None,
             pixel_scratch: Vec::new(),
             bounds: ([0.0, 1.0], [0.0, 1.0]),
@@ -362,8 +381,19 @@ impl VolcanoSurface {
                             tex.set(image, egui::TextureOptions::LINEAR);
                             self.initialized = true;
                             self.frames_rendered += 1;
+                            self.last_sig = self.pending_sig;
+                            self.consec_drops = 0;
                         } else {
                             self.dropped_frames += 1;
+                            self.consec_drops += 1;
+                        }
+                        // A figure that keeps producing no image is
+                        // wedged (a backend-level failure render can't
+                        // recover from) — rebuild instead of freezing
+                        // on the stale texture.
+                        if self.consec_drops >= 3 {
+                            self.fig = None;
+                            self.consec_drops = 0;
                         }
                     }
                     // Worker still busy — paint last frame, skip this one.
@@ -411,7 +441,24 @@ impl VolcanoSurface {
         // texture is still current: skip the Vulkan render + readback
         // + upload entirely.
         let log_xy = (scope.x_axis.log_scale, scope.y_axis.log_scale);
+        // Hover emphasis — union of traces-list hover
+        // (`traces.hover_trace`) and pointer-hover inside the scope
+        // (`scope.volcano_scope_hover`), matching the egui path where
+        // both emphasize the trace.
+        let mut hover_list: Vec<crate::data::traces::TraceRef> =
+            traces.hover_trace.clone().unwrap_or_default();
+        for n in &scope.volcano_scope_hover {
+            if !hover_list.contains(n) {
+                hover_list.push(n.clone());
+            }
+        }
+        let has_hover =
+            traces.hover_trace.is_some() || !scope.volcano_scope_hover.is_empty();
         let mut sh = DefaultHasher::new();
+        has_hover.hash(&mut sh);
+        for n in &hover_list {
+            n.0.hash(&mut sh);
+        }
         w.hash(&mut sh);
         h.hash(&mut sh);
         self.bounds.0[0].to_bits().hash(&mut sh);
@@ -464,7 +511,7 @@ impl VolcanoSurface {
         if self.initialized && sig == self.last_sig {
             return true;
         }
-        self.last_sig = sig;
+        self.pending_sig = sig;
 
         let (fw, fh) = fig.size();
         // Debounce: resizing rebuilds the whole Vulkan backend —
@@ -553,7 +600,7 @@ impl VolcanoSurface {
                 ^ shift_bits
                 // hover emphasis changes effective color/width — must
                 // re-upload even when data/style are unchanged.
-                ^ hover_state_bits(std::slice::from_ref(name), traces) as u64;
+                ^ hover_state_bits(std::slice::from_ref(name), has_hover, &hover_list) as u64;
             if self.trace_sigs.get(&name.0) == Some(&new_sig) {
                 continue;
             }
@@ -606,7 +653,12 @@ impl VolcanoSurface {
             };
             let xy = self.upload_scratch.entry(name.0.clone()).or_default();
             xy.clear();
-            let (color, width) = hover_look(&tr.look, Some(std::slice::from_ref(name)), traces);
+            let (color, width) = hover_look(
+                &tr.look,
+                Some(std::slice::from_ref(name)),
+                has_hover,
+                &hover_list,
+            );
             let mut uploaded = 0usize;
             let slid = slide.is_some_and(|(d, kept)| {
                 xy.extend(pts.iter().skip(kept).filter_map(xform));
@@ -715,7 +767,12 @@ impl VolcanoSurface {
                 seen.insert(key.clone());
                 let id = *self.trace_ids.entry(key).or_insert_with(|| fig.add_trace());
                 let (color, width) =
-                    hover_look(pair_look, Some(&[x_name.clone(), y_name.clone()]), traces);
+                    hover_look(
+                        pair_look,
+                        Some(&[x_name.clone(), y_name.clone()]),
+                        has_hover,
+                        &hover_list,
+                    );
                 fig.set_trace(id, &derived, color, width, vp_style(pair_look));
                 fig.set_marker(id, vp_marker(pair_look), pair_look.point_size * 2.0);
             }

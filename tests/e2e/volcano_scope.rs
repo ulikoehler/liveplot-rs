@@ -126,6 +126,107 @@ fn volcano_xy_scope_renders_pair() {
     assert!(s.last_plot_bounds.is_some());
 }
 
+/// Deleting a trace (not just clearing its data) must leave the
+/// surface rendering.
+#[test]
+fn volcano_scope_remove_trace_still_renders() {
+    let mut bed = make_test_bed();
+    scope_mut(&mut bed, 0).volcano_enabled = true;
+    feed_sine(&bed, "sig", 1000, 1.0, 100.0, 0.0);
+    feed_sine(&bed, "sig2", 1000, 2.0, 100.0, 0.0);
+    steps(&mut bed, 30);
+    let name = liveplot::TraceRef("sig".into());
+    {
+        let data = scope_mut(&mut bed, 0);
+        data.trace_order.retain(|t| t != &name);
+    }
+    bed.harness.state_mut().traces_data.remove_trace(&name);
+    steps(&mut bed, 10);
+    let s = scope(&bed, 0);
+    let surf = s.volcano_surface.as_ref().unwrap();
+    let before = (surf.frames_rendered, surf.dropped_frames);
+    feed_sine(&bed, "sig2", 200, 2.0, 100.0, 10.0);
+    steps(&mut bed, 10);
+    let surf = scope(&bed, 0).volcano_surface.as_ref().unwrap();
+    assert!(
+        surf.frames_rendered > before.0,
+        "surface stopped after remove_trace: {before:?} -> ({}, {})",
+        surf.frames_rendered,
+        surf.dropped_frames,
+    );
+    assert!(scope(&bed, 0).rendered_this_frame);
+}
+
+/// The first max_points eviction (first drop>0 ring slide) must not
+/// freeze the surface either.
+#[test]
+fn volcano_scope_first_eviction_still_renders() {
+    let mut bed = make_test_bed();
+    scope_mut(&mut bed, 0).volcano_enabled = true;
+    feed_sine(&bed, "sig", 1000, 1.0, 100.0, 0.0);
+    steps(&mut bed, 30);
+    // Small cap → the next feed evicts → first drop>0 slide.
+    bed.harness.state_mut().traces_data.max_points = 1000;
+    feed_sine(&bed, "sig", 800, 1.0, 100.0, 10.0);
+    steps(&mut bed, 30);
+    let s = scope(&bed, 0);
+    let surf = s.volcano_surface.as_ref().unwrap();
+    let dbg = (
+        surf.frames_rendered,
+        surf.dropped_frames,
+        surf.dbg_dispatches,
+        surf.dbg_uploads,
+        surf.dbg_slides,
+    );
+    let before = surf.frames_rendered;
+    eprintln!("eviction: {dbg:?} (frames, dropped, dispatched, uploads, slides)");
+    // Keep feeding past the cap — every subsequent frame is a slide.
+    feed_sine(&bed, "sig", 400, 1.0, 100.0, 18.0);
+    steps(&mut bed, 30);
+    let surf = scope(&bed, 0).volcano_surface.as_ref().unwrap();
+    assert!(
+        surf.frames_rendered > before,
+        "surface stopped producing frames after first eviction: {dbg:?}"
+    );
+    assert_eq!(surf.dropped_frames, 0, "renders failing after eviction");
+    assert!(scope(&bed, 0).rendered_this_frame);
+}
+
+/// Clearing all trace data must not freeze the surface: after
+/// `clear_all` the scope keeps rendering (empty axes) — no resize
+/// needed to revive it.
+#[test]
+fn volcano_scope_clear_all_still_renders() {
+    let mut bed = make_test_bed();
+    scope_mut(&mut bed, 0).volcano_enabled = true;
+    feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+    steps(&mut bed, 30);
+    let s = scope(&bed, 0);
+    let surf = s.volcano_surface.as_ref().unwrap();
+    let before = (
+        surf.frames_rendered,
+        surf.dropped_frames,
+        surf.dbg_dispatches,
+        surf.dbg_busy_skips,
+    );
+    bed.harness.state_mut().traces_data.clear_all();
+    steps(&mut bed, 30);
+    let s = scope(&bed, 0);
+    let surf = s.volcano_surface.as_ref().unwrap();
+    let after = (
+        surf.frames_rendered,
+        surf.dropped_frames,
+        surf.dbg_dispatches,
+        surf.dbg_busy_skips,
+    );
+    eprintln!("clear_all: {before:?} -> {after:?} (frames, dropped, dispatched, busy)");
+    assert!(
+        surf.frames_rendered > before.0,
+        "surface stopped producing frames after clear_all"
+    );
+    assert!(s.rendered_this_frame);
+}
+
 /// The FFT panel's embedded scope renders through VolcanoPlot too
 /// ("everything incl. FFT" — it's the same render_plot path).
 #[cfg(feature = "fft")]
@@ -155,5 +256,50 @@ fn volcano_fft_scope_renders() {
             .as_ref()
             .is_some_and(|v| v.initialized()),
         "FFT scope should render through VolcanoPlot"
+    );
+}
+
+/// Hovering a rendered trace inside the scope publishes
+/// `volcano_scope_hover` — the surface unions it with traces-list
+/// hover for emphasis (previously scope-hover did nothing).
+#[test]
+fn volcano_scope_plot_hover_marks_trace() {
+    let mut bed = make_test_bed();
+    scope_mut(&mut bed, 0).volcano_enabled = true;
+    feed_sine(&bed, "sig", 2000, 1.0, 100.0, 0.0);
+    steps(&mut bed, 30);
+    let axes = scope(&bed, 0)
+        .last_axes_screen_rect
+        .expect("axes rect recorded");
+    let (xb, yb) = scope(&bed, 0).last_plot_bounds.expect("bounds recorded");
+    // Project a real sample point onto screen space: t=15.25 is an
+    // exact fs=100 sample, and the sine peaks at y=1 there.
+    let (t, y) = (15.25f64, 1.0f64);
+    let sx = axes[0] + ((t - xb[0]) / (xb[1] - xb[0])) as f32 * (axes[2] - axes[0]);
+    let sy = axes[3] - ((y - yb[0]) / (yb[1] - yb[0])) as f32 * (axes[3] - axes[1]);
+    let center = egui::pos2(sx, sy);
+    let disp0 = scope(&bed, 0)
+        .volcano_surface
+        .as_ref()
+        .map(|s| s.dbg_dispatches)
+        .unwrap_or(0);
+    hover_at(&mut bed, center);
+    let hov = &scope(&bed, 0).volcano_scope_hover;
+    assert!(
+        hov.iter().any(|t| t.0 == "sig"),
+        "hovering the plotted trace must mark it, got {hov:?}"
+    );
+    // Hover changes the render signature → a new frame is dispatched.
+    let disp1 = scope(&bed, 0)
+        .volcano_surface
+        .as_ref()
+        .map(|s| s.dbg_dispatches)
+        .unwrap_or(0);
+    assert!(disp1 > disp0, "hover emphasis must trigger a re-render");
+    // Moving the pointer off the scope clears the hover.
+    hover_at(&mut bed, egui::pos2(4.0, 4.0));
+    assert!(
+        scope(&bed, 0).volcano_scope_hover.is_empty(),
+        "leaving the scope must clear the hover"
     );
 }

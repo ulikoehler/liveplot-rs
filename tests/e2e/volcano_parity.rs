@@ -1555,6 +1555,23 @@ fn bench_render_perf() {
     eprintln!("=================================================================\n");
 }
 
+/// Screenshot probe: dark-mode scope chrome (tab bar + figure) in
+/// both renderers — visual check for the reported white top strip.
+#[test]
+fn probe_dark_mode_scope_chrome() {
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        bed.harness.ctx.set_visuals(egui::Visuals::dark());
+        feed_sine(&bed, "sig", 20000, 8.0, 1000.0, 1_790_000_000.0);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        steps(&mut bed, 30);
+        let Ok(img) = bed.harness.render() else { return };
+        let path = format!("/tmp/dark_scope_vol{vol}.png");
+        img.save(&path).unwrap();
+        eprintln!("saved {path}");
+    }
+}
+
 /// Screenshot probe: epoch-timestamped trace through both renderers.
 #[test]
 fn probe_epoch_screenshots() {
