@@ -523,6 +523,30 @@ reductions/readbacks return empty rather than consuming buffers the
 GPU never finished writing, so a wedged queue degrades to a
 rebuildable render failure instead of a silently empty frame.
 
+### 5j. Rebuild-spine + non-coherent host-memory fixes (this round)
+
+Two user-reported visuals, root-caused and fixed:
+
+- **White bar on top of the FFT scope** — `vp_set_background` muted
+  the spine colors, but `rebuild_figure` re-ran `setStyle` on
+  resize/backend reinit and restored the bright mpl defaults. The
+  muted-spine override is now applied in the rebuild path too
+  (`29624d8`). Verified by screenshot: the FFT scope renders proper
+  `0–500 Hz` ticks with the 50 Hz spike and no white top bar.
+- **Traces vanishing/corrupt after the first purge (ring-slide)** —
+  `VMA_MEMORY_USAGE_AUTO` + host-access flags does not guarantee
+  `HOST_COHERENT` memory; every `mappedData()` write relied on the
+  allocator picking coherent memory, so on non-coherent types the
+  GPU could read stale ring data after a slide. `Buffer::flush()`
+  records allocation coherency at creation and calls
+  `vmaFlushAllocation` only when needed (no-op on coherent memory).
+  Applied at every host-write→GPU-read site: f64 ring/point buffers,
+  staging uploads, `writeBuffer`, compute inputs, heatmap grid/LUT,
+  spine/instanced/text scratch VBs+IBs, encoder inputs (`6c1c7ae`).
+  Verified by multi-round purge screenshots (`probe_purge_trace_vanish`,
+  `probe_live_purge_vanish`): clean sine and symmetric ±1.0 axis
+  through consecutive evictions on both renderers.
+
 ## 6. Remaining gaps / TODO
 
 - ~~Shared Vulkan device across figures~~ — landed in §5i

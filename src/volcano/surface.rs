@@ -318,6 +318,8 @@ impl RenderWorker {
                     sy,
                     log_xy,
                 } = job;
+                let dbg_t = std::env::var("LIVEPLOT_DEBUG_TICKS").is_ok();
+                let t0 = std::time::Instant::now();
                 let mut rep = SyncReport::default();
                 for cmd in cmds {
                     match cmd {
@@ -393,6 +395,10 @@ impl RenderWorker {
                 // and the rgba→Color32 conversion off the UI thread.
                 // The view path borrows the C++ staging buffer (one
                 // copy total); render_rgba_into is the fallback.
+                if dbg_t {
+                    eprintln!("worker: cmds done in {:?}", t0.elapsed());
+                }
+                let t1 = std::time::Instant::now();
                 let res = match fig.render_rgba_view() {
                     Some((rw, rh, view)) => Some(color_image_from_rgba(
                         [rw as usize, rh as usize],
@@ -402,6 +408,9 @@ impl RenderWorker {
                         color_image_from_rgba([rw as usize, rh as usize], &px)
                     }),
                 };
+                if dbg_t {
+                    eprintln!("worker: render done in {:?}", t1.elapsed());
+                }
                 if res_tx.send((fig, res, rep)).is_err() {
                     return;
                 }
@@ -1132,6 +1141,12 @@ impl VolcanoSurface {
             hide_labels.1,
             |v, step| scope.y_axis.format_value(v, Some(step)),
         );
+        if std::env::var("LIVEPLOT_DEBUG_TICKS").is_ok() {
+            eprintln!(
+                "ticks scope={:?} xb={xb:?} yb={yb:?} sx={sx} sy={sy} x_px={x_px} y_px={y_px} xticks={:?} yticks={:?}",
+                scope.name, x_ticks, y_ticks
+            );
+        }
         fig.set_ticks(0, &x_ticks);
         fig.set_ticks(1, &y_ticks);
 

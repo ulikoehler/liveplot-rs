@@ -1623,3 +1623,152 @@ fn probe_live_epoch_screenshots() {
         }
     }
 }
+
+/// Count of trace-colored pixels inside the plot rect — 0 means the
+/// trace vanished from the rendered surface.
+fn count_colored_pixels(img: &image::RgbaImage, rect: [f32; 4]) -> u32 {
+    let (x0, y0) = (rect[0] as u32 + 5, rect[1] as u32 + 5);
+    let (x1, y1) = (
+        (rect[2] as u32).min(img.width() - 5),
+        (rect[3] as u32).min(img.height() - 5),
+    );
+    let mut colored = 0u32;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let p = img.get_pixel(x, y).0;
+            let mx = *p.iter().max().unwrap() as i32;
+            let mn = *p.iter().min().unwrap() as i32;
+            if mx - mn > 30 {
+                colored += 1;
+            }
+        }
+    }
+    colored
+}
+
+/// User-reported: "after the first purge of the trace data the traces
+/// vanish". Feeds past max_points repeatedly — every round is a
+/// ring-buffer eviction — and asserts the trace still paints colored
+/// pixels, saving a screenshot per round for visual inspection.
+#[test]
+fn probe_purge_trace_vanish() {
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        feed_sine(&bed, "sig", 1500, 1.0, 100.0, 0.0);
+        steps(&mut bed, 15);
+        // Cap small: each subsequent feed prunes/evicts old points.
+        bed.harness.state_mut().traces_data.max_points = 2000;
+        for round in 0..4 {
+            feed_sine(&bed, "sig", 1500, 1.0, 100.0, 20.0 + round as f64 * 15.0);
+            steps(&mut bed, 15);
+            // The window keeps the latest points; refit so they show.
+            scope_mut(&mut bed, 0).y_axis.auto_fit = true;
+            steps(&mut bed, 3);
+            let Ok(img) = bed.harness.render() else { return };
+            let path = format!("/tmp/purge_vol{vol}_r{round}.png");
+            img.save(&path).unwrap();
+            let rect = scope(&bed, 0).last_plot_screen_rect.expect("plot rect");
+            let colored = count_colored_pixels(&img, rect);
+            eprintln!("purge vol={vol} round={round}: colored={colored} -> {path}");
+            assert!(
+                colored > 100,
+                "trace vanished after purge round {round} (vol={vol}): {colored} colored px"
+            );
+        }
+    }
+}
+
+/// User-reported: FFT scope still shows a white top bar / looks
+/// distorted on the volcano path. Screenshots the FFT panel scope on
+/// both backends for visual comparison and asserts colored pixels.
+#[cfg(feature = "fft")]
+#[test]
+fn probe_fft_scope_screenshots() {
+    use liveplot::panels::fft_ui::FftPanel;
+    use liveplot::Panel;
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        {
+            let fp = find_panel_mut::<FftPanel>(&mut bed).expect("FftPanel");
+            fp.state_mut().visible = true;
+            fp.scope_ui.get_data_mut().volcano_enabled = vol;
+        }
+        feed_sine(&bed, "sig", 4096, 50.0, 1000.0, 0.0);
+        steps(&mut bed, 600);
+        let fp = find_panel::<FftPanel>(&bed).unwrap();
+        let d = fp.scope_ui.get_data();
+        let rect = d.last_plot_screen_rect;
+        eprintln!(
+            "fft vol={vol}: rect={rect:?} rendered={} xb={:?} yb={:?} bounds_ext={} surf_bounds={:?}",
+            d.rendered_this_frame,
+            d.x_axis.bounds,
+            d.y_axis.bounds,
+            d.volcano_surface.as_ref().map_or(false, |s| s.bounds_external),
+            d.volcano_surface.as_ref().map(|s| s.bounds),
+        );
+        if let Some(s) = d.volcano_surface.as_ref() {
+            eprintln!(
+                "  surf: frames={} dropped={} dispatches={} uploads={} slides={} busy_skips={} init={}",
+                s.frames_rendered, s.dropped_frames, s.dbg_dispatches,
+                s.dbg_uploads, s.dbg_slides, s.dbg_busy_skips,
+                s.initialized()
+            );
+        }
+        let Ok(img) = bed.harness.render() else { return };
+        let path = format!("/tmp/fft_vol{vol}.png");
+        img.save(&path).unwrap();
+        eprintln!("saved {path}");
+        if let Some(rect) = rect {
+            let colored = count_colored_pixels(&img, rect);
+            eprintln!("fft vol={vol}: colored={colored}");
+            assert!(colored > 50, "fft trace absent (vol={vol}): {colored}");
+        }
+    }
+}
+
+
+/// Faithful live-feed repro: points stream in EVERY frame (like a
+/// real producer thread) while the buffer stays at the cap — every
+/// frame after the cap is a ring-buffer slide. Asserts the trace
+/// keeps painting across many purges.
+#[test]
+fn probe_live_purge_vanish() {
+    use crate::signals::{gen, SignalSpec};
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        let t = bed.sink.create_trace("live_sig", None);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        bed.harness.state_mut().traces_data.max_points = 1500;
+        let spec = SignalSpec::sine(3.0);
+        let mut shot = 0;
+        // 30 chunks x 200 pts = 6000 total vs 1500 cap → ~4 purges.
+        for chunk in 0..30 {
+            let t0 = chunk as f64 * 0.2;
+            bed.sink
+                .send_points(&t, gen(&spec, 200, 1000.0, t0))
+                .unwrap();
+            steps(&mut bed, 6);
+            if chunk % 8 == 7 {
+                let Ok(img) = bed.harness.render() else { return };
+                let path = format!("/tmp/livepurge_vol{vol}_s{shot}.png");
+                img.save(&path).unwrap();
+                let rect = scope(&bed, 0).last_plot_screen_rect.expect("plot rect");
+                let colored = count_colored_pixels(&img, rect);
+                eprintln!("livepurge vol={vol} shot={shot}: colored={colored} -> {path}");
+                assert!(
+                    colored > 100,
+                    "trace vanished at shot {shot} (vol={vol}): {colored} px"
+                );
+                shot += 1;
+            }
+        }
+        if let Some(s) = scope(&bed, 0).volcano_surface.as_ref() {
+            eprintln!(
+                "livepurge vol={vol}: frames={} dropped={} dispatches={} uploads={} slides={}",
+                s.frames_rendered, s.dropped_frames, s.dbg_dispatches,
+                s.dbg_uploads, s.dbg_slides
+            );
+        }
+    }
+}
