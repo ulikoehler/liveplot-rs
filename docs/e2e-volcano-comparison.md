@@ -514,7 +514,14 @@ the identical suite cleanly. Layered mitigation landed:
 8+ threads still occasionally trip the driver-internal fault —
 recommend `--test-threads=4` for CI. The readback-envelope
 first-frame bug (`envelopeColumns` read un-narrowed f32 memory on
-the first envelope frame) is fixed via `convertF64ToF32Sync`.
+the first envelope frame) is fixed via `convertF64ToF32Sync`; the
+same first-frame ordering bug in `contributeToAutoscaleGpu` (which
+made `volcano_renders_sine_framebuffer` intermittently lose its
+trace) is fixed the same way. Every bounded async submission now
+also reports completion — uploads throw on incomplete copies, GPU
+reductions/readbacks return empty rather than consuming buffers the
+GPU never finished writing, so a wedged queue degrades to a
+rebuildable render failure instead of a silently empty frame.
 
 ## 6. Remaining gaps / TODO
 
