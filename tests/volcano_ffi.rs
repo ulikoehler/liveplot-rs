@@ -77,6 +77,43 @@ fn volcano_viewport_and_styles() {
     assert!(fig.render_rgba().is_some());
 }
 
+/// Sustained-render probe for nvidia-smi sampling: 8x200k traces
+/// rendered back-to-back for ~20s so GPU utilization and the process
+/// presence in `nvidia-smi pmon` are observable. Proves the render
+/// path runs on the discrete GPU.
+/// Run: cargo test --features volcano --test volcano_ffi -- --ignored --nocapture gpu_sustained
+#[test]
+#[ignore]
+fn volcano_gpu_sustained_render() {
+    use std::time::Instant;
+    let n = 200_000usize;
+    let mut fig = VolcanoFigure::new(1280, 720).expect("figure");
+    for t in 0..8 {
+        let mut xy = Vec::with_capacity(n);
+        for i in 0..n {
+            let x = i as f64 * 0.001;
+            xy.push([x, (x * (1.0 + t as f64 * 0.3)).sin()]);
+        }
+        let id = fig.add_trace();
+        fig.set_trace(id, &xy, 0xFF8800FF + t as u32 * 0x1000, 1.5, VolcanoLineStyle::Solid);
+    }
+    fig.set_viewport(0.0, 200.0, -1.2, 1.2);
+    eprintln!("sustained render started — poll nvidia-smi now");
+    let t0 = Instant::now();
+    let mut frames = 0u64;
+    while t0.elapsed() < std::time::Duration::from_secs(20) {
+        assert!(fig.render_rgba().is_some());
+        frames += 1;
+    }
+    eprintln!(
+        "{} frames in {:?} = {:.1} fps avg ({:.2} ms/frame)",
+        frames,
+        t0.elapsed(),
+        frames as f64 / t0.elapsed().as_secs_f64(),
+        t0.elapsed().as_secs_f64() * 1000.0 / frames as f64
+    );
+}
+
 /// Rough perf probe: render a 200k-point trace a few times and report
 /// the average frame time (Vulkan render + readback).
 #[test]

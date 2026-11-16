@@ -116,15 +116,20 @@ Host devices: **GPU0** AMD Raphael Mendocino iGPU (RADV),
 is selected.
 
 Measured proof (all taken during `volcano_hold_device_probe` /
-`volcano_perf_200k_points` runs):
+`volcano_perf_200k_points` / `volcano_gpu_sustained_render` runs):
 
+- `nvidia-smi pmon -s um` lists the test process as a C+G client:
+  `volcano_ffi-… sm=11–12% fb=237MB` sustained during the 20s
+  8×200k render loop
 - `nvidia-smi` lists the test process: `C+G …/volcano_ffi-… 85MiB`
 - ~20 open fds on `/dev/nvidia0`, `/dev/nvidiactl`, `/dev/nvidia-modeset`;
   NVIDIA Vulkan userland libs mapped (`libnvidia-glvkspirv.so`, …)
 - strace: **1928 NVIDIA ioctls (magic 0x46) vs 66 DRM ioctls** — the DRM
   (RADV) fds only get enumeration probes (GEM_CLOSE)
-- render+readback 1280×720 / 200k pts: **~2.0–3.2 ms/frame** steady-state
-  (first frame ~155–215 ms incl. device+shader init); upload 200k pts ~1–2 ms.
+- render+readback 1280×720 / 200k pts: **~1.0–1.2 ms/frame** steady-state
+  after the shared-device + §5c–§5h rounds (first frame ~155–215 ms
+  incl. device+shader init); upload 200k pts ~1.3 ms. Sustained loop:
+  **236 fps (4.23 ms/frame) at 8×200k** — GPU-burst-paced.
   On llvmpipe this was ~7 ms+/frame — the hardware path is ~3× faster.
 
 **Result: volcano now runs on the hardware NVIDIA GPU, not llvmpipe.**
@@ -152,28 +157,41 @@ Final uncapped run — **no FPS cap, identical pacing for both paths**
 All run with the upstream fixes in §5b, the f64-upload /
 device-transform round (§5c), and the command-recording round (§5d).
 History: volcano live was 1.50 at first measurement, 1.25–1.42 after
-the §5b fixes, 0.83/1.33 after §5c, now **0.67 at 8×200k / 1.17 at
-4×20k**. Paused stays ~0.17–0.25.
+the §5b fixes, 0.83/1.33 after §5c, 0.67/1.17 after §5d.
+
+**Post worker-offload (transforms/XY joins/uploads moved to the
+render worker) re-measure:**
+
+| path | wall ms/f | CPU ms/f | RSS Δ | GPU renders |
+|---|---|---|---|---|
+| egui paused 4×20k | 1.45 | **0.33** | ~0.1 MB | — |
+| volcano paused 4×20k | 1.27 | **0.25** | ~0 | 1/120 |
+| egui live 4×20k | 1.40 | **0.33** | +0.6 MB | — |
+| volcano live 4×20k | 1.28 | **0.42** | +0.7 MB | 31/120 |
+| egui paused 8×200k | 1.59 | **0.58** | ~0 | — |
+| volcano paused 8×200k | 1.27 | **0.25** | ~0 | 1/120 |
+| egui live 8×200k | 1.48 | **0.42** | +0.4 MB | — |
+| volcano live 8×200k | 1.29 | **0.42** | +1.3 MB | 30/120 |
 
 Reading:
 
-- **Static view: volcano uses ~2–3× less CPU** (0.17–0.25 vs
-  0.42–0.50 ms/f) — the whole-render signature short-circuits before
-  any work.
-- **Live churn: volcano still uses more CPU than egui** (0.67–1.17 vs
-  0.42) but the gap narrowed ~2.2×: the GPU-resident transform +
-  tessellation removed the per-trace O(N) host pass, and the §5d round
-  cut per-trace barriers + the ColorImage conversion (steady-state
-  `vp_render_rgba_view` ~1.4 ms wall; the worker thread is ~all
-  command recording + submit — GPU waits cost ~0 CPU).
+- **Static view: volcano uses ~2× less CPU** (0.25 vs 0.33–0.58 ms/f)
+  — the whole-render signature short-circuits before any work.
+- **Live churn: volcano is now at CPU parity with egui** (0.42 vs
+  0.33–0.42) — moving point transforms, XY joins and FFI uploads to
+  the render worker removed the remaining UI-thread O(N) pass.
+  The GPU-resident transform + tessellation does the heavy lifting;
+  the worker thread is ~all command recording + submit — GPU waits
+  cost ~0 CPU.
 - `rendered` counts are pipelining, not loss: the worker renders
   1-frame-behind and busy frames paint the last completed texture —
   same cadence as egui, just fewer *unique* frames when the worker is
   saturated.
-- GPU memory: ~85 MB per process (NVIDIA, per `nvidia-smi`); each scope
-  figure owns a device — shared-device is a documented TODO. The f64
-  upload path adds one raw `dvec2` buffer per trace (2× the f32 point
-  buffer until the GPU narrow runs).
+- GPU memory: ~237 MB per *process* under the shared device —
+  one instance/device/allocator process-wide, all figures share it
+  (previously ~85 MB per figure). The f64 upload path adds one raw
+  `dvec2` buffer per trace (2× the f32 point buffer until the GPU
+  narrow runs).
 - Caveats: measured while the box was loaded (load avg ~7–17);
   relative ordering is stable across runs, absolute values will vary.
   In a real eframe/wgpu app egui additionally pays GPU-submit + paint
@@ -457,24 +475,63 @@ column silhouette ≈ polyline band).
 6·N — ~100× less tessellation work for huge traces, which is the
 scalability win for many-line high-frequency scopes.
 
+### 5i. Shared device + parallel-driver hardening
+
+All headless figures now share one `GpuContext` (one instance,
+device, VMA allocator process-wide; per-backend command pools) —
+N figures cost 1 device: ~237 MB per process vs ~85 MB per figure,
+and device-creation storms (the main NVIDIA-620.x instability
+trigger) disappear.
+
+Under 8–16-thread test load the NVIDIA proprietary driver faulted
+anyway — NVRM Xid 32 (corrupt push buffer) and Xid 13 (illegal
+shader instruction) followed by eglcore SIGSEGVs; Mesa/llvmpipe runs
+the identical suite cleanly. Layered mitigation landed:
+
+- `renderGate()` — every `vp_*` entry point that can reach a Vulkan
+  call serializes process-wide (plot destruction runs
+  `~LineRendererVk` → `vmaDestroyBuffer`, so trace remove is gated
+  too; trivial getters stay lock-free).
+- `globalQueueMutex` — every `vkQueueSubmit` and command-pool
+  alloc/free serialized (spec-mandated external sync).
+- All `vkQueueWaitIdle`/`vkDeviceWaitIdle` calls moved *outside* the
+  mutex (no external sync required; holding it froze every figure on
+  one slow queue).
+- Every fence/queue wait bounded (~5 s): `waitSlot` throws (FFI →
+  render failure → surface rebuild), `~OneTimeCommands` and
+  TextRenderer atlas upload give up instead of pinning a worker.
+- All destructors noexcept-safe; a wedged backend *leaks* its Vulkan
+  objects rather than `waitIdle`-blocking or freeing in-flight
+  references.
+- Pipeline-cache writes are atomic (unique tmp + rename); the shared
+  context is deliberately process-lifetime so detached workers never
+  touch freed state.
+- Rust side: wedged workers are detached after `JOB_TIMEOUT` and the
+  figure rebuilds; `VolcanoSurface::drop` detaches instead of
+  joining (a wedged `join()` was the scope-close UI freeze).
+
+**Result**: `--test-threads=4` runs are repeatedly stable (46/46);
+8+ threads still occasionally trip the driver-internal fault —
+recommend `--test-threads=4` for CI. The readback-envelope
+first-frame bug (`envelopeColumns` read un-narrowed f32 memory on
+the first envelope frame) is fixed via `convertF64ToF32Sync`.
+
 ## 6. Remaining gaps / TODO
 
-- Shared Vulkan device across figures (upstream FFI work — biggest
-  memory win, likely also removes the concurrency hang;
-  `sharedGpuContext()` exists upstream but needs queue/pool
-  synchronization across worker threads).
+- ~~Shared Vulkan device across figures~~ — landed in §5i
+  (`sharedGpuContext` + `globalQueueMutex` + `renderGate`; parallel
+  stability bounded at 4 threads).
 - ~~Upstream: deferred/pipelined readback (present frame N-1 while N
   renders)~~ — landed in §5g (opt-in).
 - ~~Upstream: GPU-resident `envelopeColumns` decimation without host
   readback~~ — landed in §5h: the whole reduce→emit→tessellate chain
   runs inside the frame's compute stream (200k-pt trace → ~2.5k
   stroked verts), verified byte-identical to the readback envelope.
-- Rust: worker-side O(N) collect — the slide path already makes the
-  common case O(tail); what remains on the UI thread is the
-  whole-window-turnover fallback (inherently O(N) — all data is new)
-  and `join_xy_points` for XY scopes. Moving them to the worker
-  requires shipping an O(N) snapshot, so the honest gain is small
-  unless trace storage itself becomes shared/double-buffered.
+- ~~Rust: worker-side O(N) collect~~ — landed: `FigJob` ships raw
+  points + params and the worker runs `xform_pt`/`xform_xy`,
+  `join_xy_points` and all FFI uploads (live CPU now at egui parity);
+  style-only changes are zero-tail slides; XY uploads are
+  signature-gated.
 - ~~GPU-ring `vp_trace_append` for sliding-window live traces~~ —
   landed as `vp_trace_slide` in §5f.
 - ~~Cached command buffers for the static layer~~ — evaluated in §5d:
@@ -486,19 +543,29 @@ scalability win for many-line high-frequency scopes.
 
 ## 7. Result summary
 
-- **e2e suite: 181 passed / 0 failed** (6 ignored opt-ins) —
+- **e2e suite: 180 passed / 0 failed** (6 ignored opt-ins) —
   `--features "volcano,fft"`, both paths, incl. all 40+ volcano parity
-  tests, XY scope, FFT embedded scope, FFI suite 6/6.
-- **Volcano renders on the NVIDIA RTX 5060 Ti** (proven via nvidia-smi,
-  fd table, ioctl counts, render-time delta vs llvmpipe).
-- **CPU: lower than egui on static views (~2–3×), higher on
-  continuous data churn (~0.67–1.17 ms/f vs 0.42)** — fair,
-  uncapped, identical pacing for both paths. GPU waits cost ~0 CPU;
-  the remainder is command recording/submit, one f64 upload memcpy
-  per changed trace, and the worker-side `ColorImage` memcpy +
-  texture upload per rendered frame (§5c/§5d). Volcano's live cost
-  is *flat in point count* while egui grows with data — the curves
-  cross at larger buffers.
+  tests, XY scope, FFT embedded scope, FFI suite 15/15. Repeated
+  parallel runs (`--test-threads=4`) are stable; 8+ threads can still
+  trip an NVIDIA 620.x driver-level fault (Xid 32/13 + eglcore
+  SIGSEGV) that does not reproduce on Mesa/llvmpipe — every `vp_*`
+  entry point is serialized behind `renderGate` and all queue/fence
+  waits are bounded as mitigation; recommend `--test-threads=4` for CI.
+- **Volcano renders on the NVIDIA RTX 5060 Ti** (proven via nvidia-smi
+  pmon: `volcano_ffi` listed as C+G client with ~12% SM util + 237 MB
+  framebuffer during sustained 8×200k rendering; fd table, ioctl
+  counts, render-time delta vs llvmpipe corroborate). Sustained
+  8×200k render+readback: **236 fps (4.23 ms/frame)**.
+- **Shared device**: one instance/device/allocator process-wide for
+  all headless figures — N figures no longer cost N devices (VRAM +
+  driver threads); ~237 MB per process total vs ~85 MB per figure.
+- **CPU: ~2× lower than egui on static views (0.25 vs 0.33–0.58
+  ms/f), at parity on continuous data churn (0.42 vs 0.33–0.42
+  ms/f)** — fair, uncapped, identical pacing for both paths. GPU
+  waits cost ~0 CPU; the remainder is command recording/submit plus
+  one f64 upload memcpy per changed trace, now all on the render
+  worker. Volcano's live cost is *flat in point count* while
+  egui grows with data — the curves cross at larger buffers.
 - **f64 data path**: traces upload as raw interleaved `dvec2` and are
   narrowed to f32 on the GPU (`shaderFloat64`-gated, CPU fallback);
   CPU consumers materialize `series_.points` lazily.
