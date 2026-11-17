@@ -397,6 +397,66 @@ fn volcano_repeated_slides_track_window() {
     );
 }
 
+/// Regression: two slides landing before one prepare where the second's
+/// drop eats into the first's pending tail. The raw-buffer compaction
+/// then subtracts past the tail anchor — `slideTailOff_` (size_t) used
+/// to wrap into a wild span offset → OOB memcpy / garbage window. The
+/// anchor now clamps; the surviving window must still render correctly.
+#[test]
+fn volcano_slide_compaction_eating_pending_tail() {
+    let w = 640;
+    let mut fig = VolcanoFigure::new(w as u32, 300).expect("figure");
+    let id = fig.add_trace();
+    // Window x∈[0,9].
+    let data: Vec<[f64; 2]> = (0..10)
+        .map(|i| [i as f64, (i as f64 * 0.7).sin()])
+        .collect();
+    fig.set_trace(id, &data, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid);
+    fig.set_viewport(0.0, 18.0, -1.2, 1.2);
+    assert!(fig.render_rgba().is_some());
+
+    // Slide 1 (no render after): drop 8, append x∈[10,14]
+    //   → window x∈[8,14]. Compaction fires inside this call.
+    let tail1: Vec<[f64; 2]> = (10..15)
+        .map(|i| [i as f64, (i as f64 * 0.7).sin()])
+        .collect();
+    assert!(fig.set_trace_slide(
+        id,
+        8,
+        &tail1,
+        0xFF0000FF,
+        2.0,
+        VolcanoLineStyle::Solid
+    ));
+    // Slide 2 (still no render): drop 6 eats the 2 kept points AND 4 of
+    // the pending tail (x∈[10,13]), append x∈[15,17] → window x∈[14,17].
+    // Compaction again — this time erasing past the tail anchor.
+    let tail2: Vec<[f64; 2]> = (15..18)
+        .map(|i| [i as f64, (i as f64 * 0.7).sin()])
+        .collect();
+    assert!(fig.set_trace_slide(
+        id,
+        6,
+        &tail2,
+        0xFF0000FF,
+        2.0,
+        VolcanoLineStyle::Solid
+    ));
+
+    let px = fig.render_rgba().expect("render");
+    let (lo, hi) = trace_x_extent(px, w, [255, 0, 0]).expect("red trace not rendered");
+    // x∈[14,17] of viewport [0,18] → x≈[0.78,0.94]·w. A stale prefix
+    // (x≤13 → ≤0.72·w) or resurrected old window (x=0) fails `lo`.
+    assert!(
+        lo as f64 > w as f64 * 0.73,
+        "stale prefix rendered: red starts at x={lo} (w={w})"
+    );
+    assert!(
+        hi as f64 > w as f64 * 0.85,
+        "tail missing: red ends at x={hi} (w={w})"
+    );
+}
+
 /// Screenshot repro of the sliding-window corruption: 4 traces, each
 /// sliding via ring-append drops, dumped to PNG after several slides —
 /// the rendered window must match the data window exactly (no stale
