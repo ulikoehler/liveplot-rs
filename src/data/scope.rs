@@ -325,8 +325,10 @@ pub struct ScopeData {
     pub wants_default_target: bool,
     /// Cache key for y-bounds auto-fit: (total_visible_points, max_timestamp).
     /// When this matches the previous value, `fit_y_bounds` is skipped.
+    /// XY scopes bypass the cache and always refit (see `update`).
     cached_y_fit_key: Option<(usize, Option<f64>)>,
     /// Cache key for x-bounds auto-fit: (total_visible_points, max_timestamp).
+    /// XY scopes bypass the cache and always refit (see `update`).
     cached_x_fit_key: Option<(usize, Option<f64>)>,
 }
 
@@ -519,9 +521,18 @@ impl ScopeData {
                 (len + buf_len, new_max.map(|t| (t * 10.0).round() / 10.0))
             });
 
+        // For XY scopes (e.g. the FFT panel) the extents can change while
+        // the point count and x-range stay identical — a recomputed
+        // spectrum keeps the same frequency bins but new magnitudes, so
+        // the (total_pts, max_ts) key never changes and autofit would
+        // freeze with peaks clipping at the bound. XY scopes always
+        // refit — their buffers are bounded by the FFT size, so the
+        // O(points) fit the cache exists to avoid is cheap here.
+        let is_xy = self.scope_type == ScopeType::XYScope;
+
         if self.x_axis.auto_fit {
             let key = (total_pts, max_ts);
-            if self.cached_x_fit_key != Some(key) {
+            if is_xy || self.cached_x_fit_key != Some(key) {
                 self.fit_x_bounds(traces, self.x_axis.keep_max_fit);
                 self.cached_x_fit_key = Some(key);
             }
@@ -531,7 +542,7 @@ impl ScopeData {
 
         if self.y_axis.auto_fit {
             let key = (total_pts, max_ts);
-            if self.cached_y_fit_key != Some(key) {
+            if is_xy || self.cached_y_fit_key != Some(key) {
                 self.fit_y_bounds(traces, self.y_axis.keep_max_fit);
                 self.cached_y_fit_key = Some(key);
             }
