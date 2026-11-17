@@ -574,6 +574,9 @@ pub struct VolcanoSurface {
     /// y-tick label. Overlay hit-testing must use THIS rect or it
     /// drifts when labels grow the margin.
     pub margins_used: (f32, f32, f32, f32),
+    /// Near-white px in the top 16 rows of the last rendered image —
+    /// regression counter for the "white bar" artifact (0 = healthy).
+    pub dbg_top16_white: u64,
     initialized: bool,
 }
 
@@ -608,6 +611,7 @@ impl VolcanoSurface {
             dbg_uploads: 0,
             dbg_slides: 0,
             margins_used: (0.0, 0.0, 0.0, 0.0),
+            dbg_top16_white: 0,
             initialized: false,
         }
     }
@@ -717,6 +721,16 @@ impl VolcanoSurface {
                             self.trace_ids.remove(&k);
                         }
                         if let Some(image) = image {
+                            // Top-band regression probe (cheap — only
+                            // counts px in the first 16 rows of frames
+                            // that actually land).
+                            let wpx = image.size[0];
+                            self.dbg_top16_white = image
+                                .pixels
+                                .iter()
+                                .take(wpx.saturating_mul(16))
+                                .filter(|p| p.r() > 240 && p.g() > 240 && p.b() > 240)
+                                .count() as u64;
                             // The image is the RENDERED size — may lag
                             // the current w/h if a resize raced this
                             // frame; tex.set handles a size change.

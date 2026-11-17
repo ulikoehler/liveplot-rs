@@ -2259,3 +2259,142 @@ fn probe_fig_rebuild_recovers_trace() {
         );
     }
 }
+
+/// Repro for the live "white bar" artifact: run the real surface path
+/// (worker + render_rgba_view) on scope AND fft panels like fft_demo,
+/// with epoch-x data, then check the worker readback's top rows.
+/// `dbg_top16_white` counts near-white px in the first 16 rows — the
+/// live app shows ~10 full rows (w*10); healthy frames have ~0.
+#[cfg(feature = "fft")]
+#[test]
+fn volcano_top_band_repro() {
+    use liveplot::panels::fft_ui::FftPanel;
+    use liveplot::Panel;
+    let mut bed = make_test_bed();
+    {
+        let fp = find_panel_mut::<FftPanel>(&mut bed).expect("FftPanel");
+        fp.state_mut().visible = true;
+        fp.scope_ui.get_data_mut().volcano_enabled = true;
+        scope_mut(&mut bed, 0).volcano_enabled = true;
+    }
+    // Epoch-x stream like the live demo — feed in chunks per step so
+    // each frame goes through the slide + scrolling-viewport path.
+    let t0 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    let trace = bed.sink.create_trace("sig", None);
+    let mut n = 0usize;
+    let feed_chunk = |bed: &TestBed, n: usize, count: usize| {
+        let pts: Vec<liveplot::PlotPoint> = (0..count)
+            .map(|i| {
+                let t = t0 - 6.5 + (n + i) as f64 / 1000.0;
+                liveplot::PlotPoint {
+                    x: t,
+                    y: (2.0 * std::f64::consts::PI * 5.0 * t).sin(),
+                }
+            })
+            .collect();
+        bed.sink.send_points(&trace, pts).unwrap();
+    };
+    // Step until both surfaces have landed many slide frames.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        feed_chunk(&bed, n, 64);
+        n += 64;
+        bed.harness.step();
+        let main_frames = scope(&bed, 0)
+            .volcano_surface
+            .as_ref()
+            .map(|s| s.frames_rendered)
+            .unwrap_or(0);
+        let fft_frames = find_panel::<FftPanel>(&bed)
+            .and_then(|fp| fp.scope_ui.get_data().volcano_surface.as_ref())
+            .map(|s| s.frames_rendered)
+            .unwrap_or(0);
+        if main_frames >= 60 && fft_frames >= 60 {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            eprintln!("repro: timed out main={main_frames} fft={fft_frames}");
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(3));
+    }
+    let main_white = scope(&bed, 0)
+        .volcano_surface
+        .as_ref()
+        .map(|s| s.dbg_top16_white)
+        .unwrap_or(u64::MAX);
+    let fft_white = find_panel::<FftPanel>(&bed)
+        .and_then(|fp| fp.scope_ui.get_data().volcano_surface.as_ref())
+        .map(|s| s.dbg_top16_white)
+        .unwrap_or(u64::MAX);
+    eprintln!("repro: main top16white={main_white} fft top16white={fft_white}");
+    assert_eq!(
+        main_white, 0,
+        "main scope has white top rows in the Vulkan readback"
+    );
+    assert_eq!(
+        fft_white, 0,
+        "fft scope has white top rows in the Vulkan readback"
+    );
+}
+
+/// Same top-band repro but through the FULL app (LivePlotApp + tiles
+/// layout) — matches the fft_demo runtime structure where the artifact
+/// actually appears, including a second visible surface when the FFT
+/// panel is shown.
+#[test]
+fn volcano_top_band_repro_app() {
+    std::env::set_var("LIVEPLOT_VOLCANO", "1");
+    let mut bed = make_app_bed();
+    {
+        let app = bed.harness.state_mut();
+        for s in app.main_panel.liveplot_panel.get_data_mut() {
+            s.volcano_enabled = true;
+        }
+    }
+    let t0 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    let trace = bed.sink.create_trace("sig", None);
+    let mut n = 0usize;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut last_white = u64::MAX;
+    loop {
+        let pts: Vec<liveplot::PlotPoint> = (0..64)
+            .map(|i| {
+                let t = t0 - 6.5 + (n + i) as f64 / 1000.0;
+                liveplot::PlotPoint {
+                    x: t,
+                    y: (2.0 * std::f64::consts::PI * 5.0 * t).sin(),
+                }
+            })
+            .collect();
+        bed.sink.send_points(&trace, pts).unwrap();
+        n += 64;
+        bed.harness.step();
+        let (frames, white) = {
+            let app = bed.harness.state();
+            app.main_panel
+                .liveplot_panel
+                .get_data()
+                .iter()
+                .filter_map(|s| s.volcano_surface.as_ref())
+                .map(|s| (s.frames_rendered, s.dbg_top16_white))
+                .fold((0u64, 0u64), |a, b| (a.0.max(b.0), a.1.max(b.1)))
+        };
+        last_white = white;
+        if frames >= 60 || std::time::Instant::now() >= deadline {
+            eprintln!("app repro: frames={frames} top16white={white}");
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(3));
+    }
+    assert_eq!(
+        last_white, 0,
+        "app scope has white top rows in the Vulkan readback"
+    );
+}
