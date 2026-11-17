@@ -475,6 +475,32 @@ impl RenderWorker {
                                 rep.failed.len(),
                                 rep.removed.len()
                             );
+                            // Persist the band frame once — lets us
+                            // inspect whether the white rows are a
+                            // solid rect or glyph/artist fragments.
+                            if top_white > wpx
+                                && std::env::var_os(
+                                    "LIVEPLOT_DEBUG_SAVE")
+                                .is_some()
+                            {
+                                let path = format!(
+                                    "/tmp/volcano_band_{}x{}.pam",
+                                    img.size[0], img.size[1]);
+                                let mut f = Vec::new();
+                                f.extend_from_slice(
+                                    format!(
+                                        "P7\nWIDTH {}\nHEIGHT {}\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n",
+                                        img.size[0], img.size[1])
+                                    .as_bytes());
+                                for p in px.iter() {
+                                    f.extend_from_slice(
+                                        &p.to_array());
+                                }
+                                if std::fs::write(&path, &f).is_ok() {
+                                    eprintln!(
+                                        "worker: saved {path}");
+                                }
+                            }
                         }
                         None => eprintln!(
                             "worker: render produced NO image (failed={})",

@@ -840,3 +840,180 @@ fn volcano_ramp_single() {
                 win.len());
     }
 }
+
+/// Live-dims (1337x694) repro of the streaming path — set + repeated
+/// slides — scanning the top rows for the white band seen in the app.
+#[test]
+fn volcano_live_dims_top_band() {
+    let (w, h) = (1337u32, 694u32);
+    let mut fig = VolcanoFigure::new(w, h).expect("figure");
+    let id = fig.add_trace();
+    let t0 = 1794925118.057131f64;
+    let mut pts: Vec<[f64; 2]> = (0..64)
+        .map(|i| [t0 + i as f64 * 0.17, (i as f64 * 0.3).sin()])
+        .collect();
+    fig.set_trace(id, &pts, 0x00A0FFFF, 1.5, VolcanoLineStyle::Solid);
+    fig.set_viewport(0.0, 11.0, -2.1, 2.1);
+    fig.set_background(false);
+    fig.set_margins(60.0 / w as f32, 1.0 - 12.0 / w as f32,
+                    56.0 / h as f32, 1.0 - 8.0 / h as f32);
+    fig.set_background_rgba(27.0 / 255.0, 27.0 / 255.0, 27.0 / 255.0);
+    fig.set_axis_labels(None, None);
+    fig.set_grid(true);
+    let xt: Vec<(f32, String)> = (0..=10)
+        .map(|i| (0.94 + i as f32, format!("15:18:{:02}.0000", 39 + i)))
+        .collect();
+    let yt: Vec<(f32, String)> = (-2..=2)
+        .map(|i| (i as f32, format!("{:.4}", i as f32)))
+        .collect();
+    fig.set_ticks(0, &xt);
+    fig.set_ticks(1, &yt);
+    // Stream: several slide+render rounds like the live worker.
+    let mut px = Vec::new();
+    for round in 0..6 {
+        for i in 0..8 {
+            let x = t0 + (64 + round * 8 + i) as f64 * 0.17;
+            pts.push([x, (x * 0.3).sin()]);
+        }
+        let mut tail: Vec<[f64; 2]> = pts.iter().rev().take(8)
+            .copied().collect();
+        tail.reverse();
+        fig.set_trace_slide(id, 0, &tail, 0x00A0FFFF, 1.5,
+                            VolcanoLineStyle::Solid);
+        let xs: Vec<f64> = pts.iter().map(|p| p[0]).collect();
+        let shift = xs[0];
+        fig.set_viewport(xs[0] - shift, xs[xs.len()-1] - shift + 1.0,
+                         -2.1, 2.1);
+        if let Some((_, _, view)) = fig.render_rgba_view() {
+            px = view.to_vec();
+        }
+    }
+    assert_eq!(px.len(), (w * h * 4) as usize);
+    // Save for inspection.
+    let img: Vec<u8> = px.clone();
+    let _ = std::fs::create_dir_all("/tmp/volcano_live");
+    // Write a trivial PPM-ish dump via image crate not available —
+    // just scan rows.
+    let mut band_rows = 0usize;
+    for y in 0..16usize {
+        let row = &img[y * w as usize * 4..(y + 1) * w as usize * 4];
+        let white = row
+            .chunks_exact(4)
+            .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235)
+            .count();
+        eprintln!("row {y}: {white}/{} white, px0={:?}", w, &row[0..4]);
+        if white * 2 > w as usize { band_rows += 1; }
+    }
+    std::fs::write("/tmp/volcano_live/top.rgba", &img).unwrap();
+    assert_eq!(band_rows, 0, "{band_rows} white rows in top 16");
+}
+
+/// Two figures alternating renders (scope + FFT sharing the process
+/// device) — the white band only shows when both live surfaces run.
+#[test]
+fn volcano_two_figures_top_band() {
+    let (w1, h1) = (1337u32, 694u32);
+    let (w2, h2) = (1321u32, 186u32);
+    let mut fig1 = VolcanoFigure::new(w1, h1).expect("fig1");
+    let mut fig2 = VolcanoFigure::new(w2, h2).expect("fig2");
+    let id1 = fig1.add_trace();
+    let id2 = fig2.add_trace();
+    let t0 = 1794925118.057131f64;
+    let setup = |fig: &mut VolcanoFigure, id: u64, w: u32, h: u32,
+                 mt: f32, mb: f32| {
+        fig.set_viewport(0.0, 11.0, -2.1, 2.1);
+        fig.set_background(false);
+        fig.set_margins(60.0 / w as f32, 1.0 - 12.0 / w as f32,
+                        mb / h as f32, 1.0 - mt / h as f32);
+        fig.set_background_rgba(27.0 / 255.0, 27.0 / 255.0, 27.0 / 255.0);
+        fig.set_axis_labels(None, None);
+        fig.set_grid(true);
+        let _ = id;
+    };
+    setup(&mut fig1, id1, w1, h1, 8.0, 56.0);
+    setup(&mut fig2, id2, w2, h2, 6.0, 34.0);
+    let xt: Vec<(f32, String)> = (0..=10)
+        .map(|i| (0.94 + i as f32, format!("15:18:{:02}", 39 + i)))
+        .collect();
+    let yt: Vec<(f32, String)> = (-2..=2)
+        .map(|i| (i as f32, format!("{}", i)))
+        .collect();
+    fig1.set_ticks(0, &xt);
+    fig1.set_ticks(1, &yt);
+    let ft: Vec<(f32, String)> = (0..=5)
+        .map(|i| (i as f32 * 100.0, format!("{}", i * 100)))
+        .collect();
+    fig2.set_ticks(0, &ft);
+    fig2.set_ticks(1, &yt);
+    let mut pts1: Vec<[f64; 2]> = (0..4000)
+        .map(|i| [i as f64 * 0.003, (i as f64 * 0.05).sin() * 2.0])
+        .collect();
+    let mut pts2: Vec<[f64; 2]> = (0..513)
+        .map(|i| [i as f64, (i as f64 / 50.0).exp().min(3.0)])
+        .collect();
+    let mut band = 0usize;
+    for round in 0..10 {
+        pts1.push([t0 + round as f64, 1.0]);
+        pts2[100 + round % 50][1] += 0.3;
+        fig1.set_trace(id1, &pts1, 0x00A0FFFF, 1.5, VolcanoLineStyle::Solid);
+        fig2.set_trace(id2, &pts2, 0x00FF00FF, 1.5, VolcanoLineStyle::Solid);
+        let (fw, fh, px) = if round % 2 == 0 {
+            fig1.render_rgba_view().map(|(a, b, v)| (a, b, v.to_vec()))
+        } else {
+            fig2.render_rgba_view().map(|(a, b, v)| (a, b, v.to_vec()))
+        }.unwrap();
+        for y in 0..16usize {
+            let row = &px[y * fw as usize * 4..(y + 1) * fw as usize * 4];
+            let white = row.chunks_exact(4)
+                .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235).count();
+            if white * 2 > fw as usize {
+                band += 1;
+                eprintln!("round {round} {fw}x{fh} row {y}: {white} white");
+            }
+        }
+        if round == 9 {
+            std::fs::write("/tmp/volcano_live/two_fig.rgba", &px).unwrap();
+        }
+    }
+    assert_eq!(band, 0, "{band} white rows across renders");
+}
+
+/// Resize between renders (live surface resizes as the pane changes) —
+/// check the top rows after a resize.
+#[test]
+fn volcano_resize_top_band() {
+    let mut fig = VolcanoFigure::new(800, 400).expect("figure");
+    let id = fig.add_trace();
+    let pts: Vec<[f64; 2]> = (0..300)
+        .map(|i| [i as f64 * 0.03, (i as f64 * 0.1).sin()])
+        .collect();
+    let setup = |fig: &mut VolcanoFigure, w: u32, h: u32| {
+        fig.set_viewport(0.0, 9.0, -1.1, 1.1);
+        fig.set_background(false);
+        fig.set_margins(60.0 / w as f32, 1.0 - 12.0 / w as f32,
+                        56.0 / h as f32, 1.0 - 8.0 / h as f32);
+        fig.set_background_rgba(27.0 / 255.0, 27.0 / 255.0, 27.0 / 255.0);
+        fig.set_grid(true);
+    };
+    setup(&mut fig, 800, 400);
+    fig.set_trace(id, &pts, 0x00A0FFFF, 1.5, VolcanoLineStyle::Solid);
+    fig.render_rgba_view();
+    // Now resize like the live app does, several times.
+    for (w, h) in [(1321u32, 691u32), (1337u32, 694u32), (1321u32, 463u32)] {
+        fig.resize(w, h);
+        setup(&mut fig, w, h);
+        fig.set_trace(id, &pts, 0x00A0FFFF, 1.5, VolcanoLineStyle::Solid);
+        let (fw, fh, px) = fig.render_rgba_view()
+            .map(|(a, b, v)| (a, b, v.to_vec())).unwrap();
+        assert_eq!((fw, fh), (w, h));
+        let mut bad = 0;
+        for y in 0..16usize {
+            let row = &px[y * w as usize * 4..(y + 1) * w as usize * 4];
+            let white = row.chunks_exact(4)
+                .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235).count();
+            if white * 2 > w as usize { bad += 1; }
+        }
+        eprintln!("{w}x{h}: {bad} white rows in top 16");
+        assert_eq!(bad, 0);
+    }
+}
