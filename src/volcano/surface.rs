@@ -319,6 +319,7 @@ impl RenderWorker {
                     log_xy,
                 } = job;
                 let dbg_t = std::env::var("LIVEPLOT_DEBUG_TICKS").is_ok();
+                let dbg_s = std::env::var("LIVEPLOT_DEBUG_SLIDE").is_ok();
                 let t0 = std::time::Instant::now();
                 let mut rep = SyncReport::default();
                 for cmd in cmds {
@@ -335,6 +336,13 @@ impl RenderWorker {
                             xy.extend(
                                 raw.iter().filter_map(|p| xform_pt(*p, off, sx, sy, log_xy)),
                             );
+                            if dbg_s {
+                                eprintln!(
+                                    "worker: set key={key:?} raw={} xformed={}",
+                                    raw.len(),
+                                    xy.len()
+                                );
+                            }
                             rep.uploaded.push((key, xy.len()));
                             fig.set_trace(id, &xy, look.0, look.1, look.2);
                             fig.set_marker(id, marker.0, marker.1);
@@ -355,9 +363,16 @@ impl RenderWorker {
                             // A non-finite tail or a stale plot means
                             // the ring state diverged — report failure
                             // so the UI sends a full Set next frame.
-                            if xy.len() != tail.len()
-                                || !fig.set_trace_slide(id, drop, &xy, look.0, look.1, look.2)
-                            {
+                            let ok = xy.len() == tail.len()
+                                && fig.set_trace_slide(id, drop, &xy, look.0, look.1, look.2);
+                            if dbg_s {
+                                eprintln!(
+                                    "worker: slide key={key:?} drop={drop} tail={} xformed={} ok={ok}",
+                                    tail.len(),
+                                    xy.len()
+                                );
+                            }
+                            if !ok {
                                 rep.failed.push(key);
                             } else {
                                 fig.set_marker(id, marker.0, marker.1);
@@ -410,6 +425,33 @@ impl RenderWorker {
                 };
                 if dbg_t {
                     eprintln!("worker: render done in {:?}", t1.elapsed());
+                }
+                if dbg_s {
+                    match &res {
+                        Some(img) => {
+                            let px = &img.pixels;
+                            let opaque =
+                                px.iter().filter(|p| p.a() > 0).count();
+                            let first = px
+                                .first()
+                                .copied()
+                                .unwrap_or(egui::Color32::TRANSPARENT);
+                            let flat = px.iter().all(|p| *p == first);
+                            eprintln!(
+                                "worker: image {}x{} opaque={}/{} flat={flat} first={first:?} failed={} removed={}",
+                                img.size[0],
+                                img.size[1],
+                                opaque,
+                                px.len(),
+                                rep.failed.len(),
+                                rep.removed.len()
+                            );
+                        }
+                        None => eprintln!(
+                            "worker: render produced NO image (failed={})",
+                            rep.failed.len()
+                        ),
+                    }
                 }
                 if res_tx.send((fig, res, rep)).is_err() {
                     return;
@@ -608,11 +650,24 @@ impl VolcanoSurface {
                         Err(std::sync::mpsc::TryRecvError::Disconnected) => Poll::Dead,
                     }
                 };
+                let dbg_s = std::env::var("LIVEPLOT_DEBUG_SLIDE").is_ok();
                 match poll {
                     Poll::Done(fig, image, rep) => {
                         w.busy = false;
                         w.busy_since = None;
                         self.fig = Some(fig);
+                        if dbg_s
+                            && (!rep.failed.is_empty()
+                                || !rep.removed.is_empty()
+                                || image.is_none())
+                        {
+                            eprintln!(
+                                "ui: job done failed={} removed={} image={}",
+                                rep.failed.len(),
+                                rep.removed.len(),
+                                image.is_some()
+                            );
+                        }
                         // Reconcile the worker's upload report with the
                         // optimistic bookkeeping done at dispatch.
                         for (k, n) in rep.uploaded {
@@ -652,6 +707,11 @@ impl VolcanoSurface {
                         // recover from) — rebuild instead of freezing
                         // on the stale texture.
                         if self.consec_drops >= 3 {
+                            if dbg_s {
+                                eprintln!(
+                                    "ui: 3 consecutive render drops — rebuilding figure"
+                                );
+                            }
                             self.fig = None;
                             self.consec_drops = 0;
                         }
@@ -666,6 +726,9 @@ impl VolcanoSurface {
             }
         }
         if worker_dead {
+            if std::env::var("LIVEPLOT_DEBUG_SLIDE").is_ok() {
+                eprintln!("ui: worker declared dead (timeout/disconnect) — restarting");
+            }
             self.worker = None;
         }
 

@@ -1867,3 +1867,99 @@ fn probe_live_purge_vanish() {
         }
     }
 }
+
+/// Faithful fft_demo repro: a REAL producer thread feeds individual
+/// `send_point`s (epoch x, ~1 kHz) CONCURRENTLY with the render loop,
+/// at the demo's 10k cap (above the GPU-envelope threshold). The data
+/// buffer mutates while jobs are in flight — the one timing pattern
+/// bulk-feed probes can't create. Asserts the trace survives the
+/// first purge and several after.
+#[test]
+fn probe_producer_thread_purge_vanish() {
+    use crate::signals::{gen, SignalSpec};
+    use liveplot::PlotPoint;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        let tr = bed.sink.create_trace("prod_sig", None);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        bed.harness.state_mut().traces_data.max_points = 10_000;
+
+        // Pre-fill to the cap synchronously (bulk, epoch x like the demo).
+        let spec = SignalSpec::sine(3.0);
+        let epoch = 1_700_000_000.0;
+        bed.sink
+            .send_points(&tr, gen(&spec, 10_000, 1000.0, epoch))
+            .unwrap();
+        steps(&mut bed, 6);
+
+        // Producer thread: one point ~every 0.2 ms (fast 1kHz-ish burst
+        // so the purge arrives quickly) — mutates traces_data WHILE
+        // steps() syncs/dispatches/renders.
+        let stop = Arc::new(AtomicBool::new(false));
+        let sink = bed.sink.clone();
+        let trc = tr.clone();
+        let stop2 = stop.clone();
+        let prod = std::thread::spawn(move || {
+            let mut n = 0f64;
+            while !stop2.load(Ordering::Relaxed) {
+                let x = epoch + 10.0 + n * 0.001;
+                let _ = sink.send_point(
+                    &trc,
+                    PlotPoint {
+                        x,
+                        y: (x - epoch).sin(),
+                    },
+                );
+                n += 1.0;
+                if n as u64 % 50 == 0 {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+            n as u64
+        });
+
+        // Drive ~40 app frames while the producer pushes — every push
+        // past the cap is an eviction; each app frame is a slide.
+        let mut min_colored = usize::MAX;
+        let mut last_slides = 0u64;
+        for round in 0..40 {
+            steps(&mut bed, 1);
+            if round % 8 == 7 {
+                if let Ok(img) = bed.harness.render() {
+                    let path =
+                        format!("/tmp/prodvol{vol}_r{round}.png");
+                    img.save(&path).unwrap();
+                    let rect =
+                        scope(&bed, 0).last_plot_screen_rect.expect("rect");
+                    let c = count_colored_pixels(&img, rect) as usize;
+                    if let Some(s) = scope(&bed, 0).volcano_surface.as_ref() {
+                        last_slides = s.dbg_slides;
+                        eprintln!(
+                            "prodpurge vol={vol} r{round}: colored={c} frames={} drops={} slides={} busy={} -> {path}",
+                            s.frames_rendered, s.dropped_frames,
+                            s.dbg_slides, s.dbg_busy_skips
+                        );
+                    } else {
+                        eprintln!("prodpurge vol={vol} r{round}: colored={c} -> {path}");
+                    }
+                    min_colored = min_colored.min(c);
+                }
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        let fed = prod.join().unwrap_or(0);
+        eprintln!("prodpurge vol={vol}: producer fed {fed} pts, min_colored={min_colored}, slides={last_slides}");
+        assert!(
+            fed > 0,
+            "producer thread fed nothing — test invalid"
+        );
+        assert!(
+            min_colored > 100,
+            "trace vanished under live producer (vol={vol}): min={min_colored} px"
+        );
+    }
+}
