@@ -1728,6 +1728,101 @@ fn probe_fft_scope_screenshots() {
 }
 
 
+/// User-reported: "until the first prune of datapoint i see a white
+/// bar at the top of the scope and i see the traces. when the first
+/// datapoint are pruned (depends on the Max datapoints cap) the white
+/// bar and the traces are no longer displayed — only the legend. when
+/// i click clear all the trace is displayed again until the max
+/// datapoints ran full."
+///
+/// Real-app conditions the earlier purge probes did NOT cover: the
+/// x axis carries EPOCH timestamps (~1.7e9) which trigger the f32-safe
+/// `sx` shift path, and the feed evicts at the cap every chunk.
+/// Captures a screenshot before the first eviction, right at it, a
+/// few evictions later, after clear_all, and after the cap refills.
+#[test]
+fn probe_epoch_first_purge_vanish() {
+    use crate::signals::{gen, SignalSpec};
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        let tr = bed.sink.create_trace("epoch_sig", None);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        // The user runs the FFT panel alongside the scope — a second
+        // volcano surface sharing the same GPU device + queue.
+        #[cfg(feature = "fft")]
+        {
+            use liveplot::panels::fft_ui::FftPanel;
+            use liveplot::Panel;
+            if let Some(fp) = find_panel_mut::<FftPanel>(&mut bed) {
+                fp.state_mut().visible = true;
+                fp.scope_ui.get_data_mut().volcano_enabled = vol;
+            }
+        }
+        // Cap above the GPU-envelope threshold (~8192) so the slide
+        // path runs through the envelope decimation the real app uses.
+        bed.harness.state_mut().traces_data.max_points = 12000;
+        let spec = SignalSpec::sine(3.0);
+        let epoch = 1_700_000_000.0;
+        fn shot(bed: &mut TestBed, vol: bool, tag: &str) -> usize {
+            steps(bed, 4);
+            let Ok(img) = bed.harness.render() else { return 0 };
+            let path = format!("/tmp/eppurge_vol{vol}_{tag}.png");
+            img.save(&path).unwrap();
+            let rect = scope(bed, 0).last_plot_screen_rect.expect("plot rect");
+            let colored = count_colored_pixels(&img, rect) as usize;
+            eprintln!("eppurge vol={vol} {tag}: colored={colored} -> {path}");
+            colored
+        }
+        fn surf_dbg(bed: &TestBed, tag: &str) {
+            if let Some(s) = scope(bed, 0).volcano_surface.as_ref() {
+                eprintln!(
+                    "  [{tag}] frames={} drops={} disp={} ups={} slides={} busy={} bounds_ext={} bnd={:?} shift={:?}",
+                    s.frames_rendered, s.dropped_frames, s.dbg_dispatches,
+                    s.dbg_uploads, s.dbg_slides, s.dbg_busy_skips,
+                    s.bounds_external, s.bounds, 0,
+                );
+            }
+        }
+        // Fill below the cap — no eviction yet.
+        bed.sink
+            .send_points(&tr, gen(&spec, 11000, 1000.0, epoch))
+            .unwrap();
+        let c = shot(&mut bed, vol, "pre");
+        surf_dbg(&bed, "pre");
+        assert!(c > 100, "trace absent BEFORE first prune (vol={vol})");
+        // Push past the cap → FIRST eviction/slide. One small chunk per
+        // step so the first slide boundary is isolated.
+        for i in 0..4 {
+            let t0 = epoch + 11.0 + i as f64 * 1.5;
+            bed.sink.send_points(&tr, gen(&spec, 1500, 1000.0, t0)).unwrap();
+            let c = shot(&mut bed, vol, &format!("purge{i}"));
+            surf_dbg(&bed, &format!("purge{i}"));
+            assert!(
+                c > 100,
+                "trace vanished at purge chunk {i} (vol={vol}): {c} px"
+            );
+        }
+        // clear_all → refill → evict again — the reported recovery.
+        bed.harness.state_mut().traces_data.clear_all();
+        bed.sink
+            .send_points(&tr, gen(&spec, 11000, 1000.0, epoch + 20.0))
+            .unwrap();
+        let c = shot(&mut bed, vol, "postclear");
+        surf_dbg(&bed, "postclear");
+        assert!(c > 100, "trace absent after clear_all (vol={vol})");
+        for i in 0..3 {
+            let t0 = epoch + 31.0 + i as f64 * 1.5;
+            bed.sink.send_points(&tr, gen(&spec, 1500, 1000.0, t0)).unwrap();
+            let c = shot(&mut bed, vol, &format!("repurge{i}"));
+            surf_dbg(&bed, &format!("repurge{i}"));
+            assert!(
+                c > 100,
+                "trace vanished at re-purge {i} (vol={vol}): {c} px"
+            );
+        }
+    }
+}
+
 /// Faithful live-feed repro: points stream in EVERY frame (like a
 /// real producer thread) while the buffer stays at the cap — every
 /// frame after the cap is a ring-buffer slide. Asserts the trace
