@@ -484,21 +484,22 @@ impl RenderWorker {
                                 .is_some()
                             {
                                 let path = format!(
-                                    "/tmp/volcano_band_{}x{}.pam",
+                                    "/tmp/volcano_band_{}x{}.png",
                                     img.size[0], img.size[1]);
-                                let mut f = Vec::new();
-                                f.extend_from_slice(
-                                    format!(
-                                        "P7\nWIDTH {}\nHEIGHT {}\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n",
-                                        img.size[0], img.size[1])
-                                    .as_bytes());
-                                for p in px.iter() {
-                                    f.extend_from_slice(
-                                        &p.to_array());
-                                }
-                                if std::fs::write(&path, &f).is_ok() {
-                                    eprintln!(
-                                        "worker: saved {path}");
+                                let rgba: Vec<u8> = px
+                                    .iter()
+                                    .flat_map(|p| p.to_array())
+                                    .collect();
+                                if let Some(buf) =
+                                    image::RgbaImage::from_raw(
+                                        img.size[0] as u32,
+                                        img.size[1] as u32,
+                                        rgba)
+                                {
+                                    if buf.save(&path).is_ok() {
+                                        eprintln!(
+                                            "worker: saved {path}");
+                                    }
                                 }
                             }
                         }
