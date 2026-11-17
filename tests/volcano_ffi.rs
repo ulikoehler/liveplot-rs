@@ -49,6 +49,52 @@ fn volcano_renders_sine_framebuffer() {
     assert!(orange, "trace color 0xFF6600 not found in framebuffer");
 }
 
+/// Replicates the liveplot surface's exact setter sequence — custom
+/// panel bg + liveplot margins + explicit ticks — and verifies the
+/// top rows are NOT the Vulkan clear color (the "white bar at top"
+/// the user sees). The top margin is figure faceColor — it must be
+/// the panel bg, never white.
+#[test]
+fn volcano_margins_match_panel_bg() {
+    let (w, h) = (900u32, 500u32);
+    let mut fig = VolcanoFigure::new(w, h).expect("figure");
+    let id = fig.add_trace();
+    fig.set_trace(id, &sine(500, 100.0, 1.0), 0x00A0FFFF, 1.5, VolcanoLineStyle::Solid);
+    // surface.rs order: viewport → set_background → margins →
+    // set_background_rgba → labels → grid → ticks.
+    fig.set_viewport(0.0, 5.0, -1.1, 1.1);
+    fig.set_background(false); // dark
+    // ml=60, mr=12, mb=56, mt=8 px on a 900x500 canvas.
+    fig.set_margins(60.0 / w as f32, 1.0 - 12.0 / w as f32,
+                    56.0 / h as f32, 1.0 - 8.0 / h as f32);
+    fig.set_background_rgba(27.0 / 255.0, 27.0 / 255.0, 27.0 / 255.0);
+    fig.set_axis_labels(None, None);
+    fig.set_grid(true);
+    let xt: Vec<(f32, String)> = (0..=10)
+        .map(|i| (i as f32 * 0.5, format!("{:.1}", i as f32 * 0.5)))
+        .collect();
+    let yt: Vec<(f32, String)> = (-2..=2)
+        .map(|i| (i as f32 * 0.5, format!("{:.4}", i as f32 * 0.5)))
+        .collect();
+    fig.set_ticks(0, &xt);
+    fig.set_ticks(1, &yt);
+    let px = fig.render_rgba().expect("render");
+    // Top margin rows (y < ~8px): must be panel bg, not clear-white.
+    let top_margin_h = (8.0f32) as usize - 2;
+    for y in 0..top_margin_h {
+        let row = &px[y * w as usize * 4..(y + 1) * w as usize * 4];
+        let white = row
+            .chunks_exact(4)
+            .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235)
+            .count();
+        assert!(
+            white * 2 < w as usize,
+            "row {y} is {white}/{} white — figure patch missing top margin",
+            w
+        );
+    }
+}
+
 /// Viewport + style changes round-trip through the FFI.
 #[test]
 fn volcano_viewport_and_styles() {

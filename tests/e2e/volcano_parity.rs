@@ -1790,6 +1790,140 @@ fn probe_fft_scope_updates() {
     }
 }
 
+/// User-reported: "white bars at the top" — an ~11px near-white strip
+/// across the top of each volcano plot. Reproduces the fft_demo
+/// configuration: two streaming traces, FFT panel open, BOTH surfaces
+/// on volcano. Scans each plot rect for near-white rows.
+#[test]
+fn probe_white_bars_top() {
+    use crate::signals::{gen, SignalSpec};
+    use liveplot::panels::fft_ui::FftPanel;
+    use liveplot::Panel;
+    let Some(mut bed) = wgpu_bed() else { return };
+    scope_mut(&mut bed, 0).volcano_enabled = true;
+    {
+        let fp = find_panel_mut::<FftPanel>(&mut bed).expect("FftPanel");
+        fp.state_mut().visible = true;
+        fp.scope_ui.get_data_mut().volcano_enabled = true;
+    }
+    let tr_a = bed.sink.create_trace("two_tone", None);
+    let tr_b = bed.sink.create_trace("swept_freq", None);
+    // Stream like the demo: small chunks every frame for ~12s worth.
+    let mut t = 0.0f64;
+    for _ in 0..600 {
+        let dt = 16.0 / 1000.0;
+        bed.sink
+            .send_points(&tr_a, gen(&SignalSpec::sine(50.0), 16, 1000.0, t))
+            .unwrap();
+        bed.sink
+            .send_points(&tr_b, gen(&SignalSpec::sine(5.0), 16, 1000.0, t))
+            .unwrap();
+        t += dt;
+        bed.harness.step();
+    }
+    let rects: Vec<(String, [f32; 4])> = [
+        scope(&bed, 0)
+            .last_plot_screen_rect
+            .map(|r| ("scope".into(), r)),
+        find_panel::<FftPanel>(&bed)
+            .unwrap()
+            .scope_ui
+            .get_data()
+            .last_plot_screen_rect
+            .map(|r| ("fft".into(), r)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let Ok(img) = bed.harness.render() else { return };
+    img.save("/tmp/white_bars_probe.png").unwrap();
+    let (iw, ih) = (img.width() as f32, img.height() as f32);
+    let mut found = false;
+    for (name, r) in &rects {
+        let (x0, y0) = (r[0].clamp(0.0, iw - 1.0) as u32, r[1].clamp(0.0, ih - 1.0) as u32);
+        let (x1, y1) = (r[2].clamp(0.0, iw - 1.0) as u32, r[3].clamp(0.0, ih - 1.0) as u32);
+        for y in y0..=y1 {
+            let mut white = 0u32;
+            let mut n = 0u32;
+            for x in x0..=x1 {
+                let p = img.get_pixel(x, y);
+                n += 1;
+                if p[0] > 235 && p[1] > 235 && p[2] > 235 {
+                    white += 1;
+                }
+            }
+            if n > 0 && white * 2 > n {
+                eprintln!("{name}: white row y={y} frac={white}/{n}");
+                found = true;
+            }
+        }
+    }
+    assert!(!found, "white bar rows found in plot rects: {rects:?}");
+}
+
+/// App-level twin of probe_white_bars_top — runs the real LivePlotApp
+/// shell (menus/panels) like fft_demo.
+#[cfg(feature = "fft")]
+#[test]
+fn probe_white_bars_app_level() {
+    use crate::signals::{gen, SignalSpec};
+    use liveplot::panels::fft_ui::FftPanel;
+    use liveplot::Panel;
+    let mut bed = make_app_bed();
+    {
+        let mp = &mut bed.harness.state_mut().main_panel;
+        for s in mp.liveplot_panel.get_data_mut().iter_mut() {
+            s.volcano_enabled = true;
+        }
+        let panels = mp
+            .bottom_panels
+            .iter_mut()
+            .chain(mp.right_side_panels.iter_mut())
+            .chain(mp.left_side_panels.iter_mut())
+            .chain(mp.detached_panels.iter_mut())
+            .chain(mp.empty_panels.iter_mut());
+        for p in panels {
+            if let Some(fp) = p.downcast_mut::<FftPanel>() {
+                fp.state_mut().visible = true;
+                fp.scope_ui.get_data_mut().volcano_enabled = true;
+            }
+        }
+    }
+    let tr_a = bed.sink.create_trace("two_tone", None);
+    let tr_b = bed.sink.create_trace("swept_freq", None);
+    let mut t = 0.0f64;
+    for _ in 0..600 {
+        let dt = 16.0 / 1000.0;
+        bed.sink
+            .send_points(&tr_a, gen(&SignalSpec::sine(50.0), 16, 1000.0, t))
+            .unwrap();
+        bed.sink
+            .send_points(&tr_b, gen(&SignalSpec::sine(5.0), 16, 1000.0, t))
+            .unwrap();
+        t += dt;
+        bed.harness.step();
+    }
+    let Ok(img) = bed.harness.render() else { return };
+    img.save("/tmp/white_bars_app.png").unwrap();
+    // Scan the whole image for >50%-white rows inside plot-ish areas.
+    let (iw, ih) = (img.width(), img.height());
+    let mut found = false;
+    for y in 0..ih {
+        let mut white = 0u32;
+        for x in 0..iw {
+            let p = img.get_pixel(x, y);
+            if p[0] > 235 && p[1] > 235 && p[2] > 235 {
+                white += 1;
+            }
+        }
+        if white * 2 > iw {
+            eprintln!("white row y={y} frac={white}/{iw}");
+            found = true;
+        }
+    }
+    assert!(!found, "white bar rows found (app-level)");
+}
+
 /// Cheap content hash of a screen region — catches "texture frozen"
 /// without needing color-specific assertions.
 #[cfg(feature = "fft")]

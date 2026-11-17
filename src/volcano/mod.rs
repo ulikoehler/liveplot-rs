@@ -59,6 +59,11 @@ extern "C" {
     fn vp_render_rgba(fig: *mut VpFigure, out: *mut u8, out_len: usize) -> usize;
     fn vp_render_rgba_view(fig: *mut VpFigure, out_len: *mut usize) -> *const u8;
     fn vp_figure_set_deferred_present(fig: *mut VpFigure, on: i32);
+    fn vp_debug_xlim(
+        fig: *const VpFigure,
+        out_xlim: *mut f32,
+        out_ylim: *mut f32,
+    ) -> i32;
 }
 
 /// Trace line style matching the FFI `style` argument.
@@ -250,6 +255,15 @@ impl VolcanoFigure {
         out.resize((self.w * self.h * 4) as usize, 0);
         let n = unsafe { vp_render_rgba(self.ptr, out.as_mut_ptr(), out.len()) };
         (n == out.len()).then_some((self.w as u32, self.h as u32))
+    }
+
+    /// Diagnostics: the axes' actual xlim/ylim as the C++ side will
+    /// render them (float, post `vp_set_viewport` cast).
+    pub fn debug_xlim(&self) -> Option<([f32; 2], [f32; 2])> {
+        let mut xl = [0f32; 2];
+        let mut yl = [0f32; 2];
+        (unsafe { vp_debug_xlim(self.ptr, xl.as_mut_ptr(), yl.as_mut_ptr()) } != 0)
+            .then_some((xl, yl))
     }
 
     /// Render one frame and borrow the backend's staging buffer —

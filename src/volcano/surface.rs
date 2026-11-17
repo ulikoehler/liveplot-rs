@@ -451,12 +451,27 @@ impl RenderWorker {
                                 .copied()
                                 .unwrap_or(egui::Color32::TRANSPARENT);
                             let flat = px.iter().all(|p| *p == first);
+                            // Top-band probe: the user-visible "white
+                            // bar" sits in the figure's top ~11px —
+                            // count near-white px in the first 16 rows
+                            // to prove it's inside the readback vs
+                            // an egui-side overlay.
+                            let wpx = img.size[0];
+                            let white = |p: &egui::Color32| {
+                                p.r() > 240 && p.g() > 240 && p.b() > 240
+                            };
+                            let top_white = px
+                                .iter()
+                                .take(wpx.saturating_mul(16))
+                                .filter(|p| white(p))
+                                .count();
                             eprintln!(
-                                "worker: image {}x{} opaque={}/{} flat={flat} first={first:?} failed={} removed={}",
+                                "worker: image {}x{} opaque={}/{} flat={flat} first={first:?} top16white={} failed={} removed={}",
                                 img.size[0],
                                 img.size[1],
                                 opaque,
                                 px.len(),
+                                top_white,
                                 rep.failed.len(),
                                 rep.removed.len()
                             );
@@ -1274,9 +1289,10 @@ impl VolcanoSurface {
             |v, step| scope.y_axis.format_value(v, Some(step)),
         );
         if std::env::var("LIVEPLOT_DEBUG_TICKS").is_ok() {
+            let cpp = fig.debug_xlim();
             eprintln!(
-                "ticks scope={:?} xb={xb:?} yb={yb:?} sx={sx} sy={sy} x_px={x_px} y_px={y_px} xticks={:?} yticks={:?}",
-                scope.name, x_ticks, y_ticks
+                "ticks scope={:?} xb={xb:?} yb={yb:?} sx={sx} sy={sy} x_px={x_px} y_px={y_px} xticks={:?} yticks={:?} cpp_xlim={:?} cpp_ylim={:?}",
+                scope.name, x_ticks, y_ticks, cpp.map(|d| d.0), cpp.map(|d| d.1)
             );
         }
         fig.set_ticks(0, &x_ticks);
