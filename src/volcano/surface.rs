@@ -740,8 +740,13 @@ impl VolcanoSurface {
                     // slide bookkeeping would gate re-uploads forever
                     // and leave the scope permanently empty (the
                     // "only one trace" bug after a worker restart).
+                    // trace_ids must go too: ids are figure-local
+                    // (vp_add_trace), so stale ids make vp_trace_set
+                    // silently no-op and vp_trace_slide report failure
+                    // forever — a permanently blank scope.
                     self.trace_sigs.clear();
                     self.slide_state.clear();
+                    self.trace_ids.clear();
                     self.last_sig = 0;
                     self.initialized = false;
                     // Deferred present: the render worker submits frame
@@ -1240,6 +1245,15 @@ impl VolcanoSurface {
     /// Texture with the last rendered frame, for the caller to paint.
     pub fn texture_id(&self) -> Option<egui::TextureId> {
         self.tex.as_ref().map(|t| t.id())
+    }
+
+    /// Test hook: drop the figure the same way the consecutive-drops /
+    /// dead-worker recovery paths do, forcing a rebuild on next sync.
+    /// Exercises the trace_ids/sigs/slide_state reset that must keep a
+    /// stale figure-local id from silently dropping all uploads.
+    #[doc(hidden)]
+    pub fn dbg_reset_fig(&mut self) {
+        self.fig = None;
     }
 
     fn fit_bounds(

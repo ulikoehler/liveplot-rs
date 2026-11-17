@@ -1963,3 +1963,57 @@ fn probe_producer_thread_purge_vanish() {
         );
     }
 }
+
+/// Regression for the user-reported "traces vanish at first purge,
+/// only the legend remains": the rebuild path after consecutive
+/// render drops / a dead worker dropped `self.fig` but kept
+/// `trace_ids` — every subsequent vp_trace_set silently no-opped on
+/// the stale figure-local id and vp_trace_slide failed forever.
+/// Forces the rebuild via the dbg hook and asserts the trace comes
+/// back on the new figure.
+#[test]
+fn probe_fig_rebuild_recovers_trace() {
+    use crate::signals::{gen, SignalSpec};
+    for vol in [true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        let tr = bed.sink.create_trace("rebuild_sig", None);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        let spec = SignalSpec::sine(3.0);
+        bed.sink
+            .send_points(&tr, gen(&spec, 800, 1000.0, 0.0))
+            .unwrap();
+        steps(&mut bed, 8);
+        // Let the sig settle to static so no job is in flight when the
+        // figure is dropped — mirrors the consec_drops rebuild which
+        // runs right after a completed job.
+        steps(&mut bed, 4);
+        let rect = scope(&bed, 0).last_plot_screen_rect.expect("rect");
+        {
+            let Ok(img) = bed.harness.render() else { return };
+            let pre = count_colored_pixels(&img, rect);
+            assert!(pre > 100, "trace absent before rebuild: {pre} px");
+        }
+        scope_mut(&mut bed, 0)
+            .volcano_surface
+            .as_mut()
+            .expect("volcano surface")
+            .dbg_reset_fig();
+        // New figure must re-upload everything — mint fresh ids, not
+        // reuse the stale ones that no longer exist in the C++ maps.
+        steps(&mut bed, 10);
+        let Ok(img) = bed.harness.render() else { return };
+        img.save("/tmp/rebuild_recover.png").unwrap();
+        let post = count_colored_pixels(&img, rect);
+        if let Some(s) = scope(&bed, 0).volcano_surface.as_ref() {
+            eprintln!(
+                "rebuild: post={post} frames={} drops={} slides={} busy={}",
+                s.frames_rendered, s.dropped_frames, s.dbg_slides,
+                s.dbg_busy_skips
+            );
+        }
+        assert!(
+            post > 100,
+            "trace did not recover after figure rebuild (vol={vol}): {post} px"
+        );
+    }
+}
