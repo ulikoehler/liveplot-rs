@@ -35,6 +35,7 @@ fn trace_sig(
     look: &TraceLook,
     offset: f64,
     log_xy: (bool, bool),
+    seq: Option<(u64, u64, u64)>,
 ) -> u64 {
     let mut h = DefaultHasher::new();
     pts.len().hash(&mut h);
@@ -45,6 +46,19 @@ fn trace_sig(
     if let Some(p) = pts.back() {
         p[0].to_bits().hash(&mut h);
         p[1].to_bits().hash(&mut h);
+    }
+    // Strided interior sample — detects replaces that keep the
+    // endpoints, e.g. the FFT panel whose `live` buffer is rebuilt
+    // fresh every frame (counters never move), and mid-window edits.
+    let stride = (pts.len() / 128).max(1);
+    for p in pts.iter().step_by(stride) {
+        p[0].to_bits().hash(&mut h);
+        p[1].to_bits().hash(&mut h);
+    }
+    if let Some((g, pu, po)) = seq {
+        g.hash(&mut h);
+        pu.hash(&mut h);
+        po.hash(&mut h);
     }
     offset.to_bits().hash(&mut h);
     look.color.to_array().hash(&mut h);
@@ -805,8 +819,16 @@ impl VolcanoSurface {
                 continue;
             }
             let sig = traces
-                .get_points_ref(name, scope.paused)
-                .map(|p| trace_sig(p, &tr.look, tr.offset, log_xy))
+                .get_points_seq(name, scope.paused)
+                .map(|(p, g, pu, po)| {
+                    trace_sig(
+                        p,
+                        &tr.look,
+                        tr.offset,
+                        log_xy,
+                        (!scope.paused).then_some((g, pu, po)),
+                    )
+                })
                 .unwrap_or(0);
             name.0.hash(&mut sh);
             sig.hash(&mut sh);
@@ -823,12 +845,28 @@ impl VolcanoSurface {
                     continue;
                 };
                 let a = traces
-                    .get_points_ref(xn, scope.paused)
-                    .map(|p| trace_sig(p, pl, xt.offset, log_xy))
+                    .get_points_seq(xn, scope.paused)
+                    .map(|(p, g, pu, po)| {
+                        trace_sig(
+                            p,
+                            pl,
+                            xt.offset,
+                            log_xy,
+                            (!scope.paused).then_some((g, pu, po)),
+                        )
+                    })
                     .unwrap_or(0);
                 let b = traces
-                    .get_points_ref(yn, scope.paused)
-                    .map(|p| trace_sig(p, pl, yt.offset, log_xy))
+                    .get_points_seq(yn, scope.paused)
+                    .map(|(p, g, pu, po)| {
+                        trace_sig(
+                            p,
+                            pl,
+                            yt.offset,
+                            log_xy,
+                            (!scope.paused).then_some((g, pu, po)),
+                        )
+                    })
                     .unwrap_or(0);
                 format!("xy:{}:{}", xn.0, yn.0).hash(&mut sh);
                 a.hash(&mut sh);
@@ -925,8 +963,16 @@ impl VolcanoSurface {
                 .or_insert_with(|| fig.add_trace());
             let (x_log, y_log) = log_xy;
             let new_sig = traces
-                .get_points_ref(name, scope.paused)
-                .map(|p| trace_sig(p, &tr.look, tr.offset, log_xy))
+                .get_points_seq(name, scope.paused)
+                .map(|(p, g, pu, po)| {
+                    trace_sig(
+                        p,
+                        &tr.look,
+                        tr.offset,
+                        log_xy,
+                        (!scope.paused).then_some((g, pu, po)),
+                    )
+                })
                 .unwrap_or(0)
                 ^ shift_bits
                 // hover emphasis changes effective color/width — must
@@ -951,7 +997,15 @@ impl VolcanoSurface {
             // is the old window's tail — anything else falls back to
             // a full upload.
             let seq = traces.get_points_seq(name, scope.paused);
-            let slide = seq.and_then(|(_, gen, pushes, pops)| {
+            // All-zero counters = the buffer is mutated outside the
+            // tracked API (e.g. the FFT panel replaces `live`
+            // wholesale each frame) — seq can't diff those, so every
+            // sig change must be a full upload.
+            let tracked = seq.is_some_and(|(_, g, pu, po)| g != 0 || pu != 0 || po != 0);
+            let slide = if !tracked {
+                None
+            } else {
+                seq.and_then(|(_, gen, pushes, pops)| {
                 let s = self.slide_state.get(&name.0)?;
                 if s.params != params
                     || s.gen != gen
@@ -968,11 +1022,12 @@ impl VolcanoSurface {
                     && pts.len() - kept == tail_n
                     && (kept == 0 || pts.get(kept.wrapping_sub(1)) == Some(&s.last)))
                     .then_some((d.min(u32::MAX as usize) as u32, kept))
-            });
+                })
+            };
             // Data-identical but style-different (hover emphasis,
             // color/width change): a zero-drop, empty-tail slide
             // applies just the look — no point upload at all.
-            let look_only = seq.is_some_and(|(_, gen, pushes, pops)| {
+            let look_only = tracked && seq.is_some_and(|(_, gen, pushes, pops)| {
                 self.slide_state.get(&name.0).is_some_and(|s| {
                     s.params == params
                         && s.gen == gen
@@ -1082,6 +1137,15 @@ impl VolcanoSurface {
                 }
                 x_pts.len().hash(&mut ph);
                 y_pts.len().hash(&mut ph);
+                // Strided interior sample per channel — catches
+                // replaces that keep len/endpoints (see trace_sig).
+                for p in [&x_pts, &y_pts].into_iter() {
+                    let stride = (p.len() / 128).max(1);
+                    for q in p.iter().step_by(stride) {
+                        q[0].to_bits().hash(&mut ph);
+                        q[1].to_bits().hash(&mut ph);
+                    }
+                }
                 log_xy.hash(&mut ph);
                 shift_bits.hash(&mut ph);
                 hover_state_bits(&[x_name.clone(), y_name.clone()], has_hover, &hover_list)

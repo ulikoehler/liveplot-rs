@@ -1727,6 +1727,87 @@ fn probe_fft_scope_screenshots() {
     }
 }
 
+/// User-reported: "the fft is now not updating". Feeds a signal whose
+/// spectrum moves every chunk and asserts the FFT scope's rendered
+/// pixels CHANGE between samples — a frozen volcano texture (stale
+/// committed frame, dead dispatch, or sig-gate desync) fails this.
+#[cfg(feature = "fft")]
+#[test]
+fn probe_fft_scope_updates() {
+    use crate::signals::{gen, SignalSpec};
+    use liveplot::panels::fft_ui::FftPanel;
+    use liveplot::Panel;
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        // BOTH surfaces on volcano — the demo runs the scope and the
+        // FFT panel on the shared GPU context.
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        {
+            let fp = find_panel_mut::<FftPanel>(&mut bed).expect("FftPanel");
+            fp.state_mut().visible = true;
+            fp.scope_ui.get_data_mut().volcano_enabled = vol;
+            // Recompute every frame — the 100ms default is wall-clock
+            // throttled, so instant harness frames can outrun it and
+            // flake.
+            fp.fft_data.recompute_interval_ms = 0;
+        }
+        // Chunk 1: 50 Hz tone. The FFT panel recomputes on its update
+        // interval — step enough frames for one recompute.
+        let tr = bed.sink.create_trace("sig", None);
+        bed.sink
+            .send_points(&tr, gen(&SignalSpec::sine(50.0), 4096, 1000.0, 0.0))
+            .unwrap();
+        steps(&mut bed, 300);
+        let rect = find_panel::<FftPanel>(&bed)
+            .unwrap()
+            .scope_ui
+            .get_data()
+            .last_plot_screen_rect;
+        let Some(rect) = rect else { continue };
+        let Ok(img_a) = bed.harness.render() else { return };
+        let hash_a = region_hash(&img_a, rect);
+        // Chunk 2: move the tone to 200 Hz — the spectrum must shift.
+        // Poll in batches: the FFT recompute lands on a worker thread,
+        // so a fixed frame count is racy.
+        bed.sink
+            .send_points(&tr, gen(&SignalSpec::sine(200.0), 4096, 1000.0, 5.0))
+            .unwrap();
+        let mut hash_b = hash_a;
+        for _ in 0..40 {
+            steps(&mut bed, 30);
+            let Ok(img_b) = bed.harness.render() else { return };
+            hash_b = region_hash(&img_b, rect);
+            if hash_b != hash_a {
+                img_b.save(&format!("/tmp/fft_upd_vol{vol}.png")).unwrap();
+                break;
+            }
+        }
+        eprintln!("fft-upd vol={vol}: hashA={hash_a:016x} hashB={hash_b:016x}");
+        assert_ne!(
+            hash_a, hash_b,
+            "fft scope texture frozen — spectrum did not update (vol={vol})"
+        );
+    }
+}
+
+/// Cheap content hash of a screen region — catches "texture frozen"
+/// without needing color-specific assertions.
+#[cfg(feature = "fft")]
+fn region_hash(img: &image::RgbaImage, rect: [f32; 4]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let x0 = (rect[0] as u32).min(img.width());
+    let y0 = (rect[1] as u32).min(img.height());
+    let x1 = (rect[2] as u32).min(img.width());
+    let y1 = (rect[3] as u32).min(img.height());
+    for y in y0..y1 {
+        for x in x0..x1 {
+            img.get_pixel(x, y).0.hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
 
 /// User-reported: "until the first prune of datapoint i see a white
 /// bar at the top of the scope and i see the traces. when the first
