@@ -250,11 +250,7 @@ fn color_image_from_rgba(size: [usize; 2], rgba: &[u8]) -> egui::ColorImage {
     debug_assert_eq!(rgba.len() % 4, 0);
     let mut pixels = Vec::<egui::Color32>::with_capacity(rgba.len() / 4);
     unsafe {
-        std::ptr::copy_nonoverlapping(
-            rgba.as_ptr(),
-            pixels.as_mut_ptr().cast::<u8>(),
-            rgba.len(),
-        );
+        std::ptr::copy_nonoverlapping(rgba.as_ptr(), pixels.as_mut_ptr().cast::<u8>(), rgba.len());
         pixels.set_len(rgba.len() / 4);
     }
     egui::ColorImage::new(size, pixels)
@@ -263,13 +259,7 @@ fn color_image_from_rgba(size: [usize; 2], rgba: &[u8]) -> egui::ColorImage {
 /// Normal-trace point transform — the same formula the UI loop used:
 /// offset folds into y before log, the f32-safe shift applies on the
 /// linear path. Non-finite results are dropped.
-fn xform_pt(
-    p: [f64; 2],
-    off: f64,
-    sx: f64,
-    sy: f64,
-    log_xy: (bool, bool),
-) -> Option<[f64; 2]> {
+fn xform_pt(p: [f64; 2], off: f64, sx: f64, sy: f64, log_xy: (bool, bool)) -> Option<[f64; 2]> {
     let x = if log_xy.0 && p[0] > 0.0 {
         p[0].log10()
     } else {
@@ -347,9 +337,7 @@ impl RenderWorker {
                             marker,
                         } => {
                             xy.clear();
-                            xy.extend(
-                                raw.iter().filter_map(|p| xform_pt(*p, off, sx, sy, log_xy)),
-                            );
+                            xy.extend(raw.iter().filter_map(|p| xform_pt(*p, off, sx, sy, log_xy)));
                             if dbg_s {
                                 eprintln!(
                                     "worker: set key={key:?} raw={} xformed={}",
@@ -372,7 +360,8 @@ impl RenderWorker {
                         } => {
                             xy.clear();
                             xy.extend(
-                                tail.iter().filter_map(|p| xform_pt(*p, off, sx, sy, log_xy)),
+                                tail.iter()
+                                    .filter_map(|p| xform_pt(*p, off, sx, sy, log_xy)),
                             );
                             // A non-finite tail or a stale plot means
                             // the ring state diverged — report failure
@@ -401,8 +390,7 @@ impl RenderWorker {
                             look,
                             marker,
                         } => {
-                            let joined =
-                                TracesCollection::join_xy_points(&xs, &ys, 1e-9);
+                            let joined = TracesCollection::join_xy_points(&xs, &ys, 1e-9);
                             if joined.is_empty() {
                                 fig.remove_trace(id);
                                 rep.removed.push(key);
@@ -429,13 +417,12 @@ impl RenderWorker {
                 }
                 let t1 = std::time::Instant::now();
                 let res = match fig.render_rgba_view() {
-                    Some((rw, rh, view)) => Some(color_image_from_rgba(
-                        [rw as usize, rh as usize],
-                        view,
-                    )),
-                    None => fig.render_rgba_into(&mut px).map(|(rw, rh)| {
-                        color_image_from_rgba([rw as usize, rh as usize], &px)
-                    }),
+                    Some((rw, rh, view)) => {
+                        Some(color_image_from_rgba([rw as usize, rh as usize], view))
+                    }
+                    None => fig
+                        .render_rgba_into(&mut px)
+                        .map(|(rw, rh)| color_image_from_rgba([rw as usize, rh as usize], &px)),
                 };
                 if dbg_t {
                     eprintln!("worker: render done in {:?}", t1.elapsed());
@@ -444,12 +431,8 @@ impl RenderWorker {
                     match &res {
                         Some(img) => {
                             let px = &img.pixels;
-                            let opaque =
-                                px.iter().filter(|p| p.a() > 0).count();
-                            let first = px
-                                .first()
-                                .copied()
-                                .unwrap_or(egui::Color32::TRANSPARENT);
+                            let opaque = px.iter().filter(|p| p.a() > 0).count();
+                            let first = px.first().copied().unwrap_or(egui::Color32::TRANSPARENT);
                             let flat = px.iter().all(|p| *p == first);
                             // Top-band probe: the user-visible "white
                             // bar" sits in the figure's top ~11px —
@@ -457,9 +440,8 @@ impl RenderWorker {
                             // to prove it's inside the readback vs
                             // an egui-side overlay.
                             let wpx = img.size[0];
-                            let white = |p: &egui::Color32| {
-                                p.r() > 240 && p.g() > 240 && p.b() > 240
-                            };
+                            let white =
+                                |p: &egui::Color32| p.r() > 240 && p.g() > 240 && p.b() > 240;
                             let top_white = px
                                 .iter()
                                 .take(wpx.saturating_mul(16))
@@ -478,27 +460,20 @@ impl RenderWorker {
                             // Persist the band frame once — lets us
                             // inspect whether the white rows are a
                             // solid rect or glyph/artist fragments.
-                            if top_white > wpx
-                                && std::env::var_os(
-                                    "LIVEPLOT_DEBUG_SAVE")
-                                .is_some()
+                            if top_white > wpx && std::env::var_os("LIVEPLOT_DEBUG_SAVE").is_some()
                             {
                                 let path = format!(
                                     "/tmp/volcano_band_{}x{}.png",
-                                    img.size[0], img.size[1]);
-                                let rgba: Vec<u8> = px
-                                    .iter()
-                                    .flat_map(|p| p.to_array())
-                                    .collect();
-                                if let Some(buf) =
-                                    image::RgbaImage::from_raw(
-                                        img.size[0] as u32,
-                                        img.size[1] as u32,
-                                        rgba)
-                                {
+                                    img.size[0], img.size[1]
+                                );
+                                let rgba: Vec<u8> = px.iter().flat_map(|p| p.to_array()).collect();
+                                if let Some(buf) = image::RgbaImage::from_raw(
+                                    img.size[0] as u32,
+                                    img.size[1] as u32,
+                                    rgba,
+                                ) {
                                     if buf.save(&path).is_ok() {
-                                        eprintln!(
-                                            "worker: saved {path}");
+                                        eprintln!("worker: saved {path}");
                                     }
                                 }
                             }
@@ -594,6 +569,11 @@ pub struct VolcanoSurface {
     pub dbg_busy_skips: u64,
     pub dbg_uploads: u64,
     pub dbg_slides: u64,
+    /// Effective (left, right, bottom, top) px margins last sent to the
+    /// figure — the caller's base table widened to fit the widest
+    /// y-tick label. Overlay hit-testing must use THIS rect or it
+    /// drifts when labels grow the margin.
+    pub margins_used: (f32, f32, f32, f32),
     initialized: bool,
 }
 
@@ -627,6 +607,7 @@ impl VolcanoSurface {
             dbg_busy_skips: 0,
             dbg_uploads: 0,
             dbg_slides: 0,
+            margins_used: (0.0, 0.0, 0.0, 0.0),
             initialized: false,
         }
     }
@@ -679,10 +660,7 @@ impl VolcanoSurface {
                 // is still paintable, or a persistent GPU wedge would
                 // freeze the scope 5s per frame.
                 let poll = if self.tex.is_none() {
-                    match w
-                        .res_rx
-                        .recv_timeout(std::time::Duration::from_secs(5))
-                    {
+                    match w.res_rx.recv_timeout(std::time::Duration::from_secs(5)) {
                         Ok((f, px, rep)) => Poll::Done(f, px, rep),
                         Err(_) => Poll::Dead,
                     }
@@ -764,9 +742,7 @@ impl VolcanoSurface {
                         // on the stale texture.
                         if self.consec_drops >= 3 {
                             if dbg_s {
-                                eprintln!(
-                                    "ui: 3 consecutive render drops — rebuilding figure"
-                                );
+                                eprintln!("ui: 3 consecutive render drops — rebuilding figure");
                             }
                             self.fig = None;
                             self.consec_drops = 0;
@@ -836,8 +812,7 @@ impl VolcanoSurface {
                 hover_list.push(n.clone());
             }
         }
-        let has_hover =
-            traces.hover_trace.is_some() || !scope.volcano_scope_hover.is_empty();
+        let has_hover = traces.hover_trace.is_some() || !scope.volcano_scope_hover.is_empty();
         let mut sh = DefaultHasher::new();
         has_hover.hash(&mut sh);
         for n in &hover_list {
@@ -1048,37 +1023,38 @@ impl VolcanoSurface {
                 None
             } else {
                 seq.and_then(|(_, gen, pushes, pops)| {
-                let s = self.slide_state.get(&name.0)?;
-                if s.params != params
-                    || s.gen != gen
-                    || s.uploaded != s.len
-                    || pts.len() > u32::MAX as usize
-                {
-                    return None;
-                }
-                let d = usize::try_from(pops.checked_sub(s.pops)?).ok()?;
-                let tail_n = usize::try_from(pushes.checked_sub(s.pushes)?).ok()?;
-                let kept = s.len.checked_sub(d)?;
-                (tail_n > 0
-                    && kept <= pts.len()
-                    && pts.len() - kept == tail_n
-                    && (kept == 0 || pts.get(kept.wrapping_sub(1)) == Some(&s.last)))
+                    let s = self.slide_state.get(&name.0)?;
+                    if s.params != params
+                        || s.gen != gen
+                        || s.uploaded != s.len
+                        || pts.len() > u32::MAX as usize
+                    {
+                        return None;
+                    }
+                    let d = usize::try_from(pops.checked_sub(s.pops)?).ok()?;
+                    let tail_n = usize::try_from(pushes.checked_sub(s.pushes)?).ok()?;
+                    let kept = s.len.checked_sub(d)?;
+                    (tail_n > 0
+                        && kept <= pts.len()
+                        && pts.len() - kept == tail_n
+                        && (kept == 0 || pts.get(kept.wrapping_sub(1)) == Some(&s.last)))
                     .then_some((d.min(u32::MAX as usize) as u32, kept))
                 })
             };
             // Data-identical but style-different (hover emphasis,
             // color/width change): a zero-drop, empty-tail slide
             // applies just the look — no point upload at all.
-            let look_only = tracked && seq.is_some_and(|(_, gen, pushes, pops)| {
-                self.slide_state.get(&name.0).is_some_and(|s| {
-                    s.params == params
-                        && s.gen == gen
-                        && s.pushes == pushes
-                        && s.pops == pops
-                        && s.len == pts.len()
-                        && s.uploaded == s.len
-                })
-            });
+            let look_only = tracked
+                && seq.is_some_and(|(_, gen, pushes, pops)| {
+                    self.slide_state.get(&name.0).is_some_and(|s| {
+                        s.params == params
+                            && s.gen == gen
+                            && s.pushes == pushes
+                            && s.pops == pops
+                            && s.len == pts.len()
+                            && s.uploaded == s.len
+                    })
+                });
             let (color, width) = hover_look(
                 &tr.look,
                 Some(std::slice::from_ref(name)),
@@ -1199,7 +1175,10 @@ impl VolcanoSurface {
                 if self.trace_sigs.get(&key) == Some(&new_sig) {
                     continue;
                 }
-                let id = *self.trace_ids.entry(key.clone()).or_insert_with(|| fig.add_trace());
+                let id = *self
+                    .trace_ids
+                    .entry(key.clone())
+                    .or_insert_with(|| fig.add_trace());
                 let (color, width) = hover_look(
                     pair_look,
                     Some(&[x_name.clone(), y_name.clone()]),
@@ -1270,12 +1249,37 @@ impl VolcanoSurface {
             yb[1] - self.shift.1,
         );
         fig.set_background(!dark);
+        let (ml, mr, mb, mt) = margins;
+        let (wf, hf) = (w as f32, h as f32);
+        // Y ticks first: the widest label sizes the left margin —
+        // egui_plot auto-grows its axis reservation the same way, and
+        // without it "-X.XXXX" labels clip their minus at the canvas
+        // edge. Density is computed with the base margins (a few px of
+        // slack only shifts a boundary level).
+        let y_px0 = (hf - mb - mt).max(1.0) as f64;
+        let y_ticks = egui_style_ticks(
+            yb[0] - sy,
+            yb[1] - sy,
+            sy,
+            log_xy.1,
+            y_px0,
+            true,
+            hide_labels.1,
+            |v, step| scope.y_axis.format_value(v, Some(step)),
+        );
+        // DejaVu tick font ≈ 8px/char at this scale; + tick mark (~4)
+        // + label gap (~4) + a few px slack at the canvas edge.
+        let y_label_px = y_ticks
+            .iter()
+            .map(|(_, l)| l.chars().count() as f32 * 8.0)
+            .fold(0.0, f32::max)
+            + 14.0;
+        let ml = ml.max(y_label_px);
         // Pixel margins as canvas fractions — the caller's
         // `volcano_margins_px` table, identical to the values used for
         // the overlay axes-rect (single source of truth).
-        let (ml, mr, mb, mt) = margins;
-        let (wf, hf) = (w as f32, h as f32);
         fig.set_margins(ml / wf, 1.0 - mr / wf, mb / hf, 1.0 - mt / hf);
+        self.margins_used = (ml, mr, mb, mt);
         fig.set_background_rgba(
             panel_bg.r() as f32 / 255.0,
             panel_bg.g() as f32 / 255.0,
@@ -1294,7 +1298,8 @@ impl VolcanoSurface {
         // shows `16:13:23.0000` clock labels rather than raw shifted
         // seconds. Positions are given in the shifted viewport space
         // the figure renders in.
-        let (x_px, y_px) = ((wf - ml - mr).max(1.0) as f64, (hf - mb - mt).max(1.0) as f64);
+        let x_px = (wf - ml - mr).max(1.0) as f64;
+        let y_px = y_px0;
         let x_ticks = egui_style_ticks(
             xb[0] - sx,
             xb[1] - sx,
@@ -1304,16 +1309,6 @@ impl VolcanoSurface {
             false,
             hide_labels.0,
             |v, step| scope.x_axis.format_value(v, Some(step)),
-        );
-        let y_ticks = egui_style_ticks(
-            yb[0] - sy,
-            yb[1] - sy,
-            sy,
-            log_xy.1,
-            y_px,
-            true,
-            hide_labels.1,
-            |v, step| scope.y_axis.format_value(v, Some(step)),
         );
         if std::env::var("LIVEPLOT_DEBUG_TICKS").is_ok() {
             let cpp = fig.debug_xlim();
@@ -1518,9 +1513,7 @@ fn egui_style_ticks(
             };
             // egui drops a label whose galley is wider than the mark
             // spacing (~6.5px/char at body size).
-            let text = if !y_axis
-                && text.chars().count() as f64 * 6.5 > spacing
-            {
+            let text = if !y_axis && text.chars().count() as f64 * 6.5 > spacing {
                 String::new()
             } else {
                 text

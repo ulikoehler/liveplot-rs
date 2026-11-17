@@ -1565,7 +1565,9 @@ fn probe_dark_mode_scope_chrome() {
         feed_sine(&bed, "sig", 20000, 8.0, 1000.0, 1_790_000_000.0);
         scope_mut(&mut bed, 0).volcano_enabled = vol;
         steps(&mut bed, 30);
-        let Ok(img) = bed.harness.render() else { return };
+        let Ok(img) = bed.harness.render() else {
+            return;
+        };
         let path = format!("/tmp/dark_scope_vol{vol}.png");
         img.save(&path).unwrap();
         eprintln!("saved {path}");
@@ -1580,13 +1582,14 @@ fn probe_epoch_screenshots() {
         feed_sine(&bed, "sig", 20000, 8.0, 1000.0, 1_790_000_000.0);
         scope_mut(&mut bed, 0).volcano_enabled = vol;
         steps(&mut bed, 30);
-        let Ok(img) = bed.harness.render() else { return };
+        let Ok(img) = bed.harness.render() else {
+            return;
+        };
         let path = format!("/tmp/epoch_vol{vol}.png");
         img.save(&path).unwrap();
         eprintln!("saved {path}");
     }
 }
-
 
 /// Screenshot probe: live-streamed epoch data (fft_demo-like), both
 /// renderers, captures at matched feed positions.
@@ -1614,7 +1617,9 @@ fn probe_live_epoch_screenshots() {
                 .unwrap();
             steps(&mut bed, 3);
             if (chunk + 1) % 22 == 0 {
-                let Ok(img) = bed.harness.render() else { return };
+                let Ok(img) = bed.harness.render() else {
+                    return;
+                };
                 shot += 1;
                 let path = format!("/tmp/live_vol{vol}_s{shot}.png");
                 img.save(&path).unwrap();
@@ -1665,7 +1670,9 @@ fn probe_purge_trace_vanish() {
             // The window keeps the latest points; refit so they show.
             scope_mut(&mut bed, 0).y_axis.auto_fit = true;
             steps(&mut bed, 3);
-            let Ok(img) = bed.harness.render() else { return };
+            let Ok(img) = bed.harness.render() else {
+                return;
+            };
             let path = format!("/tmp/purge_vol{vol}_r{round}.png");
             img.save(&path).unwrap();
             let rect = scope(&bed, 0).last_plot_screen_rect.expect("plot rect");
@@ -1715,7 +1722,9 @@ fn probe_fft_scope_screenshots() {
                 s.initialized()
             );
         }
-        let Ok(img) = bed.harness.render() else { return };
+        let Ok(img) = bed.harness.render() else {
+            return;
+        };
         let path = format!("/tmp/fft_vol{vol}.png");
         img.save(&path).unwrap();
         eprintln!("saved {path}");
@@ -1764,7 +1773,9 @@ fn probe_fft_scope_updates() {
             .get_data()
             .last_plot_screen_rect;
         let Some(rect) = rect else { continue };
-        let Ok(img_a) = bed.harness.render() else { return };
+        let Ok(img_a) = bed.harness.render() else {
+            return;
+        };
         let hash_a = region_hash(&img_a, rect);
         // Chunk 2: move the tone to 200 Hz — the spectrum must shift.
         // Poll in batches: the FFT recompute lands on a worker thread,
@@ -1775,7 +1786,9 @@ fn probe_fft_scope_updates() {
         let mut hash_b = hash_a;
         for _ in 0..40 {
             steps(&mut bed, 30);
-            let Ok(img_b) = bed.harness.render() else { return };
+            let Ok(img_b) = bed.harness.render() else {
+                return;
+            };
             hash_b = region_hash(&img_b, rect);
             if hash_b != hash_a {
                 img_b.save(&format!("/tmp/fft_upd_vol{vol}.png")).unwrap();
@@ -1835,13 +1848,21 @@ fn probe_white_bars_top() {
     .into_iter()
     .flatten()
     .collect();
-    let Ok(img) = bed.harness.render() else { return };
+    let Ok(img) = bed.harness.render() else {
+        return;
+    };
     img.save("/tmp/white_bars_probe.png").unwrap();
     let (iw, ih) = (img.width() as f32, img.height() as f32);
     let mut found = false;
     for (name, r) in &rects {
-        let (x0, y0) = (r[0].clamp(0.0, iw - 1.0) as u32, r[1].clamp(0.0, ih - 1.0) as u32);
-        let (x1, y1) = (r[2].clamp(0.0, iw - 1.0) as u32, r[3].clamp(0.0, ih - 1.0) as u32);
+        let (x0, y0) = (
+            r[0].clamp(0.0, iw - 1.0) as u32,
+            r[1].clamp(0.0, ih - 1.0) as u32,
+        );
+        let (x1, y1) = (
+            r[2].clamp(0.0, iw - 1.0) as u32,
+            r[3].clamp(0.0, ih - 1.0) as u32,
+        );
         for y in y0..=y1 {
             let mut white = 0u32;
             let mut n = 0u32;
@@ -1903,7 +1924,9 @@ fn probe_white_bars_app_level() {
         t += dt;
         bed.harness.step();
     }
-    let Ok(img) = bed.harness.render() else { return };
+    let Ok(img) = bed.harness.render() else {
+        return;
+    };
     img.save("/tmp/white_bars_app.png").unwrap();
     // Scan the whole image for >50%-white rows inside plot-ish areas.
     let (iw, ih) = (img.width(), img.height());
@@ -1942,7 +1965,6 @@ fn region_hash(img: &image::RgbaImage, rect: [f32; 4]) -> u64 {
     h.finish()
 }
 
-
 /// User-reported: "until the first prune of datapoint i see a white
 /// bar at the top of the scope and i see the traces. when the first
 /// datapoint are pruned (depends on the Max datapoints cap) the white
@@ -1980,7 +2002,9 @@ fn probe_epoch_first_purge_vanish() {
         let epoch = 1_700_000_000.0;
         fn shot(bed: &mut TestBed, vol: bool, tag: &str) -> usize {
             steps(bed, 4);
-            let Ok(img) = bed.harness.render() else { return 0 };
+            let Ok(img) = bed.harness.render() else {
+                return 0;
+            };
             let path = format!("/tmp/eppurge_vol{vol}_{tag}.png");
             img.save(&path).unwrap();
             let rect = scope(bed, 0).last_plot_screen_rect.expect("plot rect");
@@ -2009,7 +2033,9 @@ fn probe_epoch_first_purge_vanish() {
         // step so the first slide boundary is isolated.
         for i in 0..4 {
             let t0 = epoch + 11.0 + i as f64 * 1.5;
-            bed.sink.send_points(&tr, gen(&spec, 1500, 1000.0, t0)).unwrap();
+            bed.sink
+                .send_points(&tr, gen(&spec, 1500, 1000.0, t0))
+                .unwrap();
             let c = shot(&mut bed, vol, &format!("purge{i}"));
             surf_dbg(&bed, &format!("purge{i}"));
             assert!(
@@ -2027,7 +2053,9 @@ fn probe_epoch_first_purge_vanish() {
         assert!(c > 100, "trace absent after clear_all (vol={vol})");
         for i in 0..3 {
             let t0 = epoch + 31.0 + i as f64 * 1.5;
-            bed.sink.send_points(&tr, gen(&spec, 1500, 1000.0, t0)).unwrap();
+            bed.sink
+                .send_points(&tr, gen(&spec, 1500, 1000.0, t0))
+                .unwrap();
             let c = shot(&mut bed, vol, &format!("repurge{i}"));
             surf_dbg(&bed, &format!("repurge{i}"));
             assert!(
@@ -2060,7 +2088,9 @@ fn probe_live_purge_vanish() {
                 .unwrap();
             steps(&mut bed, 6);
             if chunk % 8 == 7 {
-                let Ok(img) = bed.harness.render() else { return };
+                let Ok(img) = bed.harness.render() else {
+                    return;
+                };
                 let path = format!("/tmp/livepurge_vol{vol}_s{shot}.png");
                 img.save(&path).unwrap();
                 let rect = scope(&bed, 0).last_plot_screen_rect.expect("plot rect");
@@ -2076,8 +2106,7 @@ fn probe_live_purge_vanish() {
         if let Some(s) = scope(&bed, 0).volcano_surface.as_ref() {
             eprintln!(
                 "livepurge vol={vol}: frames={} dropped={} dispatches={} uploads={} slides={}",
-                s.frames_rendered, s.dropped_frames, s.dbg_dispatches,
-                s.dbg_uploads, s.dbg_slides
+                s.frames_rendered, s.dropped_frames, s.dbg_dispatches, s.dbg_uploads, s.dbg_slides
             );
         }
     }
@@ -2145,11 +2174,9 @@ fn probe_producer_thread_purge_vanish() {
             steps(&mut bed, 1);
             if round % 8 == 7 {
                 if let Ok(img) = bed.harness.render() {
-                    let path =
-                        format!("/tmp/prodvol{vol}_r{round}.png");
+                    let path = format!("/tmp/prodvol{vol}_r{round}.png");
                     img.save(&path).unwrap();
-                    let rect =
-                        scope(&bed, 0).last_plot_screen_rect.expect("rect");
+                    let rect = scope(&bed, 0).last_plot_screen_rect.expect("rect");
                     let c = count_colored_pixels(&img, rect) as usize;
                     if let Some(s) = scope(&bed, 0).volcano_surface.as_ref() {
                         last_slides = s.dbg_slides;
@@ -2168,10 +2195,7 @@ fn probe_producer_thread_purge_vanish() {
         stop.store(true, Ordering::Relaxed);
         let fed = prod.join().unwrap_or(0);
         eprintln!("prodpurge vol={vol}: producer fed {fed} pts, min_colored={min_colored}, slides={last_slides}");
-        assert!(
-            fed > 0,
-            "producer thread fed nothing — test invalid"
-        );
+        assert!(fed > 0, "producer thread fed nothing — test invalid");
         assert!(
             min_colored > 100,
             "trace vanished under live producer (vol={vol}): min={min_colored} px"
@@ -2204,7 +2228,9 @@ fn probe_fig_rebuild_recovers_trace() {
         steps(&mut bed, 4);
         let rect = scope(&bed, 0).last_plot_screen_rect.expect("rect");
         {
-            let Ok(img) = bed.harness.render() else { return };
+            let Ok(img) = bed.harness.render() else {
+                return;
+            };
             let pre = count_colored_pixels(&img, rect);
             assert!(pre > 100, "trace absent before rebuild: {pre} px");
         }
@@ -2216,14 +2242,15 @@ fn probe_fig_rebuild_recovers_trace() {
         // New figure must re-upload everything — mint fresh ids, not
         // reuse the stale ones that no longer exist in the C++ maps.
         steps(&mut bed, 10);
-        let Ok(img) = bed.harness.render() else { return };
+        let Ok(img) = bed.harness.render() else {
+            return;
+        };
         img.save("/tmp/rebuild_recover.png").unwrap();
         let post = count_colored_pixels(&img, rect);
         if let Some(s) = scope(&bed, 0).volcano_surface.as_ref() {
             eprintln!(
                 "rebuild: post={post} frames={} drops={} slides={} busy={}",
-                s.frames_rendered, s.dropped_frames, s.dbg_slides,
-                s.dbg_busy_skips
+                s.frames_rendered, s.dropped_frames, s.dbg_slides, s.dbg_busy_skips
             );
         }
         assert!(

@@ -59,11 +59,7 @@ extern "C" {
     fn vp_render_rgba(fig: *mut VpFigure, out: *mut u8, out_len: usize) -> usize;
     fn vp_render_rgba_view(fig: *mut VpFigure, out_len: *mut usize) -> *const u8;
     fn vp_figure_set_deferred_present(fig: *mut VpFigure, on: i32);
-    fn vp_debug_xlim(
-        fig: *const VpFigure,
-        out_xlim: *mut f32,
-        out_ylim: *mut f32,
-    ) -> i32;
+    fn vp_debug_xlim(fig: *const VpFigure, out_xlim: *mut f32, out_ylim: *mut f32) -> i32;
 }
 
 /// Trace line style matching the FFI `style` argument.
@@ -224,8 +220,7 @@ impl VolcanoFigure {
             .iter()
             .map(|t| CString::new(t.1.as_str()).unwrap_or_default())
             .collect();
-        let label_ptrs: Vec<*const std::ffi::c_char> =
-            labels.iter().map(|c| c.as_ptr()).collect();
+        let label_ptrs: Vec<*const std::ffi::c_char> = labels.iter().map(|c| c.as_ptr()).collect();
         unsafe {
             vp_set_ticks(
                 self.ptr,

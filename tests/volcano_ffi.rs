@@ -59,14 +59,24 @@ fn volcano_margins_match_panel_bg() {
     let (w, h) = (900u32, 500u32);
     let mut fig = VolcanoFigure::new(w, h).expect("figure");
     let id = fig.add_trace();
-    fig.set_trace(id, &sine(500, 100.0, 1.0), 0x00A0FFFF, 1.5, VolcanoLineStyle::Solid);
+    fig.set_trace(
+        id,
+        &sine(500, 100.0, 1.0),
+        0x00A0FFFF,
+        1.5,
+        VolcanoLineStyle::Solid,
+    );
     // surface.rs order: viewport → set_background → margins →
     // set_background_rgba → labels → grid → ticks.
     fig.set_viewport(0.0, 5.0, -1.1, 1.1);
     fig.set_background(false); // dark
-    // ml=60, mr=12, mb=56, mt=8 px on a 900x500 canvas.
-    fig.set_margins(60.0 / w as f32, 1.0 - 12.0 / w as f32,
-                    56.0 / h as f32, 1.0 - 8.0 / h as f32);
+                               // ml=60, mr=12, mb=56, mt=8 px on a 900x500 canvas.
+    fig.set_margins(
+        60.0 / w as f32,
+        1.0 - 12.0 / w as f32,
+        56.0 / h as f32,
+        1.0 - 8.0 / h as f32,
+    );
     fig.set_background_rgba(27.0 / 255.0, 27.0 / 255.0, 27.0 / 255.0);
     fig.set_axis_labels(None, None);
     fig.set_grid(true);
@@ -141,7 +151,13 @@ fn volcano_gpu_sustained_render() {
             xy.push([x, (x * (1.0 + t as f64 * 0.3)).sin()]);
         }
         let id = fig.add_trace();
-        fig.set_trace(id, &xy, 0xFF8800FF + t as u32 * 0x1000, 1.5, VolcanoLineStyle::Solid);
+        fig.set_trace(
+            id,
+            &xy,
+            0xFF8800FF + t as u32 * 0x1000,
+            1.5,
+            VolcanoLineStyle::Solid,
+        );
     }
     fig.set_viewport(0.0, 200.0, -1.2, 1.2);
     eprintln!("sustained render started — poll nvidia-smi now");
@@ -336,24 +352,17 @@ fn volcano_slide_before_first_render_drops_old_points() {
     let id = fig.add_trace();
     // Old window: x in [0,5]. Then drop ALL of it and append x in [7,9]
     // — before the first render, so prepare() takes the cold path.
-    let old: Vec<[f64; 2]> =
-        (0..50).map(|i| [i as f64 * 0.1, (i as f64 * 0.4).sin()]).collect();
+    let old: Vec<[f64; 2]> = (0..50)
+        .map(|i| [i as f64 * 0.1, (i as f64 * 0.4).sin()])
+        .collect();
     fig.set_trace(id, &old, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid);
     let tail: Vec<[f64; 2]> = (0..20)
         .map(|i| [7.0 + i as f64 * 0.1, (i as f64 * 0.4).sin()])
         .collect();
-    assert!(fig.set_trace_slide(
-        id,
-        50,
-        &tail,
-        0xFF0000FF,
-        2.0,
-        VolcanoLineStyle::Solid
-    ));
+    assert!(fig.set_trace_slide(id, 50, &tail, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid));
     fig.set_viewport(0.0, 10.0, -1.0, 1.0);
     let px = fig.render_rgba().expect("render");
-    let (lo, hi) = trace_x_extent(px, w, [255, 0, 0])
-        .expect("red trace not rendered at all");
+    let (lo, hi) = trace_x_extent(px, w, [255, 0, 0]).expect("red trace not rendered at all");
     // Axes fill ~11%..98% of the canvas; x∈[7,9] of viewport [0,10]
     // maps to roughly the right third. Any red in the left ~half means
     // the evicted prefix leaked into the upload.
@@ -371,8 +380,9 @@ fn volcano_slide_before_first_render_drops_old_points() {
 fn volcano_slide_on_missing_plot_reports_failure() {
     let mut fig = VolcanoFigure::new(320, 200).expect("figure");
     let id = fig.add_trace();
-    let pts: Vec<[f64; 2]> =
-        (0..10).map(|i| [i as f64, (i as f64 * 0.6).sin()]).collect();
+    let pts: Vec<[f64; 2]> = (0..10)
+        .map(|i| [i as f64, (i as f64 * 0.6).sin()])
+        .collect();
     fig.set_trace(id, &pts, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid);
     assert!(fig.render_rgba().is_some());
     // Empty upload removes the LinePlot (empty plots crash render).
@@ -387,7 +397,8 @@ fn volcano_slide_on_missing_plot_reports_failure() {
     fig.set_viewport(0.0, 10.0, -1.0, 1.0);
     for k in 0..3 {
         let px = fig.render_rgba().expect("render");
-        let red = px.chunks_exact(4)
+        let red = px
+            .chunks_exact(4)
             .filter(|c| c[0].abs_diff(255) < 60 && c[1] < 60 && c[2] < 60 && c[3] > 200)
             .count();
         eprintln!("render {k}: red_px={red}");
@@ -430,8 +441,7 @@ fn volcano_repeated_slides_track_window() {
         assert!(fig.render_rgba().is_some());
     }
     let px = fig.render_rgba().expect("render");
-    let (lo, hi) = trace_x_extent(px, w, [255, 0, 0])
-        .expect("red trace not rendered");
+    let (lo, hi) = trace_x_extent(px, w, [255, 0, 0]).expect("red trace not rendered");
     // Window x∈[10,20] of viewport [0,20] → right half only.
     assert!(
         lo as f64 > w as f64 * 0.4,
@@ -466,28 +476,14 @@ fn volcano_slide_compaction_eating_pending_tail() {
     let tail1: Vec<[f64; 2]> = (10..15)
         .map(|i| [i as f64, (i as f64 * 0.7).sin()])
         .collect();
-    assert!(fig.set_trace_slide(
-        id,
-        8,
-        &tail1,
-        0xFF0000FF,
-        2.0,
-        VolcanoLineStyle::Solid
-    ));
+    assert!(fig.set_trace_slide(id, 8, &tail1, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid));
     // Slide 2 (still no render): drop 6 eats the 2 kept points AND 4 of
     // the pending tail (x∈[10,13]), append x∈[15,17] → window x∈[14,17].
     // Compaction again — this time erasing past the tail anchor.
     let tail2: Vec<[f64; 2]> = (15..18)
         .map(|i| [i as f64, (i as f64 * 0.7).sin()])
         .collect();
-    assert!(fig.set_trace_slide(
-        id,
-        6,
-        &tail2,
-        0xFF0000FF,
-        2.0,
-        VolcanoLineStyle::Solid
-    ));
+    assert!(fig.set_trace_slide(id, 6, &tail2, 0xFF0000FF, 2.0, VolcanoLineStyle::Solid));
 
     let px = fig.render_rgba().expect("render");
     let (lo, hi) = trace_x_extent(px, w, [255, 0, 0]).expect("red trace not rendered");
@@ -521,7 +517,10 @@ fn volcano_slide_screenshot() {
             (0..200)
                 .map(|i| {
                     let x = i as f64 * 0.1;
-                    [x, (x * (0.7 + t as f64 * 0.4)).sin() * (0.4 + t as f64 * 0.15)]
+                    [
+                        x,
+                        (x * (0.7 + t as f64 * 0.4)).sin() * (0.4 + t as f64 * 0.15),
+                    ]
                 })
                 .collect()
         })
@@ -538,10 +537,18 @@ fn volcano_slide_screenshot() {
             windows[k].drain(..25);
             for _ in 0..25 {
                 let x = windows[k].last().unwrap()[0] + 0.1;
-                windows[k].push([x, (x * (0.7 + k as f64 * 0.4)).sin() * (0.4 + k as f64 * 0.15)]);
+                windows[k].push([
+                    x,
+                    (x * (0.7 + k as f64 * 0.4)).sin() * (0.4 + k as f64 * 0.15),
+                ]);
             }
             assert!(fig.set_trace_slide(
-                *id, 25, &windows[k][175..], colors[k], 1.8, VolcanoLineStyle::Solid
+                *id,
+                25,
+                &windows[k][175..],
+                colors[k],
+                1.8,
+                VolcanoLineStyle::Solid
             ));
         }
         assert!(fig.render_rgba().is_some());
@@ -649,7 +656,10 @@ fn volcano_slide_screenshot_envelope_scale() {
             (0..10000)
                 .map(|i| {
                     let x = i as f64 * 0.001;
-                    [x, (x * (40.0 + t as f64 * 30.0)).sin() * (0.4 + t as f64 * 0.3)]
+                    [
+                        x,
+                        (x * (40.0 + t as f64 * 30.0)).sin() * (0.4 + t as f64 * 0.3),
+                    ]
                 })
                 .collect()
         })
@@ -667,13 +677,26 @@ fn volcano_slide_screenshot_envelope_scale() {
             windows[k].drain(..200);
             for _ in 0..200 {
                 let x = windows[k].last().unwrap()[0] + 0.001;
-                windows[k].push([x, (x * (40.0 + k as f64 * 30.0)).sin() * (0.4 + k as f64 * 0.3)]);
+                windows[k].push([
+                    x,
+                    (x * (40.0 + k as f64 * 30.0)).sin() * (0.4 + k as f64 * 0.3),
+                ]);
             }
             assert!(fig.set_trace_slide(
-                *id, 200, &windows[k][9800..], colors[k], 1.8, VolcanoLineStyle::Solid
+                *id,
+                200,
+                &windows[k][9800..],
+                colors[k],
+                1.8,
+                VolcanoLineStyle::Solid
             ));
         }
-        fig.set_viewport(windows[0].first().unwrap()[0], windows[0].last().unwrap()[0], -1.0, 1.0);
+        fig.set_viewport(
+            windows[0].first().unwrap()[0],
+            windows[0].last().unwrap()[0],
+            -1.0,
+            1.0,
+        );
         assert!(fig.render_rgba().is_some());
     }
 
@@ -694,7 +717,6 @@ fn volcano_slide_screenshot_envelope_scale() {
     }
 }
 
-
 /// Ramp-up + sliding window at envelope scale — mirrors the e2e app
 /// feed (200-pt chunks appended via slides, growing to the 10k cap,
 /// viewport padded like the scope's data bounds).
@@ -710,11 +732,16 @@ fn volcano_ramp_slide_screenshot() {
     let mut windows: Vec<Vec<[f64; 2]>> = vec![vec![], vec![]];
     let mut next_x = 0.0f64;
     let mut gen = |k: usize, n: usize| -> Vec<[f64; 2]> {
-        (0..n).map(|_| {
-            let x = next_x;
-            next_x += 0.001;
-            [x, (x * (40.0 + k as f64 * 30.0)).sin() * (0.4 + k as f64 * 0.3)]
-        }).collect()
+        (0..n)
+            .map(|_| {
+                let x = next_x;
+                next_x += 0.001;
+                [
+                    x,
+                    (x * (40.0 + k as f64 * 30.0)).sin() * (0.4 + k as f64 * 0.3),
+                ]
+            })
+            .collect()
     };
 
     // 70 chunks of 200 pts — window caps at 10000, then slides.
@@ -723,22 +750,34 @@ fn volcano_ramp_slide_screenshot() {
             let tail = gen(k, 200);
             windows[k].extend(tail.iter().copied());
             let over = windows[k].len().saturating_sub(10000);
-            if over > 0 { windows[k].drain(..over); }
+            if over > 0 {
+                windows[k].drain(..over);
+            }
             if windows[k].len() == 200 {
                 fig.set_trace(*id, &windows[k], colors[k], 1.8, VolcanoLineStyle::Solid);
             } else {
                 assert!(fig.set_trace_slide(
-                    *id, over as u32, &tail, colors[k], 1.8, VolcanoLineStyle::Solid
+                    *id,
+                    over as u32,
+                    &tail,
+                    colors[k],
+                    1.8,
+                    VolcanoLineStyle::Solid
                 ));
             }
         }
-        let (x0, x1) = (windows[0].first().unwrap()[0], windows[0].last().unwrap()[0]);
+        let (x0, x1) = (
+            windows[0].first().unwrap()[0],
+            windows[0].last().unwrap()[0],
+        );
         fig.set_viewport(x0 - 1.5, x1 + 0.5, -1.0, 1.0);
         assert!(fig.render_rgba().is_some());
         if chunk == 69 {
             let px = fig.render_rgba().unwrap();
-            image::RgbaImage::from_raw(w, h, px.to_vec()).unwrap()
-                .save("/tmp/volcano_ramp.png").unwrap();
+            image::RgbaImage::from_raw(w, h, px.to_vec())
+                .unwrap()
+                .save("/tmp/volcano_ramp.png")
+                .unwrap();
             for (k, c) in colors.iter().enumerate() {
                 let rgb = [(c >> 24) as u8, (c >> 16) as u8, (c >> 8) as u8];
                 eprintln!("trace {k}: ext={:?}", trace_x_extent(px, w as usize, rgb));
@@ -746,7 +785,6 @@ fn volcano_ramp_slide_screenshot() {
         }
     }
 }
-
 
 /// Growing f64 traces that cross the 8192-point envelope threshold and
 /// then keep sliding: both traces must keep drawing their full window
@@ -765,39 +803,57 @@ fn volcano_ramp_bisect() {
     let mut next_x = 0.0f64;
     for chunk in 0..70usize {
         for (k, id) in ids.iter().enumerate() {
-            let tail: Vec<[f64; 2]> = (0..200).map(|_| {
-                let x = next_x;
-                next_x += 0.001;
-                [x, (x * (40.0 + k as f64 * 30.0)).sin() * (0.4 + k as f64 * 0.3)]
-            }).collect();
+            let tail: Vec<[f64; 2]> = (0..200)
+                .map(|_| {
+                    let x = next_x;
+                    next_x += 0.001;
+                    [
+                        x,
+                        (x * (40.0 + k as f64 * 30.0)).sin() * (0.4 + k as f64 * 0.3),
+                    ]
+                })
+                .collect();
             windows[k].extend(tail.iter().copied());
             let over = windows[k].len().saturating_sub(10000);
-            if over > 0 { windows[k].drain(..over); }
+            if over > 0 {
+                windows[k].drain(..over);
+            }
             if windows[k].len() == 200 {
                 fig.set_trace(*id, &windows[k], colors[k], 1.8, VolcanoLineStyle::Solid);
             } else {
                 assert!(fig.set_trace_slide(
-                    *id, over as u32, &tail, colors[k], 1.8, VolcanoLineStyle::Solid
+                    *id,
+                    over as u32,
+                    &tail,
+                    colors[k],
+                    1.8,
+                    VolcanoLineStyle::Solid
                 ));
             }
         }
-        let (x0, x1) = (windows[0].first().unwrap()[0], windows[0].last().unwrap()[0]);
+        let (x0, x1) = (
+            windows[0].first().unwrap()[0],
+            windows[0].last().unwrap()[0],
+        );
         fig.set_viewport(x0 - 1.5, x1 + 0.5, -1.0, 1.0);
         let px = fig.render_rgba().expect("render");
         for (k, c) in colors.iter().enumerate() {
             let rgb = [(c >> 24) as u8, (c >> 16) as u8, (c >> 8) as u8];
             let ext = trace_x_extent(px, w as usize, rgb);
             if ext.is_none() {
-                image::RgbaImage::from_raw(w, h, px.to_vec()).unwrap()
-                    .save(format!("/tmp/ramp_dead_{chunk}_{k}.png")).unwrap();
+                image::RgbaImage::from_raw(w, h, px.to_vec())
+                    .unwrap()
+                    .save(format!("/tmp/ramp_dead_{chunk}_{k}.png"))
+                    .unwrap();
                 eprintln!("saved /tmp/ramp_dead_{chunk}_{k}.png");
             }
-            assert!(ext.is_some(),
-                    "chunk {chunk}: trace {k} missing from framebuffer");
+            assert!(
+                ext.is_some(),
+                "chunk {chunk}: trace {k} missing from framebuffer"
+            );
         }
     }
 }
-
 
 /// Single-trace ramp: the envelope path engages at >8192 points; the
 /// trace must keep rendering the full sliding window afterwards.
@@ -812,32 +868,46 @@ fn volcano_ramp_single() {
     let mut win: Vec<[f64; 2]> = vec![];
     let mut next_x = 0.0f64;
     for chunk in 0..60usize {
-        let tail: Vec<[f64; 2]> = (0..200).map(|_| {
-            let x = next_x;
-            next_x += 0.001;
-            [x, (x * 40.0).sin() * 0.4]
-        }).collect();
+        let tail: Vec<[f64; 2]> = (0..200)
+            .map(|_| {
+                let x = next_x;
+                next_x += 0.001;
+                [x, (x * 40.0).sin() * 0.4]
+            })
+            .collect();
         win.extend(tail.iter().copied());
         let over = win.len().saturating_sub(10000);
-        if over > 0 { win.drain(..over); }
+        if over > 0 {
+            win.drain(..over);
+        }
         if win.len() == 200 {
             fig.set_trace(id, &win, color, 1.8, VolcanoLineStyle::Solid);
         } else {
-            assert!(fig.set_trace_slide(id, over as u32, &tail, color,
-                                      1.8, VolcanoLineStyle::Solid));
+            assert!(fig.set_trace_slide(
+                id,
+                over as u32,
+                &tail,
+                color,
+                1.8,
+                VolcanoLineStyle::Solid
+            ));
         }
         let (x0, x1) = (win.first().unwrap()[0], win.last().unwrap()[0]);
         fig.set_viewport(x0 - 1.5, x1 + 0.5, -1.0, 1.0);
         let px = fig.render_rgba().expect("render");
         let ext = trace_x_extent(px, w as usize, rgb);
         if ext.is_none() {
-            image::RgbaImage::from_raw(w, h, px.to_vec()).unwrap()
-                .save(format!("/tmp/ramp_single_dead_{chunk}.png")).unwrap();
+            image::RgbaImage::from_raw(w, h, px.to_vec())
+                .unwrap()
+                .save(format!("/tmp/ramp_single_dead_{chunk}.png"))
+                .unwrap();
             eprintln!("saved /tmp/ramp_single_dead_{chunk}.png");
         }
-        assert!(ext.is_some(),
-                "chunk {chunk} len={}: trace missing from framebuffer",
-                win.len());
+        assert!(
+            ext.is_some(),
+            "chunk {chunk} len={}: trace missing from framebuffer",
+            win.len()
+        );
     }
 }
 
@@ -855,8 +925,12 @@ fn volcano_live_dims_top_band() {
     fig.set_trace(id, &pts, 0x00A0FFFF, 1.5, VolcanoLineStyle::Solid);
     fig.set_viewport(0.0, 11.0, -2.1, 2.1);
     fig.set_background(false);
-    fig.set_margins(60.0 / w as f32, 1.0 - 12.0 / w as f32,
-                    56.0 / h as f32, 1.0 - 8.0 / h as f32);
+    fig.set_margins(
+        60.0 / w as f32,
+        1.0 - 12.0 / w as f32,
+        56.0 / h as f32,
+        1.0 - 8.0 / h as f32,
+    );
     fig.set_background_rgba(27.0 / 255.0, 27.0 / 255.0, 27.0 / 255.0);
     fig.set_axis_labels(None, None);
     fig.set_grid(true);
@@ -875,15 +949,12 @@ fn volcano_live_dims_top_band() {
             let x = t0 + (64 + round * 8 + i) as f64 * 0.17;
             pts.push([x, (x * 0.3).sin()]);
         }
-        let mut tail: Vec<[f64; 2]> = pts.iter().rev().take(8)
-            .copied().collect();
+        let mut tail: Vec<[f64; 2]> = pts.iter().rev().take(8).copied().collect();
         tail.reverse();
-        fig.set_trace_slide(id, 0, &tail, 0x00A0FFFF, 1.5,
-                            VolcanoLineStyle::Solid);
+        fig.set_trace_slide(id, 0, &tail, 0x00A0FFFF, 1.5, VolcanoLineStyle::Solid);
         let xs: Vec<f64> = pts.iter().map(|p| p[0]).collect();
         let shift = xs[0];
-        fig.set_viewport(xs[0] - shift, xs[xs.len()-1] - shift + 1.0,
-                         -2.1, 2.1);
+        fig.set_viewport(xs[0] - shift, xs[xs.len() - 1] - shift + 1.0, -2.1, 2.1);
         if let Some((_, _, view)) = fig.render_rgba_view() {
             px = view.to_vec();
         }
@@ -902,7 +973,9 @@ fn volcano_live_dims_top_band() {
             .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235)
             .count();
         eprintln!("row {y}: {white}/{} white, px0={:?}", w, &row[0..4]);
-        if white * 2 > w as usize { band_rows += 1; }
+        if white * 2 > w as usize {
+            band_rows += 1;
+        }
     }
     std::fs::write("/tmp/volcano_live/top.rgba", &img).unwrap();
     assert_eq!(band_rows, 0, "{band_rows} white rows in top 16");
@@ -919,12 +992,15 @@ fn volcano_two_figures_top_band() {
     let id1 = fig1.add_trace();
     let id2 = fig2.add_trace();
     let t0 = 1794925118.057131f64;
-    let setup = |fig: &mut VolcanoFigure, id: u64, w: u32, h: u32,
-                 mt: f32, mb: f32| {
+    let setup = |fig: &mut VolcanoFigure, id: u64, w: u32, h: u32, mt: f32, mb: f32| {
         fig.set_viewport(0.0, 11.0, -2.1, 2.1);
         fig.set_background(false);
-        fig.set_margins(60.0 / w as f32, 1.0 - 12.0 / w as f32,
-                        mb / h as f32, 1.0 - mt / h as f32);
+        fig.set_margins(
+            60.0 / w as f32,
+            1.0 - 12.0 / w as f32,
+            mb / h as f32,
+            1.0 - mt / h as f32,
+        );
         fig.set_background_rgba(27.0 / 255.0, 27.0 / 255.0, 27.0 / 255.0);
         fig.set_axis_labels(None, None);
         fig.set_grid(true);
@@ -935,9 +1011,7 @@ fn volcano_two_figures_top_band() {
     let xt: Vec<(f32, String)> = (0..=10)
         .map(|i| (0.94 + i as f32, format!("15:18:{:02}", 39 + i)))
         .collect();
-    let yt: Vec<(f32, String)> = (-2..=2)
-        .map(|i| (i as f32, format!("{}", i)))
-        .collect();
+    let yt: Vec<(f32, String)> = (-2..=2).map(|i| (i as f32, format!("{}", i))).collect();
     fig1.set_ticks(0, &xt);
     fig1.set_ticks(1, &yt);
     let ft: Vec<(f32, String)> = (0..=5)
@@ -961,11 +1035,14 @@ fn volcano_two_figures_top_band() {
             fig1.render_rgba_view().map(|(a, b, v)| (a, b, v.to_vec()))
         } else {
             fig2.render_rgba_view().map(|(a, b, v)| (a, b, v.to_vec()))
-        }.unwrap();
+        }
+        .unwrap();
         for y in 0..16usize {
             let row = &px[y * fw as usize * 4..(y + 1) * fw as usize * 4];
-            let white = row.chunks_exact(4)
-                .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235).count();
+            let white = row
+                .chunks_exact(4)
+                .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235)
+                .count();
             if white * 2 > fw as usize {
                 band += 1;
                 eprintln!("round {round} {fw}x{fh} row {y}: {white} white");
@@ -990,8 +1067,12 @@ fn volcano_resize_top_band() {
     let setup = |fig: &mut VolcanoFigure, w: u32, h: u32| {
         fig.set_viewport(0.0, 9.0, -1.1, 1.1);
         fig.set_background(false);
-        fig.set_margins(60.0 / w as f32, 1.0 - 12.0 / w as f32,
-                        56.0 / h as f32, 1.0 - 8.0 / h as f32);
+        fig.set_margins(
+            60.0 / w as f32,
+            1.0 - 12.0 / w as f32,
+            56.0 / h as f32,
+            1.0 - 8.0 / h as f32,
+        );
         fig.set_background_rgba(27.0 / 255.0, 27.0 / 255.0, 27.0 / 255.0);
         fig.set_grid(true);
     };
@@ -1003,15 +1084,21 @@ fn volcano_resize_top_band() {
         fig.resize(w, h);
         setup(&mut fig, w, h);
         fig.set_trace(id, &pts, 0x00A0FFFF, 1.5, VolcanoLineStyle::Solid);
-        let (fw, fh, px) = fig.render_rgba_view()
-            .map(|(a, b, v)| (a, b, v.to_vec())).unwrap();
+        let (fw, fh, px) = fig
+            .render_rgba_view()
+            .map(|(a, b, v)| (a, b, v.to_vec()))
+            .unwrap();
         assert_eq!((fw, fh), (w, h));
         let mut bad = 0;
         for y in 0..16usize {
             let row = &px[y * w as usize * 4..(y + 1) * w as usize * 4];
-            let white = row.chunks_exact(4)
-                .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235).count();
-            if white * 2 > w as usize { bad += 1; }
+            let white = row
+                .chunks_exact(4)
+                .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235)
+                .count();
+            if white * 2 > w as usize {
+                bad += 1;
+            }
         }
         eprintln!("{w}x{h}: {bad} white rows in top 16");
         assert_eq!(bad, 0);

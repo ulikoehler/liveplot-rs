@@ -1212,9 +1212,12 @@ impl LivePlotPanel {
 
         if show_bottom {
             let total_h = self.last_plot_size.y;
-            let bar_min = (total_h * 0.20).clamp(40.0, 120.0);
-            let bar_default = (total_h * 0.30).clamp(80.0, 220.0);
-            let bar_max = (total_h * 0.80).clamp(60.0, 600.0);
+            // Toolbar + tabs inside the bottom bar already consume
+            // ~60px; a 40px floor left ~0px for the plot itself, so
+            // the minimum must cover chrome plus a usable plot strip.
+            let bar_min = (total_h * 0.20).clamp(150.0, 220.0);
+            let bar_default = (total_h * 0.30).clamp(80.0, 220.0).max(bar_min);
+            let bar_max = (total_h * 0.80).clamp(60.0, 600.0).max(bar_min);
             let mut list = std::mem::take(&mut self.bottom_panels);
             egui::Panel::bottom(format!("bottom_bar_{}", self.panel_id))
                 .resizable(true)
