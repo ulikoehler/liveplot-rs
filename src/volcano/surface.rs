@@ -211,10 +211,13 @@ struct SyncReport {
 
 /// One render job: figure + pixel scratch + this frame's trace sync
 /// commands + the shared transform context `(sx, sy, log_x, log_y)`.
+/// `resize` rebuilds the backend — done on the worker so a scope
+/// resize never stalls the UI thread on Vulkan teardown/reinit.
 struct FigJob {
     fig: VolcanoFigure,
     px: Vec<u8>,
     cmds: Vec<TraceCmd>,
+    resize: Option<(u32, u32)>,
     sx: f64,
     sy: f64,
     log_xy: (bool, bool),
@@ -333,6 +336,7 @@ impl RenderWorker {
                     mut fig,
                     mut px,
                     cmds,
+                    resize,
                     sx,
                     sy,
                     log_xy,
@@ -340,6 +344,12 @@ impl RenderWorker {
                 let dbg_t = std::env::var("LIVEPLOT_DEBUG_TICKS").is_ok();
                 let dbg_s = std::env::var("LIVEPLOT_DEBUG_SLIDE").is_ok();
                 let t0 = std::time::Instant::now();
+                // Backend rebuild is the expensive part of a scope
+                // resize (device teardown + pipeline/image recreate) —
+                // it must not run on the UI thread.
+                if let Some((rw, rh)) = resize {
+                    fig.resize(rw, rh);
+                }
                 let mut rep = SyncReport::default();
                 for cmd in cmds {
                     match cmd {
@@ -804,7 +814,11 @@ impl VolcanoSurface {
                                 // a renderer-side furniture bug (visible here)
                                 // from a display/paint issue (correct here).
                                 self.dbg_dump_n += 1;
-                                if self.dbg_dump_n % 30 == 1 {
+                                let every: u64 = std::env::var("LIVEPLOT_DEBUG_DUMP_EVERY")
+                                    .ok()
+                                    .and_then(|v| v.parse().ok())
+                                    .unwrap_or(30);
+                                if (self.dbg_dump_n - 1) % every == 0 {
                                     let path = format!("{dir}/volcano_tex_{}.png", self.dbg_dump_n);
                                     if let Some(img) = image::RgbaImage::from_raw(
                                         image.size[0] as u32,
@@ -1006,11 +1020,12 @@ impl VolcanoSurface {
         // Debounce: resizing rebuilds the whole Vulkan backend —
         // don't do it for small layout jitter (a few % stretch is
         // invisible); only when the figure is clearly wrong-sized.
+        // The rebuild itself runs on the render worker (FigJob::resize)
+        // — it tears down and recreates backend/pipelines, far too slow
+        // for the UI thread (froze the app on sidebar toggles/resizes).
         let dw = (w as i32 - fw as i32).abs();
         let dh = (h as i32 - fh as i32).abs();
-        if dw > 32 || dh > 32 {
-            fig.resize(w, h);
-        }
+        let resize = (dw > 32 || dh > 32).then_some((w, h));
 
         // f32-precision-safe translate: when the bounds magnitude is
         // huge relative to its span (epoch timestamps ~1.79e9), shift
@@ -1452,6 +1467,7 @@ impl VolcanoSurface {
                 fig: owned,
                 px,
                 cmds,
+                resize,
                 sx,
                 sy,
                 log_xy,
