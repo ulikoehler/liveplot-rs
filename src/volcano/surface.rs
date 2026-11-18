@@ -739,14 +739,39 @@ impl VolcanoSurface {
                         if let Some(image) = image {
                             // Top-band regression probe (cheap — only
                             // counts px in the first 16 rows of frames
-                            // that actually land).
+                            // that actually land). Only the axes column
+                            // span counts: white text in the margins
+                            // (y-axis title, offset text) is legitimate.
                             let wpx = image.size[0];
+                            let (cx0, cx1) = (
+                                self.margins_used.0 as usize,
+                                wpx.saturating_sub(self.margins_used.1 as usize),
+                            );
                             self.dbg_top16_white = image
                                 .pixels
                                 .iter()
                                 .take(wpx.saturating_mul(16))
-                                .filter(|p| p.r() > 240 && p.g() > 240 && p.b() > 240)
+                                .enumerate()
+                                .filter(|(i, p)| {
+                                    let x = i % wpx;
+                                    x >= cx0 && x < cx1 && p.r() > 240 && p.g() > 240 && p.b() > 240
+                                })
                                 .count() as u64;
+                            if self.dbg_top16_white > 0
+                                && std::env::var("LIVEPLOT_DEBUG_SAVE").is_ok()
+                            {
+                                let idx = image
+                                    .pixels
+                                    .iter()
+                                    .take(wpx.saturating_mul(16))
+                                    .position(|p| p.r() > 240 && p.g() > 240 && p.b() > 240)
+                                    .unwrap_or(0);
+                                eprintln!(
+                                    "top16white: first white px at x={} y={}",
+                                    idx % wpx,
+                                    idx / wpx
+                                );
+                            }
                             // The image is the RENDERED size — may lag
                             // the current w/h if a resize raced this
                             // frame; tex.set handles a size change.
@@ -831,18 +856,14 @@ impl VolcanoSurface {
         // texture is still current: skip the Vulkan render + readback
         // + upload entirely.
         let log_xy = (scope.x_axis.log_scale, scope.y_axis.log_scale);
-        // Hover emphasis — union of traces-list hover
-        // (`traces.hover_trace`) and pointer-hover inside the scope
-        // (`scope.volcano_scope_hover`), matching the egui path where
-        // both emphasize the trace.
-        let mut hover_list: Vec<crate::data::traces::TraceRef> =
+        // Hover emphasis — only traces-panel/legend hover
+        // (`traces.hover_trace`), matching the egui path. Pointer hover
+        // inside the scope (`scope.volcano_scope_hover`) does NOT
+        // emphasize: egui_plot doesn't highlight the trace under the
+        // pointer, it only shows the coordinate tooltip.
+        let hover_list: Vec<crate::data::traces::TraceRef> =
             traces.hover_trace.clone().unwrap_or_default();
-        for n in &scope.volcano_scope_hover {
-            if !hover_list.contains(n) {
-                hover_list.push(n.clone());
-            }
-        }
-        let has_hover = traces.hover_trace.is_some() || !scope.volcano_scope_hover.is_empty();
+        let has_hover = traces.hover_trace.is_some();
         let mut sh = DefaultHasher::new();
         has_hover.hash(&mut sh);
         for n in &hover_list {
@@ -1318,6 +1339,11 @@ impl VolcanoSurface {
             y_label_px += 22.0;
         }
         let ml = ml.max(y_label_px);
+        // The x-axis title sits below the tick labels in the same
+        // margin (outLen + majorPad + tickLabelH + labelPad + titleH ≈
+        // 44px). Short panels (the FFT scope) take the h<160 margin
+        // branch (mb=34) and clip the title otherwise.
+        let mb = mb.max(if x_label.is_some() { 46.0 } else { mb });
         // Pixel margins as canvas fractions — the caller's
         // `volcano_margins_px` table, identical to the values used for
         // the overlay axes-rect (single source of truth).

@@ -265,8 +265,10 @@ fn volcano_fft_scope_renders() {
 }
 
 /// Hovering a rendered trace inside the scope publishes
-/// `volcano_scope_hover` — the surface unions it with traces-list
-/// hover for emphasis (previously scope-hover did nothing).
+/// `volcano_scope_hover` (drives the tooltip's trace-name lookup) but
+/// must NOT trigger an emphasis re-render — egui_plot doesn't
+/// highlight the trace under the pointer, so scope-hover stays out of
+/// the render signature.
 #[test]
 fn volcano_scope_plot_hover_marks_trace() {
     let mut bed = make_test_bed();
@@ -283,6 +285,8 @@ fn volcano_scope_plot_hover_marks_trace() {
     let sx = axes[0] + ((t - xb[0]) / (xb[1] - xb[0])) as f32 * (axes[2] - axes[0]);
     let sy = axes[3] - ((y - yb[0]) / (yb[1] - yb[0])) as f32 * (axes[3] - axes[1]);
     let center = egui::pos2(sx, sy);
+    // Let the worker drain so a stable frame count is observable.
+    steps(&mut bed, 20);
     let disp0 = scope(&bed, 0)
         .volcano_surface
         .as_ref()
@@ -294,26 +298,20 @@ fn volcano_scope_plot_hover_marks_trace() {
         hov.iter().any(|t| t.0 == "sig"),
         "hovering the plotted trace must mark it, got {hov:?}"
     );
-    // Hover changes the render signature → a new frame is dispatched
-    // (a busy worker may need a few frames to pick it up).
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    let disp1 = loop {
-        let d = scope(&bed, 0)
-            .volcano_surface
-            .as_ref()
-            .map(|s| s.dbg_dispatches)
-            .unwrap_or(0);
-        if d > disp0 {
-            break d;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "hover emphasis must trigger a re-render"
-        );
+    // Scope hover is not part of the render signature — a few more UI
+    // frames must not dispatch a new Vulkan render for emphasis.
+    for _ in 0..10 {
         hover_at(&mut bed, center);
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    };
-    let _ = disp1;
+    }
+    let disp1 = scope(&bed, 0)
+        .volcano_surface
+        .as_ref()
+        .map(|s| s.dbg_dispatches)
+        .unwrap_or(0);
+    assert_eq!(
+        disp0, disp1,
+        "scope hover must not re-render for emphasis (egui parity)"
+    );
     // Moving the pointer off the scope clears the hover.
     hover_at(&mut bed, egui::pos2(4.0, 4.0));
     assert!(

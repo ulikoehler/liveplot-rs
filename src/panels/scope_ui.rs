@@ -1072,6 +1072,7 @@ impl ScopePanel {
         );
         self.data.volcano_scope_hover = resp
             .hover_pos()
+            .filter(|pos| axes.contains(*pos))
             .map(|pos| volcano_nearest(surf.bounds, axes, pos, &self.data, traces).names)
             .unwrap_or_default();
         if let Some(tex) = surf.texture_id() {
@@ -1504,8 +1505,11 @@ impl ScopePanel {
         // Hover coordinate tooltip — mirrors egui_plot's
         // label_formatter: nearest visible data point within ~10pt
         // shows its label + coords; elsewhere just the hovered coords.
+        // Only inside the axes rect — hovering the tick-label / axis
+        // margins must not show a popup (egui_plot gates on the plot
+        // area too).
         if resp.hovered() {
-            if let Some(pos) = hover_pos {
+            if let Some(pos) = hover_pos.filter(|p| axes.contains(*p)) {
                 let near = volcano_nearest(view, axes, pos, &self.data, traces);
                 let ([px, py], name) = near.tip.unwrap_or((to_view(view, pos), String::new()));
                 let x = if self.data.x_axis.log_scale {
