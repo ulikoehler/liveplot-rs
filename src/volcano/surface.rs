@@ -609,6 +609,7 @@ pub struct VolcanoSurface {
     /// Near-white px in the top 16 rows of the last rendered image —
     /// regression counter for the "white bar" artifact (0 = healthy).
     pub dbg_top16_white: u64,
+    dbg_dump_n: u64,
     initialized: bool,
 }
 
@@ -644,6 +645,7 @@ impl VolcanoSurface {
             dbg_slides: 0,
             margins_used: (0.0, 0.0, 0.0, 0.0),
             dbg_top16_white: 0,
+            dbg_dump_n: 0,
             initialized: false,
         }
     }
@@ -791,6 +793,27 @@ impl VolcanoSurface {
                             // The image is the RENDERED size — may lag
                             // the current w/h if a resize raced this
                             // frame; tex.set handles a size change.
+                            if let Ok(dir) = std::env::var("LIVEPLOT_DEBUG_DUMP") {
+                                // Dump the texture-bound frame — distinguishes
+                                // a renderer-side furniture bug (visible here)
+                                // from a display/paint issue (correct here).
+                                self.dbg_dump_n += 1;
+                                if self.dbg_dump_n % 30 == 1 {
+                                    let path = format!("{dir}/volcano_tex_{}.png", self.dbg_dump_n);
+                                    if let Some(img) = image::RgbaImage::from_raw(
+                                        image.size[0] as u32,
+                                        image.size[1] as u32,
+                                        image
+                                            .pixels
+                                            .iter()
+                                            .flat_map(|p| [p.r(), p.g(), p.b(), p.a()])
+                                            .collect(),
+                                    ) {
+                                        let _ = img.save(&path);
+                                        eprintln!("dumped {path}");
+                                    }
+                                }
+                            }
                             let tex = self.tex.get_or_insert_with(|| {
                                 ctx.load_texture(
                                     "volcano_scope",

@@ -1104,3 +1104,41 @@ fn volcano_resize_top_band() {
         assert_eq!(bad, 0);
     }
 }
+
+/// Reproduce the user's screenshot geometry at their dims — dark bg,
+/// same margins/ticks/labels — to compare label-vs-spine geometry.
+#[test]
+fn volcano_user_geometry_repro() {
+    let mut fig = VolcanoFigure::new(1337, 694).unwrap();
+    fig.set_background(false);
+    fig.set_margins(
+        70.0 / 1337.0,
+        1.0 - 12.0 / 1337.0,
+        56.0 / 694.0,
+        1.0 - 8.0 / 694.0,
+    );
+    fig.set_viewport(0.0, 11.0, -2.19, 2.19);
+    let id = fig.add_trace();
+    let pts: Vec<[f64; 2]> = (0..2000)
+        .map(|i| [i as f64 * 0.0055, (i as f64 * 0.11).sin() * 2.0])
+        .collect();
+    fig.set_trace(id, &pts, 0xFF1F77B4u32, 1.5, VolcanoLineStyle::Solid);
+    let ticks_x: Vec<(f32, String)> = (0..12)
+        .map(|i| (i as f32, format!("11:21:{:02}.0000", 41 + i)))
+        .collect();
+    fig.set_ticks(0, &ticks_x);
+    let ticks_y: Vec<(f32, String)> = vec![
+        (-2.0, "-2.0000".into()),
+        (-1.0, "-1.0000".into()),
+        (0.0, "0.0000".into()),
+        (1.0, "1.0000".into()),
+        (2.0, "2.0000".into()),
+    ];
+    fig.set_ticks(1, &ticks_y);
+    let (w, h) = fig.size();
+    if let Some(px) = fig.render_rgba() {
+        let img = image::RgbaImage::from_raw(w, h, px.to_vec()).unwrap();
+        img.save("/tmp/volcano_user_repro.png").unwrap();
+        eprintln!("saved /tmp/volcano_user_repro.png {w}x{h}");
+    }
+}
