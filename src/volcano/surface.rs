@@ -228,6 +228,10 @@ struct RenderWorker {
     job_tx: std::sync::mpsc::Sender<FigJob>,
     res_rx: std::sync::mpsc::Receiver<(VolcanoFigure, Option<egui::ColorImage>, SyncReport)>,
     handle: std::thread::JoinHandle<()>,
+    /// Set when the worker thread actually exits — lets Drop do a
+    /// bounded join instead of detaching a thread that could still be
+    /// inside a Vulkan call during process teardown.
+    done: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// A job is in flight — paint the last texture meanwhile.
     busy: bool,
     /// When the in-flight job was dispatched — a job that never comes
@@ -309,7 +313,18 @@ impl RenderWorker {
     fn spawn() -> Self {
         let (job_tx, job_rx) = std::sync::mpsc::channel::<FigJob>();
         let (res_tx, res_rx) = std::sync::mpsc::channel();
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let done_w = done.clone();
         let handle = std::thread::spawn(move || {
+            // Guard sets `done` on every exit path (recv disconnect,
+            // early return on send failure, unwind).
+            struct ExitFlag(std::sync::Arc<std::sync::atomic::AtomicBool>);
+            impl Drop for ExitFlag {
+                fn drop(&mut self) {
+                    self.0.store(true, std::sync::atomic::Ordering::Release);
+                }
+            }
+            let _exit = ExitFlag(done_w);
             // Transform scratch — reused across jobs so uploads don't
             // allocate a fresh Vec each frame.
             let mut xy: Vec<[f64; 2]> = Vec::new();
@@ -493,6 +508,7 @@ impl RenderWorker {
             job_tx,
             res_rx,
             handle,
+            done,
             busy: false,
             busy_since: None,
         }
@@ -1265,6 +1281,12 @@ impl VolcanoSurface {
         fig.set_background(!dark);
         let (ml, mr, mb, mt) = margins;
         let (wf, hf) = (w as f32, h as f32);
+        // Same label text the egui path computes (explicit name,
+        // auto-generated trace names, or None when show_label is off).
+        // Needed before margins: a visible y-axis title reserves ~22px
+        // of left margin beyond the tick labels.
+        let x_label = scope.axis_label_text(traces, true);
+        let y_label = scope.axis_label_text(traces, false);
         // Y ticks first: the widest label sizes the left margin —
         // egui_plot auto-grows its axis reservation the same way, and
         // without it "-X.XXXX" labels clip their minus at the canvas
@@ -1282,12 +1304,19 @@ impl VolcanoSurface {
             |v, step| scope.y_axis.format_value(v, Some(step)),
         );
         // DejaVu tick font ≈ 8px/char at this scale; + tick mark (~4)
-        // + label gap (~4) + a few px slack at the canvas edge.
-        let y_label_px = y_ticks
+        // + label gap (~4) + a few px slack at the canvas edge. The
+        // rotated y-axis title needs another ~22px (labelPad + glyph
+        // height) beyond the widest tick label, matching the C++
+        // measureAxisLabelDepths stack
+        // (outLen + majorPad + tickLabelW + labelPad + titleHeight).
+        let mut y_label_px = y_ticks
             .iter()
             .map(|(_, l)| l.chars().count() as f32 * 8.0)
             .fold(0.0, f32::max)
             + 14.0;
+        if y_label.is_some() {
+            y_label_px += 22.0;
+        }
         let ml = ml.max(y_label_px);
         // Pixel margins as canvas fractions — the caller's
         // `volcano_margins_px` table, identical to the values used for
@@ -1299,10 +1328,6 @@ impl VolcanoSurface {
             panel_bg.g() as f32 / 255.0,
             panel_bg.b() as f32 / 255.0,
         );
-        // Same label text the egui path computes (explicit name,
-        // auto-generated trace names, or None when show_label is off).
-        let x_label = scope.axis_label_text(traces, true);
-        let y_label = scope.axis_label_text(traces, false);
         fig.set_axis_labels(x_label.as_deref(), y_label.as_deref());
         fig.set_grid(scope.show_grid);
 
@@ -1548,18 +1573,28 @@ impl std::fmt::Debug for VolcanoSurface {
 }
 
 impl Drop for VolcanoSurface {
-    /// Close the job channel and detach the worker. Joining used to be
-    /// required so a detached thread couldn't outlive the Vulkan
-    /// device — but a worker wedged inside a driver call blocks
-    /// `join()` forever, freezing whichever thread drops the surface
-    /// (the scope-close freeze). Every C++ queue/fence wait is now
-    /// bounded, and the shared GPU context is process-lifetime, so a
-    /// detached worker unwedges on its own and tears the figure down
-    /// safely without pinning the UI thread.
+    /// Close the job channel and do a BOUNDED join. Unconditional join
+    /// used to freeze the dropping thread when a worker wedged inside a
+    /// driver call; detach instead used to let the worker outlive the
+    /// process teardown window and segfault inside Vulkan/font teardown
+    /// (worker in `vp_render_rgba_view` during exit). Every C++ queue/
+    /// fence wait is now bounded, so waiting a few seconds for the
+    /// in-flight job to drain is safe — only a true wedge falls back to
+    /// the old detach behavior.
     fn drop(&mut self) {
         if let Some(w) = self.worker.take() {
             drop(w.job_tx);
-            drop(w.handle);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while !w.done.load(std::sync::atomic::Ordering::Acquire)
+                && std::time::Instant::now() < deadline
+            {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            if w.done.load(std::sync::atomic::Ordering::Acquire) {
+                let _ = w.handle.join();
+            } else {
+                drop(w.handle);
+            }
         }
     }
 }
