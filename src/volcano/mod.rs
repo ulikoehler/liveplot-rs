@@ -38,6 +38,7 @@ extern "C" {
         style: i32,
     ) -> i32;
     fn vp_trace_set_marker(fig: *mut VpFigure, id: u64, marker: i32, size: f32);
+    fn vp_trace_set_xy(fig: *mut VpFigure, id: u64, on: i32);
     fn vp_trace_remove(fig: *mut VpFigure, id: u64);
     fn vp_set_viewport(fig: *mut VpFigure, xmin: f64, xmax: f64, ymin: f64, ymax: f64);
     fn vp_set_axis_labels(
@@ -174,6 +175,13 @@ impl VolcanoFigure {
     /// `marker` is a `plot::MarkerStyle` ordinal; `MARKER_NONE` = 40.
     pub fn set_marker(&mut self, id: u64, marker: i32, size: f32) {
         unsafe { vp_trace_set_marker(self.ptr, id, marker, size) }
+    }
+
+    /// Mark a trace as an XY (parametric) pair — disables the
+    /// x-monotonic column-envelope decimation so the full polyline is
+    /// stroked, matching the egui XY draw path.
+    pub fn set_xy_mode(&mut self, id: u64, on: bool) {
+        unsafe { vp_trace_set_xy(self.ptr, id, on as i32) }
     }
 
     pub fn remove_trace(&mut self, id: u64) {

@@ -416,6 +416,12 @@ impl RenderWorker {
                                         .iter()
                                         .filter_map(|p| xform_xy(*p, off, sx, sy, log_xy)),
                                 );
+                                // XY pairs are parametric, not
+                                // x-monotonic — the column-envelope
+                                // decimation would fill the per-column
+                                // min/max span into a solid blob, so
+                                // stroke the full polyline like egui.
+                                fig.set_xy_mode(id, true);
                                 fig.set_trace(id, &xy, look.0, look.1, look.2);
                                 fig.set_marker(id, marker.0, marker.1);
                             }

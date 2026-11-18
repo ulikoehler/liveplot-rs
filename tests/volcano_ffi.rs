@@ -1142,3 +1142,185 @@ fn volcano_user_geometry_repro() {
         eprintln!("saved /tmp/volcano_user_repro.png {w}x{h}");
     }
 }
+
+/// Regression: compare vp_debug_axes_rect (layout) against the
+/// actually-drawn framebuffer — catches a draw-vs-layout offset like
+/// the +10px vertical shift caused by the spine pipeline's push-
+/// constant layout mismatch (u_off.y read unpushed bytes left by the
+/// compute stroker's pushConstants).
+#[test]
+fn volcano_debug_draw_vs_layout_rect() {
+    for &(w, h, ml, mr, mb, mt) in [
+        (1337u32, 694u32, 70.0f32, 12.0f32, 56.0f32, 8.0f32),
+        (1321, 691, 70.0, 12.0, 56.0, 8.0),
+        (800, 400, 60.0, 12.0, 56.0, 8.0),
+        (1321, 186, 52.0, 10.0, 34.0, 6.0),
+    ]
+    .iter()
+    {
+        let mut fig = VolcanoFigure::new(w, h).expect("figure");
+        fig.set_viewport(0.0, 11.0, -2.19, 2.19);
+        fig.set_background(false); // dark — clear stays white
+        fig.set_margins(ml / w as f32, 1.0 - mr / w as f32, mb / h as f32, 1.0 - mt / h as f32);
+        fig.set_grid(true);
+        let id = fig.add_trace();
+        let pts: Vec<[f64; 2]> = (0..200)
+            .map(|i| [i as f64 * 0.05, (i as f64 * 0.2).sin()])
+            .collect();
+        fig.set_trace(id, &pts, 0xFF1F77B4u32, 1.5, VolcanoLineStyle::Solid);
+        let px = fig.render_rgba().expect("render").to_vec();
+        let rect = fig.debug_axes_rect();
+        // Scan a mid column for the top and bottom non-clear-color rows
+        // (clear is white by default since set_background_rgba wasn't called).
+        let x = (w / 2) as usize;
+        let mut top = None;
+        let mut bot = None;
+        for y in 0..h as usize {
+            let i = (y * w as usize + x) * 4;
+            let nonwhite = px[i] < 240 || px[i + 1] < 240 || px[i + 2] < 240;
+            if nonwhite && top.is_none() {
+                top = Some(y);
+            }
+            if nonwhite {
+                bot = Some(y);
+            }
+        }
+        // The figure patch fills the entire canvas — a uniform draw
+        // offset shows up as a non-zero `top` (was +10 for the bug).
+        if top != Some(0) || bot != Some(h as usize - 1) {
+            image::RgbaImage::from_raw(w, h, px).unwrap()
+                .save("/tmp/volcano_drawvslayout.png").unwrap();
+            panic!(
+                "{w}x{h}: framebuffer content spans {top:?}..{bot:?} rows, \
+                 expected 0..{} (axes_rect={rect:?})",
+                h - 1
+            );
+        }
+    }
+}
+
+/// Repro: a sharp zigzag rendered zoomed-in should be one continuous
+/// stroke — the GPU tessellator must fill joins between segments.
+#[test]
+fn volcano_zigzag_join_gaps() {
+    let (w, h) = (800u32, 600u32);
+    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    fig.set_background(false);
+    // viewport fits zigzag so segments are long diagonals
+    fig.set_viewport(0.0, 6.0, -0.5, 6.5);
+    fig.set_margins(0.05, 0.98, 0.08, 0.95);
+    fig.set_grid(false);
+    let id = fig.add_trace();
+    // sharp zigzag: alternating peaks/valleys, few points → long segments
+    let pts: Vec<[f64; 2]> = (0..=6)
+        .map(|i| [i as f64, if i % 2 == 0 { 0.5 } else { 6.0 }])
+        .collect();
+    fig.set_trace(id, &pts, 0xFF0000FFu32, 3.0, VolcanoLineStyle::Solid);
+    let px = fig.render_rgba().expect("render").to_vec();
+    image::RgbaImage::from_raw(w, h, px.clone())
+        .unwrap()
+        .save("/tmp/volcano_zigzag.png")
+        .unwrap();
+    // For each segment, walk the join region: count red pixels in a
+    // small disc around each interior vertex's projected position.
+    let (ax_l, ax_r, ax_t, ax_b) = (0.05 * w as f32, 0.98 * w as f32, 0.05 * h as f32, 0.92 * h as f32);
+    let proj = |x: f64, y: f64| -> (usize, usize) {
+        (
+            (ax_l + (x / 6.0) as f32 * (ax_r - ax_l)) as usize,
+            (ax_b - ((y + 0.5) / 7.0) as f32 * (ax_b - ax_t)) as usize,
+        )
+    };
+    for i in 1..6usize {
+        let (vx, vy) = proj(i as f64, if i % 2 == 0 { 0.5 } else { 6.0 });
+        let mut red = 0usize;
+        for dy in -8i32..=8 {
+            for dx in -8i32..=8 {
+                let (x, y) = (vx as i32 + dx, vy as i32 + dy);
+                if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 {
+                    continue;
+                }
+                let o = (y as usize * w as usize + x as usize) * 4;
+                if px[o] > 200 && px[o + 1] < 60 && px[o + 2] < 60 {
+                    red += 1;
+                }
+            }
+        }
+        eprintln!("vertex {i} @ ({vx},{vy}): red px in 17x17 = {red}");
+        assert!(red > 30, "join at vertex {i} is hollow — line separates");
+    }
+}
+
+/// Dense non-monotonic XY trace (Lissajous-like): with >8192 points
+/// the column-envelope decimation would reduce every pixel column to
+/// its min/max and paint a solid blob. `set_xy_mode` opts the trace
+/// out so the full polyline is stroked (egui parity): the curve must
+/// cover only a thin band, not fill the axes.
+#[test]
+fn volcano_xy_trace_no_envelope_fill() {
+    let (w, h) = (800u32, 600u32);
+    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    fig.set_background(false);
+    fig.set_margins(0.05, 0.98, 0.08, 0.95);
+    fig.set_grid(false);
+    fig.set_viewport(-1.3, 1.3, -1.3, 1.3);
+    let id = fig.add_trace();
+    let n = 16_384usize;
+    let pts: Vec<[f64; 2]> = (0..n)
+        .map(|i| {
+            let t = i as f64 / n as f64 * 2.0 * std::f64::consts::PI;
+            [
+                (t * 3.0).sin() * (1.0 + 0.2 * (t * 50.0).sin()),
+                (t * 2.0).cos() * (1.0 + 0.2 * (t * 30.0).cos()),
+            ]
+        })
+        .collect();
+    fig.set_xy_mode(id, true);
+    fig.set_trace(id, &pts, 0xFF0000FFu32, 2.0, VolcanoLineStyle::Solid);
+    let px = fig.render_rgba().expect("render").to_vec();
+    let red = px
+        .chunks_exact(4)
+        .filter(|c| c[0] > 200 && c[1] < 80 && c[2] < 80)
+        .count();
+    // The stroked curve covers a few % of the canvas; the broken
+    // envelope fill covered >90%.
+    let frac = red as f64 / (w * h) as f64;
+    assert!(
+        frac > 0.005 && frac < 0.25,
+        "XY polyline coverage {frac:.3} — expected a thin stroked curve, not a filled envelope"
+    );
+}
+
+/// Dense x-monotonic jagged trace (FFT-like): without `set_xy_mode`
+/// the column-envelope fill still applies — the filled area under the
+/// curve must cover most of the axes (the pre-XY-flag behaviour time
+/// traces rely on).
+#[test]
+fn volcano_time_trace_envelope_fills() {
+    let (w, h) = (800u32, 600u32);
+    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    fig.set_background(false);
+    fig.set_margins(0.05, 0.98, 0.08, 0.95);
+    fig.set_grid(false);
+    fig.set_viewport(0.0, 1.0, -0.1, 1.1);
+    let id = fig.add_trace();
+    let n = 16_384usize;
+    let pts: Vec<[f64; 2]> = (0..n)
+        .map(|i| {
+            let x = i as f64 / n as f64;
+            let y = ((i as f64 * 7.13).sin() * 0.5 + 0.5)
+                * ((i as f64 * 0.003).sin() * 0.5 + 0.5);
+            [x, y]
+        })
+        .collect();
+    fig.set_trace(id, &pts, 0xFF0000FFu32, 2.0, VolcanoLineStyle::Solid);
+    let px = fig.render_rgba().expect("render").to_vec();
+    let red = px
+        .chunks_exact(4)
+        .filter(|c| c[0] > 200 && c[1] < 80 && c[2] < 80)
+        .count();
+    let frac = red as f64 / (w * h) as f64;
+    assert!(
+        frac > 0.25,
+        "envelope fill coverage {frac:.3} — expected the dense area to stay filled"
+    );
+}
