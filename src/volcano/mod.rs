@@ -54,6 +54,13 @@ extern "C" {
         labels: *const *const std::ffi::c_char,
     );
     fn vp_set_grid(fig: *mut VpFigure, on: i32);
+    fn vp_set_minor_grid(
+        fig: *mut VpFigure,
+        axis: i32,
+        count: i32,
+        positions: *const f32,
+        strengths: *const f32,
+    );
     fn vp_set_background(fig: *mut VpFigure, white: i32);
     fn vp_set_margins(fig: *mut VpFigure, l: f32, r: f32, b: f32, t: f32);
     fn vp_set_background_rgba(fig: *mut VpFigure, r: f32, g: f32, b: f32);
@@ -237,6 +244,24 @@ impl VolcanoFigure {
                 ticks.len() as i32,
                 positions.as_ptr(),
                 label_ptrs.as_ptr(),
+            )
+        }
+    }
+
+    /// Explicit minor grid lines: `(position, strength)` pairs in the
+    /// same shifted space as `set_ticks`. `strength` is a 0..1 alpha
+    /// scale — egui_plot fades each decade level by its spacing.
+    /// An empty slice clears the axis' minor grid.
+    pub fn set_minor_grid(&mut self, axis: i32, lines: &[(f32, f32)]) {
+        let positions: Vec<f32> = lines.iter().map(|l| l.0).collect();
+        let strengths: Vec<f32> = lines.iter().map(|l| l.1).collect();
+        unsafe {
+            vp_set_minor_grid(
+                self.ptr,
+                axis,
+                lines.len() as i32,
+                positions.as_ptr(),
+                strengths.as_ptr(),
             )
         }
     }

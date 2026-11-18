@@ -580,6 +580,15 @@ pub struct VolcanoSurface {
     /// Consecutive renders that produced no image — a wedged figure
     /// is rebuilt after a few drops instead of freezing forever.
     consec_drops: u32,
+    /// Optional dispatch-rate cap (LIVEPLOT_VOLCANO_MAX_RENDER_HZ):
+    /// when the render pipeline is the bottleneck, producing frames
+    /// faster than they are consumed only backs up work. Skipping a
+    /// dispatch leaves the last texture painting; the next frame
+    /// retries with the freshest state.
+    min_render_interval: Option<std::time::Duration>,
+    /// Time of the last job dispatch — pairs with
+    /// `min_render_interval`.
+    last_dispatch_at: Option<std::time::Instant>,
     /// Persistent render+readback worker — keeps the UI at full rate
     /// while Vulkan renders (~2-7ms/frame) in the background.
     worker: Option<RenderWorker>,
@@ -646,6 +655,12 @@ impl VolcanoSurface {
             last_sig: 0,
             pending_sig: 0,
             consec_drops: 0,
+            min_render_interval: std::env::var("LIVEPLOT_VOLCANO_MAX_RENDER_HZ")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .filter(|hz| *hz > 0.0)
+                .map(|hz| std::time::Duration::from_secs_f64(1.0 / hz)),
+            last_dispatch_at: None,
             worker: None,
             pixel_scratch: Vec::new(),
             bounds: ([0.0, 1.0], [0.0, 1.0]),
@@ -1012,6 +1027,16 @@ impl VolcanoSurface {
         }
         let sig = sh.finish();
         if self.initialized && sig == self.last_sig {
+            return true;
+        }
+        // Render-rate cap: must stay BEFORE pending_sig — skipping
+        // here touches no bookkeeping, so a completed in-flight job
+        // can't be stamped with a sig it never rendered.
+        if self
+            .min_render_interval
+            .zip(self.last_dispatch_at)
+            .is_some_and(|(d, t)| t.elapsed() < d)
+        {
             return true;
         }
         self.pending_sig = sig;
@@ -1453,6 +1478,29 @@ impl VolcanoSurface {
         fig.set_ticks(0, &x_ticks);
         fig.set_ticks(1, &y_ticks);
 
+        // egui also strokes the *unlabeled* decade-level grid marks —
+        // the sub-gridlines — faded by each level's spacing-derived
+        // strength. Everything a major (labeled) position doesn't
+        // already cover goes through the minor-grid path.
+        let x_minor = egui_style_minor_grid(
+            xb[0] - sx,
+            xb[1] - sx,
+            sx,
+            log_xy.0,
+            x_px,
+            &x_ticks,
+        );
+        let y_minor = egui_style_minor_grid(
+            yb[0] - sy,
+            yb[1] - sy,
+            sy,
+            log_xy.1,
+            y_px,
+            &y_ticks,
+        );
+        fig.set_minor_grid(0, &x_minor);
+        fig.set_minor_grid(1, &y_minor);
+
         // Render + readback on the persistent worker — the expensive
         // part (prepare/renderFrame/readback ~2-7ms) never blocks the
         // UI. A dead worker (send fails) is dropped and respawned on
@@ -1460,6 +1508,7 @@ impl VolcanoSurface {
         let owned = self.fig.take().unwrap();
         let px = std::mem::take(&mut self.pixel_scratch);
         self.dbg_dispatches += 1;
+        self.last_dispatch_at = Some(std::time::Instant::now());
         if !self
             .worker
             .get_or_insert_with(RenderWorker::spawn)
@@ -1571,7 +1620,101 @@ impl VolcanoSurface {
 /// (`GridInput.base_step_size` = value-per-px × `grid_spacing.min`
 /// = 8). A mark gets a label only when its step spans more than
 /// `label_spacing.min` px (60 on X, 20 on Y) *and* the text fits
-/// inside that spacing — both rules are reproduced here so the
+/// inside that spacing — both rules are reproduced below.
+///
+/// egui_plot's grid-mark set: marks at the three decade levels
+/// (u, 10u, 100u where u is the smallest power of ten ≥8px apart),
+/// deduplicated keeping the coarser step — the `generate_marks`
+/// output that `log_grid_spacer(10)` feeds to the painter.
+/// Returns `(anchor value, step size)` in unshifted data space for
+/// linear axes and in exponent space for log axes.
+fn egui_decade_marks(
+    lo_ax: f64,
+    hi_ax: f64,
+    shift: f64,
+    log: bool,
+    axis_px: f64,
+) -> Vec<(f64, f64)> {
+    let span = hi_ax - lo_ax;
+    if !(span.is_finite() && span > 0.0 && axis_px > 1.0) {
+        return Vec::new();
+    }
+    let base = span / axis_px * 8.0;
+    let u = 10f64.powi(base.abs().log10().ceil() as i32);
+    if !u.is_finite() || u <= 0.0 {
+        return Vec::new();
+    }
+    let (a_lo, a_hi) = if log {
+        (lo_ax, hi_ax)
+    } else {
+        (lo_ax + shift, hi_ax + shift)
+    };
+    let mut marks: Vec<(f64, f64)> = Vec::new(); // (anchor value, step)
+    for level in [u, u * 10.0, u * 100.0] {
+        let k0 = (a_lo / level).ceil() as i64;
+        let k1 = (a_hi / level).floor() as i64;
+        if k1 < k0 || k1 - k0 > 512 {
+            continue;
+        }
+        marks.extend((k0..=k1).map(|k| (k as f64 * level, level)));
+    }
+    marks.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // generate_marks dedups coincident marks keeping the larger step.
+    let eps = u * 0.01;
+    marks.dedup_by(|next, prev| {
+        if (next.0 - prev.0).abs() < eps {
+            if next.1 > prev.1 {
+                *prev = *next;
+            }
+            true
+        } else {
+            false
+        }
+    });
+    marks
+}
+
+/// egui_plot's minor (sub-)grid lines: every decade-level mark that
+/// is drawn but not already a major (labeled-tick) line — positions
+/// in the shifted space `set_ticks` uses, each with its egui line
+/// strength `remap_clamp(spacing_px, 8..300)^grid_strength_exponent`
+/// (exponent 0.5, grid_spacing 8–300px).
+fn egui_style_minor_grid(
+    lo_ax: f64,
+    hi_ax: f64,
+    shift: f64,
+    log: bool,
+    axis_px: f64,
+    majors: &[(f32, String)],
+) -> Vec<(f32, f32)> {
+    let span = hi_ax - lo_ax;
+    if !(span.is_finite() && span > 0.0 && axis_px > 1.0) {
+        return Vec::new();
+    }
+    let px_per = axis_px / span;
+    egui_decade_marks(lo_ax, hi_ax, shift, log, axis_px)
+        .into_iter()
+        .filter_map(|(anchor, step)| {
+            // egui skips lines whose step packs under 8 px.
+            let spacing = px_per * step;
+            if spacing <= 8.0 {
+                return None;
+            }
+            let pos = (if log { anchor } else { anchor - shift }) as f32;
+            if !(pos.is_finite() && pos as f64 >= lo_ax && pos as f64 <= hi_ax) {
+                return None;
+            }
+            // Already drawn by the major (labeled-tick) grid path.
+            let eps = 0.01 * step as f32;
+            if majors.iter().any(|(p, _)| (*p - pos).abs() < eps) {
+                return None;
+            }
+            let s = ((spacing - 8.0) / (300.0 - 8.0)).clamp(0.0, 1.0).sqrt() as f32;
+            Some((pos, s))
+        })
+        .collect()
+}
+
 /// Volcano axis shows the same ticks and label text as the egui
 /// axis. `fmt` is `AxisSettings::format_value`.
 ///
@@ -1595,49 +1738,17 @@ fn egui_style_ticks(
     if !(span.is_finite() && span > 0.0 && axis_px > 1.0) {
         return Vec::new();
     }
-    let base = span / axis_px * 8.0;
-    let u = 10f64.powi(base.abs().log10().ceil() as i32);
-    if !u.is_finite() || u <= 0.0 {
-        return Vec::new();
-    }
     let px_per = axis_px / span;
     let min_label_px = if y_axis { 20.0 } else { 60.0 };
-    let (a_lo, a_hi) = if log {
-        (lo_ax, hi_ax)
-    } else {
-        (lo_ax + shift, hi_ax + shift)
-    };
-    let mut marks: Vec<(f64, f64)> = Vec::new(); // (anchor value, step)
-    for level in [u, u * 10.0, u * 100.0] {
-        // egui: marks below label_spacing.min are grid-only, never
-        // labeled — skip the whole level (Volcano tick *marks* at
-        // that density would look wrong anyway).
-        if px_per * level <= min_label_px {
-            continue;
-        }
-        let k0 = (a_lo / level).ceil() as i64;
-        let k1 = (a_hi / level).floor() as i64;
-        if k1 < k0 || k1 - k0 > 512 {
-            continue;
-        }
-        marks.extend((k0..=k1).map(|k| (k as f64 * level, level)));
-    }
-    marks.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    // generate_marks dedups coincident marks keeping the larger step.
-    let eps = u * 0.01;
-    marks.dedup_by(|next, prev| {
-        if (next.0 - prev.0).abs() < eps {
-            if next.1 > prev.1 {
-                *prev = *next;
-            }
-            true
-        } else {
-            false
-        }
-    });
-    marks
+    egui_decade_marks(lo_ax, hi_ax, shift, log, axis_px)
         .into_iter()
         .filter_map(|(anchor, step)| {
+            // egui: marks below label_spacing.min are grid-only, never
+            // labeled (Volcano tick *marks* at that density would
+            // look wrong anyway).
+            if px_per * step <= min_label_px {
+                return None;
+            }
             let spacing = px_per * step;
             let display = if log { 10f64.powf(anchor) } else { anchor };
             let text = if hide_labels {

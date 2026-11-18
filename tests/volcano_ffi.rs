@@ -1324,3 +1324,105 @@ fn volcano_time_trace_envelope_fills() {
         "envelope fill coverage {frac:.3} — expected the dense area to stay filled"
     );
 }
+
+/// `vp_set_minor_grid` must draw faint sub-gridlines between the
+/// majors — egui_plot's decade-level fade — and the per-line
+/// strength must scale their brightness.
+#[test]
+fn volcano_minor_grid_lines() {
+    let (w, h) = (900u32, 500u32);
+    // 900x500, margins ml=60 mr=12 mb=56 mt=8 → axes x∈[60,888],
+    // y∈[8,444]; viewport 0..5 → 165.6 px/unit; majors at 0.5
+    // (82.8px), minors at 0.1 (16.6px). Scan a clean row near the
+    // axes top (y=30) where no trace crosses.
+    let axes_x0 = 60.0f64;
+    let px_per = (888.0 - 60.0) / 5.0;
+    let col_of = |v: f64| (axes_x0 + v * px_per) as usize;
+
+    let render = |minors: &[(f32, f32)]| -> Vec<u8> {
+        let mut fig = VolcanoFigure::new(w, h).expect("figure");
+        fig.set_viewport(0.0, 5.0, -2.0, 2.0);
+        fig.set_background(false);
+        fig.set_margins(
+            60.0 / w as f32,
+            1.0 - 12.0 / w as f32,
+            56.0 / h as f32,
+            1.0 - 8.0 / h as f32,
+        );
+        fig.set_background_rgba(27.0 / 255.0, 27.0 / 255.0, 27.0 / 255.0);
+        fig.set_grid(true);
+        let xt: Vec<(f32, String)> = (0..=10)
+            .map(|i| (i as f32 * 0.5, format!("{:.1}", i as f32 * 0.5)))
+            .collect();
+        fig.set_ticks(0, &xt);
+        // A flat trace pinned to the bottom edge so nothing crosses
+        // the scan row — grid lines are the only bright content.
+        let id = fig.add_trace();
+        let pts: Vec<[f64; 2]> = (0..=4).map(|i| [i as f64, -1.98]).collect();
+        fig.set_trace(id, &pts, 0xFF1F77B4u32, 1.5, VolcanoLineStyle::Solid);
+        if !minors.is_empty() {
+            fig.set_minor_grid(0, minors);
+        }
+        fig.render_rgba().expect("render").to_vec()
+    };
+
+    let lum = |px: &[u8], y: usize, x: usize| -> u32 {
+        let i = (y * w as usize + x) * 4;
+        px[i] as u32 + px[i + 1] as u32 + px[i + 2] as u32
+    };
+    let y = 30usize;
+    // Midway between majors 0.5 and 1.0: minors at 0.6..0.9.
+    let mid_col = col_of(0.7);
+    // A spot halfway between two minors — should stay background.
+    let gap_col = col_of(0.65) + 2;
+
+    // No minor grid → the between-majors region is flat background.
+    let px_none = render(&[]);
+    let (m0, g0) = (lum(&px_none, y, mid_col), lum(&px_none, y, gap_col));
+
+    // Full-strength minors → visible bumps at minor positions only.
+    let minors: Vec<(f32, f32)> = (1..50)
+        .map(|i| (i as f32 * 0.1, 0.9))
+        .collect();
+    let px_full = render(&minors);
+    let (m1, g1) = (lum(&px_full, y, mid_col), lum(&px_full, y, gap_col));
+    assert!(
+        m1 > m0 + 8,
+        "minor grid line missing at x={mid_col}: lum {m0} → {m1}"
+    );
+    assert!(
+        g1 <= g0 + 8,
+        "minor grid bleeds between lines: gap lum {g0} → {g1}"
+    );
+
+    // Very faint strength → the same line is measurably dimmer.
+    let weak: Vec<(f32, f32)> = (1..50)
+        .map(|i| (i as f32 * 0.1, 0.12))
+        .collect();
+    let px_weak = render(&weak);
+    let m2 = lum(&px_weak, y, mid_col);
+    assert!(
+        m2 < m1 && m2 >= m0,
+        "strength fade ignored: full={m1} weak={m2} none={m0}"
+    );
+
+    // Clearing the minor grid restores the flat background.
+    let px_cleared = {
+        let mut fig = VolcanoFigure::new(w, h).expect("figure");
+        fig.set_viewport(0.0, 5.0, -2.0, 2.0);
+        fig.set_background(false);
+        fig.set_margins(
+            60.0 / w as f32,
+            1.0 - 12.0 / w as f32,
+            56.0 / h as f32,
+            1.0 - 8.0 / h as f32,
+        );
+        fig.set_background_rgba(27.0 / 255.0, 27.0 / 255.0, 27.0 / 255.0);
+        fig.set_grid(true);
+        fig.set_minor_grid(0, &minors);
+        fig.set_minor_grid(0, &[]);
+        fig.render_rgba().expect("render").to_vec()
+    };
+    let m3 = lum(&px_cleared, y, mid_col);
+    assert_eq!(m3, m0, "cleared minor grid still drawn: {m3} vs {m0}");
+}

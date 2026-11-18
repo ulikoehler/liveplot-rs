@@ -66,6 +66,10 @@ pub struct LivePlotApp {
     /// Minimum interval between periodic repaints while the plot is live.
     /// Defaults to ~60 fps; configurable via `LivePlotConfig::max_fps`.
     pub repaint_interval: std::time::Duration,
+
+    /// Optional achieved-fps probe enabled via `LIVEPLOT_DEBUG_FPS`.
+    /// Counts `ui()` calls and prints the rate to stderr every 2 s.
+    fps_probe: Option<(std::time::Instant, u32)>,
 }
 
 impl LivePlotApp {
@@ -85,6 +89,8 @@ impl LivePlotApp {
             color_scheme: None,
             color_scheme_applied: false,
             repaint_interval: std::time::Duration::from_millis(16),
+            fps_probe: std::env::var_os("LIVEPLOT_DEBUG_FPS")
+                .map(|_| (std::time::Instant::now(), 0)),
         }
     }
 
@@ -124,6 +130,8 @@ impl LivePlotApp {
             color_scheme: None,
             color_scheme_applied: false,
             repaint_interval: std::time::Duration::from_millis(16),
+            fps_probe: std::env::var_os("LIVEPLOT_DEBUG_FPS")
+                .map(|_| (std::time::Instant::now(), 0)),
         }
     }
 
@@ -704,6 +712,16 @@ impl eframe::App for LivePlotApp {
 
         // Apply and publish controller requests after the main panel has updated.
         self.apply_controllers(&ctx, frame);
+
+        if let Some((start, frames)) = self.fps_probe.as_mut() {
+            *frames += 1;
+            let el = start.elapsed();
+            if el >= std::time::Duration::from_secs(2) {
+                eprintln!("[fps] {:.1}", *frames as f64 / el.as_secs_f64());
+                *start = std::time::Instant::now();
+                *frames = 0;
+            }
+        }
 
         // Request continuous repainting (~60 fps by default).
         ui.request_repaint_after(self.repaint_interval);
