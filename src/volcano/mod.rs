@@ -60,6 +60,7 @@ extern "C" {
     fn vp_render_rgba_view(fig: *mut VpFigure, out_len: *mut usize) -> *const u8;
     fn vp_figure_set_deferred_present(fig: *mut VpFigure, on: i32);
     fn vp_debug_xlim(fig: *const VpFigure, out_xlim: *mut f32, out_ylim: *mut f32) -> i32;
+    fn vp_debug_axes_rect(fig: *const VpFigure, out_rect: *mut f32) -> i32;
 }
 
 /// Trace line style matching the FFI `style` argument.
@@ -259,6 +260,14 @@ impl VolcanoFigure {
         let mut yl = [0f32; 2];
         (unsafe { vp_debug_xlim(self.ptr, xl.as_mut_ptr(), yl.as_mut_ptr()) } != 0)
             .then_some((xl, yl))
+    }
+
+    /// Diagnostics: the axes' last-laid-out pixel rect {x0,y0,x1,y1}
+    /// as the C++ renderer sees it — compare against the embedder's
+    /// margins to catch a layout mismatch.
+    pub fn debug_axes_rect(&self) -> Option<[f32; 4]> {
+        let mut r = [0f32; 4];
+        (unsafe { vp_debug_axes_rect(self.ptr, r.as_mut_ptr()) } != 0).then_some(r)
     }
 
     /// Render one frame and borrow the backend's staging buffer —

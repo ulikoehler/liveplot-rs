@@ -442,6 +442,22 @@ impl RenderWorker {
                 if dbg_t {
                     eprintln!("worker: render done in {:?}", t1.elapsed());
                 }
+                if dbg_t {
+                    // Layout cross-check: the C++ axes rect vs the
+                    // margins the embedder sent — a mismatch here is
+                    // the tick-label/popup-boundary vertical offset.
+                    if let Some(r) = fig.debug_axes_rect() {
+                        eprintln!(
+                            "worker: cpp_axes_rect x0={:.1} y0={:.1} x1={:.1} y1={:.1} (fig {}x{})",
+                            r[0],
+                            r[1],
+                            r[2],
+                            r[3],
+                            fig.size().0,
+                            fig.size().1
+                        );
+                    }
+                }
                 if dbg_s {
                     match &res {
                         Some(img) => {
@@ -864,6 +880,12 @@ impl VolcanoSurface {
         let hover_list: Vec<crate::data::traces::TraceRef> =
             traces.hover_trace.clone().unwrap_or_default();
         let has_hover = traces.hover_trace.is_some();
+        // Axis label text must join the signature: it feeds the
+        // margins (adaptive ml / x-title mb) AND the figure — changing
+        // it without a re-render leaves a stale texture while the
+        // embedder's margins_used already moved.
+        let x_label = scope.axis_label_text(traces, true);
+        let y_label = scope.axis_label_text(traces, false);
         let mut sh = DefaultHasher::new();
         has_hover.hash(&mut sh);
         for n in &hover_list {
@@ -871,6 +893,10 @@ impl VolcanoSurface {
         }
         w.hash(&mut sh);
         h.hash(&mut sh);
+        hide_labels.hash(&mut sh);
+        scope.show_grid.hash(&mut sh);
+        x_label.hash(&mut sh);
+        y_label.hash(&mut sh);
         self.bounds.0[0].to_bits().hash(&mut sh);
         self.bounds.0[1].to_bits().hash(&mut sh);
         self.bounds.1[0].to_bits().hash(&mut sh);
@@ -1304,10 +1330,8 @@ impl VolcanoSurface {
         let (wf, hf) = (w as f32, h as f32);
         // Same label text the egui path computes (explicit name,
         // auto-generated trace names, or None when show_label is off).
-        // Needed before margins: a visible y-axis title reserves ~22px
-        // of left margin beyond the tick labels.
-        let x_label = scope.axis_label_text(traces, true);
-        let y_label = scope.axis_label_text(traces, false);
+        // Computed above for the signature; a visible y-axis title
+        // reserves ~22px of left margin beyond the tick labels.
         // Y ticks first: the widest label sizes the left margin —
         // egui_plot auto-grows its axis reservation the same way, and
         // without it "-X.XXXX" labels clip their minus at the canvas
