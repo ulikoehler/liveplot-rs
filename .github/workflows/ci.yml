@@ -16,6 +16,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # volcano feature builds vendor/VolcanoPlot via cmake
+          # (nested glyb/VMA submodules included).
+          submodules: recursive
 
       - name: Install system dependencies (incl. protoc for grpc)
         run: |
@@ -23,6 +27,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config build-essential ca-certificates \
             protobuf-compiler \
+            libvulkan1 mesa-vulkan-drivers \
             libx11-dev libxcb1-dev libx11-xcb-dev \
             libxi-dev libxtst-dev libxrandr-dev libxinerama-dev \
             libxkbcommon-dev libwayland-dev \
@@ -63,6 +68,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Install system dependencies
         run: |
@@ -70,6 +77,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             pkg-config build-essential ca-certificates \
             protobuf-compiler \
+            libvulkan1 mesa-vulkan-drivers \
             libx11-dev libxcb1-dev libx11-xcb-dev \
             libxi-dev libxtst-dev libxrandr-dev libxinerama-dev \
             libxkbcommon-dev libwayland-dev \
