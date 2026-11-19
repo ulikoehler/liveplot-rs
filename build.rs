@@ -92,6 +92,11 @@ fn main() {
             "-DVOLCANO_BUILD_EXAMPLES=OFF".to_string(),
             "-DVOLCANO_BUILD_CLI=OFF".to_string(),
             "-DVOLCANO_BUILD_PYTHON=OFF".to_string(),
+            // CMake 4.x dropped compat with cmake_minimum_required<3.5
+            // — the vendored glyb third_party fallbacks (zlib et al.)
+            // still declare <3.5 and break the configure on newer
+            // toolchains whenever a system lib is missing.
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5".to_string(),
         ];
         if !windows {
             args.push("-DCMAKE_BUILD_TYPE=Release".to_string());

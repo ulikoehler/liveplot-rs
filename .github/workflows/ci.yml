@@ -31,7 +31,8 @@ jobs:
             libx11-dev libxcb1-dev libx11-xcb-dev \
             libxi-dev libxtst-dev libxrandr-dev libxinerama-dev \
             libxkbcommon-dev libwayland-dev \
-            libgl1-mesa-dev libegl1-mesa-dev
+            libgl1-mesa-dev libegl1-mesa-dev \
+            libpng-dev zlib1g-dev libfreetype-dev libharfbuzz-dev libwebp-dev
 
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
@@ -81,7 +82,8 @@ jobs:
             libx11-dev libxcb1-dev libx11-xcb-dev \
             libxi-dev libxtst-dev libxrandr-dev libxinerama-dev \
             libxkbcommon-dev libwayland-dev \
-            libgl1-mesa-dev libegl1-mesa-dev
+            libgl1-mesa-dev libegl1-mesa-dev \
+            libpng-dev zlib1g-dev libfreetype-dev libharfbuzz-dev libwebp-dev
 
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal
