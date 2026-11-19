@@ -1070,11 +1070,15 @@ impl ScopePanel {
             egui::pos2(rect.left() + ml, rect.top() + mt),
             egui::pos2(rect.right() - mr, rect.bottom() - mb),
         );
-        self.data.volcano_scope_hover = resp
+        // One hit-test feeds both the hover-emphasis set and the
+        // tooltip below — a second volcano_nearest only runs when the
+        // view changed in between (active pan/zoom).
+        let near_initial = resp
             .hover_pos()
             .filter(|pos| axes.contains(*pos))
-            .map(|pos| volcano_nearest(surf.bounds, axes, pos, &self.data, traces).names)
-            .unwrap_or_default();
+            .map(|pos| volcano_nearest(surf.bounds, axes, pos, &self.data, traces));
+        self.data.volcano_scope_hover =
+            near_initial.as_ref().map(|n| n.names.clone()).unwrap_or_default();
         if let Some(tex) = surf.texture_id() {
             ui.painter().image(
                 tex,
@@ -1510,7 +1514,14 @@ impl ScopePanel {
         // area too).
         if resp.hovered() {
             if let Some(pos) = hover_pos.filter(|p| axes.contains(*p)) {
-                let near = volcano_nearest(view, axes, pos, &self.data, traces);
+                let near = if view == view_initial {
+                    near_initial.clone().unwrap_or(VolcanoNear {
+                        tip: None,
+                        names: Vec::new(),
+                    })
+                } else {
+                    volcano_nearest(view, axes, pos, &self.data, traces)
+                };
                 let ([px, py], name) = near.tip.unwrap_or((to_view(view, pos), String::new()));
                 let x = if self.data.x_axis.log_scale {
                     10f64.powf(px)
@@ -2783,6 +2794,7 @@ fn seg_d2(a: egui::Pos2, b: egui::Pos2, p: egui::Pos2) -> f32 {
 /// pointer for hover emphasis (`names`, nearest *segment* ≤8 px,
 /// falling back to the point hit for single-point traces).
 #[cfg(feature = "volcano")]
+#[derive(Clone)]
 struct VolcanoNear {
     tip: Option<([f64; 2], String)>,
     names: Vec<TraceRef>,
@@ -2922,7 +2934,25 @@ fn volcano_nearest(
             };
             let label = trace_legend_label(data.show_info_in_legend, traces, name, &tr.info);
             let off = tr.offset;
-            let mut it = pts.iter().map(move |p| [p[0], p[1] + off]);
+            // Time-scope points are append-ordered by x (the same
+            // invariant fit_y_bounds' early break relies on), so the
+            // ±10px band is a binary-searched window — one neighbor on
+            // each side covers band-crossing segments.
+            let (blo, bhi) = if x_log {
+                (rx_lo.min(vx_lo), rx_hi.max(vx_hi))
+            } else {
+                (rx_lo, rx_hi)
+            };
+            let (s0, s1) = pts.as_slices();
+            let lo = s0.partition_point(|p| p[0] < blo)
+                + s1.partition_point(|p| p[0] < blo);
+            let hi = s0.partition_point(|p| p[0] <= bhi)
+                + s1.partition_point(|p| p[0] <= bhi);
+            let start = lo.saturating_sub(1);
+            let end = (hi + 1).min(pts.len());
+            let mut it = (start..end)
+                .filter_map(|i| pts.get(i))
+                .map(move |p| [p[0], p[1] + off]);
             scan(&mut it, &label, vec![name.clone()]);
         }
     }

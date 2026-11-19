@@ -769,10 +769,12 @@ impl ScopeData {
             } else {
                 &trace.live
             };
-            for p in points.iter() {
-                if p[0] < x_bounds.0 {
-                    continue;
-                }
+            // Sorted by x → binary-search the window start instead of
+            // scanning the leading out-of-view prefix.
+            let (s0, s1) = points.as_slices();
+            let lo = s0.partition_point(|p| p[0] < x_bounds.0)
+                + s1.partition_point(|p| p[0] < x_bounds.0);
+            for p in points.iter().skip(lo) {
                 if p[0] > x_bounds.1 {
                     break;
                 }
