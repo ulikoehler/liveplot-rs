@@ -1,3 +1,8 @@
+// The e2e suite builds fixture structs via `..Default::default()`
+// followed by field overrides — idiomatic here, so the
+// field_reassign_with_default style lint stays off for this crate.
+#![allow(clippy::field_reassign_with_default)]
+
 mod harness;
 mod signals;
 

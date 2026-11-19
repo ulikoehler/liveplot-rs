@@ -37,7 +37,7 @@ fn drag_trace_onto_second_scope_moves_it() {
         .harness
         .query_all_by_label_contains("bbb")
         .map(|n| n.rect().center())
-        .last();
+        .next_back();
     let Some(from) = from else {
         eprintln!("trace row not accessible via accesskit — skipping drag");
         return;

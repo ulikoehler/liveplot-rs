@@ -103,6 +103,11 @@ path = "examples/grpc-server.rs"
 required-features = ["grpc"]
 
 [[example]]
+name = "hal_probe"
+path = "examples/hal_probe.rs"
+required-features = ["volcano"]
+
+[[example]]
 name = "sine"
 path = "examples/sine.rs"
 

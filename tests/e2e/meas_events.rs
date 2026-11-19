@@ -31,7 +31,7 @@ fn measurement_clicks_emit_events() {
             }
         }
     }
-    feed_sine_app(&mut bed, "a", 100, 1.0, 100.0, 0.0);
+    feed_sine_app(&bed, "a", 100, 1.0, 100.0, 0.0);
     app_steps(&mut bed, 3);
     let _ = rx.try_iter().count();
 

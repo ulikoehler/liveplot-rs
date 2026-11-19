@@ -1077,8 +1077,10 @@ impl ScopePanel {
             .hover_pos()
             .filter(|pos| axes.contains(*pos))
             .map(|pos| volcano_nearest(surf.bounds, axes, pos, &self.data, traces));
-        self.data.volcano_scope_hover =
-            near_initial.as_ref().map(|n| n.names.clone()).unwrap_or_default();
+        self.data.volcano_scope_hover = near_initial
+            .as_ref()
+            .map(|n| n.names.clone())
+            .unwrap_or_default();
         if let Some(tex) = surf.texture_id() {
             ui.painter().image(
                 tex,
@@ -1271,7 +1273,7 @@ impl ScopePanel {
                 x_range: Some(self.data.x_axis.bounds),
                 y_range: Some(self.data.y_axis.bounds),
                 scope_id: Some(self.data.id),
-                scope_type: Some(self.data.scope_type.clone()),
+                scope_type: Some(self.data.scope_type),
             });
         }
 
@@ -2825,7 +2827,7 @@ fn volcano_nearest(
     // monotonic → invert once with 10^) the filter needs one compare
     // per point — the log/to_screen/distance work only runs for the
     // handful of points near the pointer instead of every sample.
-    let x_span = (view.0[1] - view.0[0]) as f64 / axes.width() as f64;
+    let x_span = (view.0[1] - view.0[0]) / axes.width() as f64;
     let vx_lo = view.0[0] + ((pos.x - 10.0 - axes.left()) as f64) * x_span;
     let vx_hi = view.0[0] + ((pos.x + 10.0 - axes.left()) as f64) * x_span;
     let (vx_lo, vx_hi) = (vx_lo.min(vx_hi), vx_lo.max(vx_hi));
@@ -2860,13 +2862,12 @@ fn volcano_nearest(
         for p in plin {
             // Band test in raw space; the second disjunct covers the
             // p<=0 fallback where lx stays raw under log scaling.
-            let in_band = (p[0] >= rx_lo && p[0] <= rx_hi)
-                || (x_log && p[0] >= vx_lo && p[0] <= vx_hi);
+            let in_band =
+                (p[0] >= rx_lo && p[0] <= rx_hi) || (x_log && p[0] >= vx_lo && p[0] <= vx_hi);
             let seg_maybe = prev.as_ref().is_some_and(|(q, _)| {
                 !((q[0] < rx_lo && p[0] < rx_lo) || (q[0] > rx_hi && p[0] > rx_hi))
                     || (x_log
-                        && !((q[0] < vx_lo && p[0] < vx_lo)
-                            || (q[0] > vx_hi && p[0] > vx_hi)))
+                        && !((q[0] < vx_lo && p[0] < vx_lo) || (q[0] > vx_hi && p[0] > vx_hi)))
             });
             if !in_band && !seg_maybe {
                 prev = Some((p, None));
@@ -2879,7 +2880,23 @@ fn volcano_nearest(
             if in_band {
                 let d2 = s.distance_sq(pos);
                 if d2 < POINT_D2 && best_pt.as_ref().is_none_or(|(d, _, _, _)| d2 < *d) {
-                    best_pt = Some((d2, [if x_log && p[0] > 0.0 { p[0].log10() } else { p[0] }, if y_log && p[1] > 0.0 { p[1].log10() } else { p[1] }], label.to_string(), names.clone()));
+                    best_pt = Some((
+                        d2,
+                        [
+                            if x_log && p[0] > 0.0 {
+                                p[0].log10()
+                            } else {
+                                p[0]
+                            },
+                            if y_log && p[1] > 0.0 {
+                                p[1].log10()
+                            } else {
+                                p[1]
+                            },
+                        ],
+                        label.to_string(),
+                        names.clone(),
+                    ));
                 }
             }
             if seg_maybe {
@@ -2944,10 +2961,8 @@ fn volcano_nearest(
                 (rx_lo, rx_hi)
             };
             let (s0, s1) = pts.as_slices();
-            let lo = s0.partition_point(|p| p[0] < blo)
-                + s1.partition_point(|p| p[0] < blo);
-            let hi = s0.partition_point(|p| p[0] <= bhi)
-                + s1.partition_point(|p| p[0] <= bhi);
+            let lo = s0.partition_point(|p| p[0] < blo) + s1.partition_point(|p| p[0] < blo);
+            let hi = s0.partition_point(|p| p[0] <= bhi) + s1.partition_point(|p| p[0] <= bhi);
             let start = lo.saturating_sub(1);
             let end = (hi + 1).min(pts.len());
             let mut it = (start..end)

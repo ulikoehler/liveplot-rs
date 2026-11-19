@@ -79,14 +79,12 @@ pub fn run_liveplot(
         match crate::volcano::init_shared() {
             Ok(sg) => {
                 opts.wgpu_options.wgpu_setup =
-                    eframe::egui_wgpu::WgpuSetup::Existing(
-                        eframe::egui_wgpu::WgpuSetupExisting {
-                            instance: sg.instance.clone(),
-                            adapter: sg.adapter.clone(),
-                            device: sg.device.clone(),
-                            queue: sg.queue.clone(),
-                        },
-                    );
+                    eframe::egui_wgpu::WgpuSetup::Existing(eframe::egui_wgpu::WgpuSetupExisting {
+                        instance: sg.instance.clone(),
+                        adapter: sg.adapter.clone(),
+                        device: sg.device.clone(),
+                        queue: sg.queue.clone(),
+                    });
                 eprintln!("[vp-shm] eframe will run on VolcanoPlot's VkDevice");
             }
             Err(e) => eprintln!("[vp-shm] shared device unavailable: {e} — CPU path"),

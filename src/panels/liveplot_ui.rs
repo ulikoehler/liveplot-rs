@@ -941,6 +941,7 @@ mod tests {
     ) {
     }
 
+    #[allow(clippy::type_complexity)]
     fn test_behavior(
         traces: &mut TracesCollection,
     ) -> ScopeBehavior<

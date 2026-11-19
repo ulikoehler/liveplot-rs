@@ -28,7 +28,9 @@ fn main() {
             label: Some("probe"),
         });
     shared.queue.submit([enc.finish()]);
-    let _ = shared.device.poll(eframe::wgpu::PollType::wait_indefinitely());
+    let _ = shared
+        .device
+        .poll(eframe::wgpu::PollType::wait_indefinitely());
     println!("trivial submit+poll OK");
 
     // Prove the C++ renderer still works on the same device: build a
@@ -40,20 +42,14 @@ fn main() {
         xy.push([x, x.sin()]);
     }
     let id = fig.add_trace();
-    fig.set_trace(
-        id,
-        &xy,
-        0x00FF00FF,
-        1.0,
-        volcano::VolcanoLineStyle::Solid,
-    );
+    fig.set_trace(id, &xy, 0x00FF00FF, 1.0, volcano::VolcanoLineStyle::Solid);
     let rgba = fig.render_rgba();
     assert!(
         rgba.is_some(),
         "vp_render_rgba returned None on shared device"
     );
     let px = rgba.unwrap().to_vec();
-    let lit = px.chunks_exact(4).filter(|p| p[1] > 200).count();
+    let lit = px.as_chunks::<4>().0.iter().filter(|p| p[1] > 200).count();
     println!("vp figure rendered: {} bytes, {} lit px", px.len(), lit);
     assert!(lit > 100, "rendered image looks empty");
 

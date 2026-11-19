@@ -1711,7 +1711,7 @@ fn probe_fft_scope_screenshots() {
             d.rendered_this_frame,
             d.x_axis.bounds,
             d.y_axis.bounds,
-            d.volcano_surface.as_ref().map_or(false, |s| s.bounds_external),
+            d.volcano_surface.as_ref().is_some_and(|s| s.bounds_external),
             d.volcano_surface.as_ref().map(|s| s.bounds),
         );
         if let Some(s) = d.volcano_surface.as_ref() {
@@ -2159,7 +2159,7 @@ fn probe_producer_thread_purge_vanish() {
                     },
                 );
                 n += 1.0;
-                if n as u64 % 50 == 0 {
+                if (n as u64).is_multiple_of(50) {
                     std::thread::sleep(Duration::from_millis(1));
                 }
             }
@@ -2213,7 +2213,8 @@ fn probe_producer_thread_purge_vanish() {
 #[test]
 fn probe_fig_rebuild_recovers_trace() {
     use crate::signals::{gen, SignalSpec};
-    for vol in [true] {
+    {
+        let vol = true;
         let Some(mut bed) = wgpu_bed() else { return };
         let tr = bed.sink.create_trace("rebuild_sig", None);
         scope_mut(&mut bed, 0).volcano_enabled = vol;
@@ -2362,8 +2363,7 @@ fn volcano_top_band_repro_app() {
     let trace = bed.sink.create_trace("sig", None);
     let mut n = 0usize;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    let mut last_white = u64::MAX;
-    loop {
+    let last_white = loop {
         let pts: Vec<liveplot::PlotPoint> = (0..64)
             .map(|i| {
                 let t = t0 - 6.5 + (n + i) as f64 / 1000.0;
@@ -2386,13 +2386,12 @@ fn volcano_top_band_repro_app() {
                 .map(|s| (s.frames_rendered, s.dbg_top16_white))
                 .fold((0u64, 0u64), |a, b| (a.0.max(b.0), a.1.max(b.1)))
         };
-        last_white = white;
         if frames >= 60 || std::time::Instant::now() >= deadline {
             eprintln!("app repro: frames={frames} top16white={white}");
-            break;
+            break white;
         }
         std::thread::sleep(std::time::Duration::from_millis(3));
-    }
+    };
     assert_eq!(
         last_white, 0,
         "app scope has white top rows in the Vulkan readback"

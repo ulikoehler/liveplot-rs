@@ -24,6 +24,14 @@ fn first_existing(dir: &Path, names: &[&str]) -> Option<String> {
 }
 
 fn main() {
+    // gRPC examples: generate sine.v1.rs into OUT_DIR for
+    // `tonic::include_proto!`. Without this the `grpc` feature builds
+    // fine but every example that includes the proto fails.
+    if std::env::var("CARGO_FEATURE_GRPC").is_ok() {
+        tonic_prost_build::compile_protos("proto/sine.proto")
+            .expect("failed to compile proto/sine.proto");
+        println!("cargo:rerun-if-changed=proto/sine.proto");
+    }
     if std::env::var("CARGO_FEATURE_VOLCANO").is_err() {
         return;
     }

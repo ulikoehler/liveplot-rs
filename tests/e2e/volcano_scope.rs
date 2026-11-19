@@ -17,7 +17,7 @@ fn volcano_scope_renders_through_surface() {
         .as_ref()
         .expect("volcano surface must exist when LIVEPLOT_VOLCANO is set");
     assert!(surf.initialized(), "surface never rendered a frame");
-    assert_eq!(s.rendered_this_frame, true);
+    assert!(s.rendered_this_frame);
     let (xb, _yb) = s.last_plot_bounds.expect("bounds synced from surface");
     assert!(xb[1] > xb[0], "x range must be positive, got {xb:?}");
 }

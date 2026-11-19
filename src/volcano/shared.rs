@@ -85,10 +85,7 @@ impl SharedGraphics {
             .device
             .as_hal::<wgpu_hal::api::Vulkan>()
             .ok_or("no vulkan hal device")?;
-        let hal_buf = wgpu_hal::vulkan::Buffer::from_raw_externally_owned(
-            vk_buf,
-            Box::new(|| {}),
-        );
+        let hal_buf = wgpu_hal::vulkan::Buffer::from_raw_externally_owned(vk_buf, Box::new(|| {}));
         let _ = hal_dev;
         Ok(self.device.create_buffer_from_hal::<wgpu_hal::api::Vulkan>(
             hal_buf,
@@ -132,9 +129,7 @@ impl std::error::Error for SharedInitError {}
 /// Collect the `const char**` array an FFI getter returns into a vec
 /// of CStrs. The pointees live in the C++ context's static storage —
 /// leaked by design — so `'static` is accurate.
-unsafe fn ext_list(
-    f: unsafe extern "C" fn(*mut *const *const i8) -> i32,
-) -> Vec<&'static CStr> {
+unsafe fn ext_list(f: unsafe extern "C" fn(*mut *const *const i8) -> i32) -> Vec<&'static CStr> {
     let mut arr: *const *const i8 = std::ptr::null();
     let n = f(&mut arr);
     if n <= 0 || arr.is_null() {
@@ -168,8 +163,7 @@ unsafe fn init_inner() -> Result<SharedGraphicsRef, SharedInitError> {
     let dev_exts = ext_list(super::vp_shared_device_exts);
 
     // 2. Wrap the foreign VkInstance.
-    let entry =
-        ash::Entry::load().map_err(|e| SharedInitError::Hal(format!("ash entry: {e}")))?;
+    let entry = ash::Entry::load().map_err(|e| SharedInitError::Hal(format!("ash entry: {e}")))?;
     let ash_inst = ash::Instance::load(
         entry.static_fn(),
         ash::vk::Instance::from_raw(info.vk_instance),
@@ -183,7 +177,7 @@ unsafe fn init_inner() -> Result<SharedGraphicsRef, SharedInitError> {
         inst_exts,
         wgpu::InstanceFlags::default(),
         wgpu::MemoryBudgetThresholds::default(),
-        false, // has_nv_optimus
+        false,                 // has_nv_optimus
         Some(Box::new(|| {})), // no-op drop cb: VP owns the VkInstance
     )
     .map_err(|e| SharedInitError::Hal(format!("instance wrap: {e:?}")))?;
@@ -192,16 +186,11 @@ unsafe fn init_inner() -> Result<SharedGraphicsRef, SharedInitError> {
     // 3. Expose VP's physical device as a wgpu adapter.
     let exposed = {
         let hal_inst_guard = instance.as_hal::<wgpu_hal::api::Vulkan>();
-        let hal_inst_ref = hal_inst_guard
-            .as_deref()
-            .ok_or_else(|| SharedInitError::Hal("no vulkan hal instance".into()))?;
-        hal_inst_ref.expose_adapter(ash::vk::PhysicalDevice::from_raw(
-            info.vk_physical_device,
-        ))
+        let hal_inst_ref =
+            hal_inst_guard.ok_or_else(|| SharedInitError::Hal("no vulkan hal instance".into()))?;
+        hal_inst_ref.expose_adapter(ash::vk::PhysicalDevice::from_raw(info.vk_physical_device))
     }
-    .ok_or_else(|| {
-        SharedInitError::Hal("expose_adapter rejected the physical device".into())
-    })?;
+    .ok_or_else(|| SharedInitError::Hal("expose_adapter rejected the physical device".into()))?;
     let hal_adapter = &exposed.adapter;
 
     // 4. Contract check: every extension wgpu needs must already be
@@ -239,10 +228,7 @@ unsafe fn init_inner() -> Result<SharedGraphicsRef, SharedInitError> {
         .map_err(|e| SharedInitError::Hal(format!("device_from_raw: {e:?}")))?;
     let adapter = instance.create_adapter_from_hal::<wgpu_hal::api::Vulkan>(exposed);
     let (device, queue) = adapter
-        .create_device_from_hal::<wgpu_hal::api::Vulkan>(
-            open,
-            &wgpu::DeviceDescriptor::default(),
-        )
+        .create_device_from_hal::<wgpu_hal::api::Vulkan>(open, &wgpu::DeviceDescriptor::default())
         .map_err(|e| SharedInitError::Hal(format!("create_device_from_hal: {e}")))?;
 
     eprintln!(

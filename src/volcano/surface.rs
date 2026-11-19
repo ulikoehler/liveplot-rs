@@ -96,8 +96,8 @@ fn vp_style(look: &TraceLook) -> VolcanoLineStyle {
     }
 }
 
-/// egui `MarkerShape` → `plot::MarkerStyle` ordinal; `MARKER_NONE`
-/// when `show_points` is off (egui draws points only on request too).
+// egui `MarkerShape` → `plot::MarkerStyle` ordinal; `MARKER_NONE`
+// when `show_points` is off (egui draws points only on request too).
 
 /// Hashable hover-state tag for `trace_sig` — 0 no hover set, 1
 /// hovered/emphasized, 2 dimmed.
@@ -473,18 +473,12 @@ impl RenderWorker {
                                 eprintln!("worker: render_shm failed — CPU fallback");
                             }
                             match fig.render_rgba_view() {
-                                Some((rw, rh, view)) => Some(color_image_from_rgba(
-                                    [rw as usize, rh as usize],
-                                    view,
-                                )),
-                                None => fig
-                                    .render_rgba_into(&mut px)
-                                    .map(|(rw, rh)| {
-                                        color_image_from_rgba(
-                                            [rw as usize, rh as usize],
-                                            &px,
-                                        )
-                                    }),
+                                Some((rw, rh, view)) => {
+                                    Some(color_image_from_rgba([rw as usize, rh as usize], view))
+                                }
+                                None => fig.render_rgba_into(&mut px).map(|(rw, rh)| {
+                                    color_image_from_rgba([rw as usize, rh as usize], &px)
+                                }),
                             }
                         }
                     }
@@ -733,8 +727,7 @@ impl VolcanoSurface {
             dbg_top16_white: 0,
             dbg_dump_n: 0,
             initialized: false,
-            shm_disabled: std::env::var("LIVEPLOT_VOLCANO_SHM")
-                .is_ok_and(|v| v == "0"),
+            shm_disabled: std::env::var("LIVEPLOT_VOLCANO_SHM").is_ok_and(|v| v == "0"),
             shm_tex: None,
             shm_view: None,
             shm_tex_id: None,
@@ -755,6 +748,7 @@ impl VolcanoSurface {
     /// `hide_labels` mirrors the egui path's tiny-widget suppression of
     /// x/y tick labels. Returns false when Vulkan is unavailable →
     /// caller falls back.
+    #[allow(clippy::too_many_arguments)]
     pub fn sync_and_render(
         &mut self,
         ctx: &egui::Context,
@@ -778,7 +772,7 @@ impl VolcanoSurface {
         // queue starvation) must not freeze the scope forever — a
         // timeout marks the worker dead and the figure is rebuilt.
         enum Poll {
-            Done(VolcanoFigure, Option<egui::ColorImage>, SyncReport),
+            Done(VolcanoFigure, Option<egui::ColorImage>, Box<SyncReport>),
             Busy,
             Dead,
         }
@@ -793,12 +787,12 @@ impl VolcanoSurface {
                 // freeze the scope 5s per frame.
                 let poll = if !have_tex {
                     match w.res_rx.recv_timeout(std::time::Duration::from_secs(5)) {
-                        Ok((f, px, rep)) => Poll::Done(f, px, rep),
+                        Ok((f, px, rep)) => Poll::Done(f, px, Box::new(rep)),
                         Err(_) => Poll::Dead,
                     }
                 } else {
                     match w.res_rx.try_recv() {
-                        Ok((f, px, rep)) => Poll::Done(f, px, rep),
+                        Ok((f, px, rep)) => Poll::Done(f, px, Box::new(rep)),
                         Err(std::sync::mpsc::TryRecvError::Empty) => {
                             // A job that never comes back would keep
                             // `busy` set forever — the sig gate then
@@ -850,7 +844,11 @@ impl VolcanoSurface {
                         }
                         if let Some(shm) = rep.shm {
                             if std::env::var_os("LIVEPLOT_DEBUG_SHM").is_some() {
-                                eprintln!("[shm] ui done slot={} figptr={:p}", shm.slot, self.fig.as_ref().unwrap());
+                                eprintln!(
+                                    "[shm] ui done slot={} figptr={:p}",
+                                    shm.slot,
+                                    self.fig.as_ref().unwrap()
+                                );
                             }
                             if self.present_shm(&shm) {
                                 self.initialized = true;
@@ -909,7 +907,7 @@ impl VolcanoSurface {
                                     .ok()
                                     .and_then(|v| v.parse().ok())
                                     .unwrap_or(30);
-                                if (self.dbg_dump_n - 1) % every == 0 {
+                                if (self.dbg_dump_n - 1).is_multiple_of(every) {
                                     let path = format!("{dir}/volcano_tex_{}.png", self.dbg_dump_n);
                                     if let Some(img) = image::RgbaImage::from_raw(
                                         image.size[0] as u32,
@@ -1172,7 +1170,7 @@ impl VolcanoSurface {
         let (sx, sy) = self.shift;
         // A changed shift must force re-upload — fold it into the
         // per-trace sig so the stale unshifted data gets replaced.
-        let shift_bits = (self.shift.0.to_bits() ^ self.shift.1.to_bits()) as u64;
+        let shift_bits = self.shift.0.to_bits() ^ self.shift.1.to_bits();
 
         // Sync trace set: add missing, update data+style. All figure
         // mutations are batched into `cmds` and applied on the render
@@ -1558,22 +1556,8 @@ impl VolcanoSurface {
         // the sub-gridlines — faded by each level's spacing-derived
         // strength. Everything a major (labeled) position doesn't
         // already cover goes through the minor-grid path.
-        let x_minor = egui_style_minor_grid(
-            xb[0] - sx,
-            xb[1] - sx,
-            sx,
-            log_xy.0,
-            x_px,
-            &x_ticks,
-        );
-        let y_minor = egui_style_minor_grid(
-            yb[0] - sy,
-            yb[1] - sy,
-            sy,
-            log_xy.1,
-            y_px,
-            &y_ticks,
-        );
+        let x_minor = egui_style_minor_grid(xb[0] - sx, xb[1] - sx, sx, log_xy.0, x_px, &x_ticks);
+        let y_minor = egui_style_minor_grid(yb[0] - sy, yb[1] - sy, sy, log_xy.1, y_px, &y_ticks);
         fig.set_minor_grid(0, &x_minor);
         fig.set_minor_grid(1, &y_minor);
 
@@ -1607,14 +1591,14 @@ impl VolcanoSurface {
 
     /// Texture with the last rendered frame, for the caller to paint.
     pub fn texture_id(&self) -> Option<egui::TextureId> {
-        self.shm_tex_id.or_else(|| self.tex.as_ref().map(|t| t.id()))
+        self.shm_tex_id
+            .or_else(|| self.tex.as_ref().map(|t| t.id()))
     }
 
     /// True when the shared-memory present path can run this frame —
     /// shared wgpu device + egui renderer attached + not env/opt-out.
     fn shm_available(&self) -> bool {
-        !self.shm_disabled
-            && super::shared().is_some_and(|s| s.render_state().is_some())
+        !self.shm_disabled && super::shared().is_some_and(|s| s.render_state().is_some())
     }
 
     /// Consume a shared-memory frame on the UI thread: wrap the slot's
@@ -1646,8 +1630,7 @@ impl VolcanoSurface {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_DST,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
             let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1723,7 +1706,10 @@ impl VolcanoSurface {
             fig.shm_release(f.slot);
         }
         if std::env::var_os("LIVEPLOT_DEBUG_SHM").is_some() {
-            eprintln!("[shm] presented slot={} gen={} {}x{}", f.slot, f.generation, f.width, f.height);
+            eprintln!(
+                "[shm] presented slot={} gen={} {}x{}",
+                f.slot, f.generation, f.width, f.height
+            );
         }
         true
     }

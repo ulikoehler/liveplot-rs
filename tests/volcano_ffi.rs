@@ -19,7 +19,10 @@ fn sine(n: usize, fs: f64, freq: f64) -> Vec<[f64; 2]> {
 /// background) — proves the full FFI → Vulkan → readback path works.
 #[test]
 fn volcano_renders_sine_framebuffer() {
-    let mut fig = VolcanoFigure::new(640, 480).expect("vp_figure_create");
+    let Some(mut fig) = VolcanoFigure::new(640, 480) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id = fig.add_trace();
     assert!(id != 0);
     fig.set_trace(
@@ -33,7 +36,9 @@ fn volcano_renders_sine_framebuffer() {
     let px = fig.render_rgba().expect("render frame");
     assert_eq!(px.len(), 640 * 480 * 4);
     let unique: std::collections::HashSet<u32> = px
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect();
     assert!(
@@ -44,7 +49,9 @@ fn volcano_renders_sine_framebuffer() {
     // The 0xFF6600 (orange) trace line should be present somewhere —
     // antialiasing shifts channels, so match with tolerance.
     let orange = px
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .any(|c| c[0] > 200 && c[1] > 60 && c[1] < 160 && c[2] < 80 && c[3] == 255);
     assert!(orange, "trace color 0xFF6600 not found in framebuffer");
 }
@@ -57,7 +64,10 @@ fn volcano_renders_sine_framebuffer() {
 #[test]
 fn volcano_margins_match_panel_bg() {
     let (w, h) = (900u32, 500u32);
-    let mut fig = VolcanoFigure::new(w, h).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(w, h) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id = fig.add_trace();
     fig.set_trace(
         id,
@@ -94,7 +104,9 @@ fn volcano_margins_match_panel_bg() {
     for y in 0..top_margin_h {
         let row = &px[y * w as usize * 4..(y + 1) * w as usize * 4];
         let white = row
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235)
             .count();
         assert!(
@@ -108,7 +120,10 @@ fn volcano_margins_match_panel_bg() {
 /// Viewport + style changes round-trip through the FFI.
 #[test]
 fn volcano_viewport_and_styles() {
-    let mut fig = VolcanoFigure::new(320, 200).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(320, 200) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let a = fig.add_trace();
     let b = fig.add_trace();
     fig.set_trace(
@@ -143,7 +158,10 @@ fn volcano_viewport_and_styles() {
 fn volcano_gpu_sustained_render() {
     use std::time::Instant;
     let n = 200_000usize;
-    let mut fig = VolcanoFigure::new(1280, 720).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(1280, 720) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     for t in 0..8 {
         let mut xy = Vec::with_capacity(n);
         for i in 0..n {
@@ -187,7 +205,10 @@ fn volcano_perf_200k_points() {
         let t = i as f64 * 0.001;
         xy.push([t, t.sin() * (1.0 + 0.05 * (t * 8.0).cos())]);
     }
-    let mut fig = VolcanoFigure::new(1280, 720).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(1280, 720) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id = fig.add_trace();
     let t_up = Instant::now();
     fig.set_trace(id, &xy, 0xFF8800FF, 1.5, VolcanoLineStyle::Solid);
@@ -234,7 +255,10 @@ fn volcano_tiny_height_renders() {
 /// Degenerate viewport / empty trace — must not break the renderer.
 #[test]
 fn volcano_degenerate_state() {
-    let mut fig = VolcanoFigure::new(1122, 51).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(1122, 51) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     // no traces at all, degenerate viewport
     fig.set_viewport(0.0, 0.0, 0.0, 0.0);
     eprintln!("empty+degenerate: {:?}", fig.render_rgba().map(|v| v.len()));
@@ -258,7 +282,10 @@ fn volcano_degenerate_state() {
 #[test]
 #[ignore]
 fn volcano_hold_device_probe() {
-    let mut fig = VolcanoFigure::new(640, 480).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(640, 480) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id = fig.add_trace();
     fig.set_trace(
         id,
@@ -289,7 +316,10 @@ fn volcano_render_scaling_probe() {
         })
         .collect();
     for (w, h) in [(64, 64), (320, 200), (1122, 635)] {
-        let mut fig = VolcanoFigure::new(w, h).expect("figure");
+        let Some(mut fig) = VolcanoFigure::new(w, h) else {
+            eprintln!("volcano: no Vulkan device — skipping");
+            return;
+        };
         let id = fig.add_trace();
         fig.set_trace(id, &xy, 0xFF8800FF, 1.5, VolcanoLineStyle::Solid);
         fig.set_viewport(0.0, 200.0, -1.2, 1.2);
@@ -306,7 +336,10 @@ fn volcano_render_scaling_probe() {
 /// Diagnostic: render with axis labels and dump the framebuffer to PNG.
 #[test]
 fn volcano_debug_render_png() {
-    let mut fig = VolcanoFigure::new(640, 400).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(640, 400) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     fig.set_axis_labels(Some("Frequency (Hz)"), Some("Magnitude (dB)"));
     fig.set_viewport(0.0, 10.0, 0.0, 1.0);
     fig.set_background(true);
@@ -328,7 +361,7 @@ fn volcano_debug_render_png() {
 fn trace_x_extent(px: &[u8], w: usize, rgba: [u8; 3]) -> Option<(usize, usize)> {
     let mut lo = usize::MAX;
     let mut hi = 0usize;
-    for (i, c) in px.chunks_exact(4).enumerate() {
+    for (i, c) in px.as_chunks::<4>().0.iter().enumerate() {
         let close = c[0].abs_diff(rgba[0]) < 60
             && c[1].abs_diff(rgba[1]) < 60
             && c[2].abs_diff(rgba[2]) < 60
@@ -348,7 +381,10 @@ fn trace_x_extent(px: &[u8], w: usize, rgba: [u8; 3]) -> Option<(usize, usize)> 
 #[test]
 fn volcano_slide_before_first_render_drops_old_points() {
     let w = 640;
-    let mut fig = VolcanoFigure::new(w as u32, 300).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(w as u32, 300) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id = fig.add_trace();
     // Old window: x in [0,5]. Then drop ALL of it and append x in [7,9]
     // — before the first render, so prepare() takes the cold path.
@@ -378,7 +414,10 @@ fn volcano_slide_before_first_render_drops_old_points() {
 /// trace permanently.
 #[test]
 fn volcano_slide_on_missing_plot_reports_failure() {
-    let mut fig = VolcanoFigure::new(320, 200).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(320, 200) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id = fig.add_trace();
     let pts: Vec<[f64; 2]> = (0..10)
         .map(|i| [i as f64, (i as f64 * 0.6).sin()])
@@ -398,7 +437,9 @@ fn volcano_slide_on_missing_plot_reports_failure() {
     for k in 0..3 {
         let px = fig.render_rgba().expect("render");
         let red = px
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|c| c[0].abs_diff(255) < 60 && c[1] < 60 && c[2] < 60 && c[3] > 200)
             .count();
         eprintln!("render {k}: red_px={red}");
@@ -413,7 +454,10 @@ fn volcano_slide_on_missing_plot_reports_failure() {
 #[test]
 fn volcano_repeated_slides_track_window() {
     let w = 640;
-    let mut fig = VolcanoFigure::new(w as u32, 300).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(w as u32, 300) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id = fig.add_trace();
     // Window x∈[0,10].
     let mut data: Vec<[f64; 2]> = (0..100)
@@ -461,7 +505,10 @@ fn volcano_repeated_slides_track_window() {
 #[test]
 fn volcano_slide_compaction_eating_pending_tail() {
     let w = 640;
-    let mut fig = VolcanoFigure::new(w as u32, 300).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(w as u32, 300) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id = fig.add_trace();
     // Window x∈[0,9].
     let data: Vec<[f64; 2]> = (0..10)
@@ -506,7 +553,10 @@ fn volcano_slide_compaction_eating_pending_tail() {
 #[test]
 fn volcano_slide_screenshot() {
     let (w, h) = (900u32, 500u32);
-    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(w, h) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     fig.set_background(true);
     fig.set_axis_labels(Some("t"), Some("y"));
     fig.set_viewport(0.0, 20.0, -1.3, 1.3);
@@ -598,22 +648,28 @@ fn volcano_envelope_device_matches_readback() {
     pts[7010] = [f64::NAN, f64::NAN];
     pts[15000] = [f64::NAN, f64::NAN];
 
-    let render = || {
-        let mut fig = VolcanoFigure::new(w, h).unwrap();
+    let render = || -> Option<Vec<u8>> {
+        let mut fig = VolcanoFigure::new(w, h)?;
         fig.set_background(true);
         fig.set_viewport(0.0, 20.0, -1.3, 1.3);
         let id = fig.add_trace();
         fig.set_trace(id, &pts, 0xFF2222FF, 1.5, VolcanoLineStyle::Solid);
-        fig.render_rgba().unwrap().to_vec()
+        Some(fig.render_rgba().unwrap().to_vec())
     };
 
-    let dev_px = render();
+    let Some(dev_px) = render() else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     image::RgbaImage::from_raw(w, h, dev_px.clone())
         .unwrap()
         .save("/tmp/env_dev.png")
         .unwrap();
     unsafe { std::env::set_var("VOLCANO_ENVDEV", "0") };
-    let rb_px = render();
+    let Some(rb_px) = render() else {
+        unsafe { std::env::remove_var("VOLCANO_ENVDEV") };
+        return;
+    };
     unsafe { std::env::remove_var("VOLCANO_ENVDEV") };
     image::RgbaImage::from_raw(w, h, rb_px.clone())
         .unwrap()
@@ -634,7 +690,9 @@ fn volcano_envelope_device_matches_readback() {
     );
     // And the device render must actually contain the trace.
     let red = dev_px
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|c| c[0] > 200 && c[1] < 100 && c[2] < 100)
         .count();
     assert!(red > 100, "device envelope drew {red} trace px");
@@ -646,7 +704,10 @@ fn volcano_envelope_device_matches_readback() {
 #[test]
 fn volcano_slide_screenshot_envelope_scale() {
     let (w, h) = (900u32, 500u32);
-    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(w, h) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     fig.set_background(true);
     fig.set_axis_labels(Some("t"), Some("y"));
 
@@ -723,7 +784,10 @@ fn volcano_slide_screenshot_envelope_scale() {
 #[test]
 fn volcano_ramp_slide_screenshot() {
     let (w, h) = (1100u32, 600u32);
-    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(w, h) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     fig.set_background(true);
     fig.set_axis_labels(Some("t"), Some("y"));
 
@@ -794,7 +858,10 @@ fn volcano_ramp_slide_screenshot() {
 #[test]
 fn volcano_ramp_bisect() {
     let (w, h) = (1100u32, 600u32);
-    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(w, h) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     fig.set_background(true);
     fig.set_axis_labels(Some("t"), Some("y"));
     let colors = [0xFF4444FFu32, 0x44FF44FF];
@@ -860,7 +927,10 @@ fn volcano_ramp_bisect() {
 #[test]
 fn volcano_ramp_single() {
     let (w, h) = (1100u32, 600u32);
-    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(w, h) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     fig.set_background(true);
     let id = fig.add_trace();
     let color = 0xFF4444FFu32;
@@ -916,7 +986,10 @@ fn volcano_ramp_single() {
 #[test]
 fn volcano_live_dims_top_band() {
     let (w, h) = (1337u32, 694u32);
-    let mut fig = VolcanoFigure::new(w, h).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(w, h) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id = fig.add_trace();
     let t0 = 1794925118.057131f64;
     let mut pts: Vec<[f64; 2]> = (0..64)
@@ -969,7 +1042,9 @@ fn volcano_live_dims_top_band() {
     for y in 0..16usize {
         let row = &img[y * w as usize * 4..(y + 1) * w as usize * 4];
         let white = row
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235)
             .count();
         eprintln!("row {y}: {white}/{} white, px0={:?}", w, &row[0..4]);
@@ -987,8 +1062,14 @@ fn volcano_live_dims_top_band() {
 fn volcano_two_figures_top_band() {
     let (w1, h1) = (1337u32, 694u32);
     let (w2, h2) = (1321u32, 186u32);
-    let mut fig1 = VolcanoFigure::new(w1, h1).expect("fig1");
-    let mut fig2 = VolcanoFigure::new(w2, h2).expect("fig2");
+    let Some(mut fig1) = VolcanoFigure::new(w1, h1) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
+    let Some(mut fig2) = VolcanoFigure::new(w2, h2) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id1 = fig1.add_trace();
     let id2 = fig2.add_trace();
     let t0 = 1794925118.057131f64;
@@ -1040,7 +1121,9 @@ fn volcano_two_figures_top_band() {
         for y in 0..16usize {
             let row = &px[y * fw as usize * 4..(y + 1) * fw as usize * 4];
             let white = row
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235)
                 .count();
             if white * 2 > fw as usize {
@@ -1059,7 +1142,10 @@ fn volcano_two_figures_top_band() {
 /// check the top rows after a resize.
 #[test]
 fn volcano_resize_top_band() {
-    let mut fig = VolcanoFigure::new(800, 400).expect("figure");
+    let Some(mut fig) = VolcanoFigure::new(800, 400) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let id = fig.add_trace();
     let pts: Vec<[f64; 2]> = (0..300)
         .map(|i| [i as f64 * 0.03, (i as f64 * 0.1).sin()])
@@ -1093,7 +1179,9 @@ fn volcano_resize_top_band() {
         for y in 0..16usize {
             let row = &px[y * w as usize * 4..(y + 1) * w as usize * 4];
             let white = row
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .filter(|c| c[0] > 235 && c[1] > 235 && c[2] > 235)
                 .count();
             if white * 2 > w as usize {
@@ -1109,7 +1197,10 @@ fn volcano_resize_top_band() {
 /// same margins/ticks/labels — to compare label-vs-spine geometry.
 #[test]
 fn volcano_user_geometry_repro() {
-    let mut fig = VolcanoFigure::new(1337, 694).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(1337, 694) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     fig.set_background(false);
     fig.set_margins(
         70.0 / 1337.0,
@@ -1158,10 +1249,18 @@ fn volcano_debug_draw_vs_layout_rect() {
     ]
     .iter()
     {
-        let mut fig = VolcanoFigure::new(w, h).expect("figure");
+        let Some(mut fig) = VolcanoFigure::new(w, h) else {
+            eprintln!("volcano: no Vulkan device — skipping");
+            return;
+        };
         fig.set_viewport(0.0, 11.0, -2.19, 2.19);
         fig.set_background(false); // dark — clear stays white
-        fig.set_margins(ml / w as f32, 1.0 - mr / w as f32, mb / h as f32, 1.0 - mt / h as f32);
+        fig.set_margins(
+            ml / w as f32,
+            1.0 - mr / w as f32,
+            mb / h as f32,
+            1.0 - mt / h as f32,
+        );
         fig.set_grid(true);
         let id = fig.add_trace();
         let pts: Vec<[f64; 2]> = (0..200)
@@ -1188,8 +1287,10 @@ fn volcano_debug_draw_vs_layout_rect() {
         // The figure patch fills the entire canvas — a uniform draw
         // offset shows up as a non-zero `top` (was +10 for the bug).
         if top != Some(0) || bot != Some(h as usize - 1) {
-            image::RgbaImage::from_raw(w, h, px).unwrap()
-                .save("/tmp/volcano_drawvslayout.png").unwrap();
+            image::RgbaImage::from_raw(w, h, px)
+                .unwrap()
+                .save("/tmp/volcano_drawvslayout.png")
+                .unwrap();
             panic!(
                 "{w}x{h}: framebuffer content spans {top:?}..{bot:?} rows, \
                  expected 0..{} (axes_rect={rect:?})",
@@ -1204,7 +1305,10 @@ fn volcano_debug_draw_vs_layout_rect() {
 #[test]
 fn volcano_zigzag_join_gaps() {
     let (w, h) = (800u32, 600u32);
-    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(w, h) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     fig.set_background(false);
     // viewport fits zigzag so segments are long diagonals
     fig.set_viewport(0.0, 6.0, -0.5, 6.5);
@@ -1223,7 +1327,12 @@ fn volcano_zigzag_join_gaps() {
         .unwrap();
     // For each segment, walk the join region: count red pixels in a
     // small disc around each interior vertex's projected position.
-    let (ax_l, ax_r, ax_t, ax_b) = (0.05 * w as f32, 0.98 * w as f32, 0.05 * h as f32, 0.92 * h as f32);
+    let (ax_l, ax_r, ax_t, ax_b) = (
+        0.05 * w as f32,
+        0.98 * w as f32,
+        0.05 * h as f32,
+        0.92 * h as f32,
+    );
     let proj = |x: f64, y: f64| -> (usize, usize) {
         (
             (ax_l + (x / 6.0) as f32 * (ax_r - ax_l)) as usize,
@@ -1258,7 +1367,10 @@ fn volcano_zigzag_join_gaps() {
 #[test]
 fn volcano_xy_trace_no_envelope_fill() {
     let (w, h) = (800u32, 600u32);
-    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(w, h) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     fig.set_background(false);
     fig.set_margins(0.05, 0.98, 0.08, 0.95);
     fig.set_grid(false);
@@ -1278,7 +1390,9 @@ fn volcano_xy_trace_no_envelope_fill() {
     fig.set_trace(id, &pts, 0xFF0000FFu32, 2.0, VolcanoLineStyle::Solid);
     let px = fig.render_rgba().expect("render").to_vec();
     let red = px
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|c| c[0] > 200 && c[1] < 80 && c[2] < 80)
         .count();
     // The stroked curve covers a few % of the canvas; the broken
@@ -1297,7 +1411,10 @@ fn volcano_xy_trace_no_envelope_fill() {
 #[test]
 fn volcano_time_trace_envelope_fills() {
     let (w, h) = (800u32, 600u32);
-    let mut fig = VolcanoFigure::new(w, h).unwrap();
+    let Some(mut fig) = VolcanoFigure::new(w, h) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     fig.set_background(false);
     fig.set_margins(0.05, 0.98, 0.08, 0.95);
     fig.set_grid(false);
@@ -1307,15 +1424,16 @@ fn volcano_time_trace_envelope_fills() {
     let pts: Vec<[f64; 2]> = (0..n)
         .map(|i| {
             let x = i as f64 / n as f64;
-            let y = ((i as f64 * 7.13).sin() * 0.5 + 0.5)
-                * ((i as f64 * 0.003).sin() * 0.5 + 0.5);
+            let y = ((i as f64 * 7.13).sin() * 0.5 + 0.5) * ((i as f64 * 0.003).sin() * 0.5 + 0.5);
             [x, y]
         })
         .collect();
     fig.set_trace(id, &pts, 0xFF0000FFu32, 2.0, VolcanoLineStyle::Solid);
     let px = fig.render_rgba().expect("render").to_vec();
     let red = px
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|c| c[0] > 200 && c[1] < 80 && c[2] < 80)
         .count();
     let frac = red as f64 / (w * h) as f64;
@@ -1339,8 +1457,8 @@ fn volcano_minor_grid_lines() {
     let px_per = (888.0 - 60.0) / 5.0;
     let col_of = |v: f64| (axes_x0 + v * px_per) as usize;
 
-    let render = |minors: &[(f32, f32)]| -> Vec<u8> {
-        let mut fig = VolcanoFigure::new(w, h).expect("figure");
+    let render = |minors: &[(f32, f32)]| -> Option<Vec<u8>> {
+        let mut fig = VolcanoFigure::new(w, h)?;
         fig.set_viewport(0.0, 5.0, -2.0, 2.0);
         fig.set_background(false);
         fig.set_margins(
@@ -1363,7 +1481,7 @@ fn volcano_minor_grid_lines() {
         if !minors.is_empty() {
             fig.set_minor_grid(0, minors);
         }
-        fig.render_rgba().expect("render").to_vec()
+        Some(fig.render_rgba().expect("render").to_vec())
     };
 
     let lum = |px: &[u8], y: usize, x: usize| -> u32 {
@@ -1377,14 +1495,15 @@ fn volcano_minor_grid_lines() {
     let gap_col = col_of(0.65) + 2;
 
     // No minor grid → the between-majors region is flat background.
-    let px_none = render(&[]);
+    let Some(px_none) = render(&[]) else {
+        eprintln!("volcano: no Vulkan device — skipping");
+        return;
+    };
     let (m0, g0) = (lum(&px_none, y, mid_col), lum(&px_none, y, gap_col));
 
     // Full-strength minors → visible bumps at minor positions only.
-    let minors: Vec<(f32, f32)> = (1..50)
-        .map(|i| (i as f32 * 0.1, 0.9))
-        .collect();
-    let px_full = render(&minors);
+    let minors: Vec<(f32, f32)> = (1..50).map(|i| (i as f32 * 0.1, 0.9)).collect();
+    let px_full = render(&minors).unwrap();
     let (m1, g1) = (lum(&px_full, y, mid_col), lum(&px_full, y, gap_col));
     assert!(
         m1 > m0 + 8,
@@ -1396,10 +1515,8 @@ fn volcano_minor_grid_lines() {
     );
 
     // Very faint strength → the same line is measurably dimmer.
-    let weak: Vec<(f32, f32)> = (1..50)
-        .map(|i| (i as f32 * 0.1, 0.12))
-        .collect();
-    let px_weak = render(&weak);
+    let weak: Vec<(f32, f32)> = (1..50).map(|i| (i as f32 * 0.1, 0.12)).collect();
+    let px_weak = render(&weak).unwrap();
     let m2 = lum(&px_weak, y, mid_col);
     assert!(
         m2 < m1 && m2 >= m0,
@@ -1408,7 +1525,10 @@ fn volcano_minor_grid_lines() {
 
     // Clearing the minor grid restores the flat background.
     let px_cleared = {
-        let mut fig = VolcanoFigure::new(w, h).expect("figure");
+        let Some(mut fig) = VolcanoFigure::new(w, h) else {
+            eprintln!("volcano: no Vulkan device — skipping");
+            return;
+        };
         fig.set_viewport(0.0, 5.0, -2.0, 2.0);
         fig.set_background(false);
         fig.set_margins(
