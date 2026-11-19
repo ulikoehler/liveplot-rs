@@ -63,10 +63,46 @@ pub fn run_liveplot(
             .with_inner_size(egui::vec2(1400.0, 900.0));
     }
 
+    // Shared-VkDevice path (Phase 1): wrap VolcanoPlot's Vulkan
+    // instance/device for wgpu BEFORE eframe creates its own — then
+    // present + render frames land on one device, and the staging
+    // buffer can be GPU-copied instead of read back over the CPU.
+    #[cfg(feature = "volcano")]
+    if std::env::var_os("LIVEPLOT_VOLCANO").is_some()
+        && std::env::var_os("LIVEPLOT_VOLCANO_DISABLE").is_none()
+        && std::env::var("LIVEPLOT_VOLCANO_SHM").is_ok_and(|v| v != "0")  // opt-in for now
+        && matches!(
+            opts.wgpu_options.wgpu_setup,
+            eframe::egui_wgpu::WgpuSetup::CreateNew(_)
+        )
+    {
+        match crate::volcano::init_shared() {
+            Ok(sg) => {
+                opts.wgpu_options.wgpu_setup =
+                    eframe::egui_wgpu::WgpuSetup::Existing(
+                        eframe::egui_wgpu::WgpuSetupExisting {
+                            instance: sg.instance.clone(),
+                            adapter: sg.adapter.clone(),
+                            device: sg.device.clone(),
+                            queue: sg.queue.clone(),
+                        },
+                    );
+                eprintln!("[vp-shm] eframe will run on VolcanoPlot's VkDevice");
+            }
+            Err(e) => eprintln!("[vp-shm] shared device unavailable: {e} — CPU path"),
+        }
+    }
+
     eframe::run_native(
         &title,
         opts,
         Box::new(|cc| {
+            // Give the volcano surfaces access to egui's renderer so
+            // they can register native textures (shm frame path).
+            #[cfg(feature = "volcano")]
+            if let Some(rs) = cc.wgpu_render_state.clone() {
+                crate::volcano::attach_render_state(rs);
+            }
             // Install Material Symbols icon font before creating the app.
             egui_material_icons::initialize(&cc.egui_ctx);
             Ok(Box::new(app))

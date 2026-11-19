@@ -2522,6 +2522,7 @@ version = "2.5.5"
 dependencies = [
  "arrow-array",
  "arrow-schema",
+ "ash",
  "async-stream",
  "chrono",
  "display-info",
@@ -2553,6 +2554,7 @@ dependencies = [
  "tonic-prost",
  "tonic-prost-build",
  "usvg",
+ "wgpu-hal",
 ]
 
 [[package]]

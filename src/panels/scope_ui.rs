@@ -2807,14 +2807,32 @@ fn volcano_nearest(
             axes.bottom() - ((v[1] - view.1[0]) / (view.1[1] - view.1[0])) as f32 * axes.height(),
         )
     };
+    // Cheap x-band pre-filter: both hit tests need |sx - pos.x| ≤ 10px,
+    // so a point whose x is outside the band can only contribute via an
+    // incoming segment. Expressed in *raw* data space (log10 is
+    // monotonic → invert once with 10^) the filter needs one compare
+    // per point — the log/to_screen/distance work only runs for the
+    // handful of points near the pointer instead of every sample.
+    let x_span = (view.0[1] - view.0[0]) as f64 / axes.width() as f64;
+    let vx_lo = view.0[0] + ((pos.x - 10.0 - axes.left()) as f64) * x_span;
+    let vx_hi = view.0[0] + ((pos.x + 10.0 - axes.left()) as f64) * x_span;
+    let (vx_lo, vx_hi) = (vx_lo.min(vx_hi), vx_lo.max(vx_hi));
+    let (rx_lo, rx_hi) = if x_log {
+        (10f64.powf(vx_lo), 10f64.powf(vx_hi))
+    } else {
+        (vx_lo, vx_hi)
+    };
     let mut best_pt: Option<(f32, [f64; 2], String, Vec<TraceRef>)> = None;
     let mut best_seg: Option<(f32, Vec<TraceRef>)> = None;
     // Walk one trace's points: track the nearest sample (tooltip) and
     // the nearest segment (hover). Offset folds in before log — the
     // same order the draw path uses.
     let mut scan = |plin: &mut dyn Iterator<Item = [f64; 2]>, label: &str, names: Vec<TraceRef>| {
-        let mut prev: Option<egui::Pos2> = None;
-        for p in plin {
+        // (raw point, its screen pos when it was evaluated). The raw
+        // point is kept even when unevaluated so segment checks across
+        // the band boundary still see it.
+        let mut prev: Option<([f64; 2], Option<egui::Pos2>)> = None;
+        let eval = |p: [f64; 2]| -> Option<egui::Pos2> {
             let lx = if x_log && p[0] > 0.0 {
                 p[0].log10()
             } else {
@@ -2825,22 +2843,44 @@ fn volcano_nearest(
             } else {
                 p[1]
             };
-            if !(lx.is_finite() && ly.is_finite()) {
-                prev = None;
+            (lx.is_finite() && ly.is_finite()).then(|| to_screen([lx, ly]))
+        };
+        for p in plin {
+            // Band test in raw space; the second disjunct covers the
+            // p<=0 fallback where lx stays raw under log scaling.
+            let in_band = (p[0] >= rx_lo && p[0] <= rx_hi)
+                || (x_log && p[0] >= vx_lo && p[0] <= vx_hi);
+            let seg_maybe = prev.as_ref().is_some_and(|(q, _)| {
+                !((q[0] < rx_lo && p[0] < rx_lo) || (q[0] > rx_hi && p[0] > rx_hi))
+                    || (x_log
+                        && !((q[0] < vx_lo && p[0] < vx_lo)
+                            || (q[0] > vx_hi && p[0] > vx_hi)))
+            });
+            if !in_band && !seg_maybe {
+                prev = Some((p, None));
                 continue;
             }
-            let s = to_screen([lx, ly]);
-            let d2 = s.distance_sq(pos);
-            if d2 < POINT_D2 && best_pt.as_ref().is_none_or(|(d, _, _, _)| d2 < *d) {
-                best_pt = Some((d2, [lx, ly], label.to_string(), names.clone()));
-            }
-            if let Some(pv) = prev {
-                let sd2 = seg_d2(pv, s, pos);
-                if sd2 < SEG_D2 && best_seg.as_ref().is_none_or(|(d, _)| sd2 < *d) {
-                    best_seg = Some((sd2, names.clone()));
+            let Some(s) = eval(p) else {
+                prev = Some((p, None));
+                continue;
+            };
+            if in_band {
+                let d2 = s.distance_sq(pos);
+                if d2 < POINT_D2 && best_pt.as_ref().is_none_or(|(d, _, _, _)| d2 < *d) {
+                    best_pt = Some((d2, [if x_log && p[0] > 0.0 { p[0].log10() } else { p[0] }, if y_log && p[1] > 0.0 { p[1].log10() } else { p[1] }], label.to_string(), names.clone()));
                 }
             }
-            prev = Some(s);
+            if seg_maybe {
+                if let Some((q, qs)) = prev {
+                    if let Some(qs) = qs.or_else(|| eval(q)) {
+                        let sd2 = seg_d2(qs, s, pos);
+                        if sd2 < SEG_D2 && best_seg.as_ref().is_none_or(|(d, _)| sd2 < *d) {
+                            best_seg = Some((sd2, names.clone()));
+                        }
+                    }
+                }
+            }
+            prev = Some((p, Some(s)));
         }
     };
     if data.scope_type == ScopeType::XYScope && !data.xy_pairs.is_empty() {

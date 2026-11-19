@@ -12,7 +12,8 @@ use crate::data::trace_look::TraceLook;
 use crate::data::traces::TracesCollection;
 use egui_plot::LineStyle;
 
-use super::{VolcanoFigure, VolcanoLineStyle};
+use super::{VolcanoFigure, VolcanoLineStyle, VpShmFrame};
+use eframe::wgpu;
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -207,17 +208,23 @@ struct SyncReport {
     /// XY joins that came up empty — the vp trace was removed on the
     /// worker; the caller forgets its id but keeps the sig.
     removed: Vec<String>,
+    /// Shared-memory frame (Phase 1): staging VkBuffer of the slot
+    /// just submitted — the UI consumes it GPU-side instead of
+    /// receiving a ColorImage. `Some` ⇒ `image` is `None`.
+    shm: Option<VpShmFrame>,
 }
 
 /// One render job: figure + pixel scratch + this frame's trace sync
 /// commands + the shared transform context `(sx, sy, log_x, log_y)`.
 /// `resize` rebuilds the backend — done on the worker so a scope
 /// resize never stalls the UI thread on Vulkan teardown/reinit.
+/// `shm` requests the shared-memory frame path (shared wgpu device).
 struct FigJob {
     fig: VolcanoFigure,
     px: Vec<u8>,
     cmds: Vec<TraceCmd>,
     resize: Option<(u32, u32)>,
+    shm: bool,
     sx: f64,
     sy: f64,
     log_xy: (bool, bool),
@@ -337,12 +344,14 @@ impl RenderWorker {
                     mut px,
                     cmds,
                     resize,
+                    shm,
                     sx,
                     sy,
                     log_xy,
                 } = job;
                 let dbg_t = std::env::var("LIVEPLOT_DEBUG_TICKS").is_ok();
                 let dbg_s = std::env::var("LIVEPLOT_DEBUG_SLIDE").is_ok();
+                let dbg_shm = std::env::var_os("LIVEPLOT_DEBUG_SHM").is_some();
                 let t0 = std::time::Instant::now();
                 // Backend rebuild is the expensive part of a scope
                 // resize (device teardown + pipeline/image recreate) —
@@ -447,13 +456,47 @@ impl RenderWorker {
                     eprintln!("worker: cmds done in {:?}", t0.elapsed());
                 }
                 let t1 = std::time::Instant::now();
-                let res = match fig.render_rgba_view() {
-                    Some((rw, rh, view)) => {
-                        Some(color_image_from_rgba([rw as usize, rh as usize], view))
+                // Shared-memory path: the staging VkBuffer travels to
+                // the UI, which GPU-copies it — zero CPU pixel copies.
+                // Falls back to the readback path when unavailable.
+                let res = if shm {
+                    match fig.render_shm() {
+                        Some(f) => {
+                            if dbg_shm {
+                                eprintln!("[shm] worker rendered slot={}", f.slot);
+                            }
+                            rep.shm = Some(f);
+                            None
+                        }
+                        None => {
+                            if dbg_s {
+                                eprintln!("worker: render_shm failed — CPU fallback");
+                            }
+                            match fig.render_rgba_view() {
+                                Some((rw, rh, view)) => Some(color_image_from_rgba(
+                                    [rw as usize, rh as usize],
+                                    view,
+                                )),
+                                None => fig
+                                    .render_rgba_into(&mut px)
+                                    .map(|(rw, rh)| {
+                                        color_image_from_rgba(
+                                            [rw as usize, rh as usize],
+                                            &px,
+                                        )
+                                    }),
+                            }
+                        }
                     }
-                    None => fig
-                        .render_rgba_into(&mut px)
-                        .map(|(rw, rh)| color_image_from_rgba([rw as usize, rh as usize], &px)),
+                } else {
+                    match fig.render_rgba_view() {
+                        Some((rw, rh, view)) => {
+                            Some(color_image_from_rgba([rw as usize, rh as usize], view))
+                        }
+                        None => fig
+                            .render_rgba_into(&mut px)
+                            .map(|(rw, rh)| color_image_from_rgba([rw as usize, rh as usize], &px)),
+                    }
                 };
                 if dbg_t {
                     eprintln!("worker: render done in {:?}", t1.elapsed());
@@ -636,6 +679,18 @@ pub struct VolcanoSurface {
     pub dbg_top16_white: u64,
     dbg_dump_n: u64,
     initialized: bool,
+    /// Shared-memory frame path (Phase 1): the worker's staging
+    /// VkBuffer is wrapped and GPU-copied into `shm_tex` — no CPU
+    /// readback, no CPU texture upload. Disabled permanently for this
+    /// surface when bring-up or a present fails.
+    shm_disabled: bool,
+    shm_tex: Option<wgpu::Texture>,
+    shm_view: Option<wgpu::TextureView>,
+    shm_tex_id: Option<egui::TextureId>,
+    shm_size: (u32, u32),
+    /// Per-slot wrapped VkBuffer keyed on its raw handle — a realloc
+    /// (resize/gen bump) produces a new handle and re-wraps.
+    shm_bufs: [Option<(u64, wgpu::Buffer)>; 2],
 }
 
 impl Default for VolcanoSurface {
@@ -678,6 +733,13 @@ impl VolcanoSurface {
             dbg_top16_white: 0,
             dbg_dump_n: 0,
             initialized: false,
+            shm_disabled: std::env::var("LIVEPLOT_VOLCANO_SHM")
+                .is_ok_and(|v| v == "0"),
+            shm_tex: None,
+            shm_view: None,
+            shm_tex_id: None,
+            shm_size: (0, 0),
+            shm_bufs: [None, None],
         }
     }
 
@@ -721,6 +783,7 @@ impl VolcanoSurface {
             Dead,
         }
         let mut worker_dead = false;
+        let have_tex = self.texture_id().is_some();
         if let Some(w) = &mut self.worker {
             if w.busy {
                 // Block for the first frame ever (no texture to paint
@@ -728,7 +791,7 @@ impl VolcanoSurface {
                 // job must not re-block the UI while the last texture
                 // is still paintable, or a persistent GPU wedge would
                 // freeze the scope 5s per frame.
-                let poll = if self.tex.is_none() {
+                let poll = if !have_tex {
                     match w.res_rx.recv_timeout(std::time::Duration::from_secs(5)) {
                         Ok((f, px, rep)) => Poll::Done(f, px, rep),
                         Err(_) => Poll::Dead,
@@ -785,7 +848,20 @@ impl VolcanoSurface {
                         for k in rep.removed {
                             self.trace_ids.remove(&k);
                         }
-                        if let Some(image) = image {
+                        if let Some(shm) = rep.shm {
+                            if std::env::var_os("LIVEPLOT_DEBUG_SHM").is_some() {
+                                eprintln!("[shm] ui done slot={} figptr={:p}", shm.slot, self.fig.as_ref().unwrap());
+                            }
+                            if self.present_shm(&shm) {
+                                self.initialized = true;
+                                self.frames_rendered += 1;
+                                self.last_sig = self.pending_sig;
+                                self.consec_drops = 0;
+                            } else {
+                                self.dropped_frames += 1;
+                                self.consec_drops += 1;
+                            }
+                        } else if let Some(image) = image {
                             // Top-band regression probe (cheap — only
                             // counts px in the first 16 rows of frames
                             // that actually land). Only the axes column
@@ -1507,6 +1583,7 @@ impl VolcanoSurface {
         // the next sync; the figure is recreated below if lost.
         let owned = self.fig.take().unwrap();
         let px = std::mem::take(&mut self.pixel_scratch);
+        let shm = self.shm_available();
         self.dbg_dispatches += 1;
         self.last_dispatch_at = Some(std::time::Instant::now());
         if !self
@@ -1517,6 +1594,7 @@ impl VolcanoSurface {
                 px,
                 cmds,
                 resize,
+                shm,
                 sx,
                 sy,
                 log_xy,
@@ -1529,7 +1607,125 @@ impl VolcanoSurface {
 
     /// Texture with the last rendered frame, for the caller to paint.
     pub fn texture_id(&self) -> Option<egui::TextureId> {
-        self.tex.as_ref().map(|t| t.id())
+        self.shm_tex_id.or_else(|| self.tex.as_ref().map(|t| t.id()))
+    }
+
+    /// True when the shared-memory present path can run this frame —
+    /// shared wgpu device + egui renderer attached + not env/opt-out.
+    fn shm_available(&self) -> bool {
+        !self.shm_disabled
+            && super::shared().is_some_and(|s| s.render_state().is_some())
+    }
+
+    /// Consume a shared-memory frame on the UI thread: wrap the slot's
+    /// VkBuffer (once per buffer handle), GPU-copy it into the
+    /// registered texture, submit, then tell the worker the slot is
+    /// free. Same-queue submission order — the copy lands after the
+    /// render that produced it and before any later overwrite, so the
+    /// release can go out as soon as the copy is queued.
+    fn present_shm(&mut self, f: &VpShmFrame) -> bool {
+        let Some(sg) = super::shared() else {
+            self.shm_disabled = true;
+            return false;
+        };
+        let Some(rs) = sg.render_state() else {
+            self.shm_disabled = true;
+            return false;
+        };
+        // (Re)create the destination texture on size change; swap the
+        // registered TextureId atomically with the new view.
+        if self.shm_size != (f.width, f.height) || self.shm_tex.is_none() {
+            let tex = sg.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("vp-shm-tex"),
+                size: wgpu::Extent3d {
+                    width: f.width,
+                    height: f.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+            if let Some(id) = self.shm_tex_id.take() {
+                rs.renderer.write().free_texture(&id);
+            }
+            let id = rs.renderer.write().register_native_texture(
+                &sg.device,
+                &view,
+                wgpu::FilterMode::Linear,
+            );
+            self.shm_tex = Some(tex);
+            self.shm_view = Some(view);
+            self.shm_tex_id = Some(id);
+            self.shm_size = (f.width, f.height);
+        }
+        let slot = f.slot.min(1) as usize;
+        if self.shm_bufs[slot]
+            .as_ref()
+            .is_none_or(|(h, _)| *h != f.buffer)
+        {
+            let buf = match unsafe {
+                sg.wrap_buffer(
+                    <ash::vk::Buffer as ash::vk::Handle>::from_raw(f.buffer),
+                    f.byte_size,
+                )
+            } {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("[vp-shm] wrap_buffer failed: {e} — disabling shm path");
+                    self.shm_disabled = true;
+                    return false;
+                }
+            };
+            self.shm_bufs[slot] = Some((f.buffer, buf));
+        }
+        let buf = &self.shm_bufs[slot].as_ref().unwrap().1;
+        let mut enc = sg
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("vp-shm-copy"),
+            });
+        enc.copy_buffer_to_texture(
+            wgpu::TexelCopyBufferInfo {
+                buffer: buf,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(f.row_pitch as u32),
+                    rows_per_image: Some(f.height),
+                },
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: self.shm_tex.as_ref().unwrap(),
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::Extent3d {
+                width: f.width,
+                height: f.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        sg.queue.submit([enc.finish()]);
+        // Same-queue ordering: the copy is queued; any later VP render
+        // into this slot submits after it and therefore executes after
+        // it — the slot may be overwritten from now on. Release via
+        // `self.fig` — the C++ release is an atomic counter + notify,
+        // safe from any thread, and routing it through the worker
+        // would self-deadlock (the worker blocks on the release while
+        // holding the only thread that could deliver it).
+        if let Some(fig) = &mut self.fig {
+            fig.shm_release(f.slot);
+        }
+        if std::env::var_os("LIVEPLOT_DEBUG_SHM").is_some() {
+            eprintln!("[shm] presented slot={} gen={} {}x{}", f.slot, f.generation, f.width, f.height);
+        }
+        true
     }
 
     /// Test hook: drop the figure the same way the consecutive-drops /

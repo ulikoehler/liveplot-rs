@@ -5,7 +5,12 @@
 //! renders trace data to an RGBA8 buffer that the scope UI uploads as
 //! an egui texture. See `docs/volcano-integration.md`.
 
+mod shared;
 mod surface;
+pub use shared::{
+    attach_render_state, init as init_shared, shared, SharedGraphics, SharedGraphicsRef,
+    SharedInitError,
+};
 pub use surface::VolcanoSurface;
 
 use std::ffi::CString;
@@ -69,6 +74,40 @@ extern "C" {
     fn vp_figure_set_deferred_present(fig: *mut VpFigure, on: i32);
     fn vp_debug_xlim(fig: *const VpFigure, out_xlim: *mut f32, out_ylim: *mut f32) -> i32;
     fn vp_debug_axes_rect(fig: *const VpFigure, out_rect: *mut f32) -> i32;
+
+    fn vp_shared_gpu_info(out: *mut VpSharedGpuInfo) -> i32;
+    fn vp_shared_device_exts(names_out: *mut *const *const i8) -> i32;
+    fn vp_shared_instance_exts(names_out: *mut *const *const i8) -> i32;
+
+    fn vp_render_shm(fig: *mut VpFigure, out: *mut VpShmFrame) -> i32;
+    fn vp_shm_release(fig: *mut VpFigure, slot: u32);
+}
+
+/// Raw Vulkan handles of VolcanoPlot's shared GPU context — see
+/// `vp_shared_gpu_info` in `volcano_ffi.h`.
+#[repr(C)]
+#[derive(Default)]
+pub(crate) struct VpSharedGpuInfo {
+    pub vk_instance: u64,
+    pub vk_physical_device: u64,
+    pub vk_device: u64,
+    pub api_version: u32,
+    pub graphics_family: u32,
+    pub shared_capable: u32,
+}
+
+/// Shared-memory frame — the VkBuffer backing a slot's staging
+/// buffer; consumed GPU-side (see `vp_render_shm` in the FFI header).
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+pub(crate) struct VpShmFrame {
+    pub buffer: u64,
+    pub byte_size: u64,
+    pub row_pitch: u64,
+    pub slot: u32,
+    pub generation: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// Trace line style matching the FFI `style` argument.
@@ -327,6 +366,25 @@ impl VolcanoFigure {
     /// spinning. First frame still renders synchronously.
     pub fn set_deferred_present(&mut self, on: bool) {
         unsafe { vp_figure_set_deferred_present(self.ptr, on as i32) };
+    }
+
+    /// Shared-memory render: returns the VkBuffer handle of the slot
+    /// just submitted — no CPU copy. The consumer submits its GPU
+    /// reads on the shared queue after this call (queue order is the
+    /// sync), then calls [`Self::shm_release`].
+    pub(crate) fn render_shm(&mut self) -> Option<VpShmFrame> {
+        let mut out = VpShmFrame::default();
+        if unsafe { vp_render_shm(self.ptr, &mut out) } == 1 {
+            Some(out)
+        } else {
+            None
+        }
+    }
+
+    /// Signal that the consumer's GPU reads of `slot`'s buffer are
+    /// queued (their completion is tracked by queue order).
+    pub(crate) fn shm_release(&mut self, slot: u32) {
+        unsafe { vp_shm_release(self.ptr, slot) };
     }
 }
 
