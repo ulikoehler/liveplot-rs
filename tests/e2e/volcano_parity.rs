@@ -2348,7 +2348,11 @@ fn volcano_top_band_repro() {
 /// panel is shown.
 #[test]
 fn volcano_top_band_repro_app() {
-    std::env::set_var("LIVEPLOT_VOLCANO", "1");
+    // No LIVEPLOT_VOLCANO env here: it is process-global and seeds
+    // ScopeData::volcano_enabled at construction — under parallel test
+    // runs it would flip every scope other tests create for the
+    // (up to 30s) duration of this test. The explicit flag below is
+    // the only thing the repro needs.
     let mut bed = make_app_bed();
     {
         let app = bed.harness.state_mut();
