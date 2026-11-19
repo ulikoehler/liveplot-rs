@@ -38,8 +38,7 @@ pub fn paint_density(
         let screen_x_min = transform.position_from_point_x(x_min);
         let screen_x_max = transform.position_from_point_x(x_max);
 
-        for y_idx in 0..cache.num_y_buckets {
-            let count = cell.counts[y_idx];
+        for (y_idx, &count) in cell.counts.iter().enumerate() {
             if count == 0 {
                 continue;
             }
