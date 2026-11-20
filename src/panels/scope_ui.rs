@@ -170,6 +170,7 @@ pub struct ScopePanel {
     /// Volcano-path legend hover slot — PlotMemory only exists once
     /// the egui plot.show path has run, so the volcano path tracks the
     /// hovered legend item here (drives right-click isolate).
+    #[cfg(feature = "volcano")]
     legend_hovered_item: Option<egui_plot::ItemId>,
 }
 
@@ -199,6 +200,7 @@ impl Default for ScopePanel {
             pending_trace_moves: Vec::new(),
             box_zoom_start: None,
             legend_overlay_rect: None,
+            #[cfg(feature = "volcano")]
             legend_hovered_item: None,
         }
     }
@@ -1278,11 +1280,14 @@ impl ScopePanel {
         }
 
         // Legend entries — identical labels/ids/order to the egui
-        // path: XY scopes list pairs (plus `(last)` markers) only;
-        // time scopes list traces.
+        // path: XY scopes list pairs only; time scopes list traces.
+        // The newest-point highlight shares its owner's item id so it
+        // merges into the same legend entry instead of adding a
+        // separate "(last)" row.
         let mut legend_entries: Vec<crate::panels::scope_legend::LegendEntryData> = Vec::new();
-        let mut xy_last_marks: Vec<(
-            crate::panels::scope_legend::LegendEntryData,
+        let mut last_marks: Vec<(
+            egui_plot::ItemId,
+            String,
             [f64; 2],
             crate::data::trace_look::TraceLook,
         )> = Vec::new();
@@ -1319,19 +1324,13 @@ impl ScopePanel {
                     label: legend_label.clone(),
                     color: pair_look.color,
                 });
-                if pair_look.highlight_newest_point {
+                if pair_look.highlight_newest_point && pair_look.visible {
                     let last = *joined.last().unwrap();
-                    let last_id = crate::panels::scope_legend::xy_last_point_item_id(pair_id);
-                    let entry = crate::panels::scope_legend::LegendEntryData {
-                        id: last_id,
-                        label: format!("{legend_label} (last)"),
-                        color: pair_look.color,
-                    };
-                    legend_entries.push(entry.clone());
                     // last-point in *linear* space — the overlay painter
                     // applies log like the egui path does on push.
-                    xy_last_marks.push((
-                        entry,
+                    last_marks.push((
+                        pair_id,
+                        legend_label.clone(),
                         [last[0] + x_tr.offset, last[1] + y_tr.offset],
                         pair_look.clone(),
                     ));
@@ -1342,16 +1341,30 @@ impl ScopePanel {
                 let Some(tr) = traces.get_trace(name) else {
                     continue;
                 };
+                let legend_label = trace_legend_label(
+                    self.data.show_info_in_legend,
+                    traces,
+                    name,
+                    &tr.info,
+                );
                 legend_entries.push(crate::panels::scope_legend::LegendEntryData {
                     id: crate::panels::scope_legend::trace_item_id(name),
-                    label: trace_legend_label(
-                        self.data.show_info_in_legend,
-                        traces,
-                        name,
-                        &tr.info,
-                    ),
+                    label: legend_label.clone(),
                     color: tr.look.color,
                 });
+                if tr.look.highlight_newest_point && tr.look.visible {
+                    if let Some(p) = traces
+                        .get_points_ref(name, self.data.paused)
+                        .and_then(|b| b.back())
+                    {
+                        last_marks.push((
+                            crate::panels::scope_legend::trace_item_id(name),
+                            legend_label.clone(),
+                            [p[0], p[1] + tr.offset],
+                            tr.look.clone(),
+                        ));
+                    }
+                }
             }
         }
 
@@ -1367,9 +1380,10 @@ impl ScopePanel {
             let bounds =
                 egui_plot::PlotBounds::from_min_max([view.0[0], view.1[0]], [view.0[1], view.1[1]]);
             let mut vpb = VolcanoPainterBackend::new(ui, &resp, axes, bounds);
-            // XY newest-point markers — same `Points` item the egui
-            // path draws inside the pair loop.
-            for (entry, p, pl) in xy_last_marks.iter() {
+            // Newest-point markers — same `Points` item the egui path
+            // draws; the owner's item id keeps it under the same
+            // legend entry (hover/hide follow the trace or pair).
+            for (id, label, p, pl) in last_marks.iter() {
                 let (lx, ly) = {
                     let x = if self.data.x_axis.log_scale && p[0] > 0.0 {
                         p[0].log10()
@@ -1386,8 +1400,8 @@ impl ScopePanel {
                 if lx.is_finite() && ly.is_finite() {
                     let radius = (pl.point_size.max(0.5) * 2.0).max(2.0);
                     vpb.points(
-                        egui_plot::Points::new(entry.label.clone(), vec![[lx, ly]])
-                            .id(entry.id)
+                        egui_plot::Points::new(label.clone(), vec![[lx, ly]])
+                            .id(*id)
                             .radius(radius)
                             .shape(pl.marker)
                             .color(pl.color),
@@ -1426,6 +1440,7 @@ impl ScopePanel {
             }
         }
 
+        self.data.legend_entry_count = legend_entries.len();
         // Legend overlay (same Area + PlotMemory channel as egui path).
         // Suppression mirrors the egui path: force-hide + thresholds
         // against the TOTAL widget size (not the plot rect).
@@ -1926,18 +1941,14 @@ impl ScopePanel {
 
                     if highlight_newest {
                         // Add a second pass for the newest point with increased size.
+                        // Same item id as the pair so it stays under the
+                        // single pair legend entry (no extra "(last)" row).
                         let last = *derived.last().unwrap();
                         let radius = (pair_look.point_size.max(0.5) * 2.0).max(2.0);
-                        let last_id = crate::panels::scope_legend::xy_last_point_item_id(pair_id);
-                        legend_entries.push(crate::panels::scope_legend::LegendEntryData {
-                            id: last_id,
-                            label: format!("{legend_label} (last)"),
-                            color: pair_look.color,
-                        });
                         if !volcano_ok {
                             plot_ui.points(
-                                Points::new(format!("{legend_label} (last)"), vec![last])
-                                    .id(last_id)
+                                Points::new(legend_label.clone(), vec![last])
+                                    .id(pair_id)
                                     .radius(radius)
                                     .shape(pair_look.marker)
                                     .color(color),
@@ -1961,6 +1972,7 @@ impl ScopePanel {
                             tr.look.marker,
                             tr.info.clone(),
                             tr.look.brightness_gain,
+                            tr.look.highlight_newest_point,
                         ),
                         None => continue,
                     };
@@ -1975,6 +1987,7 @@ impl ScopePanel {
                         marker,
                         info,
                         brightness_gain,
+                        highlight_newest,
                     ) = trace_info;
 
                     // Density splatting: paint density grid directly, skip line drawing
@@ -2178,7 +2191,7 @@ impl ScopePanel {
                                 radius = (radius * 1.25).max(radius + 0.5);
                             }
                         }
-                        let points = Points::new(legend_label, pts_vec.clone())
+                        let points = Points::new(legend_label.clone(), pts_vec.clone())
                             // Same canonical id as the line so both hide/merge
                             // under a single legend entry.
                             .id(crate::panels::scope_legend::trace_item_id(name))
@@ -2187,6 +2200,47 @@ impl ScopePanel {
                             .color(color);
                         if !volcano_ok {
                             plot_ui.points(points);
+                        }
+                    }
+
+                    // Optional highlight of the newest datapoint — same
+                    // item id as the line so it merges into the trace's
+                    // legend entry (XY pairs do the same for `(last)`).
+                    if highlight_newest {
+                        if let Some(last_raw) = traces
+                            .get_points_ref(name, self.data.paused)
+                            .and_then(|b| b.back())
+                        {
+                            let y_lin = last_raw[1] + offset;
+                            let y = if self.data.y_axis.log_scale {
+                                if y_lin > 0.0 {
+                                    y_lin.log10()
+                                } else {
+                                    f64::NAN
+                                }
+                            } else {
+                                y_lin
+                            };
+                            let x = if self.data.x_axis.log_scale {
+                                if last_raw[0] > 0.0 {
+                                    last_raw[0].log10()
+                                } else {
+                                    f64::NAN
+                                }
+                            } else {
+                                last_raw[0]
+                            };
+                            if x.is_finite() && y.is_finite() {
+                                let radius = (point_size.max(0.5) * 2.0).max(2.0);
+                                let points = Points::new(legend_label.clone(), vec![[x, y]])
+                                    .id(crate::panels::scope_legend::trace_item_id(name))
+                                    .radius(radius)
+                                    .shape(marker)
+                                    .color(color);
+                                if !volcano_ok {
+                                    plot_ui.points(points);
+                                }
+                            }
                         }
                     }
                 }
@@ -2212,6 +2266,7 @@ impl ScopePanel {
             }
         }
         self.record_plot_geometry(&plot_resp);
+        self.data.legend_entry_count = legend_entries.len();
 
         // Custom scrollable legend overlay — egui_plot's built-in legend has no
         // scrolling, so entries collected while drawing are rendered here and

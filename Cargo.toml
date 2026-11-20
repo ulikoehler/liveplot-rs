@@ -4,7 +4,6 @@ version = "2.5.5"
 edition = "2021"
 autobins = false
 license = "Apache-2.0"
-homepage = "https://github.com/ulikoehler/liveplot-rs"
 repository = "https://github.com/ulikoehler/liveplot-rs"
 description = "Realtime interactive plotting library using egui/eframe, with optional gRPC and Parquet export support."
 

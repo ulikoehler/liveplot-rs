@@ -925,8 +925,15 @@ impl Panel for MeasurementPanel {
                 let selected = self.selected_measurement == Some(i);
                 let label = ui.selectable_label(selected, format!("#{}", i + 1));
                 if label.clicked() {
-                    self.selected_measurement = Some(i);
-                    self.selected_marker = None;
+                    if selected {
+                        // Clicking the selected measurement deselects it —
+                        // none-selected is a valid state.
+                        self.selected_measurement = None;
+                        self.selected_point_index = None;
+                    } else {
+                        self.selected_measurement = Some(i);
+                        self.selected_marker = None;
+                    }
                 }
 
                 let m = &mut self.measurements[i];
@@ -1156,9 +1163,15 @@ impl Panel for MeasurementPanel {
                 let selected = self.selected_marker == Some(i);
                 let label = ui.selectable_label(selected, format!("#{}", i + 1));
                 if label.clicked() {
-                    self.selected_marker = Some(i);
-                    self.selected_measurement = None;
-                    self.selected_point_index = None;
+                    if selected {
+                        // Clicking the selected marker deselects it —
+                        // none-selected is a valid state.
+                        self.selected_marker = None;
+                    } else {
+                        self.selected_marker = Some(i);
+                        self.selected_measurement = None;
+                        self.selected_point_index = None;
+                    }
                 }
 
                 let m = &mut self.markers[i];

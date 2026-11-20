@@ -257,11 +257,32 @@ impl Panel for FftPanel {
     }
 
     fn render_panel(&mut self, ui: &mut Ui, data: &mut LivePlotData<'_>) {
-        // Build temporary traces collection for spectra
+        // Build temporary traces collection for spectra.
+        //
+        // The FFT scope's visibility is independent from the source
+        // traces: `tmp_traces` is rebuilt every frame, so the scope's
+        // post-render `sync_legend_hidden_to_looks` write is always
+        // lost — the hidden state must be applied here instead.
+        // Otherwise the source trace's `look.visible` (cloned into
+        // `entry.look` each update) leaks through: hiding a trace in
+        // the main scope hides its FFT, while hiding it in the FFT
+        // legend has no effect.
+        let hidden_items: std::collections::HashSet<egui_plot::ItemId> = {
+            let sd = self.scope_ui.get_data();
+            let mut h = sd.legend_hidden_items.clone();
+            if let Some(pid) = sd.plot_id {
+                if let Some(mem) = PlotMemory::load(ui.ctx(), pid) {
+                    h.extend(mem.hidden_items.iter().copied());
+                }
+            }
+            h
+        };
         let mut tmp_traces = TracesCollection::default();
         for (name, td) in self.fft_data.fft_traces.iter() {
             let out_td = tmp_traces.get_trace_or_new(name);
             out_td.look = td.look.clone();
+            out_td.look.visible =
+                !hidden_items.contains(&egui_plot::ItemId::new(&name.0));
             out_td.offset = 0.0;
             if self.fft_db {
                 let mut v = td.live.clone();
@@ -450,18 +471,24 @@ impl Panel for FftPanel {
             &mut tmp_traces,
         );
 
-        // Read back which traces the user toggled in the legend. Must use the
-        // same `PlotMemory` id that `ScopePanel::render_plot` pins via
-        // `Plot::id(...)` (see there).
-        let plot_id =
-            ui.make_persistent_id(format!("scope_plot_{}", self.scope_ui.get_data().name));
-        if let Some(mem) = PlotMemory::load(ui.ctx(), plot_id) {
-            self.hidden_in_legend.clear();
-            for name in self.fft_data.fft_traces.keys() {
-                let item_id = egui_plot::ItemId::new(&name.0);
-                if mem.hidden_items.contains(&item_id) {
-                    self.hidden_in_legend.insert(name.clone());
-                }
+        // Read back which traces the user toggled in the legend. Check
+        // both backends' hidden sets: egui publishes via `PlotMemory`
+        // (pinned under the same id `ScopePanel::render_plot` passes to
+        // `Plot::id`), volcano via `legend_hidden_items` — which the
+        // egui path also mirrors into, so a union covers every case.
+        self.hidden_in_legend.clear();
+        for name in self.fft_data.fft_traces.keys() {
+            let item_id = egui_plot::ItemId::new(&name.0);
+            let hidden = {
+                let sd = self.scope_ui.get_data();
+                sd.legend_hidden_items.contains(&item_id)
+                    || sd
+                        .plot_id
+                        .and_then(|pid| PlotMemory::load(ui.ctx(), pid))
+                        .is_some_and(|mem| mem.hidden_items.contains(&item_id))
+            };
+            if hidden {
+                self.hidden_in_legend.insert(name.clone());
             }
         }
 

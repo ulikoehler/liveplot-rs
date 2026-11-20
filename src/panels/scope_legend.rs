@@ -49,11 +49,6 @@ pub fn xy_pair_item_id(x: &TraceRef, y: &TraceRef) -> egui_plot::ItemId {
     egui_plot::ItemId::new(("liveplot_xy_pair", &x.0, &y.0))
 }
 
-/// Item id of the "(last)" newest-point marker of an XY pair.
-pub fn xy_last_point_item_id(pair_id: egui_plot::ItemId) -> egui_plot::ItemId {
-    egui_plot::ItemId::new((pair_id, "last"))
-}
-
 /// Item id shared by all items of a threshold definition.
 pub fn threshold_item_id(name: &str) -> egui_plot::ItemId {
     egui_plot::ItemId::new(("liveplot_threshold", name))

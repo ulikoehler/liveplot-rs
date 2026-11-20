@@ -69,7 +69,7 @@ fn xy_pair_hide_via_legend_memory() {
     assert!(!pair_visible, "hidden pair id should mark pair invisible");
 }
 
-/// XY-03: newest-point highlight adds a marker entry without breaking.
+/// XY-03: newest-point highlight merges into the pair's legend entry.
 #[test]
 fn xy_highlight_newest_point() {
     let mut bed = make_test_bed();
@@ -79,7 +79,7 @@ fn xy_highlight_newest_point() {
         s.xy_pairs[0].2.highlight_newest_point = true;
     }
     steps(&mut bed, 3);
-    // Legend should include the "(last)" style entry — rect exists.
+    // The marker shares the pair's item id — the legend still renders.
     assert!(bed.harness.state().liveplot_panel.scope_panels()[0]
         .legend_overlay_rect()
         .is_some());

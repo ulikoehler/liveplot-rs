@@ -288,8 +288,9 @@ paths at the end of render. Tests: T-LGD-004..009.
 - Label: volcano pushes `format!("{}/{}", xn.0, yn.0)`
   (scope_ui.rs:1307); egui pushes `"{y_label} vs {x_label}"` using
   `display_label` + optional ` — info` suffix (1697–1701).
-- Missing `(last)` entry + point for `pair_look.highlight_newest_point`
-  (egui: 1751–1769) — surface also never draws the marker.
+- The newest-point marker for `pair_look.highlight_newest_point`
+  shares the pair's canonical item id (no separate `(last)` entry)
+  on both paths.
 - `pair_look` honor list: volcano uploads color/width/style only;
   `show_points`, `marker`, `point_size`, `highlight_newest_point`,
   hover dim/emphasis all dropped.
@@ -613,7 +614,7 @@ Existing tests are referenced by file/name and folded into the matrix.
 | T-LGD-007 | P | `parity_legend_alt_click_isolate` | alt-click → all other ids hidden both |
 | T-LGD-008 | P | `parity_legend_right_click_isolate` | secondary-click hovered entry → isolate; second → restore all (mirrors egui block 2071–2100) both |
 | T-LGD-009 | P | `parity_legend_hidden_persists` | `hidden_items` survives `PlotMemory` store/load + app save/load both |
-| T-LGD-010 | P | `parity_legend_xy_labels` | XY pair entry text "y vs x" + "(last)" entry when `highlight_newest_point` (RC-4) both |
+| T-LGD-010 | P | `parity_legend_xy_labels` | XY pair entry text "y vs x"; `highlight_newest_point` merges into the pair entry (no extra row) both |
 | T-LGD-011 | P | `parity_legend_info_suffix` | `show_info_in_legend` → label gets ` — info` both |
 | T-LGD-012 | P | `parity_legend_alias` | `display_label` shown, item id canonical both |
 | T-LGD-013 | P | `parity_legend_scroll` | 30 traces → legend scrollable; wheel over legend rect scrolls legend AND does NOT zoom plot (RC-8 row 4) both |
@@ -718,7 +719,7 @@ TimeScope always shows `(now − time_window, now)`**; zoom changes
 | T-XY-004 | W | `parity_xy_curve_pixels` | colored px inside axes + centroid match ±2 px both |
 | T-XY-005 | P | `parity_xy_pair_style` | pair color/width/style forwarded (FFI spy or px) both |
 | T-XY-006 | P | `parity_xy_show_points` | `pair_look.show_points` → markers rendered AND line kept (RC-4/RC-14) both |
-| T-XY-007 | P | `parity_xy_highlight_newest` | newest-point marker drawn + legend "(last)" entry both |
+| T-XY-007 | P | `parity_xy_highlight_newest` | newest-point marker drawn under the pair's item id — same legend entry both |
 | T-XY-008 | P | `parity_xy_pair_hidden` | legend-hide pair → surface stops uploading `xy:` trace both |
 | T-XY-009 | P | `parity_xy_member_hidden` | `x_tr.look.visible=false` → pair skipped on fit AND render both |
 | T-XY-010 | P | `parity_xy_offsets` | `x_tr.offset`/`y_tr.offset` applied to derived points both |
@@ -940,12 +941,11 @@ geometry), then RC-2/RC-3 (the reported bugs), then polish.
 
 - New helper `build_legend_entries(&ScopeData, &TracesCollection) ->
   Vec<LegendEntryData>` producing time-trace + XY entries with the
-  egui-format labels (`"y vs x"`, ` — info`, `"(last)"`).
+  egui-format labels (`"y vs x"`, ` — info`).
 - Both paths call it; the volcano path stops building its own list.
-- XY `(last)` point marker drawn via `draw_overlays` (it already
-  receives `legend_entries`) or painted as `Points` through the
-  backend in the volcano branch — decide by where the egui path keeps
-  it; keep item ids via `xy_last_point_item_id`.
+- XY newest-point marker drawn as `Points` through the backend in
+  both branches — it shares the pair's item id so it merges into the
+  pair's legend entry (hover/hide follow the pair).
 - Regression: T-LGD-010/011/012, T-XY-007.
 
 ### W-5 — Fix `last_plot_screen_rect` layout (fixes RC-5)
@@ -1478,9 +1478,10 @@ state change. Volcano must replicate *no state change*, not merely
 
 ### 11.5 Legend semantics (egui/liveplot overlay)
 
-- Entries: traces in `trace_order`, then XY pairs, then "(last)"
-  markers; threshold/trigger/measurement overlays may append via
-  `draw_overlays`.
+- Entries: traces in `trace_order`, then XY pairs;
+  threshold/trigger/measurement overlays may append via
+  `draw_overlays`. Newest-point highlight markers share their
+  owner's item id — no extra entry.
 - Primary click toggles checkbox → `hidden_items` → next frame
   `look.visible=false` → excluded from fit + draw + upload.
 - Alt-click isolates; right-click on hovered item isolates/toggles
@@ -1501,8 +1502,8 @@ state change. Volcano must replicate *no state change*, not merely
   members visible).
 - `live_update` skips XYScope entirely — no autoscroll concept.
 - Legend label: `"{y_display} vs {x_display}"` + ` — info` suffix.
-- `highlight_newest_point` adds a `"(last)"` legend entry + 2×
-  radius marker at `derived.last()`.
+- `highlight_newest_point` draws a 2× radius marker at
+  `derived.last()` under the pair's item id (no extra legend entry).
 
 ### 11.7 Pause / snapshots (egui)
 

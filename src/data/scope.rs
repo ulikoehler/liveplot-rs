@@ -296,6 +296,10 @@ pub struct ScopeData {
     /// Last frame's legend overlay rect (min.x,min.y,max.x,max.y) —
     /// observable for parity/E2E checks; `None` when no legend drew.
     pub legend_overlay_rect: Option<[f32; 4]>,
+    /// Number of entries rendered in the legend overlay last frame —
+    /// observable for parity/E2E checks (e.g. XY pair + newest-point
+    /// marker must merge into a single entry).
+    pub legend_entry_count: usize,
     pub rendered_this_frame: bool,
     /// VolcanoPlot render surface + enable flag (feature `volcano`).
     /// Seeded from `LIVEPLOT_VOLCANO` at construction; embedders/tests
@@ -360,6 +364,7 @@ impl Default for ScopeData {
             last_plot_screen_rect: None,
             last_axes_screen_rect: None,
             legend_overlay_rect: None,
+            legend_entry_count: 0,
             rendered_this_frame: false,
             #[cfg(feature = "volcano")]
             volcano_surface: None,

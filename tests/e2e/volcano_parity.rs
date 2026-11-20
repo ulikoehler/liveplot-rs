@@ -454,8 +454,9 @@ fn parity_xy_viewport_fits_pairs() {
     }
 }
 
-/// T-XY-007: pair legend shows the egui-format entry and the `(last)`
-/// marker entry exists when highlight_newest_point is on (RC-4).
+/// T-XY-007: the pair legend shows the egui-format entry; the
+/// newest-point marker shares the pair's item id and must NOT add a
+/// `(last)` row.
 #[test]
 fn parity_xy_legend_entries_and_last_marker() {
     for vol in [false, true] {
@@ -478,11 +479,16 @@ fn parity_xy_legend_entries_and_last_marker() {
         if vol && !vol_available(&mut bed, 0) {
             continue;
         }
-        // Legend must contain >= 2 entries (pair + "(last)") — the
-        // overlay rect grows with entries; assert presence + that the
-        // pair-id click path exists by hiding via PlotMemory.
+        // The legend shows exactly one entry: the newest-point
+        // highlight merges into the pair's canonical id instead of
+        // adding a "(last)" row.
         let lr = scope(&bed, 0).legend_overlay_rect;
         assert!(lr.is_some(), "XY legend must render (vol={vol})");
+        assert_eq!(
+            scope(&bed, 0).legend_entry_count,
+            1,
+            "newest-point marker must not add a legend entry (vol={vol})"
+        );
         // Pair must be hideable through the shared sync.
         let id = liveplot::panels::scope_legend::xy_pair_item_id(
             &liveplot::TraceRef("xs".into()),
@@ -2400,4 +2406,367 @@ fn volcano_top_band_repro_app() {
         last_white, 0,
         "app scope has white top rows in the Vulkan readback"
     );
+}
+
+/// T-GRID-001: minor (sub-)grid lines must render on both paths.
+/// A 100 s x window yields ~1 s minor marks between 10 s majors —
+/// ~90 lit columns inside the axes vs ~10 for majors alone. The
+/// volcano path used to inherit the dim major-grid color and showed
+/// nothing measurable.
+#[test]
+fn parity_minor_grid_lines() {
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        // Flat line pinned under the y view — the axes interior stays
+        // clean so grid columns are measurable.
+        {
+            let t = bed.sink.create_trace("flat", None);
+            let pts: Vec<liveplot::PlotPoint> = (0..=10)
+                .map(|i| liveplot::PlotPoint {
+                    x: i as f64 * 10.0,
+                    y: -5.0,
+                })
+                .collect();
+            bed.sink.send_points(&t, pts).unwrap();
+        }
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.volcano_enabled = vol;
+            s.show_grid = true;
+            s.x_axis.bounds = (0.0, 100.0);
+            s.x_axis.auto_fit = false;
+            s.y_axis.bounds = (-1.0, 1.0);
+            s.y_axis.auto_fit = false;
+        }
+        steps(&mut bed, 40);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let Ok(img) = bed.harness.render() else {
+            continue;
+        };
+        let rect = scope(&bed, 0).last_axes_screen_rect.expect("axes rect");
+        // Column luminance profile — count runs of columns brighter
+        // than the local background. Sample several rows and take the
+        // best: a row coinciding with a horizontal grid line lights up
+        // every column (runs=1) and must be skipped.
+        let (x0, x1) = (rect[0] as usize + 5, rect[2] as usize - 5);
+        let (y0, y1) = (rect[1] as usize + 8, rect[3] as usize - 8);
+        let mut runs = 0usize;
+        for row in 0..9usize {
+            let y = y0 + (y1 - y0) * row / 8;
+            let mut lum = Vec::with_capacity(x1 - x0);
+            for x in x0..x1 {
+                let p = img.get_pixel(x as u32, y as u32).0;
+                lum.push((p[0] as u32 + p[1] as u32 + p[2] as u32) / 3);
+            }
+            let bg = *lum.iter().min().unwrap_or(&0);
+            let (mut r, mut in_run) = (0usize, false);
+            for l in &lum {
+                let lit = *l > bg + 4;
+                if lit && !in_run {
+                    r += 1;
+                }
+                in_run = lit;
+            }
+            runs = runs.max(r);
+        }
+        assert!(
+            runs > 20,
+            "minor grid lines must render (vol={vol}): only {runs} lit columns"
+        );
+    }
+}
+
+/// T-XY-008: `show_points` on an XY pair must draw the markers on both
+/// paths. Compared to points-off, the 200-marker arc covers several
+/// times more trace-colored pixels.
+#[test]
+fn parity_xy_scope_points() {
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        {
+            let tx = bed.sink.create_trace("xs", None);
+            let ty = bed.sink.create_trace("ys", None);
+            let xs: Vec<liveplot::PlotPoint> = (0..200)
+                .map(|i| liveplot::PlotPoint { x: i as f64 * 0.02, y: (i as f64 * 0.02).sin() })
+                .collect();
+            let ys: Vec<liveplot::PlotPoint> = (0..200)
+                .map(|i| liveplot::PlotPoint { x: i as f64 * 0.02, y: (i as f64 * 0.02).cos() })
+                .collect();
+            bed.sink.send_points(&tx, xs).unwrap();
+            bed.sink.send_points(&ty, ys).unwrap();
+        }
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.scope_type = liveplot::data::scope::ScopeType::XYScope;
+            s.volcano_enabled = vol;
+            s.paused = true;
+            let mut look: liveplot::data::trace_look::TraceLook = Default::default();
+            look.show_points = true;
+            look.point_size = 8.0;
+            s.xy_pairs.push((
+                Some(liveplot::TraceRef("xs".into())),
+                Some(liveplot::TraceRef("ys".into())),
+                look,
+            ));
+        }
+        steps(&mut bed, 30);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let axes = scope(&bed, 0).last_axes_screen_rect.expect("axes");
+        let trace_px = |bed: &mut TestBed| -> u32 {
+            let Ok(img) = bed.harness.render() else {
+                return u32::MAX;
+            };
+            let mut n = 0u32;
+            for y in axes[1] as u32 + 2..axes[3] as u32 - 2 {
+                for x in axes[0] as u32 + 2..axes[2] as u32 - 2 {
+                    let p = img.get_pixel(x, y).0;
+                    // Trace is near-white gray; grid/text excluded by
+                    // being inside the axes and brightness threshold.
+                    if p[0] > 140 && p[1] > 140 && p[2] > 140 {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let with_points = trace_px(&mut bed);
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.xy_pairs[0].2.show_points = false;
+        }
+        // The volcano surface renders on a worker — poll until the
+        // style re-upload reaches the texture instead of guessing a
+        // frame count.
+        let mut without_points = u32::MAX;
+        for _ in 0..60 {
+            steps(&mut bed, 2);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            without_points = trace_px(&mut bed);
+            if without_points <= with_points / 2 {
+                break;
+            }
+        }
+        assert!(
+            with_points > without_points.saturating_mul(2),
+            "XY markers must render (vol={vol}): {with_points} with vs {without_points} without"
+        );
+    }
+}
+/// T-FFT-001: FFT-scope visibility is independent from the main
+/// scope — hiding a trace in the main legend must not hide its FFT,
+/// and hiding it via the FFT legend must hide it in the FFT scope.
+#[cfg(feature = "fft")]
+#[test]
+fn parity_fft_visibility_independence() {
+    use liveplot::panels::fft_ui::FftPanel;
+    use liveplot::Panel;
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        {
+            let fp = find_panel_mut::<FftPanel>(&mut bed).expect("FftPanel");
+            fp.state_mut().visible = true;
+            fp.scope_ui.get_data_mut().volcano_enabled = vol;
+        }
+        feed_sine(&bed, "sig", 4096, 1.0, 1000.0, 0.0);
+        scope_mut(&mut bed, 0).volcano_enabled = vol;
+        steps(&mut bed, 80);
+
+        let sig_id =
+            liveplot::panels::scope_legend::trace_item_id(&liveplot::TraceRef("sig".into()));
+        let fft_rect = find_panel::<FftPanel>(&bed)
+            .unwrap()
+            .scope_ui
+            .get_data()
+            .last_axes_screen_rect
+            .or_else(|| {
+                find_panel::<FftPanel>(&bed)
+                    .unwrap()
+                    .scope_ui
+                    .get_data()
+                    .last_plot_screen_rect
+            })
+            .expect("fft plot rect");
+        let main_rect = scope(&bed, 0).last_axes_screen_rect.expect("main axes");
+
+        let count_trace_px = |bed: &mut TestBed, rect: [f32; 4]| -> u32 {
+            steps(bed, 2);
+            let Ok(img) = bed.harness.render() else {
+                return u32::MAX;
+            };
+            let (x0, y0) = (rect[0] as u32 + 4, rect[1] as u32 + 4);
+            let (x1, y1) = (
+                (rect[2] as u32).min(img.width() - 4),
+                (rect[3] as u32).min(img.height() - 4),
+            );
+            let mut colored = 0u32;
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let p = img.get_pixel(x, y).0;
+                    // Trace-blue (31,119,180 family): blue dominant channel.
+                    if (p[2] as i32) > (p[0] as i32) + 30 && p[2] > 60 {
+                        colored += 1;
+                    }
+                }
+            }
+            colored
+        };
+        // The volcano surface renders on a worker — poll with wall-time
+        // sleeps until `cond` holds on the pixel count.
+        let wait_px = |bed: &mut TestBed,
+                       rect: [f32; 4],
+                       cond: &dyn Fn(u32) -> bool|
+         -> u32 {
+            let mut n = count_trace_px(bed, rect);
+            for _ in 0..120 {
+                if cond(n) {
+                    return n;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                n = count_trace_px(bed, rect);
+            }
+            n
+        };
+
+        let set_hidden = |bed: &mut TestBed, fft_scope: bool, hide: bool| {
+            let sig_id = sig_id;
+            let pid = if fft_scope {
+                let fp = find_panel_mut::<FftPanel>(bed).unwrap();
+                let fs = fp.scope_ui.get_data_mut();
+                if hide {
+                    fs.legend_hidden_items.insert(sig_id);
+                } else {
+                    fs.legend_hidden_items.remove(&sig_id);
+                }
+                fs.plot_id
+            } else {
+                let s = scope_mut(bed, 0);
+                if hide {
+                    s.legend_hidden_items.insert(sig_id);
+                } else {
+                    s.legend_hidden_items.remove(&sig_id);
+                }
+                s.plot_id
+            };
+            if let Some(pid) = pid {
+                if let Some(mut mem) = egui_plot::PlotMemory::load(&bed.harness.ctx, pid) {
+                    if hide {
+                        mem.hidden_items.insert(sig_id);
+                    } else {
+                        mem.hidden_items.remove(&sig_id);
+                    }
+                    mem.store(&bed.harness.ctx, pid);
+                }
+            }
+        };
+
+        let main0 = wait_px(&mut bed, main_rect, &|n| n > 100);
+        let fft0 = wait_px(&mut bed, fft_rect, &|n| n > 100);
+        assert!(
+            main0 > 100 && fft0 > 100,
+            "both traces must render initially (vol={vol}): main={main0} fft={fft0}"
+        );
+
+        // Hiding the trace in the MAIN scope must not hide its FFT.
+        // First wait for the hide to reach the main scope's own texture —
+        // that proves the worker processed the new state, so an
+        // unchanged FFT count means independence, not a stale texture.
+        set_hidden(&mut bed, false, true);
+        let main_hidden = wait_px(&mut bed, main_rect, &|n| n <= main0 / 2);
+        assert!(
+            main_hidden <= main0 / 2,
+            "main hide must hide the main trace (vol={vol}): {main_hidden} vs {main0}"
+        );
+        let fft_after_main = wait_px(&mut bed, fft_rect, &|n| n != u32::MAX);
+        assert!(
+            fft_after_main > fft0 / 2,
+            "FFT must stay visible when main trace hidden (vol={vol}): {fft_after_main} vs {fft0}"
+        );
+        set_hidden(&mut bed, false, false);
+        wait_px(&mut bed, main_rect, &|n| n > main0 / 2);
+
+        // Hiding via the FFT scope's own legend must hide it.
+        set_hidden(&mut bed, true, true);
+        let after_fft_hide = wait_px(&mut bed, fft_rect, &|n| n <= fft0 / 2);
+        assert!(
+            after_fft_hide <= fft0 / 2,
+            "FFT legend hide must hide the trace (vol={vol}): {after_fft_hide} vs {fft0}"
+        );
+    }
+}
+
+/// T-TIME-001: `highlight_newest_point` must draw a marker at the
+/// newest sample on time scopes on both paths — and must NOT add an
+/// extra legend entry (it shares the trace's item id).
+#[test]
+fn parity_time_newest_point_marker() {
+    for vol in [false, true] {
+        let Some(mut bed) = wgpu_bed() else { return };
+        // Flat trace mid-view — the newest-point marker sits at the
+        // trace's last sample, well inside the axes.
+        {
+            let t = bed.sink.create_trace("sig", None);
+            let pts: Vec<liveplot::PlotPoint> = (0..=20)
+                .map(|i| liveplot::PlotPoint {
+                    x: i as f64 * 0.2,
+                    y: 0.5,
+                })
+                .collect();
+            bed.sink.send_points(&t, pts).unwrap();
+        }
+        {
+            let s = scope_mut(&mut bed, 0);
+            s.volcano_enabled = vol;
+            s.paused = true;
+            s.show_legend = false;
+            s.x_axis.bounds = (0.0, 10.0);
+            s.x_axis.auto_fit = false;
+            s.y_axis.bounds = (-1.0, 1.0);
+            s.y_axis.auto_fit = false;
+        }
+        steps(&mut bed, 20);
+        if vol && !vol_available(&mut bed, 0) {
+            continue;
+        }
+        let axes = scope(&bed, 0).last_axes_screen_rect.expect("axes");
+        let trace_px = |bed: &mut TestBed| -> u32 {
+            let Ok(img) = bed.harness.render() else {
+                return u32::MAX;
+            };
+            let mut n = 0u32;
+            for y in axes[1] as u32 + 2..axes[3] as u32 - 2 {
+                for x in axes[0] as u32 + 2..axes[2] as u32 - 2 {
+                    let p = img.get_pixel(x, y).0;
+                    if (p[2] as i32) > (p[0] as i32) + 30 && p[2] > 60 {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let without = trace_px(&mut bed);
+        {
+            let tr = bed
+                .harness
+                .state_mut()
+                .traces_data
+                .get_trace_mut(&liveplot::TraceRef("sig".into()))
+                .expect("sig trace");
+            tr.look.highlight_newest_point = true;
+        }
+        steps(&mut bed, 5);
+        let with = trace_px(&mut bed);
+        assert!(
+            with > without + 8,
+            "newest-point marker must draw (vol={vol}): {with} vs {without}"
+        );
+        assert_eq!(
+            scope(&bed, 0).legend_entry_count,
+            1,
+            "newest-point marker must not add a legend entry (vol={vol})"
+        );
+    }
 }
