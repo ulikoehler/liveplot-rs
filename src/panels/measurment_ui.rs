@@ -324,12 +324,19 @@ impl Panel for MeasurementPanel {
             }
         }
 
-        // Tell each scope whether a measurement or marker is active so
-        // clicking while paused sets a clicked_point instead of resuming.
+        // Tell each scope whether a click should arm a measurement point
+        // (capture clicked_point instead of resuming when paused). Only
+        // a *selected* measurement/marker — or an armed point slot —
+        // counts; with nothing selected, clicks behave exactly as if no
+        // measurement existed at all.
         let has_measurements = !self.measurements.is_empty();
         let has_markers = !self.markers.is_empty();
+        let armed = (self.selected_measurement.is_some()
+            || self.selected_marker.is_some()
+            || self.selected_point_index.is_some())
+            && (has_measurements || has_markers);
         for scope in data.scope_data.iter_mut() {
-            scope.measurement_active = has_measurements || has_markers;
+            scope.measurement_active = armed;
 
             // Compute the X-coordinate range of all measurement/marker points
             // on this scope so that live_update can extend x_axis.bounds to
@@ -386,7 +393,6 @@ impl Panel for MeasurementPanel {
                 if self.last_clicked_point == Some(point) {
                     continue;
                 }
-                self.last_clicked_point = Some(point);
 
                 // Only set points when at least one measurement or marker
                 // exists. If none exist, the click just toggles pause (handled
@@ -415,12 +421,24 @@ impl Panel for MeasurementPanel {
                         crate::events::EventKind::MARKER_SET,
                         &marker_snapshot,
                     );
+                    self.last_clicked_point = Some(point);
                     continue;
                 }
 
                 if self.measurements.is_empty() {
                     continue;
                 }
+
+                // Nothing armed for measurements — a click must not
+                // implicitly hit the first measurement. (An armed
+                // "Take P1/P2" point slot does target a measurement
+                // even without a selection.)
+                if self.selected_measurement.is_none()
+                    && self.selected_point_index.is_none()
+                {
+                    continue;
+                }
+                self.last_clicked_point = Some(point);
 
                 // Choose target measurement index safely to avoid borrow conflicts
                 let target_idx = if let Some(idx) = self.selected_measurement {

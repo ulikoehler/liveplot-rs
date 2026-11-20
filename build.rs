@@ -127,6 +127,15 @@ fn main() {
         .expect("cmake build failed to start");
     assert!(status.success(), "cmake build failed");
 
+    // Re-run when the vendored C++ sources change — otherwise cargo
+    // reuses the previously linked binary even though cmake rebuilt
+    // the static lib underneath it.
+    println!("cargo:rerun-if-changed={}", volcano.join("src").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        volcano.join("include").display()
+    );
+
     // Link search paths — MSVC puts libs under <dir>/Release.
     let mut search = vec![
         build_dir.clone(),

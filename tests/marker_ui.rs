@@ -22,16 +22,22 @@ fn make_live<'a>(
 
 #[test]
 fn marker_makes_scope_measurement_active() {
-    // A panel containing markers must mark scopes as measurement-active so
-    // clicks capture a clicked_point instead of resuming.
+    // Mere presence of a marker must NOT arm the scope — only a selected
+    // marker makes it measurement-active so clicks capture clicked_point.
     let mut panel = MeasurementPanel::default();
     panel.set_markers(vec![Marker::new("K1", 0)]);
 
     let mut scope = ScopeData::default();
     let mut traces = TracesCollection::default();
     let mut requests = LivePlotRequests::default();
-    let mut live = make_live(vec![&mut scope], &mut traces, &mut requests);
+    {
+        let mut live = make_live(vec![&mut scope], &mut traces, &mut requests);
+        panel.update_data(&mut live);
+        assert!(!live.scope_by_id(0).unwrap().measurement_active);
+    }
 
+    panel.restore_markers(vec![Marker::new("K1", 0)], Some(0));
+    let mut live = make_live(vec![&mut scope], &mut traces, &mut requests);
     panel.update_data(&mut live);
     assert!(live.scope_by_id(0).unwrap().measurement_active);
 }
